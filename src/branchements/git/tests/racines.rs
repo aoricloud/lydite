@@ -38,26 +38,26 @@ fn le_dossier_de_kraken_sous_le_depot_est_refuse() {
     let depot = depot(&racine);
     // La tête telle que git l'écrit (sous Windows, avec des barres obliques), et des dossiers écrits autrement.
     let (tete, _) = racines(&depot).unwrap();
-    for dossier in [depot.join("kraken"), depot.join(".git").join("kraken"), depot.clone(), depot.join("a").join("b")] {
+    for dossier in [depot.join("lydite"), depot.join(".git").join("lydite"), depot.clone(), depot.join("a").join("b")] {
         let refus = hors_du_depot(&tete, &dossier).unwrap_err();
         assert_eq!(refus.code, Code::DossierSousLeDepot, "{}", dossier.display());
         assert!(refus.preuve.contains(&dossier.display().to_string()), "{refus}");
-        assert!(refus.correction.contains("KRAKEN_DOSSIER"), "{refus}");
+        assert!(refus.correction.contains("LYDITE_DOSSIER"), "{refus}");
     }
     // Le même dépôt écrit autrement, d'une autre casse sous Windows ou par un lien ailleurs : la canonisation le
     // voit.
     let autrement = racine.join(if cfg!(windows) { "DEPOT" } else { "lien" });
     #[cfg(unix)]
     std::os::unix::fs::symlink(&depot, &autrement).unwrap();
-    let refus = hors_du_depot(&tete, &autrement.join("kraken")).unwrap_err();
+    let refus = hors_du_depot(&tete, &autrement.join("lydite")).unwrap_err();
     assert_eq!(refus.code, Code::DossierSousLeDepot, "{}", autrement.display());
     // Un `..` est refusé, où qu'il mène.
-    let detour = racine.join("kraken").join("..").join("ailleurs");
+    let detour = racine.join("lydite").join("..").join("ailleurs");
     let refus = hors_du_depot(&tete, &detour).unwrap_err();
     assert_eq!(refus.code, Code::DossierSousLeDepot);
     assert!(refus.preuve.ends_with("porte « .. »"), "{refus}");
     // Rien n'est créé.
-    assert!(!depot.join("kraken").exists() && !depot.join("a").exists() && !racine.join("kraken").exists());
+    assert!(!depot.join("lydite").exists() && !depot.join("a").exists() && !racine.join("lydite").exists());
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -67,9 +67,9 @@ fn le_dossier_de_kraken_a_cote_du_depot_est_permis() {
     let depot = depot(&racine);
     let (tete, _) = racines(&depot).unwrap();
     // À côté, sous un nom qui commence comme le dépôt, plus haut que lui, ou loin sous un dossier absent.
-    for dossier in [racine.join("kraken"), racine.join("depot-kraken"), racine.clone(), racine.join("k").join("l")] {
+    for dossier in [racine.join("lydite"), racine.join("depot-lydite"), racine.clone(), racine.join("k").join("l")] {
         assert_eq!(hors_du_depot(&tete, &dossier), Ok(()), "{}", dossier.display());
     }
-    assert!(!racine.join("kraken").exists() && !racine.join("k").exists(), "rien n'est créé");
+    assert!(!racine.join("lydite").exists() && !racine.join("k").exists(), "rien n'est créé");
     let _ = fs::remove_dir_all(&racine);
 }

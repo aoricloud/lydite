@@ -56,20 +56,20 @@ pub(crate) struct Lieu<'a> {
 /// profil, rendus bornés et prêts à lancer. Tout refus sort avant tout bac et tout fil, le premier qui s'applique, dans
 /// cet ordre :
 ///
-/// 1. le dossier : `KRAKEN_DOSSIER` relatif (6004), ou aucun dossier à tirer de l'environnement (6005) ;
+/// 1. le dossier : `LYDITE_DOSSIER` relatif (6004), ou aucun dossier à tirer de l'environnement (6005) ;
 /// 2. le dépôt : son chemin absolu (6006), un dossier qui existe (6002), avant tout geste git ;
 /// 3. git : il connaît le dépôt (6003, sa sortie en preuve) et se lance (6006) ;
 /// 4. le dossier est hors du dépôt visé (6015) ;
 /// 5. le profil : son nom (6007), son fichier (6008, 6009, 6010) ou le profil intégré du même nom, sinon inconnu
 ///    (6001) ;
-/// 6. son empreinte est celle qu'a acceptée `kraken accepter` (6011, 6012) ;
+/// 6. son empreinte est celle qu'a acceptée `lydite accepter` (6011, 6012) ;
 /// 7. le dossier et les dossiers de connexion de Claude (`CLAUDE_CONFIG_DIR` s'il est posé, puis le `.claude` du
 ///    dossier personnel) s'écrivent dans une règle de permission (6023), et aucune `lecture` ne recouvre l'un d'eux
 ///    (6009) ;
 /// 8. si le profil nomme un fournisseur, la variable d'environnement que `cle` nomme est posée et non vide (6027) : sa
 ///    valeur est la clé de ses mains, et n'est lue qu'ici ;
 /// 9. sous un mur exigé, avant toute main et avant l'épreuve de la base (6028, voir `srt::eprouver_le_mur`) :
-///    srt (`KRAKEN_SRT` s'il est posé, lu ici) joue `true` sous des réglages de rejeu.
+///    srt (`LYDITE_SRT` s'il est posé, lu ici) joue `true` sous des réglages de rejeu.
 ///
 /// Le profil se lit après le dépôt : il vit dans le dossier de Kraken, qu'on sait alors hors du dépôt visé.
 pub(crate) fn preparer(profil: &str, depot: Option<&Path>) -> Result<(Profil, PathBuf, PathBuf), Refus> {
@@ -77,7 +77,7 @@ pub(crate) fn preparer(profil: &str, depot: Option<&Path>) -> Result<(Profil, Pa
     let (mut profil, depot, dossier) =
         preparer_dans(profil, depot, dossier::dossier()?, config.as_deref(), env::home_dir().as_deref())?;
     profil.fournir(|variable| env::var_os(variable))?;
-    if let Some(srt) = env::var_os("KRAKEN_SRT") {
+    if let Some(srt) = env::var_os("LYDITE_SRT") {
         profil.avec_srt(srt);
     }
     srt::eprouver_le_mur(&profil, &dossier)?;
@@ -219,7 +219,7 @@ fn lire_l_issue(lieu: &Lieu<'_>, nom: &str, numero: u64) -> Result<github::Issue
             Code::IssueSansMur,
             format!("le profil {nom} n'exige pas le mur, et --issue {numero} ferait découper le texte d'un autre"),
             format!(
-                "Écris `mur = exige` dans le profil {nom}, puis kraken accepter {nom}, ou tape toi-même l'objectif \
+                "Écris `mur = exige` dans le profil {nom}, puis lydite accepter {nom}, ou tape toi-même l'objectif \
                  à la place de --issue, puis relance."
             ),
         ));

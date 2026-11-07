@@ -59,9 +59,9 @@ pub(crate) fn rejouer(
 /// La correction d'un mur exigé que srt ne tient pas (6028).
 const MUR_REFUSE: &str = "La cause la plus probable : srt, ou le programme d'isolation qu'il lance, est installé sous \
                           un dossier que le mur ferme (le dossier personnel), et rend 127 ; installe-le hors de ce \
-                          dossier, ou pose KRAKEN_SRT au chemin d'un srt qui y joue `srt --settings <fichier> sh -c \
+                          dossier, ou pose LYDITE_SRT au chemin d'un srt qui y joue `srt --settings <fichier> sh -c \
                           true`. Sous Windows, le mur exigé n'est pas tenu : passe le profil à « mur = demande » et \
-                          accepte-le : kraken accepter <profil>. Puis relance.";
+                          accepte-le : lydite accepter <profil>. Puis relance.";
 
 /// L'épreuve du mur : sous un mur exigé, avant toute main et avant l'épreuve de la base, `true` se rejoue par srt
 /// comme une preuve ([`rejouer`]), dans un dossier neuf du dossier de Kraken, `bacs/mur-<lot>`, retiré ensuite avec son

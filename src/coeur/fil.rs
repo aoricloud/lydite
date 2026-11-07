@@ -36,8 +36,8 @@
 //!   se lisent, elle compte quand même dans sa séance : aucun faux trou.
 //! - Une liste s'écrit dans une chaîne, un élément par ligne (`\n`) ; la chaîne vide veut dire aucun élément.
 //! - `n`, `main`, `tentative` et `taches` sont des entiers de 1 à 10 000 (`NOMBRE_MAX`). Un autre nombre, même un
-//!   entier positif qui tient en u64, rend la ligne mal formée (1009) : `kraken etat` dit une ligne par main, et une
-//!   ligne valide d'un autre écrivain ne doit pas le faire paniquer ni remplir la mémoire. `kraken lancer` refuse de
+//!   entier positif qui tient en u64, rend la ligne mal formée (1009) : `lydite etat` dit une ligne par main, et une
+//!   ligne valide d'un autre écrivain ne doit pas le faire paniquer ni remplir la mémoire. `lydite lancer` refuse de
 //!   même `--n` au-delà (1006), pour que Kraken n'écrive pas une ligne que son lecteur refuse. Le `n` et les
 //!   `bloquantes` d'une relecture comptent des remarques, dont il peut n'y avoir aucune : ce sont des entiers de 0 à
 //!   10 000, et `bloquantes` ne dépasse pas `n`. Le fichier du relecteur n'a donc pas plus de 10 000 remarques.
@@ -59,7 +59,7 @@
 //!     `main-<lot>-<k>` tient toujours. Une autre forme (`noeud:<nom>`, celles de passerelle) entrera au lecteur avec
 //!     son premier écrivain, sans changer `v`.
 //!   - `origine_foi`, `constate` ou `declare`, dit ce que vaut ce nom. Tout processus du compte peut taper
-//!     `kraken lancer` ou écrire au fil : Kraken écrit donc `declare` sur chaque ligne. Avec le nœud, le compte séparé
+//!     `lydite lancer` ou écrire au fil : Kraken écrit donc `declare` sur chaque ligne. Avec le nœud, le compte séparé
 //!     de chaque main prouvera l'origine, et l'écrivain mettra `constate`, valeur déjà dans le domaine. Aucun lecteur
 //!     n'affiche une origine déclarée comme un fait.
 //!   - `type` s'écrit `<domaine>.<quoi>`. Un type inconnu est ignoré au rejeu : son enveloppe se lit et compte dans sa
@@ -119,7 +119,7 @@
 //!   réussi ; prise `declare`, elle ne tient qu'à la ligne `PREUVE: vert` de la main ; classée, Kraken l'a vu, et écrit
 //!   `constate`. Le texte de sa dernière fin est sa sortie si elle est prise, son erreur si elle est classée.
 //! - `vague.assemblage {vague, branche, base, preuve}` : la vague a un plan, et ses tâches s'assemblent dans la branche
-//!   `branche` (`kraken/vague-<vague>`). `base` est le sha complet du commit d'où elle part et où `preuve`, la commande
+//!   `branche` (`lydite/vague-<vague>`). `base` est le sha complet du commit d'où elle part et où `preuve`, la commande
 //!   de la vague, a passé avant toute main. Une fois par vague, juste après `vague.ouverte` ; des copies n'en écrivent
 //!   pas.
 //! - `vague.tache {vague, main, id, depend, preuve, objectif}` : la main `main` est la tâche `id` du plan. `depend` est
@@ -181,7 +181,7 @@
 //!   son numéro. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`. Il s'écrit par `Fil::noter_issue`
 //!   et se relit par `lire_tout`, strictement comme les autres ; `lire` en dit les lignes mal formées.
 //!
-//! Au rejeu d'une vague à plan, `kraken etat` ne garde que ce qu'il dit, le reste vit au fil :
+//! Au rejeu d'une vague à plan, `lydite etat` ne garde que ce qu'il dit, le reste vit au fil :
 //!
 //! - l'issue d'une tâche est la dernière de ses `vague.fusion` (assemblée) et `vague.refus` (refusée), et l'emporte sur
 //!   tout verdict : un refus 7009 qui suit une fusion la défait ;
@@ -195,7 +195,7 @@
 //! - la PR est le dernier `forge.pr` constaté, la CI le dernier `forge.ci` constaté, le refus le premier
 //!   `forge.refus` : un `forge.pr` ou un `forge.ci` déclaré ne compte pas ;
 //! - une vague en relance une autre quand son `forge.pr` nomme la branche d'assemblage, celle de son
-//!   `vague.assemblage`, d'une autre vague : le rejeu garde ce lien, et `kraken etat` montre d'abord la vague
+//!   `vague.assemblage`, d'une autre vague : le rejeu garde ce lien, et `lydite etat` montre d'abord la vague
 //!   relancée ;
 //! - `forge.poussee` et `forge.rangement` disent seulement que la forge a agi : rien d'autre ne s'en rejoue.
 //!
@@ -213,7 +213,7 @@
 //! l'état que rend `etat`.
 //!
 //! Ces liens vont d'une vague à une autre, et le fil les porte tels que ses écrivains les notent : ni un lecteur ni
-//! `kraken etat` ne suppose qu'un lien nomme une vague du fil, ni qu'il ne boucle pas.
+//! `lydite etat` ne suppose qu'un lien nomme une vague du fil, ni qu'il ne boucle pas.
 //!
 //! Toute main, quel que soit l'appelant, est précédée de son `main.lancement` : si la note échoue, elle ne part pas.
 //! Dans une tentative, l'ordre est `main.bail`, `main.debut`, `main.lancement`, `main.fournisseur` s'il y en a un,
@@ -306,7 +306,7 @@ const ENVELOPPE: [&str; 7] = ["v", "seance", "seq", "instant", "origine", "origi
 /// La longueur maximale d'un nom d'agent, dans la grammaire de passerelle.
 const NOM_MAX: usize = 63;
 
-/// Le plus grand `n`, `main`, `tentative` ou `taches` du fil, et le plus grand `--n` : `kraken etat` écrit une ligne
+/// Le plus grand `n`, `main`, `tentative` ou `taches` du fil, et le plus grand `--n` : `lydite etat` écrit une ligne
 /// par main, et un entier valide d'un autre écrivain ne doit pas le mettre à genoux. Bien au-dessus de toute vague
 /// réelle. C'est aussi la borne des remarques d'une relecture, de 0 à elle.
 pub(crate) const NOMBRE_MAX: usize = 10_000;
@@ -652,7 +652,7 @@ pub(crate) fn lire_octets(chemin: &Path, octets: &[u8]) -> Result<(Lecture, Vec<
             return Err(Refus::new(
                 Code::VersionDifferente,
                 format!("{}, ligne {numero} : v vaut {v}, et ce lecteur ne lit que v {VERSION}", chemin.display()),
-                format!("Lis ce fil avec un Kraken qui connaît le fil v {v} : celui-ci ne lit que le fil v {VERSION}."),
+                format!("Lis ce fil avec un Lydite qui connaît le fil v {v} : celui-ci ne lit que le fil v {VERSION}."),
             ));
         }
         // Une ligne mal formée dont `seance` et `seq` se lisent compte quand même dans sa séance : aucun faux trou.
@@ -1136,7 +1136,7 @@ pub(crate) struct Relecture {
     pub(crate) bloquantes: usize,
 }
 
-/// Ce que le rejeu garde des notes `forge.*` d'une vague : ce que `kraken etat` dit, constaté seulement.
+/// Ce que le rejeu garde des notes `forge.*` d'une vague : ce que `lydite etat` dit, constaté seulement.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Forge {
     /// `forge.pr` : le dernier constaté, `None` sans.
@@ -1213,7 +1213,7 @@ pub(crate) struct Tentative {
 /// le premier `forge.refus` de chaque vague, puis le lien d'une relance à la vague qu'elle relance. Des notes de
 /// découpage, de relecture et de correction, le dernier fait de chaque sorte compte : le plan pris par un découpage,
 /// le découpage qu'une vague joue, ce qu'une relecture a rendu, la vague qu'une correction corrige, celle qu'un
-/// relecteur relit, le fournisseur d'une tentative. Le rejeu ne garde que ce que `kraken etat` lit, le reste (le sha
+/// relecteur relit, le fournisseur d'une tentative. Le rejeu ne garde que ce que `lydite etat` lit, le reste (le sha
 /// d'une fusion, la sortie de sa preuve, les résultats périmés, ce que la forge pousse et range, le texte d'un plan
 /// et celui des remarques) vit au fil.
 pub(crate) fn etat(evenements: &[Evenement]) -> Vec<Vague> {
@@ -1298,7 +1298,7 @@ pub(crate) fn etat(evenements: &[Evenement]) -> Vec<Vague> {
                 let lancee = vague.mains.entry(*main).or_default().tentatives.entry(*tentative).or_default();
                 lancee.fournisseur = Some(fournisseur.clone());
             }
-            Evenement::Usage { .. } => {} // l'usage se lit au fil (le quota du jour), `kraken etat` n'en dit rien
+            Evenement::Usage { .. } => {} // l'usage se lit au fil (le quota du jour), `lydite etat` n'en dit rien
         }
     }
     // Une relance nomme, dans son `forge.pr`, la branche d'assemblage d'une autre vague : la vague qu'elle relance.
@@ -1335,7 +1335,7 @@ pub(crate) fn correction_de<'a>(vagues: &'a [Vague], id: &str) -> Option<&'a Vag
 
 /// Un refus dit en clair, en trois lignes : `refusée (<code>) : <règle>`, puis sa preuve, puis sa correction, chacune
 /// sur une ligne. Une preuve ou une correction sur plusieurs lignes (la sortie de git) se met bout à bout. `lancer` le
-/// montre à l'humain, et `kraken etat` le tire de `vague.refus` : l'un et l'autre disent le même texte.
+/// montre à l'humain, et `lydite etat` le tire de `vague.refus` : l'un et l'autre disent le même texte.
 pub(crate) fn refus_en_clair(code: u16, regle: &str, preuve: &str, correction: &str) -> String {
     format!("refusée ({code}) : {regle}\n{}\n{}", sur_une_ligne(preuve), sur_une_ligne(correction))
 }

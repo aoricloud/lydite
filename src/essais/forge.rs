@@ -21,7 +21,7 @@ pub(crate) fn lieu(nom: &str) -> Lieu {
     let depot = depot(&racine);
     let nu = distant_nu(&racine, &depot);
     let gh = FauxGh::ecrire(&racine);
-    Lieu { kraken: racine.join("kraken"), racine, depot, nu, gh }
+    Lieu { kraken: racine.join("lydite"), racine, depot, nu, gh }
 }
 
 impl Lieu {
@@ -42,7 +42,7 @@ impl Lieu {
         let appels = self.gh.appels();
         for (n, appel) in (1..).zip(&appels) {
             let ici = format!("gh-{n}.ici");
-            assert!(self.kraken.join(&ici).is_file(), "l'appel {n} part du dossier de Kraken : {appel}");
+            assert!(self.kraken.join(&ici).is_file(), "l'appel {n} part du dossier de Lydite : {appel}");
             assert!(!self.depot.join(&ici).exists(), "l'appel {n} ne part pas du dépôt visé : {appel}");
             let nomme = appel.ends_with(" --repo forge.test/p/d")
                 || appel == "auth status --hostname forge.test"
@@ -54,7 +54,7 @@ impl Lieu {
 }
 
 /// L'identité de Kraken, `(nom, adresse)` : celle de `IDENTITE`, auteur et committer de tout ce qu'une vague commite.
-pub(crate) const KRAKEN: (&str, &str) = ("kraken", "kraken@invalid");
+pub(crate) const KRAKEN: (&str, &str) = ("lydite", "lydite@invalid");
 
 /// Un commit posé sur `depart`, `HEAD` détaché, qui écrit ces fichiers : son sha. Il est de Kraken, comme tout ce
 /// qu'une vague publie.

@@ -1,4 +1,4 @@
-//! L'assemblage d'une vague à plan. Sa branche, `kraken/vague-<v>`, part de la base et seul Kraken l'avance ; son
+//! L'assemblage d'une vague à plan. Sa branche, `lydite/vague-<v>`, part de la base et seul Kraken l'avance ; son
 //! worktree, `<dossier>/bacs/vague-<v>`, détaché, reçoit les prises une à une, dans l'ordre d'arrivée, et y rejoue la
 //! preuve de la vague après chacune.
 //!
@@ -110,7 +110,7 @@ pub(crate) struct Assemblage<'a> {
     fermeture: Option<String>,
 }
 
-/// Ouvre l'assemblage de la vague `vague` sur la base (un sha) : la branche `kraken/vague-<v>` sur elle, puis le
+/// Ouvre l'assemblage de la vague `vague` sur la base (un sha) : la branche `lydite/vague-<v>` sur elle, puis le
 /// worktree `<dossier>/bacs/vague-<v>`, détaché sur elle, où la preuve de la vague se joue (journal
 /// `verif-<v>-base.tmp`, effacé ; voir [`eprouver`]). Rouge, le worktree et la branche se retirent, et c'est le refus
 /// 6022 : éprouver la base protège l'imputation, car un vert d'assemblage ne se doit alors qu'aux tâches. Un geste git
@@ -131,7 +131,7 @@ pub(crate) fn ouvrir<'a>(
         vague: vague.into(),
         preuve: preuve.into(),
         worktree: dossier.join("bacs").join(format!("vague-{vague}")),
-        branche: format!("kraken/vague-{vague}"),
+        branche: format!("lydite/vague-{vague}"),
         tete: base.into(),
         fermeture: None,
     };
@@ -185,7 +185,7 @@ pub(crate) fn eprouver_la_base(
     preuve: &str,
 ) -> Result<(), Refus> {
     fs::create_dir_all(dossier)
-        .map_err(|e| nommee(e, format!("création du dossier de Kraken {}", dossier.display())))?;
+        .map_err(|e| nommee(e, format!("création du dossier de Lydite {}", dossier.display())))?;
     let lot = lot();
     let worktree = dossier.join("bacs").join(format!("base-{lot}"));
     let rate = |vu: String| {

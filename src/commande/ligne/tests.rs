@@ -114,10 +114,10 @@ fn options_accepter() {
     assert_eq!(refus.code, mal_formee);
     assert!(refus.preuve.contains("le profil doit être un texte UTF-8"), "{refus}");
     // La commande est dans l'usage, que la correction du refus 1005 donne.
-    assert!(USAGE.contains("kraken accepter <profil>"), "{USAGE}");
+    assert!(USAGE.contains("lydite accepter <profil>"), "{USAGE}");
     let inconnue = options(&args(&["Accepter", "veille"])).unwrap_err();
     assert_eq!(inconnue.code, Code::CommandeInconnue);
-    assert!(inconnue.correction.contains("kraken accepter <profil>"), "{inconnue}");
+    assert!(inconnue.correction.contains("lydite accepter <profil>"), "{inconnue}");
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn options_plan_seul() {
     // `plan <fichier>`, ou `plan --decoupe <fichier>` : le chemin garde son `OsString`.
     let lu = |fichier: &str, decoupe| Ok(Commande::LirePlan { fichier: fichier.into(), decoupe });
     assert_eq!(options(&args(&["plan", "p.txt"])), lu("p.txt", false));
-    assert_eq!(options(&args(&["plan", "--decoupe", "PLAN.kraken"])), lu("PLAN.kraken", true));
+    assert_eq!(options(&args(&["plan", "--decoupe", "PLAN.lydite"])), lu("PLAN.lydite", true));
     let mauvais = non_utf8();
     let complete = [args(&["plan", "--decoupe"]), vec![mauvais.clone()]].concat();
     assert_eq!(options(&complete), Ok(Commande::LirePlan { fichier: PathBuf::from(mauvais), decoupe: true }));
@@ -155,7 +155,7 @@ fn options_plan_seul() {
 fn options_remarques_seul() {
     // `remarques <fichier>` : le chemin garde son `OsString`.
     let lu = |fichier: &str| Ok(Commande::LireRemarques { fichier: fichier.into() });
-    assert_eq!(options(&args(&["remarques", "REMARQUES.kraken"])), lu("REMARQUES.kraken"));
+    assert_eq!(options(&args(&["remarques", "REMARQUES.lydite"])), lu("REMARQUES.lydite"));
     let mauvais = non_utf8();
     let complete = [args(&["remarques"]), vec![mauvais.clone()]].concat();
     assert_eq!(options(&complete), Ok(Commande::LireRemarques { fichier: PathBuf::from(mauvais) }));
@@ -177,7 +177,7 @@ fn options_remarques_seul() {
         assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
     }
     // Le mot est dans l'usage et dans la liste fermée que le refus 1005 donne.
-    assert!(USAGE.contains("kraken remarques <fichier>"), "{USAGE}");
+    assert!(USAGE.contains("lydite remarques <fichier>"), "{USAGE}");
 }
 
 #[test]
@@ -496,9 +496,9 @@ fn options_decouper_refuse_ce_qui_ne_va_pas_avec_lui() {
 fn l_usage_donne_les_deux_formes_de_lancer() {
     // La forme de M3a, telle quelle (tests/contrat.rs la lit), et la forme de `--plan` à côté, avec ses deux
     // drapeaux facultatifs.
-    let m3a = r#"kraken lancer <profil> "<objectif>" [--n N] [--verifier "<commande>"] [--depot <chemin>]"#;
-    let plan = "kraken lancer <profil> --plan <fichier> [--depot <chemin>] [--pr <branche>]";
-    for forme in [m3a, plan, "kraken etat"] {
+    let m3a = r#"lydite lancer <profil> "<objectif>" [--n N] [--verifier "<commande>"] [--depot <chemin>]"#;
+    let plan = "lydite lancer <profil> --plan <fichier> [--depot <chemin>] [--pr <branche>]";
+    for forme in [m3a, plan, "lydite etat"] {
         assert!(USAGE.contains(forme), "{forme}");
     }
 }
@@ -508,15 +508,15 @@ fn l_usage_dit_le_decoupage_et_les_commandes_de_m5() {
     // La forme du découpage, entière, avec `--observer`, `--depot` et `--pr` facultatifs, et les deux commandes que
     // d'autres pièces lisent : l'usage les dit, comme la liste fermée que donne le refus 1005.
     let decouper = concat!(
-        r#"kraken lancer <profil> "<objectif>" --decouper --verifier "<preuve>" [--observer] [--depot <chemin>] "#,
+        r#"lydite lancer <profil> "<objectif>" --decouper --verifier "<preuve>" [--observer] [--depot <chemin>] "#,
         r#"[--pr <branche>]"#,
     );
-    for forme in [decouper, "kraken plan [--decoupe] <fichier>", "kraken remarques <fichier>"] {
+    for forme in [decouper, "lydite plan [--decoupe] <fichier>", "lydite remarques <fichier>"] {
         assert!(USAGE.contains(forme), "{forme}");
     }
     let inconnue = options(&args(&["Plan", "p.txt"])).unwrap_err();
     assert_eq!(inconnue.code, Code::CommandeInconnue);
-    for forme in ["--decouper", "--observer", "kraken plan [--decoupe] <fichier>", "kraken remarques <fichier>"] {
+    for forme in ["--decouper", "--observer", "lydite plan [--decoupe] <fichier>", "lydite remarques <fichier>"] {
         assert!(inconnue.correction.contains(forme), "la correction du refus 1005 dit {forme} : {inconnue}");
     }
 }
@@ -601,7 +601,7 @@ fn n_va_de_1_a_la_borne_du_lecteur() {
     }
     // La vague de BORNE mains s'écrit, se relit sans écart, et se dit en une ligne par main, entre son objectif et sa
     // ligne de reçu.
-    let dossier = env::temp_dir().join(format!("kraken-test-borne-{}", lot()));
+    let dossier = env::temp_dir().join(format!("lydite-test-borne-{}", lot()));
     fs::create_dir_all(&dossier).unwrap();
     Fil::seance(&dossier, "humain").noter(&ouverture(V1, BORNE, "o")).unwrap();
     let Lecture { notes, ecarts } = crate::branchements::dossier::lire(&dossier).unwrap();

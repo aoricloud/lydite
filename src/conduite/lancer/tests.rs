@@ -355,19 +355,19 @@ fn trouves(dir: &Path, garde: &dyn Fn(&str) -> bool) -> Vec<PathBuf> {
 }
 
 /// Ce qu'une vague ne laisse jamais, vague finie. Le dépôt visé n'a pas bougé : son HEAD est `base`, son arbre est
-/// propre et ne contient que `.git`, ses seules références sont sa branche et celles de `kraken/`, aucun verrou ne
+/// propre et ne contient que `.git`, ses seules références sont sa branche et celles de `lydite/`, aucun verrou ne
 /// reste sous `.git`. Le dossier de Kraken ne garde que `bacs` et `fil.jsonl`. Aucun journal de preuve, `verif-*.tmp`,
 /// ne reste nulle part sous la racine du test.
 fn rien_derriere(racine: &Path, base: &str) {
-    let (depot, kraken) = (racine.join("depot"), racine.join("kraken"));
+    let (depot, kraken) = (racine.join("depot"), racine.join("lydite"));
     assert_eq!(git(&depot, &["rev-parse", "HEAD"]), base, "le HEAD du dépôt visé n'a pas bougé");
     assert_eq!(git(&depot, &["status", "--porcelain", "--untracked-files=all"]), "", "le dépôt visé est propre");
     assert_eq!(noms(&depot), [".git"], "rien dans le dépôt visé, hors ce que git worktree add pose sous .git");
     assert_eq!(noms(&kraken), ["bacs", "fil.jsonl"], "le fil et les bacs, et plus de fichier de vérification");
     let sienne = git(&depot, &["symbolic-ref", "HEAD"]);
     for reference in git(&depot, &["for-each-ref", "--format=%(refname)"]).lines() {
-        let a_kraken = reference.starts_with("refs/heads/kraken/");
-        assert!(reference == sienne || a_kraken, "une référence que Kraken n'a pas à poser : {reference}");
+        let a_kraken = reference.starts_with("refs/heads/lydite/");
+        assert!(reference == sienne || a_kraken, "une référence que Lydite n'a pas à poser : {reference}");
     }
     let journaux = trouves(racine, &|nom| nom.starts_with("verif-") && nom.ends_with(".tmp"));
     assert!(journaux.is_empty(), "aucun journal de preuve ne reste : {journaux:?}");
@@ -377,7 +377,7 @@ fn rien_derriere(racine: &Path, base: &str) {
 
 /// Le worktree de la vague, à la tête de `branche` : détaché sur elle, propre, sans fusion en cours.
 fn worktree_a_la_tete(depot: &Path, kraken: &Path, branche: &str) {
-    let vague = branche.strip_prefix("kraken/vague-").expect("la branche d'une vague");
+    let vague = branche.strip_prefix("lydite/vague-").expect("la branche d'une vague");
     let worktree = kraken.join("bacs").join(format!("vague-{vague}"));
     assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), git(depot, &["rev-parse", branche]), "à la tête");
     assert_eq!(git(&worktree, &["branch", "--show-current"]), "", "détaché");
@@ -426,7 +426,7 @@ fn hostile(racine: &Path, depot: &Path) -> (PathBuf, PathBuf) {
 #[test]
 fn rouge_puis_vert_sans_verifier_est_non_prouve() {
     let racine = racine("pris");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(fausse_main(&racine), DELAI);
     let (id, verdict) = lancer(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL).unwrap().1.remove(0);
     let pris = verdict.unwrap();
@@ -453,14 +453,14 @@ fn rouge_puis_vert_sans_verifier_est_non_prouve() {
     assert!(entree.contains("Tentative pr"), "la relance porte l'erreur : {entree}");
     let vagues = etat(&evenements);
     assert_eq!(vagues[0].mains[&1].texte(), pris.sortie, "la sortie prise est celle du fil");
-    git(&depot, &["rev-parse", "-q", "--verify", &format!("kraken/{id}")]);
+    git(&depot, &["rev-parse", "-q", "--verify", &format!("lydite/{id}")]);
     let _ = fs::remove_dir_all(&racine);
 }
 
 #[test]
 fn verifier_vert_est_prouve() {
     let racine = racine("verifie");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(fausse_main(&racine), DELAI);
     let verifier = Some("git status");
     let plan = Plan::copies("objectif", verifier, 1);
@@ -468,12 +468,12 @@ fn verifier_vert_est_prouve() {
     assert!(verdict.unwrap().prouve);
     let evenements = fil(&kraken);
     let attendu = ["vague 1", "bail 1", "début 1", "fin 1 Vert Constate", "verdict Prise Constate"];
-    assert_eq!(histoire(&evenements), attendu, "Kraken juge, pas la ligne PREUVE de la main");
+    assert_eq!(histoire(&evenements), attendu, "Lydite juge, pas la ligne PREUVE de la main");
     let entree = fs::read_to_string(kraken.join("bacs").join(&id).join("entree.txt")).unwrap();
     assert!(entree.contains("git status"), "la main connaît le test : {entree}");
     assert!(!entree.contains("Tentative pr"), "la première consigne ne porte pas d'erreur : {entree}");
     let Evenement::Fin { verif, .. } = &evenements[3] else { panic!("{evenements:?}") };
-    let dit = verif.as_deref().is_some_and(|verif| verif.contains(&format!("kraken/{id}")));
+    let dit = verif.as_deref().is_some_and(|verif| verif.contains(&format!("lydite/{id}")));
     assert!(dit, "la fin de la vérification est au fil : {verif:?}");
     let _ = fs::remove_dir_all(&racine);
 }
@@ -481,7 +481,7 @@ fn verifier_vert_est_prouve() {
 #[test]
 fn verifier_rouge_est_un_echec() {
     let racine = racine("rouge");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let rouge = "echo oups && exit 3";
     let profil = Profil::faux(fausse_main(&racine), DELAI);
     let verifier = Some(rouge);
@@ -513,7 +513,7 @@ fn verifier_rouge_est_un_echec() {
 #[test]
 fn temps_depasse_est_un_echec() {
     let racine = racine("lent");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let lente = if cfg!(windows) { "ping -n 3 127.0.0.1 >nul" } else { "sleep 2" };
     let delai = Duration::from_millis(200);
     let profil = Profil::faux(fausse_main(&racine), delai);
@@ -528,8 +528,8 @@ fn temps_depasse_est_un_echec() {
 #[test]
 fn deux_echecs_sont_classes() {
     let racine = racine("echec");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
-    let introuvable = Profil::faux(vec!["kraken-main-introuvable".into()], DELAI);
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let introuvable = Profil::faux(vec!["lydite-main-introuvable".into()], DELAI);
     let plan = Plan::copies("objectif", None, 1);
     let (_, verdict) = lancer(&depot, &kraken, &introuvable, &plan, BAIL).unwrap().1.remove(0);
     let erreur = verdict.unwrap_err();
@@ -554,7 +554,7 @@ fn deux_echecs_sont_classes() {
 #[test]
 fn trois_mains_trois_bacs_du_depot_vise() {
     let racine = racine("trois");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(fausse_main(&racine), DELAI);
     let verifier = Some("git status");
     let mains = lancer(&depot, &kraken, &profil, &Plan::copies("objectif", verifier, 3), BAIL).unwrap().1;
@@ -573,11 +573,11 @@ fn trois_mains_trois_bacs_du_depot_vise() {
 #[test]
 fn le_depot_vise_ne_voit_rien() {
     let racine = racine("hors");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(fausse_main(&racine), DELAI);
     let verifier = Some("git status");
     let mains = lancer(&depot, &kraken, &profil, &Plan::copies("objectif", verifier, 2), BAIL).unwrap().1;
-    assert!(!depot.join(".kraken").exists());
+    assert!(!depot.join(".lydite").exists());
     assert_eq!(git(&depot, &["status", "--porcelain"]), "");
     assert_eq!(noms(&depot), [".git"], "rien dans le dépôt visé, hors ce que git worktree add pose sous .git");
     for (id, _) in &mains {
@@ -592,7 +592,7 @@ fn le_depot_vise_ne_voit_rien() {
 #[test]
 fn le_fil_rejoue_main_par_main_ce_que_lancer_a_rendu() {
     let racine = racine("rejeu");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let fausse = Profil::faux(fausse_main(&racine), DELAI);
     // Trois lancements vers un même dossier de Kraken, donc un même fil : prises constatées, prises déclarées,
     // classées. Deux mains chacun.
@@ -640,18 +640,18 @@ fn un_dossier_impossible_nomme_son_chemin() {
     // Le dossier de Kraken sous un fichier : il ne peut pas se créer.
     let fichier = racine.join("fichier");
     fs::write(&fichier, "x").unwrap();
-    let kraken = fichier.join("kraken");
+    let kraken = fichier.join("lydite");
     let profil = Profil::faux(vec!["x".into()], DELAI);
     let refus = lancer(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL).unwrap_err();
     assert_eq!(refus.code, Code::EntreeSortie);
-    assert!(refus.preuve.contains(&kraken.display().to_string()), "le dossier de Kraken : {refus}");
+    assert!(refus.preuve.contains(&kraken.display().to_string()), "le dossier de Lydite : {refus}");
     let _ = fs::remove_dir_all(&racine);
 }
 
 #[test]
 fn chaque_lancement_ouvre_sa_seance_numerotee_de_1() {
     let racine = racine("seances");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(fausse_main(&racine), DELAI);
     // Deux lancements vers le même dossier de Kraken, donc vers le même fil : deux vagues, deux séances.
     for _ in 0..2 {
@@ -681,7 +681,7 @@ fn chaque_lancement_ouvre_sa_seance_numerotee_de_1() {
 #[test]
 fn un_fil_injoignable_garde_la_sortie_de_chaque_main() {
     let racine = racine("injoignable");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     let (chemin, cote) = (kraken.join("fil.jsonl"), racine.join("cote"));
     let plan = Plan::copies("objectif", None, 3);
@@ -719,7 +719,7 @@ fn un_fil_injoignable_garde_la_sortie_de_chaque_main() {
 
 /// Un profil `claude` lu de ce texte, comme un fichier d'un dossier de Kraken fictif, et borné par `kraken`, le git
 /// commun de `depot` et deux leurres de dossiers de connexion de Claude à côté de `kraken`, jamais lus : ce que
-/// `preparer` en fait. Sans `programme` écrit, c'est `claude` ou `KRAKEN_CLAUDE` : les textes de ces tests nomment un
+/// `preparer` en fait. Sans `programme` écrit, c'est `claude` ou `LYDITE_CLAUDE` : les textes de ces tests nomment un
 /// programme qui n'existe pas, car aucun test ne lance un vrai `claude`.
 fn profil_declare(texte: &str, kraken: &Path, depot: &Path) -> Profil {
     let mut profil = crate::coeur::profil::lire("essai", texte, None, None).unwrap();
@@ -749,7 +749,7 @@ fn main_qui_dort(dir: &Path) -> PathBuf {
 #[test]
 fn une_main_declaree_est_precedee_de_son_lancement_et_suivie_de_son_constat() {
     let racine = racine("declaree");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     // Un réglage versionné dans le dépôt visé : chaque bac l'a au départ, et son empreinte entre au lancement.
     let reglages = r#"{"model":"opus"}"#;
     fs::create_dir(depot.join(".claude")).unwrap();
@@ -757,7 +757,7 @@ fn une_main_declaree_est_precedee_de_son_lancement_et_suivie_de_son_constat() {
     git(&depot, &["add", ".claude/settings.json"]);
     git(&depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "réglages"]);
     // La main se déclare, mais son programme n'existe pas : elle ne part pas, et Kraken n'en lit rien.
-    let texte = "sorte = claude\nprogramme = kraken-claude-introuvable\nmodele = opus\nrelance = haiku\nmur = exige\n";
+    let texte = "sorte = claude\nprogramme = lydite-claude-introuvable\nmodele = opus\nrelance = haiku\nmur = exige\n";
     let mut profil = profil_declare(texte, &kraken, &depot);
     // Un faux srt, qui tient le mur : le test ne dépend pas du srt de la machine.
     profil.avec_srt(faux_srt(&racine, true));
@@ -765,7 +765,7 @@ fn une_main_declaree_est_precedee_de_son_lancement_et_suivie_de_son_constat() {
     let plan = Plan::copies("objectif", verifier, 1);
     let (id, issue) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap().1.remove(0);
     let erreur = issue.unwrap_err();
-    assert!(erreur.starts_with("lancement impossible de kraken-claude-introuvable"), "{erreur}");
+    assert!(erreur.starts_with("lancement impossible de lydite-claude-introuvable"), "{erreur}");
     // Dans chaque tentative : le bail et le début, le lancement avant que la main parte, le constat à son retour,
     // puis la fin.
     let notes = notes(&kraken);
@@ -820,18 +820,18 @@ fn une_main_declaree_est_precedee_de_son_lancement_et_suivie_de_son_constat() {
 #[test]
 fn une_main_dont_le_profil_nomme_un_fournisseur_le_note_apres_son_lancement() {
     let racine = racine("fournisseur");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     // Comme la main déclarée plus haut, celle-ci ne part pas : son programme n'existe pas. Sa clé se lit dans un
     // environnement fictif, jamais dans celui du test.
     let api = "https://api.exemple.test:8443/anthropic";
-    let texte = format!("sorte = claude\nprogramme = kraken-claude-introuvable\napi = {api}\ncle = CLE_ESSAI\n");
+    let texte = format!("sorte = claude\nprogramme = lydite-claude-introuvable\napi = {api}\ncle = CLE_ESSAI\n");
     let leurre = "leurre-de-la-cle-4f9a";
     let mut profil = profil_declare(&texte, &kraken, &depot);
     profil.fournir(|nom| (nom == "CLE_ESSAI").then(|| std::ffi::OsString::from(leurre))).unwrap();
     let plan = Plan::copies("objectif", Some("git status"), 1);
     let (_, mut issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
     let erreur = issues.remove(0).1.unwrap_err();
-    assert!(erreur.starts_with("lancement impossible de kraken-claude-introuvable"), "{erreur}");
+    assert!(erreur.starts_with("lancement impossible de lydite-claude-introuvable"), "{erreur}");
     // À chaque tentative, le fournisseur déclaré suit le lancement et précède le constat.
     let notes = notes(&kraken);
     let evenements: Vec<Evenement> = notes.iter().map(|note| note.evenement.clone()).collect();
@@ -871,8 +871,8 @@ fn une_main_dont_le_profil_nomme_un_fournisseur_le_note_apres_son_lancement() {
 #[test]
 fn des_reglages_illisibles_arretent_la_vague_et_la_main_ne_part_pas() {
     let racine = racine("illisibles");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
-    let profil = profil_declare("sorte = claude\nprogramme = kraken-claude-introuvable\n", &kraken, &depot);
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = profil_declare("sorte = claude\nprogramme = lydite-claude-introuvable\n", &kraken, &depot);
     // Un dossier à la place de `.claude/settings.json`, au dépôt : chaque bac l'a, et il ne se lit pas comme un
     // fichier.
     let place = depot.join(".claude").join("settings.json");
@@ -896,7 +896,7 @@ fn des_reglages_illisibles_arretent_la_vague_et_la_main_ne_part_pas() {
 #[test]
 fn hors_depot_git_pas_de_bac() {
     let racine = racine("nu");
-    let (dir, kraken) = (racine.join("nu"), racine.join("kraken"));
+    let (dir, kraken) = (racine.join("nu"), racine.join("lydite"));
     fs::create_dir_all(&dir).unwrap();
     let profil = Profil::faux(vec!["x".into()], DELAI);
     let plan = Plan::copies("objectif", None, 1);
@@ -912,9 +912,9 @@ fn hors_depot_git_pas_de_bac() {
 #[test]
 fn le_verif_dit_si_la_verification_a_tourne() {
     let racine = racine("verif");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let fausse = Profil::faux(fausse_main(&racine), DELAI);
-    let introuvable = Profil::faux(vec!["kraken-main-introuvable".into()], DELAI);
+    let introuvable = Profil::faux(vec!["lydite-main-introuvable".into()], DELAI);
     // Chaque lancement, et le `verif` de chacune de ses fins, rogné : `None` si la vérification n'a pas tourné.
     let cas = [
         // Sans commande : la main rouge, puis verte sur sa déclaration.
@@ -941,7 +941,7 @@ fn le_verif_dit_si_la_verification_a_tourne() {
 #[test]
 fn une_dependante_part_de_l_assemblage_des_siennes() {
     let racine = racine("dependante");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(main_de_vague(&racine), DELAI);
     let plan = plan(&[
         "plan 1",
@@ -988,7 +988,7 @@ fn une_dependante_part_de_l_assemblage_des_siennes() {
 #[test]
 fn les_dependantes_d_une_classee_sont_sautees() {
     let racine = racine("sautees");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(main_de_vague(&racine), DELAI);
     // a joue une preuve rouge : classée après sa relance ; b dépend d'elle, et c de b.
     let plan = plan(&[
@@ -1013,7 +1013,7 @@ fn les_dependantes_d_une_classee_sont_sautees() {
         let texte = issue.as_ref().unwrap_err();
         assert!(texte.starts_with("refusée (7011) : "), "{id} est sautée : {texte}");
         assert!(!kraken.join("bacs").join(id).exists(), "{id} n'a pas de bac");
-        assert_eq!(git(&depot, &["branch", "--list", &format!("kraken/{id}")]), "", "{id} n'a pas de branche");
+        assert_eq!(git(&depot, &["branch", "--list", &format!("lydite/{id}")]), "", "{id} n'a pas de branche");
     }
     let attendu = [
         "vague 3",
@@ -1038,7 +1038,7 @@ fn les_dependantes_d_une_classee_sont_sautees() {
 #[test]
 fn une_base_rouge_ne_lance_rien() {
     let racine = racine("base-rouge");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(main_de_vague(&racine), DELAI);
     let plan = plan(&["plan 1", "objectif : o", "preuve : exit 1", "tache a", "    Écrire a"]);
     let refus = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap_err();
@@ -1047,7 +1047,7 @@ fn une_base_rouge_ne_lance_rien() {
     assert!(!kraken.join("fil.jsonl").exists(), "ni fil");
     let bacs = kraken.join("bacs");
     assert!(!bacs.exists() || noms(&bacs).is_empty(), "ni bac");
-    assert_eq!(git(&depot, &["branch", "--list", "kraken/*"]), "", "ni branche");
+    assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "", "ni branche");
     assert_eq!(git(&depot, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "ni worktree");
     let _ = fs::remove_dir_all(&racine);
 }
@@ -1055,7 +1055,7 @@ fn une_base_rouge_ne_lance_rien() {
 #[test]
 fn une_main_jamais_conclue_expire_et_son_resultat_tardif_est_refuse() {
     let racine = racine("expire");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     let plan = plan(&[
@@ -1105,7 +1105,7 @@ fn une_main_jamais_conclue_expire_et_son_resultat_tardif_est_refuse() {
 #[test]
 fn une_main_qui_touche_claude_n_est_pas_relancee() {
     let racine = racine("claude");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     // Une copie dont la preuve est rouge : sa première tentative finit rouge, et se relancerait.
     let plan = Plan::copies("objectif", Some("exit 1"), 1);
@@ -1149,7 +1149,7 @@ fn seule_une_main_tuee_a_son_delai_perd_sa_relance() {
 #[test]
 fn une_main_tuee_a_son_delai_n_est_pas_relancee() {
     let racine = racine("tuee");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     // Un profil à `delai_main` d'une seconde, dont la main dort 30 s : Kraken tue son arbre à son délai. b dépend
     // de a.
@@ -1195,7 +1195,7 @@ fn une_main_tuee_a_son_delai_n_est_pas_relancee() {
 #[test]
 fn une_main_sans_programme_est_classee_sans_faire_tomber_la_vague() {
     let racine = racine("sans-programme");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     // Une commande vide : `tenter` la rend en erreur à chaque tentative. Avant M2 elle paniquait, et la vague tenait
     // par `en_message` ; plus rien dans `tenter` ne panique, et `une_panique_de_main_devient_son_message` garde
     // ce cas.
@@ -1232,7 +1232,7 @@ fn une_panique_de_main_devient_son_message() {
 #[test]
 fn le_fil_rejoue_une_vague_a_plan() {
     let racine = racine("rejeu-plan");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(main_de_vague(&racine), DELAI);
     // a et b, qui dépend d'elle, assemblées ; c classée ; d, qui dépend de c, sautée.
     let plan = plan(&[
@@ -1296,7 +1296,7 @@ fn le_fil_rejoue_une_vague_a_plan() {
 #[test]
 fn un_losange_s_assemble_dans_l_ordre() {
     let racine = racine("losange");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_de_vague(&racine), DELAI);
     // a ouvre le losange, b et c en dépendent, d se referme sur les deux.
@@ -1356,7 +1356,7 @@ fn un_losange_s_assemble_dans_l_ordre() {
 #[test]
 fn deux_independantes_en_conflit() {
     let racine = racine("conflit");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_commune(&racine), DELAI);
     // a et b écrivent chacune leur commun.txt, de la même base : elles se heurtent. c dépend des deux.
@@ -1387,7 +1387,7 @@ fn deux_independantes_en_conflit() {
     // Leur dépendante est sautée, sans bac ni branche.
     refusee(ids[2], &issues[2].1, 7011);
     assert!(!kraken.join("bacs").join(ids[2]).exists(), "c n'a pas de bac");
-    assert_eq!(git(&depot, &["branch", "--list", &format!("kraken/{}", ids[2])]), "", "ni de branche");
+    assert_eq!(git(&depot, &["branch", "--list", &format!("lydite/{}", ids[2])]), "", "ni de branche");
     // Une seule fusion au fil : celle de la gagnante, dont le commun.txt est dans la branche. La perdante garde le
     // sien dans son bac, et la branche n'a pas bougé pour elle.
     let evenements = fil(&kraken);
@@ -1417,7 +1417,7 @@ fn deux_independantes_en_conflit() {
 #[test]
 fn une_preuve_de_vague_rouge_laisse_la_branche_a_sa_base() {
     let racine = racine("vague-rouge");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_commune(&racine), DELAI);
     // La preuve de la vague passe sur la base. a joue la sienne, verte, mais son travail, fusionné, rend rouge celle de
@@ -1476,7 +1476,7 @@ fn une_preuve_de_vague_rouge_laisse_la_branche_a_sa_base() {
 #[test]
 fn une_relance_reste_seule_et_porte_un_jeton_neuf() {
     let racine = racine("relance-plan");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_de_vague(&racine), DELAI);
     // La preuve de a est rouge la première fois qu'elle se joue dans son bac, et verte ensuite : a est relancée, une
@@ -1547,7 +1547,7 @@ fn une_relance_reste_seule_et_porte_un_jeton_neuf() {
 #[test]
 fn un_bac_impossible_refuse_sa_tache_et_laisse_sa_trace() {
     let racine = racine("bac-impossible");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     // b et c dépendent de a, d de b. Le bac de b ne se posera pas : le test prend son dossier pendant que la main de a
@@ -1582,7 +1582,7 @@ fn un_bac_impossible_refuse_sa_tache_et_laisse_sa_trace() {
     assemblee(ids[0], &issues[0].1);
     let refus = refusee(ids[1], &issues[1].1, 7001);
     assert!(refus.contains("git worktree add"), "le refus nomme la commande de git : {refus}");
-    assert!(refus.contains(&format!("kraken/{}", ids[1])), "et la branche qui ne s'est pas posée : {refus}");
+    assert!(refus.contains(&format!("lydite/{}", ids[1])), "et la branche qui ne s'est pas posée : {refus}");
     assemblee(ids[2], &issues[2].1);
     refusee(ids[3], &issues[3].1, 7011);
     // La trace : le fil a la tâche de b et son refus, sans bail ni début ; d, qui en dépend, est sautée. Le dossier
@@ -1613,7 +1613,7 @@ fn un_bac_impossible_refuse_sa_tache_et_laisse_sa_trace() {
 #[test]
 fn un_plan_dont_une_main_touche_claude() {
     let racine = racine("plan-claude");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     // a est rouge et touche .claude/ : elle n'est pas relancée. b est verte et le touche aussi : elle n'est pas figée.
@@ -1678,7 +1678,7 @@ fn un_plan_dont_une_main_touche_claude() {
 #[test]
 fn une_competence_imbriquee_fait_refuser_sa_tache() {
     let racine = racine("competence");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     let plan = plan(&[
@@ -1722,7 +1722,7 @@ fn une_competence_imbriquee_fait_refuser_sa_tache() {
 #[test]
 fn l_etat_de_claude_code_ne_fait_pas_refuser_une_tache() {
     let racine = racine("etat-claude");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     let plan = plan(&["plan 1", "objectif : L'état de Claude Code", "preuve : exit 0", "tache a", "    Déléguer"]);
@@ -1756,7 +1756,7 @@ fn l_etat_de_claude_code_ne_fait_pas_refuser_une_tache() {
 #[test]
 fn une_vague_ne_laisse_rien_derriere() {
     let racine = racine("rien-derriere");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let courante = git(&depot, &["symbolic-ref", "HEAD"]);
     let profil = Profil::faux(main_de_vague(&racine), DELAI);
@@ -1804,7 +1804,7 @@ fn une_vague_ne_laisse_rien_derriere() {
     presents.extend(ids[..3].iter().map(|id| temporaire(id).file_name().unwrap().to_string_lossy().into_owned()));
     presents.sort();
     assert_eq!(noms(&kraken.join("bacs")), presents, "d n'a pas de bac, ni de dossier temporaire");
-    let mut branches: Vec<String> = bacs.iter().map(|bac| format!("refs/heads/kraken/{bac}")).collect();
+    let mut branches: Vec<String> = bacs.iter().map(|bac| format!("refs/heads/lydite/{bac}")).collect();
     branches.push(courante);
     branches.sort();
     let vues = git(&depot, &["for-each-ref", "--format=%(refname)"]);
@@ -1817,7 +1817,7 @@ fn une_vague_ne_laisse_rien_derriere() {
 #[test]
 fn des_independantes_partent_ensemble_chacune_dans_son_bac_sur_la_base() {
     let racine = racine("ensemble");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     let plan = plan(&[
@@ -1841,12 +1841,12 @@ fn des_independantes_partent_ensemble_chacune_dans_son_bac_sur_la_base() {
         for k in 1..=3 {
             let bac = bac_de(&kraken, &v, k);
             assert_eq!(git(&bac, &["rev-parse", "HEAD"]), base, "le bac de la tâche {k} part de la base");
-            assert_eq!(git(&bac, &["branch", "--show-current"]), format!("kraken/main-{v}-{k}"));
+            assert_eq!(git(&bac, &["branch", "--show-current"]), format!("lydite/main-{v}-{k}"));
         }
         // d attend a et b : ni bac, ni bail, ni début, et rien n'est encore assemblé.
         assert!(!bac_de(&kraken, &v, 4).exists(), "d n'a pas de bac");
         assert_eq!(histoire_de(&fil(&kraken), 4), ["tâche d"]);
-        assert_eq!(git(&depot, &["rev-parse", &format!("kraken/vague-{v}")]), base, "la branche est à sa base");
+        assert_eq!(git(&depot, &["rev-parse", &format!("lydite/vague-{v}")]), base, "la branche est à sa base");
         for bac in marques(&kraken) {
             liberer(&bac);
         }
@@ -1878,7 +1878,7 @@ fn des_independantes_partent_ensemble_chacune_dans_son_bac_sur_la_base() {
 #[test]
 fn une_ouverture_non_notee_retire_le_worktree_et_la_branche_de_la_vague() {
     let racine = racine("ouverture");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_de_vague(&racine), DELAI);
     // Un dossier à la place du fil : la première note de la vague ne s'écrit pas, alors que son assemblage est posé.
@@ -1889,7 +1889,7 @@ fn une_ouverture_non_notee_retire_le_worktree_et_la_branche_de_la_vague() {
     assert_eq!(refus.code, Code::EntreeSortie);
     assert!(refus.preuve.contains(&chemin.display().to_string()), "la preuve nomme le fil : {refus}");
     // Rien n'en reste sans trace : ni la branche de la vague, ni son worktree, ni un bac.
-    assert_eq!(git(&depot, &["branch", "--list", "kraken/*"]), "", "ni branche");
+    assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "", "ni branche");
     assert_eq!(git(&depot, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "ni worktree");
     assert_eq!(noms(&kraken.join("bacs")), Vec::<String>::new(), "ni bac");
     rien_derriere(&racine, &base);
@@ -1899,7 +1899,7 @@ fn une_ouverture_non_notee_retire_le_worktree_et_la_branche_de_la_vague() {
 #[test]
 fn un_bac_dont_git_ne_repond_plus_est_refuse_en_7009() {
     let racine = racine("git-muet");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     let plan = plan(&[
@@ -1938,7 +1938,7 @@ fn un_bac_dont_git_ne_repond_plus_est_refuse_en_7009() {
 #[test]
 fn une_branche_deplacee_apres_la_note_defait_la_fusion_en_7009() {
     let racine = racine("branche-deplacee");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     let plan = plan(&[
@@ -1959,7 +1959,7 @@ fn une_branche_deplacee_apres_la_note_defait_la_fusion_en_7009() {
         // fusion notée.
         let (arbre, identite) = (format!("{base}^{{tree}}"), ["-c", "user.name=t", "-c", "user.email=t@t"]);
         autre = git(&depot, &[&identite[..], &["commit-tree", &arbre, "-p", &base, "-m", "ailleurs"]].concat());
-        git(&depot, &["update-ref", &format!("refs/heads/kraken/vague-{}", vague_du_fil(&kraken)), &autre]);
+        git(&depot, &["update-ref", &format!("refs/heads/lydite/vague-{}", vague_du_fil(&kraken)), &autre]);
         tout_liberer(&kraken, vague);
     });
     let branche = branche.expect("la branche d'une vague à plan");
@@ -1981,7 +1981,7 @@ fn une_branche_deplacee_apres_la_note_defait_la_fusion_en_7009() {
     assert!(matches!(&vagues[0].mains[&1].issue, Some(Issue::Refusee { code: 7009, .. })), "{vagues:?}");
     // La branche est restée où l'autre l'a mise ; le worktree de la vague est revenu à la tête que Kraken connaissait.
     assert_eq!(git(&depot, &["rev-parse", &branche]), autre);
-    let worktree = kraken.join("bacs").join(branche.strip_prefix("kraken/").unwrap());
+    let worktree = kraken.join("bacs").join(branche.strip_prefix("lydite/").unwrap());
     assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), base);
     assert_eq!(git(&worktree, &["status", "--porcelain", "--untracked-files=all"]), "", "propre");
     rien_derriere(&racine, &base);
@@ -1991,7 +1991,7 @@ fn une_branche_deplacee_apres_la_note_defait_la_fusion_en_7009() {
 #[test]
 fn un_retour_rate_ferme_l_assemblage_de_la_vague() {
     let racine = racine("ferme");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     // a et b sont indépendantes, c dépend de a.
@@ -2029,7 +2029,7 @@ fn un_retour_rate_ferme_l_assemblage_de_la_vague() {
     assert!(fusions(&evenements).is_empty(), "aucune fusion n'est notée : {evenements:?}");
     assert_eq!(histoire_de(&evenements, 3), ["tâche c", "refus 7011"]);
     assert_eq!(git(&depot, &["rev-parse", &branche]), base);
-    let worktree = kraken.join("bacs").join(branche.strip_prefix("kraken/").unwrap());
+    let worktree = kraken.join("bacs").join(branche.strip_prefix("lydite/").unwrap());
     let verrou = PathBuf::from(git(&worktree, &["rev-parse", "--absolute-git-dir"])).join("index.lock");
     fs::remove_file(verrou).unwrap();
     worktree_a_la_tete(&depot, &kraken, &branche);
@@ -2040,7 +2040,7 @@ fn un_retour_rate_ferme_l_assemblage_de_la_vague() {
 #[test]
 fn un_depot_hostile_ne_voit_aucun_geste_de_la_vague() {
     let racine = racine("hostile");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let (crochets, moniteur) = hostile(&racine, &depot);
     // Les témoins marchent : un worktree ordinaire joue post-checkout et reference-transaction, un git status ordinaire
@@ -2080,7 +2080,7 @@ fn un_depot_hostile_ne_voit_aucun_geste_de_la_vague() {
     }
     let auteurs = git(&depot, &["log", "--format=%an <%ae>|%cn <%ce>", &format!("{base}..{branche}")]);
     assert_eq!(auteurs.lines().count(), 4, "deux gels et deux fusions : {auteurs}");
-    assert!(auteurs.lines().all(|ligne| ligne == "kraken <kraken@invalid>|kraken <kraken@invalid>"), "{auteurs}");
+    assert!(auteurs.lines().all(|ligne| ligne == "lydite <lydite@invalid>|lydite <lydite@invalid>"), "{auteurs}");
     for commit in git(&depot, &["rev-list", &format!("{base}..{branche}")]).lines() {
         let brut = git(&depot, &["cat-file", "commit", commit]);
         assert!(!brut.contains("gpgsig"), "{commit} n'est pas signé : {brut}");
@@ -2092,7 +2092,7 @@ fn un_depot_hostile_ne_voit_aucun_geste_de_la_vague() {
 #[test]
 fn un_fil_injoignable_arrete_aussi_un_plan() {
     let racine = racine("injoignable-plan");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     let (chemin, cote) = (kraken.join("fil.jsonl"), racine.join("cote"));
@@ -2168,7 +2168,7 @@ fn fin_de(evenements: &[Evenement], n: usize) -> String {
 #[test]
 fn une_main_hors_de_ses_fichiers_est_rouge_se_corrige_a_la_relance_et_passe() {
     let racine = racine("hors-fichiers");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_hors_fichiers(&racine, true), DELAI);
     let (branche, issues) = lancer(&depot, &kraken, &profil, &plan_de_a("dedans.txt"), BAIL).unwrap();
@@ -2213,7 +2213,7 @@ fn une_main_hors_de_ses_fichiers_est_rouge_se_corrige_a_la_relance_et_passe() {
 #[test]
 fn une_main_qui_ne_se_corrige_pas_est_classee_et_son_bac_reste() {
     let racine = racine("hors-fichiers-obstinee");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_hors_fichiers(&racine, false), DELAI);
     let (branche, issues) = lancer(&depot, &kraken, &profil, &plan_de_a("dedans.txt"), BAIL).unwrap();
@@ -2254,7 +2254,7 @@ fn une_main_qui_ne_se_corrige_pas_est_classee_et_son_bac_reste() {
 #[test]
 fn une_casse_autre_que_celle_de_git_ne_couvre_pas_le_travail() {
     let racine = racine("hors-fichiers-casse");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     // La main écrit `dedans.txt` et `dehors.txt` ; `fichiers` écrit `Dedans.txt` : git rend `dedans.txt`, qui n'est
     // pas couvert, sous Windows comme ailleurs. `dehors.txt`, écrit comme git le rend, l'est.
     let profil = Profil::faux(main_hors_fichiers(&racine, true), DELAI);
@@ -2290,7 +2290,7 @@ fn mains_vivantes(evenements: &[Evenement]) -> (usize, usize, Vec<usize>) {
 #[test]
 fn six_independantes_ne_font_jamais_plus_de_quatre_mains_a_la_fois() {
     let racine = racine("quatre-mains");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     let plan = plan(&[
@@ -2345,7 +2345,7 @@ fn six_independantes_ne_font_jamais_plus_de_quatre_mains_a_la_fois() {
 #[test]
 fn dix_copies_rendent_dix_resultats_sans_plus_de_quatre_mains_a_la_fois() {
     let racine = racine("dix-copies");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let profil = Profil::faux(main_d_attente(&racine), DELAI);
     let plan = Plan::copies("objectif", None, 10);
     let mut tournent = 0;
@@ -2402,7 +2402,7 @@ fn main_qui_note_son_modele(dir: &Path) -> PathBuf {
 #[test]
 fn chaque_main_a_le_modele_de_sa_tache_puis_celui_de_sa_relance() {
     let racine = racine("modeles");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     // Le profil dit `profil-modele` puis `profil-relance` ; a donne les siens, b seulement le premier, c aucun.
     let programme = main_qui_note_son_modele(&racine);
     let texte = format!(
@@ -2496,7 +2496,7 @@ fn main_qui_regarde(dir: &Path) -> Vec<String> {
 #[test]
 fn la_preparation_pose_son_fichier_dans_le_bac_avant_la_main_et_son_refus_la_retient() {
     let racine = racine("preparation");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_qui_regarde(&racine), DELAI);
     // Trois copies : la préparation pose `prepare.txt` dans le bac de la première et de la troisième, et refuse celui
@@ -2505,7 +2505,7 @@ fn la_preparation_pose_son_fichier_dans_le_bac_avant_la_main_et_son_refus_la_ret
         if nom(bac).ends_with("-2") {
             return Err(Refus::new(Code::GitImpossible, "la préparation de la main 2 est ratée", "Relance."));
         }
-        ecrire(bac, "prepare.txt", "posé par Kraken");
+        ecrire(bac, "prepare.txt", "posé par Lydite");
         Ok(())
     };
     let liens = Liens { preparation: Some(&preparer), ..Liens::default() };
@@ -2537,7 +2537,7 @@ fn la_preparation_pose_son_fichier_dans_le_bac_avant_la_main_et_son_refus_la_ret
 #[test]
 fn une_vague_qui_en_corrige_une_autre_note_son_lien_apres_son_assemblage_et_avant_ses_taches() {
     let racine = racine("corrige");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_de_vague(&racine), DELAI);
     let plan = plan(&["plan 1", "objectif : Corriger", "preuve : exit 0", "tache correction", "    Corriger"]);
@@ -2563,7 +2563,7 @@ fn une_vague_qui_en_corrige_une_autre_note_son_lien_apres_son_assemblage_et_avan
 #[test]
 fn une_vague_de_relecteur_note_son_lien_apres_son_ouverture_et_avant_ses_mains() {
     let racine = racine("relit");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     let profil = Profil::faux(main_qui_regarde(&racine), DELAI);
     let plan = Plan::copies("Relire", None, 1);
@@ -2684,7 +2684,7 @@ mod quota {
     #[test]
     fn un_resultat_perime_note_son_usage_juste_avant_sa_perimee_et_il_compte_pour_le_quota() {
         let racine = racine("perimee-usage");
-        let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
         fs::create_dir_all(&kraken).unwrap();
         let texte = format!("{AVEC_PRIX}modele = deepseek-flash\n");
         let mut profil = profil_declare(&texte, &kraken, &depot);
@@ -2815,7 +2815,7 @@ mod quota {
     #[test]
     fn l_usage_note_au_fil_se_relit() {
         let racine = racine("usage-releve");
-        let kraken = racine.join("kraken");
+        let kraken = racine.join("lydite");
         fs::create_dir_all(&kraken).unwrap();
         let forfait = constat_de(
             Some("none"),
@@ -2893,7 +2893,7 @@ mod quota {
     /// Lance une copie d'une main brute qui finit vert, dans un dépôt neuf, et rend son issue et l'histoire.
     fn lancer_une_main(nom: &str, avant: impl FnOnce(&Path)) -> (Result<Pris, String>, Vec<String>, String) {
         let racine = racine(nom);
-        let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
         avant(&kraken);
         let profil = Profil::faux(main_de_vague(&racine), DELAI);
         let (id, issue) =
@@ -2906,7 +2906,7 @@ mod quota {
     #[test]
     fn une_depense_du_jour_qui_atteint_le_quota_refuse_le_depart_et_se_note() {
         let racine = racine("quota-atteint");
-        let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
         poser_le_quota(&kraken, "1.00\n");
         depense(&kraken, 600_000, Base::Estime);
         depense(&kraken, 400_000, Base::Estime);
@@ -2952,7 +2952,7 @@ mod quota {
     fn un_quota_mal_forme_refuse_le_depart() {
         for mauvais in ["beaucoup\n", "0\n", "1.234\n", "-1\n", "1\n2\n", ""] {
             let racine = racine("quota-mal-forme");
-            let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+            let (depot, kraken) = (depot(&racine), racine.join("lydite"));
             poser_le_quota(&kraken, mauvais);
             let profil = Profil::faux(main_de_vague(&racine), DELAI);
             let plan = Plan::copies("objectif", None, 1);
@@ -2968,7 +2968,7 @@ mod quota {
     /// rend son issue et l'histoire de sa vague.
     fn lancer_a_api(nom: &str, texte: &str, quota: Option<&str>) -> (Result<Pris, String>, Vec<String>, String) {
         let racine = racine(nom);
-        let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
         if let Some(quota) = quota {
             poser_le_quota(&kraken, quota);
         }
@@ -2983,7 +2983,7 @@ mod quota {
 
     #[test]
     fn un_profil_a_api_sans_prix_pour_son_modele_ne_part_pas_sous_quota() {
-        let sans_prix = "sorte = claude\nprogramme = kraken-claude-introuvable\n\
+        let sans_prix = "sorte = claude\nprogramme = lydite-claude-introuvable\n\
                      api = https://api.exemple.test/anthropic\ncle = CLE_ESSAI\nprix = autre-modele 1 2\n";
         let (issue, histoire, id) = lancer_a_api("quota-sans-prix", sans_prix, Some("100\n"));
         let texte = refusee(&id, &issue, 6030);
@@ -2991,12 +2991,12 @@ mod quota {
         assert_eq!(histoire, ["vague 1", "refus 6030"]);
         // Sans fichier quota, rien ne change : la main part, et ne tient pas faute de programme.
         let (issue, histoire, _) = lancer_a_api("quota-sans-prix-libre", sans_prix, None);
-        assert!(issue.unwrap_err().starts_with("lancement impossible de kraken-claude-introuvable"));
+        assert!(issue.unwrap_err().starts_with("lancement impossible de lydite-claude-introuvable"));
         assert_eq!(&histoire[..2], ["vague 1", "bail 1"]);
         // Avec un prix pour le modèle (`sonnet` par défaut), sous un quota que rien n'atteint : la main part.
         let avec_prix = sans_prix.replace("autre-modele 1 2", "sonnet 3 15");
         let (issue, histoire, _) = lancer_a_api("quota-avec-prix", &avec_prix, Some("100\n"));
-        assert!(issue.unwrap_err().starts_with("lancement impossible de kraken-claude-introuvable"));
+        assert!(issue.unwrap_err().starts_with("lancement impossible de lydite-claude-introuvable"));
         assert_eq!(&histoire[..2], ["vague 1", "bail 1"]);
     }
 
@@ -3006,7 +3006,7 @@ mod quota {
         // sous un quota de 1 $. Sa dépense vient d'un `main.usage` que la main écrit elle-même : les mains
         // brutes n'en rendent pas.
         let racine = racine("quota-relance");
-        let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
         poser_le_quota(&kraken, "1\n");
         // La ligne d'usage, à l'instant d'aujourd'hui, que la main recopie au bout du fil.
         let instant = instant(maintenant());

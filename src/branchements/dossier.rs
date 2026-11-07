@@ -18,16 +18,16 @@ use crate::coeur::profil::{self, Profil, empreinte, integre};
 /// Le dossier de Kraken, qui peut ne pas exister encore. Sans chemin absolu pour le dire, le refus 6004 ou 6005.
 pub(crate) fn dossier() -> Result<PathBuf, Refus> {
     let var = env::var_os;
-    dossier_selon(var("KRAKEN_DOSSIER"), var("USERPROFILE"), var("XDG_STATE_HOME"), var("HOME"), cfg!(windows))
+    dossier_selon(var("LYDITE_DOSSIER"), var("USERPROFILE"), var("XDG_STATE_HOME"), var("HOME"), cfg!(windows))
 }
 
 /// Le choix du dossier sur les valeurs des variables, dans l'ordre où `dossier` les lit : les tests n'ont pas à
-/// toucher l'environnement. `KRAKEN_DOSSIER` s'il est posé, sinon `%USERPROFILE%\.kraken` sous Windows,
-/// `$XDG_STATE_HOME/kraken` ailleurs, à défaut `$HOME/.local/state/kraken`. Sous Windows, le dossier reste hors
+/// toucher l'environnement. `LYDITE_DOSSIER` s'il est posé, sinon `%USERPROFILE%\.lydite` sous Windows,
+/// `$XDG_STATE_HOME/lydite` ailleurs, à défaut `$HOME/.local/state/lydite`. Sous Windows, le dossier reste hors
 /// d'`AppData` : un programme lancé depuis une app empaquetée (MSIX) qui y crée un dossier neuf peut le voir
 /// redirigé dans celui de l'app, invisible ailleurs et effacé avec elle. Seul un chemin absolu vaut (git, lancé dans
 /// le dépôt, lirait un chemin relatif depuis le dépôt) : une variable vide ou relative est ignorée, sauf
-/// `KRAKEN_DOSSIER`, posée exprès : le refus 6004 plutôt qu'un repli en silence. Aucune ne vaut : le refus 6005.
+/// `LYDITE_DOSSIER`, posée exprès : le refus 6004 plutôt qu'un repli en silence. Aucune ne vaut : le refus 6005.
 fn dossier_selon(
     kraken_dossier: Option<OsString>,
     userprofile: Option<OsString>,
@@ -41,17 +41,17 @@ fn dossier_selon(
         }
         return Err(Refus::new(
             Code::DossierRelatif,
-            format!("KRAKEN_DOSSIER vaut « {} », qui n'est pas un chemin absolu", dossier.display()),
-            "Pose KRAKEN_DOSSIER à un chemin absolu, ou retire-la.",
+            format!("LYDITE_DOSSIER vaut « {} », qui n'est pas un chemin absolu", dossier.display()),
+            "Pose LYDITE_DOSSIER à un chemin absolu, ou retire-la.",
         ));
     }
     let absolu = |valeur: Option<OsString>| valeur.map(PathBuf::from).filter(|chemin| chemin.is_absolute());
     let dossier = if windows {
-        absolu(userprofile).map(|profil| profil.join(".kraken"))
+        absolu(userprofile).map(|profil| profil.join(".lydite"))
     } else {
         absolu(xdg_state_home)
             .or_else(|| absolu(home).map(|home| home.join(".local").join("state")))
-            .map(|etat| etat.join("kraken"))
+            .map(|etat| etat.join("lydite"))
     };
     dossier.ok_or_else(|| {
         let preuve = if windows {
@@ -62,7 +62,7 @@ fn dossier_selon(
         Refus::new(
             Code::DossierIntrouvable,
             preuve,
-            "Pose KRAKEN_DOSSIER à un chemin absolu : Kraken y range son fil et ses bacs.",
+            "Pose LYDITE_DOSSIER à un chemin absolu : Lydite y range son fil et ses bacs.",
         )
     })
 }
@@ -222,11 +222,11 @@ pub(crate) fn depense_du_jour(kraken: &Path, jour: &str) -> Result<u64, Refus> {
 }
 
 /// Le profil `nom` du dossier de Kraken : son fichier, `<dossier>/profils/<nom>.profil`, lu par [`profil::lire`] avec
-/// `KRAKEN_CLAUDE` ; s'il est absent, le profil intégré du même nom ; sinon le refus 6001. Un nom hors de
+/// `LYDITE_CLAUDE` ; s'il est absent, le profil intégré du même nom ; sinon le refus 6001. Un nom hors de
 /// `[A-Za-z0-9_-]` est le refus 6007, un fichier qui ne se lit pas en UTF-8 le refus 6008. Rien n'est écrit.
 pub(crate) fn charger_dans(nom: &str, dossier: &Path) -> Result<Profil, Refus> {
     let chemin = fichier(nom, dossier)?;
-    let kraken_claude = env::var("KRAKEN_CLAUDE").ok();
+    let kraken_claude = env::var("LYDITE_CLAUDE").ok();
     match (lire_fichier(nom, &chemin)?, integre(nom)) {
         (Some(texte), _) => profil::lire(nom, &texte, Some(&chemin), kraken_claude.as_deref()),
         (None, Some(texte)) => profil::lire(nom, texte, None, kraken_claude.as_deref()),
@@ -234,7 +234,7 @@ pub(crate) fn charger_dans(nom: &str, dossier: &Path) -> Result<Profil, Refus> {
     }
 }
 
-/// `kraken accepter <nom>` : lit et valide le fichier du profil, puis écrit son empreinte dans
+/// `lydite accepter <nom>` : lit et valide le fichier du profil, puis écrit son empreinte dans
 /// `<dossier>/profils/<nom>.empreinte`. Rend le texte du profil et son empreinte, que l'humain voit. C'est la fin du
 /// geste d'écrire le profil, que tout processus du compte peut faire. Refus : le nom (6007), le fichier (6008, 6009,
 /// 6010), un profil sans fichier (6013 s'il est intégré, 6001 sinon), l'écriture de l'empreinte (6006).
@@ -289,7 +289,7 @@ fn fichier(nom: &str, dossier: &Path) -> Result<PathBuf, Refus> {
             Code::ProfilNomRefuse,
             format!("profil « {nom} »"),
             "Nomme le profil en lettres ASCII, chiffres, « _ » et « - » : son fichier est \
-             <dossier de Kraken>/profils/<nom>.profil.",
+             <dossier de Lydite>/profils/<nom>.profil.",
         ));
     }
     Ok(dossier.join("profils").join(format!("{nom}.profil")))
@@ -300,7 +300,7 @@ fn fichier(nom: &str, dossier: &Path) -> Result<PathBuf, Refus> {
 fn lire_fichier(nom: &str, chemin: &Path) -> Result<Option<String>, Refus> {
     let illisible = |preuve: String| {
         let correction =
-            format!("Rends {} lisible en UTF-8, puis accepte-le : kraken accepter {nom}.", chemin.display());
+            format!("Rends {} lisible en UTF-8, puis accepte-le : lydite accepter {nom}.", chemin.display());
         Refus::new(Code::ProfilIllisible, preuve, correction)
     };
     match fs::read(chemin) {
@@ -318,7 +318,7 @@ fn inconnu(nom: &str, chemin: &Path) -> Refus {
         Code::ProfilInconnu,
         format!("profil « {nom} » inconnu : {} est absent, et aucun profil intégré ne porte ce nom", chemin.display()),
         format!(
-            "Écris {} puis accepte-le (kraken accepter {nom}), ou nomme le profil intégré : claude.",
+            "Écris {} puis accepte-le (lydite accepter {nom}), ou nomme le profil intégré : claude.",
             chemin.display()
         ),
     )

@@ -7,16 +7,16 @@ use crate::branchements::git::{faire, geste, lieux};
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus, nommee};
 
-/// Un bac neuf : un worktree du dépôt sous `<dossier>/bacs/<id>`, sur la branche `kraken/<id>`, posée sur `depart` (un
+/// Un bac neuf : un worktree du dépôt sous `<dossier>/bacs/<id>`, sur la branche `lydite/<id>`, posée sur `depart` (un
 /// sha, ou `HEAD` du dépôt). Le dossier est un chemin absolu (voir `dossier::dossier`) : git le lit depuis le dépôt.
 /// Tout échec, que git ne parte pas ou qu'il refuse le bac, est le refus 7001, qui nomme la commande et le dépôt, puis
 /// ce que git a dit : la tâche n'a pas de bac, et les autres continuent.
 pub(crate) fn bac(depot: &Path, dossier: &Path, id: &str, depart: &str) -> Result<PathBuf, Refus> {
     let bac = dossier.join("bacs").join(id);
-    poser(depot, &bac, &["-b", &format!("kraken/{id}")], depart).map_err(|vu| {
+    poser(depot, &bac, &["-b", &format!("lydite/{id}")], depart).map_err(|vu| {
         let correction = format!(
             "La tâche est refusée, et les autres continuent : vérifie que git se lance dans le dépôt visé, et que \
-             ni la branche kraken/{id} ni le dossier {} n'existent, puis relance-la dans une vague neuve.",
+             ni la branche lydite/{id} ni le dossier {} n'existent, puis relance-la dans une vague neuve.",
             bac.display()
         );
         Refus::new(Code::VagueBacImpossible, vu, correction)
@@ -112,8 +112,9 @@ pub(crate) fn exclusions_de_l_etat() -> Vec<String> {
 /// - `git log` : tout commit de la main depuis `depart` qui y touche, même si un autre commit ou un effacement l'a ôté
 ///   ensuite : l'arbre n'en dit plus rien, mais la fusion ferait entrer ce commit dans l'histoire de la branche de la
 ///   vague ;
-/// - `git ls-files --others` : le non-suivi, ignoré compris, hors de l'état que Claude Code y tient lui-même. Cet état,
-///   suivi ou commité, est refusé comme le reste ;
+/// - `git ls-files --others` : le non-suivi, ignoré compris, hors de l'état que Claude Code y tient lui-même et des
+///   butées du mur (fichiers ordinaires vides en lecture seule, entrées directes de `.claude/`). Cet état, suivi ou
+///   commité, est refusé comme le reste ;
 /// - `git diff --cached` : l'index, que les trois autres taisent quand la main stage un `.claude` puis l'efface du
 ///   worktree. Le gel le commiterait, car son exclusion empêche l'ajout mais ne retire pas une entrée déjà stagée.
 ///
@@ -131,14 +132,16 @@ pub(crate) fn sans_claude(bac: &Path, depart: &str) -> Result<(), Refus> {
     non_suivi.args(exclusions_de_l_etat());
     let index = geste(bac, &["diff", "--cached", "--name-only", depart, "--"]);
     let mut vus = Vec::new();
-    for mut commande in [suivi, commite, non_suivi, index] {
+    for (rang, mut commande) in [suivi, commite, non_suivi, index].into_iter().enumerate() {
         commande.args(CLAUDE);
         let sortie = faire(commande).map_err(|vu| {
             let correction = "Vérifie que git se lance et que le bac est un worktree du dépôt visé : la tâche est \
                               refusée sans être relancée ni figée.";
             Refus::new(Code::GitImpossible, vu, correction)
         })?;
-        vus.extend(sortie.lines().filter(|nom| !nom.is_empty()).map(str::to_string));
+        // Le rang 2 est le non-suivi : une butée du mur n'y compte pas.
+        let nom_vu = |nom: &&str| !nom.is_empty() && !(rang == 2 && est_une_butee(bac, nom));
+        vus.extend(sortie.lines().filter(nom_vu).map(str::to_string));
     }
     if vus.is_empty() {
         return Ok(());
@@ -148,10 +151,21 @@ pub(crate) fn sans_claude(bac: &Path, depart: &str) -> Result<(), Refus> {
     Err(Refus::new(
         Code::ClaudeTouche,
         format!("la main a touché un dossier .claude dans son bac {} : {}", bac.display(), vus.join(", ")),
-        "Kraken ne relance ni ne fige ce bac : lis ce que la main y a écrit, puis relance la tâche par un objectif qui \
+        "Lydite ne relance ni ne fige ce bac : lis ce que la main y a écrit, puis relance la tâche par un objectif qui \
          ne touche à aucun dossier .claude. Un réglage, un crochet, une commande, une compétence, un agent ou une \
          mémoire de projet se pose par l'humain, hors de la vague.",
     ))
+}
+
+/// Une butée du mur : une entrée directe de `.claude/` qui est un fichier ordinaire (ni lien ni dossier), vide, et sans
+/// droit d'écriture. Le bac à sable de Claude Code en pose aux chemins qu'il interdit d'écrire ; elle ne porte rien.
+fn est_une_butee(bac: &Path, nom: &str) -> bool {
+    let Some(reste) = nom.strip_prefix(".claude/") else { return false };
+    if reste.is_empty() || reste.contains('/') {
+        return false;
+    }
+    fs::symlink_metadata(bac.join(nom))
+        .is_ok_and(|meta| meta.file_type().is_file() && meta.len() == 0 && meta.permissions().readonly())
 }
 
 /// Le dossier temporaire d'un bac ou d'un worktree : son voisin dans son dossier parent (`bacs/`), nommé des 12

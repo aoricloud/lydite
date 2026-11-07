@@ -22,14 +22,14 @@ use crate::conduite::lancer::{Issues, Liens, Menee, base_du_depot, lancer_avec};
 /// Un dossier neuf, à ce test, dans le dossier temporaire du système : le dépôt visé, le dossier de Kraken (que le
 /// premier lancement crée) et la fausse main y vivent côte à côte.
 pub(crate) fn racine(nom: &str) -> PathBuf {
-    let dir = env::temp_dir().join(format!("kraken-test-{nom}-{}", lot()));
+    let dir = env::temp_dir().join(format!("lydite-test-{nom}-{}", lot()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
 
 /// Un chemin neuf et unique dans le dossier temporaire du système : il n'existe pas encore.
 pub(crate) fn neuf(nom: &str) -> PathBuf {
-    env::temp_dir().join(format!("kraken-test-bac-{nom}-{}", lot()))
+    env::temp_dir().join(format!("lydite-test-bac-{nom}-{}", lot()))
 }
 
 /// Un dépôt git neuf avec un commit.
@@ -180,9 +180,9 @@ pub(crate) fn main_qui_ecrit_la_ci(dir: &Path) -> Vec<String> {
 /// découpée partagent leur profil. Il garde sa consigne dans son dossier temporaire (`TEMP`, ou `TMPDIR`, que Kraken
 /// pose à côté du bac), hors du bac, puis :
 ///
-/// - si sa consigne nomme `PLAN.kraken`, il est le découpeur, à sa tentative `n` (1, puis 2 une fois posée la marque
+/// - si sa consigne nomme `PLAN.lydite`, il est le découpeur, à sa tentative `n` (1, puis 2 une fois posée la marque
 ///   `decoupe-1` de `dir`) : il garde sa consigne dans `consigne-<n>.txt` de `dir` et son `PATH` dans
-///   `path-decoupeur-<n>.txt`, copie `plan-<n>.kraken` de `dir`, s'il est là, en `PLAN.kraken` à la racine de son bac,
+///   `path-decoupeur-<n>.txt`, copie `plan-<n>.lydite` de `dir`, s'il est là, en `PLAN.lydite` à la racine de son bac,
 ///   et écrit `autre.txt` dans son bac si `toucher-<n>` est dans `dir` ;
 /// - sinon, il est la main d'une tâche : il garde son `PATH` dans `path-<bac>.txt` de `dir`, et sa consigne dans
 ///   `sortie/<bac>.txt` de son bac, que `fichiers : sortie/` couvre.
@@ -199,14 +199,14 @@ pub(crate) fn faux_decoupeur(dir: &Path) -> Vec<String> {
              set \"d={d}\"\r\n\
              for %%I in (.) do set bac=%%~nxI\r\n\
              findstr \"^\" > \"%TEMP%\\consigne.txt\"\r\n\
-             findstr /l /c:\"PLAN.kraken\" \"%TEMP%\\consigne.txt\" > nul\r\n\
+             findstr /l /c:\"PLAN.lydite\" \"%TEMP%\\consigne.txt\" > nul\r\n\
              if errorlevel 1 goto tache\r\n\
              set n=1\r\n\
              if exist \"%d%\\decoupe-1\" set n=2\r\n\
              type nul > \"%d%\\decoupe-%n%\"\r\n\
              copy /y \"%TEMP%\\consigne.txt\" \"%d%\\consigne-%n%.txt\" > nul\r\n\
              set PATH > \"%d%\\path-decoupeur-%n%.txt\"\r\n\
-             if exist \"%d%\\plan-%n%.kraken\" copy /y \"%d%\\plan-%n%.kraken\" PLAN.kraken > nul\r\n\
+             if exist \"%d%\\plan-%n%.lydite\" copy /y \"%d%\\plan-%n%.lydite\" PLAN.lydite > nul\r\n\
              if exist \"%d%\\toucher-%n%\" echo touche> autre.txt\r\n\
              echo PREUVE: vert\r\n\
              exit /b 0\r\n\
@@ -224,13 +224,13 @@ pub(crate) fn faux_decoupeur(dir: &Path) -> Vec<String> {
             "d='{d}'\n\
              bac=$(basename \"$(pwd)\")\n\
              cat > \"$TMPDIR/consigne.txt\"\n\
-             if grep -q 'PLAN\\.kraken' \"$TMPDIR/consigne.txt\"; then\n\
+             if grep -q 'PLAN\\.lydite' \"$TMPDIR/consigne.txt\"; then\n\
              n=1\n\
              if [ -f \"$d/decoupe-1\" ]; then n=2; fi\n\
              : > \"$d/decoupe-$n\"\n\
              cp \"$TMPDIR/consigne.txt\" \"$d/consigne-$n.txt\"\n\
              printf 'PATH=%s\\n' \"$PATH\" > \"$d/path-decoupeur-$n.txt\"\n\
-             if [ -f \"$d/plan-$n.kraken\" ]; then cp \"$d/plan-$n.kraken\" PLAN.kraken; fi\n\
+             if [ -f \"$d/plan-$n.lydite\" ]; then cp \"$d/plan-$n.lydite\" PLAN.lydite; fi\n\
              if [ -f \"$d/toucher-$n\" ]; then echo touche > autre.txt; fi\n\
              else\n\
              printf 'PATH=%s\\n' \"$PATH\" > \"$d/path-$bac.txt\"\n\
@@ -251,10 +251,10 @@ pub(crate) fn faux_decoupeur(dir: &Path) -> Vec<String> {
 /// - si sa consigne commence la correction (`Corrige au plus petit`), il est la main de la correction : il garde sa
 ///   consigne dans `consigne-correction.txt` de `dir`, écrit `dehors.txt` dans son bac si `hors-fichiers` est dans
 ///   `dir`, et sinon, sauf si `ne-rien-faire` y est, `sortie/correction.txt` ;
-/// - si sa consigne nomme `REMARQUES.kraken`, il est le relecteur, à sa tentative `n` (1, puis 2 une fois posée la
+/// - si sa consigne nomme `REMARQUES.lydite`, il est le relecteur, à sa tentative `n` (1, puis 2 une fois posée la
 ///   marque `relecture-1` de `dir`) : il garde sa consigne dans `consigne-relecteur-<n>.txt` de `dir`, son `PATH` dans
-///   `path-relecteur-<n>.txt`, le `DIFF.kraken` de son bac dans `diff-<n>.txt` (ou `sans-diff-<n>` s'il n'y en a pas),
-///   copie `remarques-<n>.kraken` de `dir`, s'il est là, en `REMARQUES.kraken` à la racine de son bac, ôte
+///   `path-relecteur-<n>.txt`, le `DIFF.lydite` de son bac dans `diff-<n>.txt` (ou `sans-diff-<n>` s'il n'y en a pas),
+///   copie `remarques-<n>.lydite` de `dir`, s'il est là, en `REMARQUES.lydite` à la racine de son bac, ôte
 ///   l'`autre.txt` d'une tentative d'avant, et en écrit un dans son bac si `toucher-<n>` est dans `dir` ;
 /// - sinon, il est la main d'une tâche : il garde sa consigne dans `sortie/<bac>.txt` de son bac si elle dit « critique
 ///   », dans `autre/<bac>.txt` sinon, et y copie de même `gros.txt` de `dir`, s'il est là, en `gros-<bac>.txt`.
@@ -272,7 +272,7 @@ pub(crate) fn faux_relecteur(dir: &Path) -> Vec<String> {
              findstr \"^\" > \"%TEMP%\\consigne.txt\"\r\n\
              findstr /l /c:\"Corrige au plus petit\" \"%TEMP%\\consigne.txt\" > nul\r\n\
              if not errorlevel 1 goto correction\r\n\
-             findstr /l /c:\"REMARQUES.kraken\" \"%TEMP%\\consigne.txt\" > nul\r\n\
+             findstr /l /c:\"REMARQUES.lydite\" \"%TEMP%\\consigne.txt\" > nul\r\n\
              if not errorlevel 1 goto relecteur\r\n\
              set dossier=autre\r\n\
              findstr /l /c:\"critique\" \"%TEMP%\\consigne.txt\" > nul\r\n\
@@ -294,9 +294,9 @@ pub(crate) fn faux_relecteur(dir: &Path) -> Vec<String> {
              type nul > \"%d%\\relecture-%n%\"\r\n\
              copy /y \"%TEMP%\\consigne.txt\" \"%d%\\consigne-relecteur-%n%.txt\" > nul\r\n\
              set PATH > \"%d%\\path-relecteur-%n%.txt\"\r\n\
-             if exist DIFF.kraken copy /y DIFF.kraken \"%d%\\diff-%n%.txt\" > nul\r\n\
-             if not exist DIFF.kraken type nul > \"%d%\\sans-diff-%n%\"\r\n\
-             if exist \"%d%\\remarques-%n%.kraken\" copy /y \"%d%\\remarques-%n%.kraken\" REMARQUES.kraken > nul\r\n\
+             if exist DIFF.lydite copy /y DIFF.lydite \"%d%\\diff-%n%.txt\" > nul\r\n\
+             if not exist DIFF.lydite type nul > \"%d%\\sans-diff-%n%\"\r\n\
+             if exist \"%d%\\remarques-%n%.lydite\" copy /y \"%d%\\remarques-%n%.lydite\" REMARQUES.lydite > nul\r\n\
              if exist autre.txt del autre.txt\r\n\
              if exist \"%d%\\toucher-%n%\" echo touche> autre.txt\r\n\
              :fin\r\n\
@@ -314,14 +314,14 @@ pub(crate) fn faux_relecteur(dir: &Path) -> Vec<String> {
              cp \"$TMPDIR/consigne.txt\" \"$d/consigne-correction.txt\"\n\
              if [ -f \"$d/hors-fichiers\" ]; then echo dehors > dehors.txt; fi\n\
              if [ ! -f \"$d/ne-rien-faire\" ]; then mkdir -p sortie; echo corrige > sortie/correction.txt; fi\n\
-             elif grep -q 'REMARQUES\\.kraken' \"$TMPDIR/consigne.txt\"; then\n\
+             elif grep -q 'REMARQUES\\.lydite' \"$TMPDIR/consigne.txt\"; then\n\
              n=1\n\
              if [ -f \"$d/relecture-1\" ]; then n=2; fi\n\
              : > \"$d/relecture-$n\"\n\
              cp \"$TMPDIR/consigne.txt\" \"$d/consigne-relecteur-$n.txt\"\n\
              printf 'PATH=%s\\n' \"$PATH\" > \"$d/path-relecteur-$n.txt\"\n\
-             if [ -f DIFF.kraken ]; then cp DIFF.kraken \"$d/diff-$n.txt\"; else : > \"$d/sans-diff-$n\"; fi\n\
-             if [ -f \"$d/remarques-$n.kraken\" ]; then cp \"$d/remarques-$n.kraken\" REMARQUES.kraken; fi\n\
+             if [ -f DIFF.lydite ]; then cp DIFF.lydite \"$d/diff-$n.txt\"; else : > \"$d/sans-diff-$n\"; fi\n\
+             if [ -f \"$d/remarques-$n.lydite\" ]; then cp \"$d/remarques-$n.lydite\" REMARQUES.lydite; fi\n\
              rm -f autre.txt\n\
              if [ -f \"$d/toucher-$n\" ]; then echo touche > autre.txt; fi\n\
              else\n\
@@ -758,7 +758,7 @@ pub(crate) fn lancer_sur(
     lancer_avec(depot, dossier, profil, plan, bail, base, Liens::default())
 }
 
-/// La première vague des essais de `kraken etat` et de la borne de `--n`.
+/// La première vague des essais de `lydite etat` et de la borne de `--n`.
 pub(crate) const V1: &str = "1761901100000_7_0";
 
 /// L'heure à laquelle ces essais lisent le fil, à la milliseconde comme `fil::instant` l'écrit.
@@ -771,7 +771,7 @@ pub(crate) fn ouverture(vague: &str, n: usize, objectif: &str) -> Evenement {
 
 /// Un dossier neuf, à ce test.
 pub(crate) fn dossier(nom: &str) -> PathBuf {
-    let dir = env::temp_dir().join(format!("kraken-fil-{nom}-{}", lot()));
+    let dir = env::temp_dir().join(format!("lydite-fil-{nom}-{}", lot()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -796,7 +796,7 @@ pub(crate) fn sans_instant(ligne: &str) -> String {
 
 /// Un dossier de Kraken neuf, à ce test, avec son dossier `profils`.
 pub(crate) fn kraken(nom: &str) -> PathBuf {
-    let dir = env::temp_dir().join(format!("kraken-test-profil-{nom}-{}", lot()));
+    let dir = env::temp_dir().join(format!("lydite-test-profil-{nom}-{}", lot()));
     fs::create_dir_all(dir.join("profils")).unwrap();
     dir
 }

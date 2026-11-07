@@ -10,7 +10,7 @@ example).
 
 > **Status: early.** Lydite builds itself, and runs on a public test bench, [Mycelium Lab](https://github.com/aoricloud/mycelium-lab)
 > (a simulator whose code its hands write from reviewed issues). The interface is French (commands, messages, docs)
-> and the code, its tests and its command-line help still carry the project's internal name, **Kraken**. Expect
+> and the source code and its comments still use the project's internal name, **Kraken**, in places. Expect
 > rough edges.
 
 ## What it does
@@ -36,18 +36,23 @@ giving root, and publishing.
 You need Git, [Claude Code](https://claude.com/claude-code) (`claude`), `gh` logged in to the host of the repository
 (for pull requests), and, on Linux, `srt` (the sandbox that Claude Code uses) for a profile that requires the wall.
 
-**Install.** Download the archive for your system from the Releases page and verify it was built by this repository's
-GitHub Actions:
+**Install.** Download the archive for your system from the [Releases](https://github.com/aoricloud/lydite/releases)
+page, verify it was built by this repository's GitHub Actions, and put the binary on your `PATH`:
 
 ```bash
-gh attestation verify lydite-<version>-linux-x86_64.tar.gz --repo aoricloud/lydite
+gh release download --repo aoricloud/lydite --pattern 'lydite-*-linux-x86_64.tar.gz'   # the latest release
+gh attestation verify lydite-*-linux-x86_64.tar.gz --repo aoricloud/lydite
+tar -xzf lydite-*-linux-x86_64.tar.gz
+install -m 755 lydite-*-linux-x86_64/lydite ~/.local/bin/lydite
 ```
 
-Or build it: `cargo build --release` (the toolchain is pinned by `rust-toolchain.toml`). From source the binary is
-`target/release/kraken`; the release archives call it `lydite`.
+On Windows the archive is `lydite-*-windows-x86_64.zip`, with `lydite.exe` inside.
 
-**A profile** is a file, `profils/<name>.profil`, in Lydite's state folder (`$KRAKEN_DOSSIER`, else
-`$XDG_STATE_HOME/kraken` or `~/.local/state/kraken`; `%USERPROFILE%\.kraken` on Windows). A human writes it, then
+Or build it: `cargo build --release` (the toolchain is pinned by `rust-toolchain.toml`); the binary is
+`target/release/lydite`.
+
+**A profile** is a file, `profils/<name>.profil`, in Lydite's state folder (`$LYDITE_DOSSIER`, else
+`$XDG_STATE_HOME/lydite` or `~/.local/state/lydite`; `%USERPROFILE%\.lydite` on Windows). A human writes it, then
 accepts it:
 
 ```text

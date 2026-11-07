@@ -1,6 +1,6 @@
 """Le nom du plugin : le seul endroit du code qui le dit, avec `plugin.yaml`.
 
-Lydite est le nom public (« Kraken » reste le nom interne du code et de ses variables `KRAKEN_*`). Pour changer le nom :
+Lydite est le nom du programme, de ses variables `LYDITE_*` et de son dossier d'état. Pour changer le nom :
 ces trois lignes et `plugin.yaml` (`name`, `provides_tools`, l'`env` du secret) ; `tests/test_manifeste.py` échoue tant
 que les deux ne disent pas la même chose.
 """

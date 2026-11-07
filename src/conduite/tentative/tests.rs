@@ -144,16 +144,16 @@ fn tenter_ne_rend_de_constat_que_d_une_main_declaree() {
     assert!(verdict.unwrap_err().starts_with("main : aucun programme à lancer"));
     assert!(!temporaire_de(&bac).unwrap().exists());
     // Une main brute ne déclare rien : l'erreur de son départ, sans constat.
-    let brute = Profil::faux(vec!["kraken-main-introuvable".into()], DELAI);
+    let brute = Profil::faux(vec!["lydite-main-introuvable".into()], DELAI);
     let (constat, verif, verdict) = tenter(&brute, &bac, "objectif", Some("exit 0"), None, &journal, None);
     assert_eq!((constat, verif), (None, None));
-    assert!(verdict.unwrap_err().starts_with("lancement impossible de kraken-main-introuvable"));
+    assert!(verdict.unwrap_err().starts_with("lancement impossible de lydite-main-introuvable"));
     // Une main Claude déclare : Kraken rend le constat de ce qu'il en a lu, ici rien, et l'erreur de son départ. Un
     // constat vide est un constat : la vague le note, car la main était déclarée.
-    let claude = profil_borne("sorte = claude\nprogramme = kraken-claude-introuvable\n", &dir);
+    let claude = profil_borne("sorte = claude\nprogramme = lydite-claude-introuvable\n", &dir);
     let (constat, verif, verdict) = tenter(&claude, &bac, "objectif", Some("exit 0"), Some("échec"), &journal, None);
     assert_eq!((constat, verif), (Some(Constat::default()), None));
-    assert!(verdict.unwrap_err().starts_with("lancement impossible de kraken-claude-introuvable"));
+    assert!(verdict.unwrap_err().starts_with("lancement impossible de lydite-claude-introuvable"));
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -168,7 +168,7 @@ fn la_consigne_garde_ses_octets() {
     // Avec une vérification que la main ne peut pas jouer, Kraken la joue : la consigne la nomme.
     assert_eq!(
         consigne("Écrire bonjour.txt", Some("cargo test"), None, false),
-        "Écrire bonjour.txt\n\nQuand tu auras fini, Kraken jouera dans ton dossier : cargo test. \
+        "Écrire bonjour.txt\n\nQuand tu auras fini, Lydite jouera dans ton dossier : cargo test. \
          Ton travail est pris si elle réussit."
     );
     // À la relance, l'erreur de la tentative d'avant s'intercale avant la preuve.
@@ -181,7 +181,7 @@ fn la_consigne_garde_ses_octets() {
     assert_eq!(
         consigne("Écrire bonjour.txt", Some("cargo test"), Some("vérification rouge"), false),
         "Écrire bonjour.txt\n\nTentative précédente échouée :\nvérification rouge\n\n\
-         Quand tu auras fini, Kraken jouera dans ton dossier : cargo test. \
+         Quand tu auras fini, Lydite jouera dans ton dossier : cargo test. \
          Ton travail est pris si elle réussit."
     );
     // Une vérification prêtée à la main : elle la joue elle-même, chaque morceau seul et tel quel, jusqu'à ce
@@ -192,7 +192,7 @@ fn la_consigne_garde_ses_octets() {
          morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux que joint ` && ` ; une \
          commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni `;`, ni `|`, ni \
          redirection : c'est seul ainsi qu'un morceau t'est permis. Reprends ton \
-         travail jusqu'à ce qu'elle réussisse : Kraken la rejouera ensuite, et ton travail est pris si elle \
+         travail jusqu'à ce qu'elle réussisse : Lydite la rejouera ensuite, et ton travail est pris si elle \
          réussit."
     );
     assert_eq!(
@@ -202,7 +202,7 @@ fn la_consigne_garde_ses_octets() {
          morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux que joint ` && ` ; une \
          commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni `;`, ni `|`, ni \
          redirection : c'est seul ainsi qu'un morceau t'est permis. Reprends ton \
-         travail jusqu'à ce qu'elle réussisse : Kraken la rejouera ensuite, et ton travail est pris si elle \
+         travail jusqu'à ce qu'elle réussisse : Lydite la rejouera ensuite, et ton travail est pris si elle \
          réussit."
     );
     // Une preuve à deux morceaux s'écrit entière, telle que l'humain l'a donnée, et la même phrase la suit.
@@ -212,6 +212,6 @@ fn la_consigne_garde_ses_octets() {
          cargo test. Lance chaque morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux que \
          joint ` && ` ; une commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni `;`, ni \
          `|`, ni redirection : c'est seul ainsi qu'un morceau t'est permis. Reprends ton travail jusqu'à ce \
-         qu'elle réussisse : Kraken la rejouera ensuite, et ton travail est pris si elle réussit."
+         qu'elle réussisse : Lydite la rejouera ensuite, et ton travail est pris si elle réussit."
     );
 }

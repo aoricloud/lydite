@@ -9,16 +9,16 @@ use crate::conduite::mener::Options;
 
 /// L'usage, que la correction d'un refus de la ligne de commande donne.
 const USAGE: &str = concat!(
-    "kraken lancer <profil> \"<objectif>\" [--n N] [--verifier \"<commande>\"] [--depot <chemin>]",
-    " ou kraken lancer <profil> --plan <fichier> [--depot <chemin>] [--pr <branche>]",
-    " ou kraken lancer <profil> \"<objectif>\" --decouper --verifier \"<preuve>\" [--observer] [--depot <chemin>]",
+    "lydite lancer <profil> \"<objectif>\" [--n N] [--verifier \"<commande>\"] [--depot <chemin>]",
+    " ou lydite lancer <profil> --plan <fichier> [--depot <chemin>] [--pr <branche>]",
+    " ou lydite lancer <profil> \"<objectif>\" --decouper --verifier \"<preuve>\" [--observer] [--depot <chemin>]",
     " [--pr <branche>]",
-    " ou kraken lancer <profil> --issue <n> --decouper --verifier \"<preuve>\" [--observer] [--depot <chemin>]",
+    " ou lydite lancer <profil> --issue <n> --decouper --verifier \"<preuve>\" [--observer] [--depot <chemin>]",
     " [--pr <branche>]",
-    " ou kraken plan [--decoupe] <fichier>",
-    " ou kraken remarques <fichier>",
-    " ou kraken accepter <profil>",
-    " ou kraken etat",
+    " ou lydite plan [--decoupe] <fichier>",
+    " ou lydite remarques <fichier>",
+    " ou lydite accepter <profil>",
+    " ou lydite etat",
 );
 
 /// Les drapeaux de `lancer` qui prennent une valeur, chacun une fois : `--pr` et `--issue` n'y vont qu'avec
@@ -274,7 +274,7 @@ fn options_lancer(args: &[OsString]) -> Result<Commande, Refus> {
                     return Err(Refus::new(
                         Code::PreuveVide,
                         format!("--verifier vaut {commande:?}, une commande blanche"),
-                        "Donne à --verifier une commande qui n'est pas blanche, celle que Kraken rejoue dans chaque \
+                        "Donne à --verifier une commande qui n'est pas blanche, celle que Lydite rejoue dans chaque \
                          bac, ou retire --verifier : la prise ne tient alors qu'à la ligne PREUVE: de la main, et \
                          reste déclarée.",
                     ));

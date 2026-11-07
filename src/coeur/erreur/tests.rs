@@ -161,12 +161,12 @@ fn chaque_code_a_sa_regle() {
 #[test]
 fn le_refus_s_affiche_en_quatre_lignes() {
     let regle = Code::ProfilInconnu.regle();
-    let refus = Refus::new(Code::ProfilInconnu, "profil « x »", "Nomme un profil que Kraken connaît.");
+    let refus = Refus::new(Code::ProfilInconnu, "profil « x »", "Nomme un profil que Lydite connaît.");
     let attendu = [
-        "kraken : 6001 lancer.profil_inconnu".to_string(),
+        "lydite : 6001 lancer.profil_inconnu".to_string(),
         format!("  règle : {regle}"),
         "  preuve : profil « x »".to_string(),
-        "  correction : Nomme un profil que Kraken connaît.".to_string(),
+        "  correction : Nomme un profil que Lydite connaît.".to_string(),
     ];
     assert_eq!(refus.to_string(), attendu.join("\n"));
     // La sortie de git tient sur plusieurs lignes : elle se met bout à bout, et le refus reste à quatre lignes.
@@ -188,7 +188,7 @@ fn une_erreur_d_e_s_devient_6006_avec_son_message() {
     assert!(!refus.correction.is_empty());
     // `?` convertit seul : un vrai fichier absent donne le message de l'erreur du système.
     let lire = |chemin: &Path| -> Result<Vec<u8>, Refus> { Ok(fs::read(chemin)?) };
-    let absent = env::temp_dir().join(format!("kraken-test-erreur-{}", lot())).join("fil.jsonl");
+    let absent = env::temp_dir().join(format!("lydite-test-erreur-{}", lot())).join("fil.jsonl");
     let refus = lire(&absent).unwrap_err();
     assert_eq!(refus.code, Code::EntreeSortie);
     assert_eq!(refus.preuve, fs::read(&absent).unwrap_err().to_string());

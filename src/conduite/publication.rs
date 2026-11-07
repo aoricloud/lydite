@@ -32,7 +32,7 @@ use crate::conduite::lancer::Menee;
 
 /// La correction du refus 8011.
 const ROUGE: &str =
-    "La PR reste ouverte et rouge, et Kraken ne la relance pas deux fois : lis sa CI, puis corrige-la toi-même.";
+    "La PR reste ouverte et rouge, et Lydite ne la relance pas deux fois : lis sa CI, puis corrige-la toi-même.";
 
 /// La première ligne de l'objectif de la tâche de relance ; le contexte la suit.
 const CORRIGER: &str = "Corrige au plus petit ce que le contexte nomme, et rien d'autre, sans toucher à .github/";
@@ -346,7 +346,7 @@ impl Proposition<'_> {
         };
         let corps = corps(plan, &vague, relecture.as_deref(), self.issue, &recu, &reglages);
         let chemins: Vec<&Path> = personnel.into_iter().chain([self.forge.dossier, self.forge.depot]).collect();
-        self.forge.publiable(&self.base, tete, &titre, &corps, &chemins).map_err(Arret::Refus)?;
+        self.forge.publiable(&self.base, tete, branche, &titre, &corps, &chemins).map_err(Arret::Refus)?;
         let poussee = Evenement::Poussee { vague: menee.id.clone(), branche: branche.clone(), sha: tete.clone() };
         noter(&suite.fil, &poussee).map_err(Arret::Net)?;
         self.forge.pousser(tete, branche).map_err(Arret::Refus)?;
@@ -451,7 +451,7 @@ impl Proposition<'_> {
             return Err(refus(format!("la vague de relance {id} n'a rien changé à la tête poussée {tete}")));
         };
         self.forge
-            .publiable(&self.base, &nouvelle, &publication.titre, &publication.corps, &publication.chemins)
+            .publiable(&self.base, &nouvelle, branche, &publication.titre, &publication.corps, &publication.chemins)
             .map_err(Arret::Refus)?;
         let poussee = Evenement::Poussee { vague: id.clone(), branche: branche.into(), sha: nouvelle.clone() };
         noter(&suite.fil, &poussee).map_err(Arret::Net)?;
@@ -504,15 +504,17 @@ impl Proposition<'_> {
 
     /// Range la vague après le dernier push réussi de la forge, `poussee`. Ne se retire que ce dont le
     /// travail y est : le bac de chaque tâche assemblée dont la tête, son gel, est `poussee` ou l'un de ses ancêtres,
-    /// puis son dossier temporaire ([`temporaire_de`]), puis sa branche `kraken/<main>` si elle en est un aussi, une
-    /// fois son worktree retiré ([`retirer`]) ; puis le worktree de la vague, si sa tête en est un. Les bacs des tâches
-    /// dehors restent, car leur travail, jamais gelé, n'est nulle part ailleurs. La branche de la vague relancée reste
-    /// aussi, qui porte la PR ; celle d'une relance (`sa_branche`) se retire avec son worktree si elle est un ancêtre
-    /// de `poussee`. Ce qui va se retirer se note d'abord (`forge.rangement`, sous la vague du bac), et une note ratée
-    /// arrête la forge ; un retrait raté s'écrit sur stderr, et le reste de son worktree demeure. Les gestes de git
-    /// d'un retrait passent par la forge comme les autres ([`Forge::faire`] et [`GIT_FORGE`]) : un git qui attend une
-    /// réponse ou s'éternise (un fichier du bac tenu par un processus, un pilote de filtre du dépôt visé) est tué à
-    /// son délai, le retrait est raté, et la forge ne reste pas suspendue, PR ouverte.
+    /// puis son dossier temporaire ([`temporaire_de`]), puis sa branche `lydite/<main>` si elle en est un aussi, une
+    /// fois son worktree retiré ([`retirer`]) ; un bac posé par l'ancien programme porte une branche `kraken/<id>`
+    /// que ce rangement ne cherche pas : la migration du dossier d'état la renomme ; puis le worktree de la
+    /// vague, si sa tête en est un. Les bacs des tâches dehors restent, car leur travail, jamais gelé, n'est nulle
+    /// part ailleurs. La branche de la vague relancée reste aussi, qui porte la PR ; celle d'une
+    /// relance (`sa_branche`) se retire avec son worktree si elle est un ancêtre de `poussee`. Ce qui va se retirer
+    /// se note d'abord (`forge.rangement`, sous la vague du bac), et une note ratée arrête la forge ; un retrait raté
+    /// s'écrit sur stderr, et le reste de son worktree demeure. Les gestes de git d'un retrait passent par la forge
+    /// comme les autres ([`Forge::faire`] et [`GIT_FORGE`]) : un git qui attend une réponse ou s'éternise (un fichier
+    /// du bac tenu par un processus, un pilote de filtre du dépôt visé) est tué à son délai, le retrait est raté, et
+    /// la forge ne reste pas suspendue, PR ouverte.
     fn ranger(&self, fil: &Fil, menee: &Menee, poussee: &str, sa_branche: bool) -> Result<(), String> {
         let bacs = self.forge.dossier.join("bacs");
         let mut retraits: Vec<(PathBuf, Option<(String, String)>)> = Vec::new();
@@ -521,7 +523,7 @@ impl Proposition<'_> {
             if !self.forge.dans(&bac, "HEAD", poussee) {
                 continue;
             }
-            retraits.push((bac, self.branche_dans(&format!("kraken/{id}"), poussee)));
+            retraits.push((bac, self.branche_dans(&format!("lydite/{id}"), poussee)));
         }
         let worktree = bacs.join(format!("vague-{}", menee.id));
         if self.forge.dans(&worktree, "HEAD", poussee) {
@@ -652,7 +654,7 @@ impl Recu {
         })
     }
 
-    /// La ligne de `kraken etat` : `Coût : 0,84 $ estimé · 7 mains, 2 relances, 1 classée · 41 min`, sans la durée si
+    /// La ligne de `lydite etat` : `Coût : 0,84 $ estimé · 7 mains, 2 relances, 1 classée · 41 min`, sans la durée si
     /// les instants manquent.
     pub(crate) fn ligne(&self) -> String {
         let mut parties = vec![format!("Coût : {}", self.cout()), self.mains()];

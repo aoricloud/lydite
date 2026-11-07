@@ -8,20 +8,20 @@ use crate::essais::{kraken, racine};
 fn kraken_dossier_l_emporte_tel_quel() {
     for windows in [true, false] {
         let choisi = dossier_selon(valeur("k"), valeur("u"), valeur("x"), valeur("h"), windows).unwrap();
-        assert_eq!(choisi, absolu("k"), "le dossier lui-même, sans `kraken` ajouté");
+        assert_eq!(choisi, absolu("k"), "le dossier lui-même, sans `lydite` ajouté");
     }
     // Posé sans être absolu (relatif, vide) : le refus 6004 qui nomme la variable, pas un repli en silence.
     for faux in ["relatif", ""] {
         let refus = dossier_selon(Some(faux.into()), valeur("u"), valeur("x"), valeur("h"), false).unwrap_err();
         assert_eq!(refus.code, Code::DossierRelatif);
-        assert!(refus.preuve.contains("KRAKEN_DOSSIER"), "{refus}");
+        assert!(refus.preuve.contains("LYDITE_DOSSIER"), "{refus}");
     }
 }
 
 #[test]
 fn sous_windows_userprofile_et_rien_d_autre() {
     let choisi = dossier_selon(None, valeur("u"), valeur("x"), valeur("h"), true).unwrap();
-    assert_eq!(choisi, absolu("u").join(".kraken"));
+    assert_eq!(choisi, absolu("u").join(".lydite"));
     let refus = dossier_selon(None, None, valeur("x"), valeur("h"), true).unwrap_err();
     assert_eq!(refus.code, Code::DossierIntrouvable);
     assert!(refus.preuve.contains("USERPROFILE"), "{refus}");
@@ -30,9 +30,9 @@ fn sous_windows_userprofile_et_rien_d_autre() {
 #[test]
 fn ailleurs_xdg_state_home_puis_home() {
     let xdg = dossier_selon(None, valeur("u"), valeur("x"), valeur("h"), false).unwrap();
-    assert_eq!(xdg, absolu("x").join("kraken"), "USERPROFILE ne compte pas hors de Windows");
+    assert_eq!(xdg, absolu("x").join("lydite"), "USERPROFILE ne compte pas hors de Windows");
     let home = dossier_selon(None, valeur("u"), None, valeur("h"), false).unwrap();
-    assert_eq!(home, absolu("h").join(".local").join("state").join("kraken"));
+    assert_eq!(home, absolu("h").join(".local").join("state").join("lydite"));
     // Vide ou relative, XDG_STATE_HOME est ignorée (règle XDG) ; sans HOME, aucun dossier n'est possible.
     for faux in ["relatif", ""] {
         assert_eq!(dossier_selon(None, None, Some(faux.into()), valeur("h"), false).unwrap(), home);
@@ -40,7 +40,7 @@ fn ailleurs_xdg_state_home_puis_home() {
     let refus = dossier_selon(None, valeur("u"), None, None, false).unwrap_err();
     assert_eq!(refus.code, Code::DossierIntrouvable);
     assert!(refus.preuve.contains("XDG_STATE_HOME") && refus.preuve.contains("HOME"), "{refus}");
-    assert!(refus.correction.contains("KRAKEN_DOSSIER"), "{refus}");
+    assert!(refus.correction.contains("LYDITE_DOSSIER"), "{refus}");
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn dossier_lit_les_vraies_variables() {
     // Lecture seule, rien n'est posé : absolu, ou un refus clair quand l'environnement ne dit rien de bon.
     match dossier() {
         Ok(dossier) => assert!(dossier.is_absolute(), "{}", dossier.display()),
-        Err(refus) => assert!(refus.to_string().contains("KRAKEN_DOSSIER"), "{refus}"),
+        Err(refus) => assert!(refus.to_string().contains("LYDITE_DOSSIER"), "{refus}"),
     }
 }
 
@@ -62,7 +62,7 @@ fn l_empreinte_garde_le_profil() {
     let refus = charger_dans("veille", &dossier).unwrap().garder().unwrap_err();
     assert_eq!(refus.code, Code::ProfilNonAccepte);
     assert!(refus.preuve.contains(&garde.display().to_string()), "{refus}");
-    assert!(refus.correction.contains("kraken accepter veille"), "{refus}");
+    assert!(refus.correction.contains("lydite accepter veille"), "{refus}");
     // Acceptée : le texte et l'empreinte rendus, l'empreinte écrite en 64 hexadécimaux minuscules, et le profil
     // passe.
     let (texte, empreinte) = accepter("veille", &dossier).unwrap();
@@ -76,7 +76,7 @@ fn l_empreinte_garde_le_profil() {
     assert_eq!(refus.code, Code::ProfilChange);
     let lue = hex(&sha256(b"sorte = claude\nmodele = haiku\n\n"));
     assert!(refus.preuve.contains(&format!("« {empreinte} »")) && refus.preuve.contains(&format!("« {lue} »")));
-    assert!(refus.correction.contains("kraken accepter veille"), "{refus}");
+    assert!(refus.correction.contains("lydite accepter veille"), "{refus}");
     // Réacceptée, elle passe de nouveau ; une empreinte écrite à la main, finie par un retour, aussi.
     assert_eq!(accepter("veille", &dossier).unwrap().1, lue);
     assert_eq!(charger_dans("veille", &dossier).unwrap().garder(), Ok(()));

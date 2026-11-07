@@ -30,7 +30,7 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
     // les reçoit, et aucun test ne lit ceux de l'humain ni l'environnement. Chaque cas est le premier refus de sa
     // ligne, par son code.
     let racine = racine("preparer");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let (config, personnel) = (racine.join("config"), racine.join("personnel"));
     let profils = kraken.join("profils");
     fs::create_dir_all(&profils).unwrap();
@@ -49,8 +49,8 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
     assert_eq!(code("inconnu", &absent, &kraken), Code::DepotIntrouvable);
     assert_eq!(code("inconnu", &nu, &kraken), Code::BacImpossible);
     // Puis le dossier de Kraken hors du dépôt (6015), avant le profil ; le dépôt, lui, passe avant le dossier.
-    assert_eq!(code("inconnu", &depot, &depot.join("kraken")), Code::DossierSousLeDepot);
-    assert_eq!(code("claude", &nu, &nu.join("kraken")), Code::BacImpossible);
+    assert_eq!(code("inconnu", &depot, &depot.join("lydite")), Code::DossierSousLeDepot);
+    assert_eq!(code("claude", &nu, &nu.join("lydite")), Code::BacImpossible);
     // Puis le profil : son nom (6007), son fichier (6008, 6009, 6010), ou le profil intégré, sinon inconnu (6001).
     assert_eq!(code("../x", &depot, &kraken), Code::ProfilNomRefuse);
     assert_eq!(code("inconnu", &depot, &kraken), Code::ProfilInconnu);

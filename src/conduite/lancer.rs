@@ -15,7 +15,7 @@
 //! à la fin de sa tentative comme au gel.
 //!
 //! Une vague de découpage, de relecture ou de correction porte de plus ses [`Liens`] : le juge de sa main, ce que
-//! Kraken pose dans le bac de sa main avant qu'elle parte (le `DIFF.kraken` du relecteur), le découpage dont elle joue
+//! Kraken pose dans le bac de sa main avant qu'elle parte (le `DIFF.lydite` du relecteur), le découpage dont elle joue
 //! le plan, la vague qu'elle corrige, et celle que relit son relecteur.
 
 use std::collections::HashMap;
@@ -45,7 +45,7 @@ use crate::conduite::tentative::{Juge, Pris, tenter};
 /// son bac, et son issue.
 pub(crate) type Issues = Vec<(String, Result<Pris, String>)>;
 
-/// Ce que Kraken pose dans le bac d'une main avant qu'elle parte, une fois le bac fait : le `DIFF.kraken` du relecteur
+/// Ce que Kraken pose dans le bac d'une main avant qu'elle parte, une fois le bac fait : le `DIFF.lydite` du relecteur
 /// (`relecture.rs`). Un refus retient la main : sa tâche est refusée, sans bail ni départ.
 pub(crate) type Preparation<'a> = &'a dyn Fn(&Path) -> Result<(), Refus>;
 
@@ -119,7 +119,7 @@ pub(crate) fn base_du_depot(depot: &Path) -> Result<String, Refus> {
         return Err(Refus::new(
             Code::DepotIntrouvable,
             format!("{} n'est pas un dossier qui existe", depot.display()),
-            "Lance Kraken depuis le dépôt visé, ou donne-le par --depot <chemin>.",
+            "Lance Lydite depuis le dépôt visé, ou donne-le par --depot <chemin>.",
         ));
     }
     let base = faire(geste(depot, &["rev-parse", "--verify", "HEAD"])).map_err(|vu| {
@@ -144,7 +144,7 @@ pub(crate) fn lancer_avec(
     liens: Liens<'_>,
 ) -> Result<Menee, Refus> {
     fs::create_dir_all(dossier)
-        .map_err(|e| nommee(e, format!("création du dossier de Kraken {}", dossier.display())))?;
+        .map_err(|e| nommee(e, format!("création du dossier de Lydite {}", dossier.display())))?;
     // Une vague par lancement, nommée par son lot : les ids de ses mains et de ses bacs en sont faits.
     let id = lot();
     let assemblage = match &plan.preuve {
@@ -254,7 +254,7 @@ fn en_message(main: impl FnOnce() -> Rendu) -> Rendu {
     })
 }
 
-/// Le refus dit en clair, le texte que `kraken etat` tire de sa note `vague.refus`.
+/// Le refus dit en clair, le texte que `lydite etat` tire de sa note `vague.refus`.
 fn en_clair(refus: &Refus) -> String {
     refus_en_clair(refus.code.numero(), refus.code.regle(), &refus.preuve, &refus.correction)
 }
@@ -694,7 +694,7 @@ impl<'a> Vague<'a> {
                 declaration.modele
             );
             let correction = "Ajoute à la ligne `prix` du profil ce modèle et ses prix, puis accepte le profil \
-                              (kraken accepter <profil>) ; ou retire le fichier du quota.";
+                              (lydite accepter <profil>) ; ou retire le fichier du quota.";
             return Err(Refus::new(Code::Quota, preuve, correction));
         }
         let jour = &instant(maintenant())[..10];

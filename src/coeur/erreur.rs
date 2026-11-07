@@ -6,7 +6,7 @@
 //!
 //! - 1000 `contrat` : emprunté au contrat v2 de passerelle avec ses numéros, sans PR chez lui, et jamais étendu ici ;
 //! - 6000 `lancer` : tout ce qui précède l'ouverture de la vague, c'est-à-dire la ligne de commande, ce que
-//!   `preparer` lit (profil et fournisseur, dépôt, dossier), `kraken etat` compris, et le plan, écrit à la main ou
+//!   `preparer` lit (profil et fournisseur, dépôt, dossier), `lydite etat` compris, et le plan, écrit à la main ou
 //!   découpé, avec sa base éprouvée ;
 //! - 7000 `vague` : les mains et l'assemblage, puis les fichiers de chaque main, le découpeur, le relecteur et la
 //!   correction qui suit sa relecture ;
@@ -107,7 +107,7 @@ codes! {
     VersionDifferente = 1002, "contrat.version_differente",
         "Un lecteur lit `v` avant tout le reste, et ne lit que la version du fil qu'il connaît.";
     CommandeInconnue = 1005, "contrat.commande_inconnue",
-        "La commande est un mot de la liste fermée de Kraken, que donne l'usage.";
+        "La commande est un mot de la liste fermée de Lydite, que donne l'usage.";
     CommandeMalFormee = 1006, "contrat.commande_mal_formee",
         "La ligne de commande nomme une commande et lui donne les arguments de son usage, chaque drapeau une \
          fois, avec sa valeur s'il en prend une.";
@@ -118,18 +118,18 @@ codes! {
         "Dans une séance, `seq` va 1, 2, 3… dans l'ordre du fil, sans trou ni redite.";
     // --- 6000 : lancer ---
     ProfilInconnu = 6001, "lancer.profil_inconnu",
-        "Un profil se nomme parmi les profils que Kraken connaît.";
+        "Un profil se nomme parmi les profils que Lydite connaît.";
     DepotIntrouvable = 6002, "lancer.depot_introuvable",
         "Le dépôt visé est un dossier qui existe.";
     BacImpossible = 6003, "lancer.bac_impossible",
         "Le dépôt visé est un dépôt git qui a un commit, d'où partent les bacs ; sans lui, aucune vague ne s'ouvre.";
     DossierRelatif = 6004, "lancer.dossier_relatif",
-        "`KRAKEN_DOSSIER`, s'il est posé, est un chemin absolu.";
+        "`LYDITE_DOSSIER`, s'il est posé, est un chemin absolu.";
     DossierIntrouvable = 6005, "lancer.dossier_introuvable",
-        "Sans `KRAKEN_DOSSIER`, le dossier de Kraken se tire de `USERPROFILE` sous Windows, de \
+        "Sans `LYDITE_DOSSIER`, le dossier de Lydite se tire de `USERPROFILE` sous Windows, de \
          `XDG_STATE_HOME` ou de `HOME` ailleurs, chacun absolu.";
     EntreeSortie = 6006, "lancer.entree_sortie",
-        "Une lecture ou une écriture de Kraken réussit, ou son refus nomme son chemin ou son programme.";
+        "Une lecture ou une écriture de Lydite réussit, ou son refus nomme son chemin ou son programme.";
     ProfilNomRefuse = 6007, "lancer.profil_nom_refuse",
         "Un nom de profil est fait de lettres ASCII, de chiffres, de `_` et de `-`.";
     ProfilIllisible = 6008, "lancer.profil_illisible",
@@ -142,15 +142,15 @@ codes! {
     ProfilNonAccepte = 6011, "lancer.profil_non_accepte",
         "Un profil en fichier n'est lancé qu'une fois son empreinte acceptée.";
     ProfilChange = 6012, "lancer.profil_change",
-        "Le profil lancé a l'empreinte acceptée ; une empreinte neuve se réaccepte par `kraken accepter`.";
+        "Le profil lancé a l'empreinte acceptée ; une empreinte neuve se réaccepte par `lydite accepter`.";
     ProfilSansFichier = 6013, "lancer.profil_sans_fichier",
         "Seul un profil en fichier s'accepte ; le profil intégré n'a pas d'empreinte à garder.";
     PreuveVide = 6014, "lancer.preuve_vide",
         "`--verifier`, s'il est donné, porte une commande qui n'est pas blanche.";
     DossierSousLeDepot = 6015, "lancer.dossier_sous_le_depot",
-        "Le dossier de Kraken est hors du dépôt visé.";
+        "Le dossier de Lydite est hors du dépôt visé.";
     PlanVersion = 6016, "lancer.plan_version",
-        "Un plan commence par sa version, `plan 1`, que Kraken lit avant tout le reste.";
+        "Un plan commence par sa version, `plan 1`, que Lydite lit avant tout le reste.";
     PlanEncodage = 6017, "lancer.plan_encodage",
         "Un plan est un texte UTF-8, un BOM de tête toléré ; un plan en UTF-16 se réécrit en UTF-8.";
     PlanLigne = 6018, "lancer.plan_ligne",
@@ -169,7 +169,7 @@ codes! {
         "La preuve de la vague passe sur la base avant toute main, pour qu'un vert d'assemblage ne se doive \
          qu'aux tâches.";
     DossierCheminRefuse = 6023, "lancer.dossier_chemin_refuse",
-        "Un chemin que Kraken écrit dans une règle de permission, son dossier ou un dossier de connexion de \
+        "Un chemin que Lydite écrit dans une règle de permission, son dossier ou un dossier de connexion de \
          Claude, est absolu et s'écrit tel quel : sous Windows il commence par une lettre de lecteur, et ses \
          noms ne portent ni parenthèse, ni `*`, `?`, `[`, `]`, `{`, `}`, ni guillemet, ni barre inverse.";
     PlanChemin = 6024, "lancer.plan_chemin",
@@ -180,7 +180,7 @@ codes! {
          `modele`, sans `preuve` à elle (toutes jouent celle de la vague) ; une ligne `fichiers` a 100 \
          chemins au plus.";
     PlanEntete = 6026, "lancer.plan_entete",
-        "Un plan découpé porte l'en-tête que Kraken a demandé : l'objectif et la preuve de l'humain, tels quels.";
+        "Un plan découpé porte l'en-tête que Lydite a demandé : l'objectif et la preuve de l'humain, tels quels.";
     Fournisseur = 6027, "lancer.fournisseur",
         "Un profil qui nomme un fournisseur donne `api`, une URL en https, et `cle`, le nom d'une variable \
          d'environnement posée et non vide, jamais la clé elle-même.";
@@ -189,7 +189,7 @@ codes! {
          la base ; sinon rien n'est lancé.";
     IssueSansMur = 6029, "lancer.issue_sans_mur",
         "`--issue` ne se lance que sous un profil au mur exigé, car le texte d'une issue vient d'autrui : \
-         `mur = exige` dans le profil puis `kraken accepter <profil>`, ou un objectif tapé à la main.";
+         `mur = exige` dans le profil puis `lydite accepter <profil>`, ou un objectif tapé à la main.";
     Quota = 6030, "lancer.quota",
         "Sous un quota du jour posé (`profils/quota`, en dollars), une main ne part pas quand la dépense estimée \
          du jour UTC l'atteint, quand le fichier ne se lit pas, ni quand son profil à `api` n'a pas de `prix` \
@@ -205,12 +205,13 @@ codes! {
     MainExpiree = 7004, "vague.main_expiree",
         "Une main qui n'a rien rendu à l'échéance de son bail expire, et sa tâche est refusée sans relance.";
     MainTuee = 7005, "vague.main_tuee",
-        "Une main que Kraken a tuée à son délai n'est pas relancée, et sa tâche est refusée : sa mise à mort \
+        "Une main que Lydite a tuée à son délai n'est pas relancée, et sa tâche est refusée : sa mise à mort \
          ne prouve pas que tout son arbre est mort.";
     ClaudeTouche = 7006, "vague.claude_touche",
         "Une main ne touche à aucun dossier `.claude/` de son bac, à toute profondeur, sauf l'état que Claude \
-         Code y tient lui-même hors de git ; Kraken le vérifie avant toute relance dans ce bac, et au gel, dans \
-         ce qu'il commite comme dans l'histoire qu'il apporte.";
+         Code y tient lui-même hors de git ; Lydite le vérifie avant toute relance dans ce bac, et au gel, dans \
+         ce qu'il commite comme dans l'histoire qu'il apporte. Une butée du mur, fichier ordinaire vide en \
+         lecture seule posé par le bac à sable, n'est pas une écriture de la main.";
     Conflit = 7007, "vague.conflit",
         "Une prise s'assemble sans conflit sur la tête de la vague ; en conflit, elle est refusée sans relance.";
     PreuveRouge = 7008, "vague.preuve_rouge",
@@ -241,14 +242,14 @@ codes! {
     DistantIllisible = 8001, "forge.distant_illisible",
         "Avec `--pr`, le dépôt visé a un distant `origin` dont l'URL nomme un hôte, un propriétaire et un dépôt.";
     BaseInconnue = 8002, "forge.base_inconnue",
-        "La base que nomme `--pr` est une branche du distant, que Kraken va chercher avant la vague.";
+        "La base que nomme `--pr` est une branche du distant, que Lydite va chercher avant la vague.";
     GhInjoignable = 8003, "forge.gh_injoignable",
         "`gh` se lance et se dit connecté à l'hôte du distant avant la vague.";
     RienAPousser = 8004, "forge.rien_a_pousser",
         "La branche de la vague a au moins un commit de plus que sa base ; sinon rien ne se pousse.";
     PublicationRefusee = 8005, "forge.publication_refusee",
-        "Kraken ne publie ni un changement de `.github/`, ni un chemin du poste, ni un commit qu'il n'a pas \
-         fait ; publier ceux-là revient à l'humain.";
+        "Lydite ne publie ni un changement de `.github/`, ni un chemin du poste, ni un commit qu'il n'a pas \
+         fait, ni un mot du fichier `garde` de l'utilisateur ; publier ceux-là revient à l'humain.";
     PousseeRefusee = 8006, "forge.poussee_refusee",
         "La vague se pousse sans forcer, dans son délai ; sinon rien ne s'ouvre.";
     PrImpossible = 8007, "forge.pr_impossible",
@@ -257,10 +258,10 @@ codes! {
     CiMuette = 8008, "forge.ci_muette",
         "La CI de la PR rend son verdict dans son délai ; une PR sans CI n'est jamais prise.";
     AReintegrer = 8009, "forge.a_reintegrer",
-        "Kraken ne relance une CI rouge que sur une PR sans conflit dont la base n'a pas bougé ; sinon la \
+        "Lydite ne relance une CI rouge que sur une PR sans conflit dont la base n'a pas bougé ; sinon la \
          base est à réintégrer.";
     PrChangee = 8010, "forge.pr_changee",
-        "Pendant que Kraken attend sa CI, la PR porte le sha poussé, n'est pas fermée, et n'est pas fusionnée sur \
+        "Pendant que Lydite attend sa CI, la PR porte le sha poussé, n'est pas fermée, et n'est pas fusionnée sur \
          une CI rouge ; sinon il s'arrête.";
     CiRouge = 8011, "forge.ci_rouge",
         "Une CI rouge vaut une seule relance, l'erreur en contexte ; rouge encore, ou la relance pas \
@@ -310,7 +311,7 @@ impl fmt::Display for Refus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (code, regle) = (self.code, self.code.regle());
         let (preuve, correction) = (sur_une_ligne(&self.preuve), sur_une_ligne(&self.correction));
-        write!(f, "kraken : {code}\n  règle : {regle}\n  preuve : {preuve}\n  correction : {correction}")
+        write!(f, "lydite : {code}\n  règle : {regle}\n  preuve : {preuve}\n  correction : {correction}")
     }
 }
 
@@ -323,7 +324,7 @@ impl From<io::Error> for Refus {
         Refus::new(
             Code::EntreeSortie,
             erreur.to_string(),
-            "Vérifie que le chemin ou le programme de la preuve existe et que Kraken peut le lire, l'écrire ou le \
+            "Vérifie que le chemin ou le programme de la preuve existe et que Lydite peut le lire, l'écrire ou le \
              lancer, puis relance.",
         )
     }

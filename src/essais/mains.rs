@@ -3,7 +3,7 @@ use super::*;
 
 /// Un dossier neuf, à ce test.
 pub(crate) fn dossier(nom: &str) -> PathBuf {
-    let dir = env::temp_dir().join(format!("kraken-test-tentative-{nom}-{}", lot()));
+    let dir = env::temp_dir().join(format!("lydite-test-tentative-{nom}-{}", lot()));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -39,6 +39,6 @@ pub(crate) fn arbre(dir: &Path) -> Vec<String> {
 pub(crate) fn profil_borne(texte: &str, dir: &Path) -> Profil {
     let mut profil = crate::coeur::profil::lire("essai", texte, None, None).unwrap();
     let (config, personnel) = (dir.join("config"), dir.join("personnel"));
-    profil.borner(&dir.join("kraken"), &dir.join("depot").join(".git"), Some(&config), Some(&personnel)).unwrap();
+    profil.borner(&dir.join("lydite"), &dir.join("depot").join(".git"), Some(&config), Some(&personnel)).unwrap();
     profil
 }

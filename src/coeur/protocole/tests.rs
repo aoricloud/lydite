@@ -46,8 +46,8 @@ const JUSTES: [&str; 4] = [GET_SETTINGS, LIST_PERMISSION_RULES, GET_HOOKS_LISTIN
 /// Un `--settings` de la forme que Kraken passe, au mur demandé, réduit aux deux règles des réponses relevées.
 const REGLAGES: &str = concat!(
     r#"{"sandbox":{"enabled":true,"failIfUnavailable":false,"allowUnsandboxed"#,
-    r#"Commands":false,"filesystem":{"denyRead":["~/","/srv/kraken"],"allowRe"#,
-    r#"ad":["/srv/kraken/bacs/main-1","/srv/depot/.git"]},"network":{"allowed"#,
+    r#"Commands":false,"filesystem":{"denyRead":["~/","/srv/lydite"],"allowRe"#,
+    r#"ad":["/srv/lydite/bacs/main-1","/srv/depot/.git"]},"network":{"allowed"#,
     r#"Domains":[],"strictAllowlist":true}},"permissions":{"allow":["WebSearc"#,
     r#"h"],"deny":["CronCreate"]},"disableAllHooks":true,"autoMemoryEnabled":"#,
     r#"false}"#,
@@ -206,9 +206,9 @@ fn chaque_ecart_des_reponses_est_dit() {
             r#"get_settings : applied.model "claude-opus-5-5", déclaré "sonnet""#,
         ),
         (
-            deny("Edit(//c/kraken/fil.jsonl)"),
+            deny("Edit(//c/lydite/fil.jsonl)"),
             LIST_PERMISSION_RULES.to_string(),
-            r#"list_permission_rules : deny "Edit(//c/kraken/fil.jsonl)" déclarée, absente"#,
+            r#"list_permission_rules : deny "Edit(//c/lydite/fil.jsonl)" déclarée, absente"#,
         ),
         (
             deny("Read(~/.ssh/**)"),
@@ -272,13 +272,13 @@ fn chaque_ecart_des_reponses_est_dit() {
 #[test]
 fn les_commandes_exclues_du_bac_a_sable_se_jugent_telles_que_declarees() {
     // `get_settings` dans la forme relevée le 1/11 au soir sous Windows : après `network`, son `sandbox` effectif
-    // porte `filesystem`, le bac en `/srv/kraken/bacs/main-1`, puis la preuve prêtée en `excludedCommands`. Le
+    // porte `filesystem`, le bac en `/srv/lydite/bacs/main-1`, puis la preuve prêtée en `excludedCommands`. Le
     // `--settings` la déclare juste après `allowUnsandboxedCommands`.
     let settings = GET_SETTINGS.replace(
         r#""strictAllowlist":true}}"#,
         concat!(
             r#""strictAllowlist":true},"filesystem":{"denyRead":["~/"],"allowRead":[""#,
-            r#"/srv/kraken/bacs/main-1"]},"excludedCommands":["findstr /x bonjour bon"#,
+            r#"/srv/lydite/bacs/main-1"]},"excludedCommands":["findstr /x bonjour bon"#,
             r#"jour.txt"]}"#,
         ),
     );
@@ -390,8 +390,8 @@ fn un_refus_d_ecriture_n_est_pas_un_outil_ferme_a_l_ouverture() {
     // Les gardes du dossier de Kraken sont des règles de `deny` comme les sortants, mais ce ne sont pas des noms
     // d'outils : l'ouverture, dont `tools` porte `Read` et `Edit`, n'est pas un écart.
     let gardes = concat!(
-        r#""deny":["CronCreate","Edit(//c/kraken/fil.jsonl)","Edit(//c/kraken/profils/**)","#,
-        r#""Read(//c/kraken/srt-*.json)","Edit(//c/kraken/srt-*.json)"]"#,
+        r#""deny":["CronCreate","Edit(//c/lydite/fil.jsonl)","Edit(//c/lydite/profils/**)","#,
+        r#""Read(//c/lydite/srt-*.json)","Edit(//c/lydite/srt-*.json)"]"#,
     );
     let reglages = REGLAGES.replace(r#""deny":["CronCreate"]"#, gardes);
     assert_ne!(reglages, REGLAGES);

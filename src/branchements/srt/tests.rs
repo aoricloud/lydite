@@ -122,7 +122,7 @@ fn note_de_srt(dir: &Path, nom: &str) -> String {
 #[test]
 fn sous_un_mur_exige_la_preuve_se_rejoue_par_srt() {
     let (dir, bac) = bac_jetable("srt");
-    let kraken = dir.join("kraken");
+    let kraken = dir.join("lydite");
     fs::create_dir(&kraken).unwrap();
     let mut profil = profil_borne("sorte = claude\nmur = exige\nreseau = exemple.test\n", &dir);
     profil.avec_srt(faux_srt(&dir, true));
@@ -176,7 +176,7 @@ fn sous_un_mur_exige_la_preuve_se_rejoue_par_srt() {
 fn un_mur_exige_que_srt_ne_tient_pas_est_refuse_et_rien_ne_reste() {
     let dir = env::temp_dir().join(format!("k-{}", lot()));
     fs::create_dir_all(&dir).unwrap();
-    let kraken = dir.join("kraken");
+    let kraken = dir.join("lydite");
     // Sous un mur demandé, rien ne se joue ni ne se crée.
     assert_eq!(eprouver_le_mur(&profil_borne("sorte = claude\n", &dir), &kraken), Ok(()));
     assert!(!kraken.exists());
@@ -187,7 +187,7 @@ fn un_mur_exige_que_srt_ne_tient_pas_est_refuse_et_rien_ne_reste() {
     assert_eq!(note_de_srt(&dir, "forme.txt"), "--settings sh -c");
     assert_eq!(fs::read_dir(kraken.join("bacs")).unwrap().count(), 0);
     // Un srt qui rend 1, ou qui ne se lance pas : le refus 6028, et rien ne reste.
-    for srt in [faux_srt(&dir, false), OsString::from("kraken-srt-introuvable")] {
+    for srt in [faux_srt(&dir, false), OsString::from("lydite-srt-introuvable")] {
         profil.avec_srt(srt);
         let refus = eprouver_le_mur(&profil, &kraken).unwrap_err();
         assert_eq!(refus.code, Code::MurRefuse, "{refus}");

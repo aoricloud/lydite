@@ -52,10 +52,10 @@ const REGLAGES: [&str; 8] = [
 /// chaque main (claude.rs) : elle l'emporte sur `user.name` et `user.email`, `-c` compris, et sur un environnement
 /// hérité. Les commits de la main ne portent ni le nom ni l'adresse de l'humain.
 pub(crate) const IDENTITE: [(&str, &str); 4] = [
-    ("GIT_AUTHOR_NAME", "kraken"),
-    ("GIT_AUTHOR_EMAIL", "kraken@invalid"),
-    ("GIT_COMMITTER_NAME", "kraken"),
-    ("GIT_COMMITTER_EMAIL", "kraken@invalid"),
+    ("GIT_AUTHOR_NAME", "lydite"),
+    ("GIT_AUTHOR_EMAIL", "lydite@invalid"),
+    ("GIT_COMMITTER_NAME", "lydite"),
+    ("GIT_COMMITTER_EMAIL", "lydite@invalid"),
 ];
 
 /// Les variables de git qui désignent, à la place de ceux du dossier d'un geste, un dépôt, un arbre de travail, un
@@ -177,7 +177,7 @@ pub(crate) fn racines(depot: &Path) -> Result<(PathBuf, PathBuf), Refus> {
         return Err(Refus::new(
             Code::DepotIntrouvable,
             format!("{} n'est pas un dossier qui existe", depot.display()),
-            "Lance Kraken depuis le dépôt visé, ou donne-le par --depot <chemin>.",
+            "Lance Lydite depuis le dépôt visé, ou donne-le par --depot <chemin>.",
         ));
     }
     let git = geste(depot, &["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"])
@@ -207,17 +207,17 @@ pub(crate) fn hors_du_depot(racine: &Path, dossier: &Path) -> Result<(), Refus> 
         Refus::new(
             Code::DossierSousLeDepot,
             preuve,
-            "Pose KRAKEN_DOSSIER à un chemin absolu hors du dépôt visé, puis relance.",
+            "Pose LYDITE_DOSSIER à un chemin absolu hors du dépôt visé, puis relance.",
         )
     };
     if dossier.components().any(|composant| composant == Component::ParentDir) {
-        return Err(refus(format!("le dossier de Kraken {} porte « .. »", dossier.display())));
+        return Err(refus(format!("le dossier de Lydite {} porte « .. »", dossier.display())));
     }
     let depot =
         fs::canonicalize(racine).map_err(|e| nommee(e, format!("chemin canonique du dépôt {}", racine.display())))?;
     if canonique(dossier)?.starts_with(&depot) {
         return Err(refus(format!(
-            "le dossier de Kraken {} est sous le dépôt visé {}",
+            "le dossier de Lydite {} est sous le dépôt visé {}",
             dossier.display(),
             racine.display()
         )));

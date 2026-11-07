@@ -415,7 +415,7 @@ impl Lieu {
         fusions.next_back().expect("la vague a une fusion")
     }
 
-    /// Ce que `kraken etat` dit de ce fil, et son code de sortie.
+    /// Ce que `lydite etat` dit de ce fil, et son code de sortie.
     fn etat(&self) -> (String, ExitCode) {
         let dit = crate::commande::etat::rendu(&etat(&self.fil()), "2099-01-01T00:00:00.000Z");
         // La ligne de reçu a ses propres essais : ici, le reste du texte.
@@ -425,7 +425,7 @@ impl Lieu {
 
     /// Les branches de Kraken du distant nu.
     fn poussees(&self) -> String {
-        git(&self.nu, &["branch", "--list", "kraken/*"])
+        git(&self.nu, &["branch", "--list", "lydite/*"])
     }
 }
 
@@ -454,7 +454,7 @@ fn une_pr_verte_part_de_la_base_distante_puis_range_ses_bacs() {
     lieu.ouvre(2, &tete, &[run("test", "completed", "success")]);
     assert_eq!(lieu.apres(&proposition, &plan, &menee, Duration::from_secs(60)), ExitCode::SUCCESS);
     // La branche de la vague est poussée sur sa tête, et la PR ouverte contre main, avec son corps.
-    let branche = format!("kraken/vague-{}", menee.id);
+    let branche = format!("lydite/vague-{}", menee.id);
     assert_eq!((lieu.distante(&branche), git(&lieu.depot, &["rev-parse", &branche])), (tete.clone(), tete.clone()));
     let mut attendus = vec![
         "auth status --hostname forge.test".to_string(),
@@ -481,14 +481,14 @@ fn une_pr_verte_part_de_la_base_distante_puis_range_ses_bacs() {
     for (id, _) in &menee.issues {
         let bac = bacs.join(id);
         let temporaire = temporaire_de(&bac).unwrap();
-        retires.extend([bac.display().to_string(), temporaire.display().to_string(), format!("kraken/{id}")]);
+        retires.extend([bac.display().to_string(), temporaire.display().to_string(), format!("lydite/{id}")]);
     }
     retires.push(bacs.join(format!("vague-{}", menee.id)).display().to_string());
     assert!(matches!(&notes[3], Evenement::Rangement { retires: vus, .. } if *vus == retires), "{notes:?}");
     // Tout est retiré : les bacs, leurs dossiers temporaires, leurs branches et le worktree de la vague. Sa branche
     // reste, qui porte la PR.
     assert_eq!(fs::read_dir(&bacs).unwrap().count(), 0, "plus rien sous bacs");
-    let branches = git(&lieu.depot, &["for-each-ref", "--format=%(refname)", "refs/heads/kraken"]);
+    let branches = git(&lieu.depot, &["for-each-ref", "--format=%(refname)", "refs/heads/lydite"]);
     assert_eq!(branches, format!("refs/heads/{branche}"));
     assert_eq!(git(&lieu.depot, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1);
     let _ = fs::remove_dir_all(&lieu.racine);
@@ -575,7 +575,7 @@ fn une_ci_rouge_vaut_une_relance_qui_avance_la_branche_de_la_pr() {
         "    Ecrire b",
     ]);
     let menee = lieu.vague_rouge(&proposition, &plan);
-    let (tete, branche) = (menee.tete.clone().unwrap(), format!("kraken/vague-{}", menee.id));
+    let (tete, branche) = (menee.tete.clone().unwrap(), format!("lydite/vague-{}", menee.id));
     // La relance rend la CI verte : le faux gh la rend à ses appels 9 à 11, sur la tête que la relance assemble.
     let verte = lieu.relance(main_de_vague(&lieu.racine), 9, vec![run("test (windows)", "completed", "success")]);
     assert_eq!(lieu.apres_avec(&proposition, &plan, &menee, &verte, Duration::from_secs(60)), ExitCode::SUCCESS);
@@ -649,15 +649,15 @@ fn une_ci_rouge_vaut_une_relance_qui_avance_la_branche_de_la_pr() {
     let attendus = [
         bac.display().to_string(),
         temporaire_de(&bac).unwrap().display().to_string(),
-        format!("kraken/main-{relance}-1"),
+        format!("lydite/main-{relance}-1"),
         bacs.join(format!("vague-{relance}")).display().to_string(),
-        format!("kraken/vague-{relance}"),
+        format!("lydite/vague-{relance}"),
     ];
     assert_eq!(*retires, attendus);
     assert_eq!(fs::read_dir(&bacs).unwrap().count(), 0, "plus rien sous bacs");
-    let branches = git(&lieu.depot, &["for-each-ref", "--format=%(refname)", "refs/heads/kraken"]);
+    let branches = git(&lieu.depot, &["for-each-ref", "--format=%(refname)", "refs/heads/lydite"]);
     assert_eq!(branches, format!("refs/heads/{branche}"));
-    // `kraken etat` montre la vague relancée, puis sa relance : la CI rouge, puis la verte, et le code 0.
+    // `lydite etat` montre la vague relancée, puis sa relance : la CI rouge, puis la verte, et le code 0.
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::SUCCESS, "{dit}");
     let rouge = format!("PR 12 · {PR} · CI rouge (constatée)");
@@ -704,19 +704,44 @@ fn une_tache_dehors_garde_le_code_1_meme_quand_la_relance_rend_la_ci_verte() {
     let retires = [
         bac_de_a.display().to_string(),
         temporaire_de_a.display().to_string(),
-        format!("kraken/{a}"),
+        format!("lydite/{a}"),
         vague.display().to_string(),
     ];
     assert!(matches!(&notes[3], Evenement::Rangement { retires: vus, .. } if *vus == retires), "{notes:?}");
     assert!(!bac_de_a.exists() && !temporaire_de_a.exists() && !vague.exists());
     assert!(bacs.join(b).join(format!("{b}.txt")).is_file(), "le travail de b reste dans son bac");
     assert!(temporaire_de(&bacs.join(b)).unwrap().is_dir());
-    assert_eq!(git(&lieu.depot, &["branch", "--list", &format!("kraken/{a}")]), "");
-    assert_ne!(git(&lieu.depot, &["branch", "--list", &format!("kraken/{b}")]), "");
+    assert_eq!(git(&lieu.depot, &["branch", "--list", &format!("lydite/{a}")]), "");
+    assert_ne!(git(&lieu.depot, &["branch", "--list", &format!("lydite/{b}")]), "");
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::FAILURE, "{dit}");
     assert!(dit.contains(&format!("main-{}-2 b : classée", menee.id)), "{dit}");
     assert!(dit.ends_with(&format!("PR 12 · {PR} · CI verte (constatée)")), "{dit}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn la_garde_rejouee_sur_la_poussee_d_une_relance_de_ci_refuse_8005() {
+    let lieu = lieu("forge-relance-garde");
+    let proposition = lieu.proposition();
+    let plan = plan_de_a();
+    let menee = lieu.vague_rouge(&proposition, &plan);
+    let (tete, branche) = (menee.tete.clone().unwrap(), format!("lydite/vague-{}", menee.id));
+    // La garde naît après la première poussée : le contexte de la CI rouge, que la consigne de la relance porte dans
+    // son bac, n'était pas encore écrit.
+    let garde = lieu.kraken.join("garde");
+    fs::write(&garde, "# la relance\ntest b ... FAILED\n").unwrap();
+    let verte = lieu.relance(main_de_vague(&lieu.racine), 9, vec![run("test (windows)", "completed", "success")]);
+    assert_eq!(lieu.apres_avec(&proposition, &plan, &menee, &verte, Duration::from_secs(60)), ExitCode::FAILURE);
+    let vagues = lieu.vagues();
+    assert_eq!(vagues.len(), 2, "{vagues:?}");
+    let notes = lieu.forge_du_fil(&vagues[1]);
+    assert_eq!(mots(&notes), ["refus 8005"]);
+    let Evenement::RefusForge { preuve, .. } = &notes[0] else { panic!("{notes:?}") };
+    assert!(preuve.starts_with("la ligne 2 de la garde paraît dans les lignes ajoutées de b/"), "{preuve}");
+    assert!(!preuve.contains(&garde.display().to_string()), "{preuve}");
+    // Rien de la relance n'est poussé : la branche de la PR reste à la tête de la vague.
+    assert_eq!(lieu.distante(&branche), tete);
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -726,7 +751,7 @@ fn une_ci_rouge_deux_fois_est_8011_et_la_pr_reste_ouverte_et_rouge() {
     let proposition = lieu.proposition();
     let plan = plan_de_a();
     let menee = lieu.vague_rouge(&proposition, &plan);
-    let branche = format!("kraken/vague-{}", menee.id);
+    let branche = format!("lydite/vague-{}", menee.id);
     // La CI de la relance est rouge encore (appels 9 à 11), avec un journal à elle (appels 12 et 13).
     lieu.gh.rendre(12, 0, r#"[{"conclusion":"failure","databaseId":9}]"#, "");
     lieu.gh.rendre(13, 0, "test a ... FAILED encore\n", "");
@@ -750,7 +775,7 @@ fn une_ci_rouge_deux_fois_est_8011_et_la_pr_reste_ouverte_et_rouge() {
     assert_eq!(lieu.distante(&branche), lieu.tete_de(&vagues[1]));
     assert_eq!(fs::read_dir(lieu.kraken.join("bacs")).unwrap().count(), 0, "plus rien sous bacs");
     assert_eq!(lieu.gh.appels().len(), 13);
-    // `kraken etat` montre la vague relancée, puis sa relance, rouge encore et refusée.
+    // `lydite etat` montre la vague relancée, puis sa relance, rouge encore et refusée.
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::FAILURE, "{dit}");
     let rouge = format!("PR 12 · {PR} · CI rouge (constatée)");
@@ -765,7 +790,7 @@ fn une_relance_qui_touche_github_n_est_pas_poussee_8005() {
     let proposition = lieu.proposition();
     let plan = plan_de_a();
     let menee = lieu.vague_rouge(&proposition, &plan);
-    let (tete, branche) = (menee.tete.clone().unwrap(), format!("kraken/vague-{}", menee.id));
+    let (tete, branche) = (menee.tete.clone().unwrap(), format!("lydite/vague-{}", menee.id));
     let touche = lieu.relance(main_qui_ecrit_la_ci(&lieu.racine), 9, Vec::new());
     assert_eq!(lieu.apres_avec(&proposition, &plan, &menee, &touche, Duration::from_secs(60)), ExitCode::FAILURE);
     // La relance s'ouvre et s'assemble, mais sa règle de publication la refuse : le refus 8005 se note sous elle,
@@ -783,7 +808,7 @@ fn une_relance_qui_touche_github_n_est_pas_poussee_8005() {
     let bacs = lieu.kraken.join("bacs");
     assert!(bacs.join(format!("main-{relance}-1")).join(".github").join("ci.yml").is_file(), "son bac reste");
     assert!(bacs.join(format!("vague-{relance}")).is_dir(), "son worktree reste");
-    assert_ne!(git(&lieu.depot, &["branch", "--list", &format!("kraken/vague-{relance}")]), "");
+    assert_ne!(git(&lieu.depot, &["branch", "--list", &format!("lydite/vague-{relance}")]), "");
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::FAILURE, "{dit}");
     assert!(dit.ends_with(&format!("\nrefusée (8005) : {}", Code::PublicationRefusee.regle())), "{dit}");
@@ -796,7 +821,7 @@ fn une_base_qui_a_bouge_pendant_la_ci_n_est_pas_relancee_8009() {
     let proposition = lieu.proposition();
     let (plan, base) = (plan_de_a(), lieu.base());
     let menee = lieu.vague_rouge(&proposition, &plan);
-    let (tete, branche) = (menee.tete.clone().unwrap(), format!("kraken/vague-{}", menee.id));
+    let (tete, branche) = (menee.tete.clone().unwrap(), format!("lydite/vague-{}", menee.id));
     // La base avance sur le distant pendant que la CI tourne : sa tête n'est plus un ancêtre de la tête poussée.
     let avancee = sur(&lieu.depot, &base, &[("b.txt", "b\n")], "b");
     git(&lieu.depot, &["push", "-q", "origin", &format!("{avancee}:refs/heads/main")]);
@@ -819,7 +844,7 @@ fn une_vague_critique_rouge_est_8011_sans_relance() {
     let proposition = lieu.proposition();
     let plan = plan(&["plan 1", "objectif : Ecrire a", "preuve : exit 0", "tache a", "critique : oui", "    Ecrire a"]);
     let menee = lieu.vague_rouge(&proposition, &plan);
-    let (tete, branche) = (menee.tete.clone().unwrap(), format!("kraken/vague-{}", menee.id));
+    let (tete, branche) = (menee.tete.clone().unwrap(), format!("lydite/vague-{}", menee.id));
     // `apres` panique si une relance part : aucune ne part. Le refus 8011 se note sous la vague, comme les autres,
     // après sa CI rouge ; la PR reste ouverte et rouge, à la tête poussée, et la vague se range.
     assert_eq!(lieu.apres(&proposition, &plan, &menee, Duration::from_secs(60)), ExitCode::FAILURE);
@@ -839,7 +864,7 @@ fn une_vague_critique_rouge_est_8011_sans_relance() {
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
-/// Une preuve verte tant que `<racine>/rouge` n'existe pas : une vague la joue dans `<racine>/kraken/bacs/<x>`.
+/// Une preuve verte tant que `<racine>/rouge` n'existe pas : une vague la joue dans `<racine>/lydite/bacs/<x>`.
 const PREUVE_A_MARQUE: &str =
     if cfg!(windows) { r"if exist ..\..\..\rouge (exit 1)" } else { "test ! -f ../../../rouge" };
 
@@ -864,9 +889,9 @@ fn lancer_qui_refuse_la_relance_est_8011_sous_la_vague() {
     assert_eq!(*code, 8011);
     assert!(preuve.contains("ne s'ouvre pas, 6022 lancer.base_rouge"), "{preuve}");
     assert_eq!(fs::read_dir(lieu.kraken.join("bacs")).unwrap().count(), 0, "plus rien sous bacs");
-    let branches = git(&lieu.depot, &["for-each-ref", "--format=%(refname)", "refs/heads/kraken"]);
-    assert_eq!(branches, format!("refs/heads/kraken/vague-{}", menee.id));
-    // `kraken etat` le montre sous la vague relancée, après sa PR et sa CI rouge.
+    let branches = git(&lieu.depot, &["for-each-ref", "--format=%(refname)", "refs/heads/lydite"]);
+    assert_eq!(branches, format!("refs/heads/lydite/vague-{}", menee.id));
+    // `lydite etat` le montre sous la vague relancée, après sa PR et sa CI rouge.
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::FAILURE, "{dit}");
     let rouge = format!("PR 12 · {PR} · CI rouge (constatée)");
@@ -880,7 +905,7 @@ fn une_relance_non_assemblee_est_8011_sous_la_relance() {
     let proposition = lieu.proposition();
     let plan = plan_de_a();
     let menee = lieu.vague_rouge(&proposition, &plan);
-    let (tete, branche) = (menee.tete.clone().unwrap(), format!("kraken/vague-{}", menee.id));
+    let (tete, branche) = (menee.tete.clone().unwrap(), format!("lydite/vague-{}", menee.id));
     let echoue = lieu.relance(main_qui_echoue(&lieu.racine), 9, Vec::new());
     assert_eq!(lieu.apres_avec(&proposition, &plan, &menee, &echoue, Duration::from_secs(60)), ExitCode::FAILURE);
     // La relance s'ouvre mais sa tâche est classée : le refus 8011 se note sous elle, rien ne se pousse.
@@ -894,11 +919,11 @@ fn une_relance_non_assemblee_est_8011_sous_la_relance() {
     assert_eq!(lieu.gh.appels().len(), 8, "la CI de la relance n'est pas lue");
     // Le bac de sa tâche reste, qui n'a rien de poussé ; son worktree et sa branche, à la tête poussée, se rangent.
     let bacs = lieu.kraken.join("bacs");
-    let retires = [bacs.join(format!("vague-{relance}")).display().to_string(), format!("kraken/vague-{relance}")];
+    let retires = [bacs.join(format!("vague-{relance}")).display().to_string(), format!("lydite/vague-{relance}")];
     assert!(matches!(&notes[1], Evenement::Rangement { retires: vus, .. } if *vus == retires), "{notes:?}");
     assert!(bacs.join(format!("main-{relance}-1")).is_dir() && !bacs.join(format!("vague-{relance}")).exists());
-    assert_eq!(git(&lieu.depot, &["branch", "--list", &format!("kraken/vague-{relance}")]), "");
-    // `kraken etat` montre la relance, qui n'a pas de PR à elle : son objectif, sa tâche classée, puis le refus.
+    assert_eq!(git(&lieu.depot, &["branch", "--list", &format!("lydite/vague-{relance}")]), "");
+    // `lydite etat` montre la relance, qui n'a pas de PR à elle : son objectif, sa tâche classée, puis le refus.
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::FAILURE, "{dit}");
     assert!(dit.starts_with("Rendre verte la CI de la PR 12\n"), "{dit}");
@@ -984,7 +1009,7 @@ fn un_bac_qui_a_bouge_apres_son_gel_reste_avec_sa_branche() {
     let vague = lieu.kraken.join("bacs").join(format!("vague-{}", menee.id)).display().to_string();
     assert!(matches!(&notes[3], Evenement::Rangement { retires, .. } if *retires == [vague.clone()]), "{notes:?}");
     assert!(bac.join("tardif.txt").is_file() && !Path::new(&vague).exists());
-    assert_eq!(git(&lieu.depot, &["rev-parse", &format!("kraken/{id}")]), tardif);
+    assert_eq!(git(&lieu.depot, &["rev-parse", &format!("lydite/{id}")]), tardif);
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -1053,7 +1078,7 @@ fn ni_github_ni_chemin_du_poste_ni_commit_etranger_ne_part_8005() {
     let cas = [
         (github, ".github/ci.yml change entre la base"),
         (chemin, "paraît dans les lignes ajoutées de b/"),
-        (etranger, "n'est pas de Kraken : auteur « autre <autre@exemple.invalid> », committer « autre <"),
+        (etranger, "n'est pas de Lydite : auteur « autre <autre@exemple.invalid> », committer « autre <"),
     ];
     for (plan, vu) in cas {
         let menee = lieu.vague(&proposition, &plan);
@@ -1065,10 +1090,33 @@ fn ni_github_ni_chemin_du_poste_ni_commit_etranger_ne_part_8005() {
         assert!(preuve.contains(vu), "{preuve}");
         // Rien n'est poussé : la branche reste locale, à sa tête, et ses bacs restent.
         assert_eq!(lieu.poussees(), "");
-        let locale = git(&lieu.depot, &["rev-parse", &format!("kraken/vague-{}", menee.id)]);
+        let locale = git(&lieu.depot, &["rev-parse", &format!("lydite/vague-{}", menee.id)]);
         assert_eq!(Some(locale), menee.tete);
         assert!(lieu.kraken.join("bacs").join(&menee.issues[0].0).is_dir());
     }
+    assert_eq!(lieu.gh.appels().len(), 1, "aucune PR ne s'ouvre");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn un_mot_de_la_garde_dans_le_corps_ne_part_pas_8005() {
+    let lieu = lieu("forge-garde");
+    let proposition = lieu.proposition();
+    // Le corps de la PR dit le reçu, dont la ligne des réglages porte le mot gardé ; la fausse main n'écrit pas ce mot
+    // dans son bac, et le titre ne le porte pas : le corps seul le dit.
+    let plan = plan(&["plan 1", "objectif : Ecrire a", "preuve : exit 0", "tache a", "    Ecrire a"]);
+    let garde = lieu.kraken.join("garde");
+    fs::write(&garde, "# les noms que je ne publie pas\nChangés : Aucun\n").unwrap();
+    let menee = lieu.vague(&proposition, &plan);
+    assert!(menee.issues.iter().all(|(_, issue)| issue.is_ok()), "{:?}", menee.issues);
+    assert_eq!(lieu.apres(&proposition, &plan, &menee, Duration::from_secs(60)), ExitCode::FAILURE);
+    let notes = lieu.forge_du_fil(&menee.id);
+    assert_eq!(mots(&notes), ["refus 8005"]);
+    let Evenement::RefusForge { preuve, .. } = &notes[0] else { panic!("{notes:?}") };
+    assert_eq!(preuve, "la ligne 2 de la garde paraît dans le corps");
+    assert!(!preuve.contains(&garde.display().to_string()), "{preuve}");
+    // Rien n'est poussé, et aucune PR ne s'ouvre.
+    assert_eq!(lieu.poussees(), "");
     assert_eq!(lieu.gh.appels().len(), 1, "aucune PR ne s'ouvre");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
@@ -1103,7 +1151,7 @@ fn un_create_rate_dont_la_pr_existe_sur_la_tete_poussee_poursuit_la_forge() {
     rendre_ci(&lieu.gh, 4, &tete, &[run("test", "completed", "success")], &[]);
     assert_eq!(lieu.apres(&proposition, &plan, &menee, Duration::from_secs(60)), ExitCode::SUCCESS);
     assert_eq!(mots(&lieu.forge_du_fil(&menee.id)), ["poussée", "pr 12", "ci Vert", "rangement"]);
-    let branche = format!("kraken/vague-{}", menee.id);
+    let branche = format!("lydite/vague-{}", menee.id);
     let appels = lieu.gh.appels();
     let creates: Vec<_> = appels.iter().filter(|appel| appel.starts_with("pr create ")).collect();
     assert_eq!(creates.len(), 1, "{appels:?}");
@@ -1140,7 +1188,7 @@ fn une_ci_muette_en_conflit_ou_changee_arrete_la_forge_8008_8009_8010() {
         let refus = format!("refus {code}");
         assert_eq!(mots(&lieu.forge_du_fil(&menee.id)), ["poussée", "pr 12", refus.as_str(), "rangement"]);
         assert!(!lieu.kraken.join("bacs").join(&menee.issues[0].0).exists(), "{code} : le bac est rangé");
-        assert_eq!(lieu.distante(&format!("kraken/vague-{}", menee.id)), tete);
+        assert_eq!(lieu.distante(&format!("lydite/vague-{}", menee.id)), tete);
     }
     assert_eq!(lieu.appels_bien_partis(), 12);
     let _ = fs::remove_dir_all(&lieu.racine);

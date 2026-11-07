@@ -1,4 +1,4 @@
-//! La vague d'un plan, jouée sur le binaire lui-même : `kraken lancer <profil> --plan <fichier>`. Chaque test lance
+//! La vague d'un plan, jouée sur le binaire lui-même : `lydite lancer <profil> --plan <fichier>`. Chaque test lance
 //! `kraken` sur un dépôt git jetable qui a un commit, avec un dossier de Kraken jetable hors de ce dépôt et un `claude`
 //! qui n'existe pas : un plan accepté par erreur ne lancerait aucune vraie main. Aucun nom de branche n'est supposé.
 
@@ -9,7 +9,7 @@ use std::process::{Command, Output};
 /// Une racine neuve et vide, à ce test, dans le dossier temporaire du système : le dépôt visé (`depot`), le dossier de
 /// Kraken (`kraken`, que rien ne crée avant un plan juste) et les plans y vivent côte à côte, hors de ce dépôt-ci.
 fn racine(nom: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kraken-vague-{nom}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("lydite-vague-{nom}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -39,26 +39,26 @@ fn plan(racine: &Path, nom: &str, lignes: &[&str]) -> PathBuf {
     chemin
 }
 
-/// `kraken lancer claude --plan <plan> --depot <racine>/depot`, joué dans la racine.
+/// `lydite lancer claude --plan <plan> --depot <racine>/depot`, joué dans la racine.
 fn lancer_le_plan(racine: &Path, plan: &Path) -> Output {
     commande_du_plan(racine, plan).output().unwrap()
 }
 
 /// La commande de `lancer_le_plan`, avant qu'elle ne parte : un test y pose ce qu'il veut sur l'enfant seul. Le dossier
-/// de Kraken est `<racine>/kraken`, `KRAKEN_CLAUDE` vise un programme absent, et `USERPROFILE`, `HOME` et
+/// de Kraken est `<racine>/lydite`, `LYDITE_CLAUDE` vise un programme absent, et `USERPROFILE`, `HOME` et
 /// `CLAUDE_CONFIG_DIR` vont à des leurres sous la racine, jamais créés, d'où Kraken tire les dossiers de connexion de
 /// Claude : posés sur l'enfant seul, ils ne touchent pas le processus du test, et le vrai dossier personnel de l'humain
-/// n'est jamais lu. Le test ne retire jamais `KRAKEN_CLAUDE` : sans elle, Kraken prendrait `claude` dans le PATH.
+/// n'est jamais lu. Le test ne retire jamais `LYDITE_CLAUDE` : sans elle, Kraken prendrait `claude` dans le PATH.
 fn commande_du_plan(racine: &Path, plan: &Path) -> Command {
-    let mut commande = Command::new(env!("CARGO_BIN_EXE_kraken"));
+    let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
     commande
         .args(["lancer", "claude", "--plan"])
         .arg(plan)
         .arg("--depot")
         .arg(racine.join("depot"))
         .current_dir(racine)
-        .env("KRAKEN_DOSSIER", racine.join("kraken"))
-        .env("KRAKEN_CLAUDE", racine.join("claude-absent"));
+        .env("LYDITE_DOSSIER", racine.join("lydite"))
+        .env("LYDITE_CLAUDE", racine.join("claude-absent"));
     avec_leurres(&mut commande, racine);
     commande
 }
@@ -69,7 +69,7 @@ fn avec_leurres<'a>(commande: &'a mut Command, racine: &Path) -> &'a mut Command
     commande.env("USERPROFILE", &personnel).env("HOME", personnel).env("CLAUDE_CONFIG_DIR", racine.join("config"))
 }
 
-/// Un refus lu sur stderr : sa première ligne, `kraken : <numéro> <nom>`, puis la preuve et la correction, sans leur
+/// Un refus lu sur stderr : sa première ligne, `lydite : <numéro> <nom>`, puis la preuve et la correction, sans leur
 /// étiquette.
 struct Refus {
     code: String,
@@ -96,8 +96,8 @@ fn lire_refus(sortie: &Output) -> Refus {
 /// autre worktree que le sien, et son arbre est propre.
 fn rien_n_est_parti(racine: &Path) {
     let depot = racine.join("depot");
-    assert!(!racine.join("kraken").exists(), "ni fil, ni bac : le dossier de Kraken n'existe pas");
-    assert_eq!(git(&depot, &["branch", "--list", "kraken/*"]), "", "ni branche");
+    assert!(!racine.join("lydite").exists(), "ni fil, ni bac : le dossier de Lydite n'existe pas");
+    assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "", "ni branche");
     assert_eq!(git(&depot, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "ni worktree");
     assert_eq!(git(&depot, &["status", "--porcelain"]), "");
 }
@@ -112,35 +112,35 @@ fn un_plan_faux_est_refuse_avant_tout_bac() {
     let cas: [(Vec<&str>, &str, &str); 7] = [
         (
             vec!["plan 2", "objectif : o", "preuve : git status", "tache a", "    x"],
-            "kraken : 6016 lancer.plan_version",
+            "lydite : 6016 lancer.plan_version",
             "ligne 1 « plan 2 » : la première ligne d'un plan est `plan 1`",
         ),
         (
             [&entete[..], &["", "blabla"]].concat(),
-            "kraken : 6018 lancer.plan_ligne",
+            "lydite : 6018 lancer.plan_ligne",
             "ligne 5 « blabla » : elle n'est ni vide, ni indentée",
         ),
         (
             [&entete[..], &["tache a b", "    x"]].concat(),
-            "kraken : 6019 lancer.plan_identifiant",
+            "lydite : 6019 lancer.plan_identifiant",
             "ligne 4 « tache a b » : l'id « a b » n'est pas un mot",
         ),
         (
             [&entete[..], &["tache a", "depend : zz", "    x"]].concat(),
-            "kraken : 6020 lancer.plan_dependance",
+            "lydite : 6020 lancer.plan_dependance",
             "ligne 5 « depend : zz » : la dépendance « zz » n'est l'id d'aucune tâche du plan",
         ),
         (
             [&entete[..], &["tache a", "depend : b", "    x", "tache b", "depend : a", "    y"]].concat(),
-            "kraken : 6020 lancer.plan_dependance",
+            "lydite : 6020 lancer.plan_dependance",
             "ligne 5 « depend : b » : cycle de dépendances : a → b → a",
         ),
         (
             vec!["plan 1", "objectif : o", "tache a", "    x"],
-            "kraken : 6021 lancer.plan_blanc",
+            "lydite : 6021 lancer.plan_blanc",
             "l'en-tête n'a pas de ligne `preuve : …`",
         ),
-        (entete.to_vec(), "kraken : 6021 lancer.plan_blanc", "le plan ne contient aucune tâche"),
+        (entete.to_vec(), "lydite : 6021 lancer.plan_blanc", "le plan ne contient aucune tâche"),
     ];
     for (i, (lignes, code, debut)) in cas.into_iter().enumerate() {
         let sortie = lancer_le_plan(&racine, &plan(&racine, &format!("plan-{i}.txt"), &lignes));
@@ -174,7 +174,7 @@ fn un_plan_en_utf16_est_refuse_par_le_binaire() {
     assert_eq!(String::from_utf16(&unites).unwrap(), texte);
 
     let refus = lire_refus(&lancer_le_plan(&racine, &chemin));
-    assert_eq!(refus.code, "kraken : 6017 lancer.plan_encodage");
+    assert_eq!(refus.code, "lydite : 6017 lancer.plan_encodage");
     assert!(refus.preuve.contains("FF FE") && refus.preuve.contains("UTF-16"), "{}", refus.preuve);
     let commande = "(Get-Content <fichier>) | Set-Content -Encoding utf8 <fichier>";
     assert!(
@@ -192,7 +192,7 @@ fn un_plan_absent_nomme_son_chemin() {
     depot(&racine);
     let absent = racine.join("absent.txt");
     let refus = lire_refus(&lancer_le_plan(&racine, &absent));
-    assert_eq!(refus.code, "kraken : 6006 lancer.entree_sortie");
+    assert_eq!(refus.code, "lydite : 6006 lancer.entree_sortie");
     assert!(
         refus.preuve.contains(&absent.display().to_string()),
         "la preuve nomme le chemin du plan : {}",
@@ -235,7 +235,7 @@ fn une_vague_a_plan_dit_chaque_tache_puis_sa_branche() {
     // La dernière ligne dit la branche de la vague, d'où se tire le lot `<v>` de ses mains.
     let lignes: Vec<&str> = erreur.lines().collect();
     let derniere = lignes.last().copied().unwrap_or_default();
-    let Some(v) = derniere.strip_prefix("branche de la vague : kraken/vague-") else { panic!("{erreur}") };
+    let Some(v) = derniere.strip_prefix("branche de la vague : lydite/vague-") else { panic!("{erreur}") };
     // a : classée, puis son erreur, celle d'un `claude` qui ne part pas ; b : refusée, puis son refus en clair (7011).
     assert_eq!(lignes[0], format!("classée : main-{v}-1 (a)"), "{erreur}");
     let Some(b) = lignes.iter().position(|ligne| *ligne == format!("refusée : main-{v}-2 (b)")) else {
@@ -249,24 +249,24 @@ fn une_vague_a_plan_dit_chaque_tache_puis_sa_branche() {
 
     // Ce que Kraken a posé : la branche de la vague, restée à la base, le bac de a, et rien pour b ; rien ne bouge dans
     // l'arbre du dépôt visé.
-    assert_eq!(git(&depot, &["rev-parse", &format!("kraken/vague-{v}")]), base, "rien n'est assemblé");
-    let bacs = racine.join("kraken").join("bacs");
+    assert_eq!(git(&depot, &["rev-parse", &format!("lydite/vague-{v}")]), base, "rien n'est assemblé");
+    let bacs = racine.join("lydite").join("bacs");
     assert!(bacs.join(format!("main-{v}-1")).is_dir(), "a a son bac");
     assert!(!bacs.join(format!("main-{v}-2")).exists(), "b n'a pas de bac");
     assert!(bacs.join(format!("vague-{v}")).is_dir(), "le worktree de la vague reste en place");
     assert_eq!(git(&depot, &["status", "--porcelain"]), "");
     // Le fil a noté le refus de b.
-    let fil = fs::read_to_string(racine.join("kraken").join("fil.jsonl")).unwrap();
+    let fil = fs::read_to_string(racine.join("lydite").join("fil.jsonl")).unwrap();
     assert!(fil.contains(r#""type":"vague.refus""#) && fil.contains(r#""code":7011"#), "{fil}");
     // Le profil intégré déclare : chacune des deux tentatives de a est précédée de son lancement et suivie de son
     // constat, vide, car sa main ne part pas ; b, sautée, n'en a aucun.
     assert_eq!(fil.matches(r#""type":"main.lancement""#).count(), 2, "{fil}");
     assert_eq!(fil.matches(r#""type":"main.constat""#).count(), 2, "{fil}");
-    // `kraken etat` finit la ligne de a par le mot du mur de sa dernière tentative, déclaré faute de constat ; celle de
+    // `lydite etat` finit la ligne de a par le mot du mur de sa dernière tentative, déclaré faute de constat ; celle de
     // b, qui n'a pas de tentative, n'en a pas.
-    let dossier = racine.join("kraken");
-    let mut commande = Command::new(env!("CARGO_BIN_EXE_kraken"));
-    commande.arg("etat").env("KRAKEN_DOSSIER", dossier);
+    let dossier = racine.join("lydite");
+    let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
+    commande.arg("etat").env("LYDITE_DOSSIER", dossier);
     let etat = avec_leurres(&mut commande, &racine).output().unwrap();
     let dit = String::from_utf8_lossy(&etat.stdout);
     assert_eq!(etat.status.code(), Some(1), "{dit}");
@@ -296,10 +296,10 @@ fn un_git_dir_herite_ne_detourne_aucun_geste_de_la_vague() {
     let Some(branche) = erreur.lines().last().and_then(|ligne| ligne.strip_prefix("branche de la vague : ")) else {
         panic!("{erreur}")
     };
-    let branches = git(&depot, &["branch", "--list", "kraken/*"]);
+    let branches = git(&depot, &["branch", "--list", "lydite/*"]);
     assert!(branches.contains(branche), "la branche de la vague est dans le dépôt visé : {branches:?}\n{erreur}");
     // Le leurre n'a rien vu : ni branche de Kraken, ni autre worktree que le sien.
-    assert_eq!(git(&leurre, &["branch", "--list", "kraken/*"]), "", "ni branche");
+    assert_eq!(git(&leurre, &["branch", "--list", "lydite/*"]), "", "ni branche");
     assert_eq!(git(&leurre, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "ni worktree");
     let _ = fs::remove_dir_all(&racine);
 }
@@ -413,7 +413,7 @@ fn une_main_qui_reecrit_le_git_de_son_bac_ne_detourne_aucun_geste_de_la_vague() 
     let autre = depot(&racine.join("autre"));
     let tete_de_l_autre = git(&autre, &["rev-parse", "HEAD"]);
     let depot = depot(&racine);
-    let (dossier, main) = (racine.join("kraken"), racine.join("main"));
+    let (dossier, main) = (racine.join("lydite"), racine.join("main"));
     fs::create_dir_all(dossier.join("profils")).unwrap();
     fs::create_dir_all(&main).unwrap();
     // La fausse claude : elle répond aux contrôles, lit sa consigne, réécrit le `.git` de son bac vers l'autre dépôt,
@@ -463,12 +463,12 @@ fn une_main_qui_reecrit_le_git_de_son_bac_ne_detourne_aucun_geste_de_la_vague() 
     );
     fs::write(dossier.join("profils").join("essai.profil"), profil).unwrap();
     let kraken = || {
-        let mut commande = Command::new(env!("CARGO_BIN_EXE_kraken"));
+        let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
         commande
             .current_dir(&racine)
-            .env("KRAKEN_DOSSIER", &dossier)
-            .env("KRAKEN_CLAUDE", racine.join("claude-absent"))
-            .env("KRAKEN_SRT", &srt);
+            .env("LYDITE_DOSSIER", &dossier)
+            .env("LYDITE_CLAUDE", racine.join("claude-absent"))
+            .env("LYDITE_SRT", &srt);
         avec_leurres(&mut commande, &racine);
         commande
     };
@@ -484,7 +484,7 @@ fn une_main_qui_reecrit_le_git_de_son_bac_ne_detourne_aucun_geste_de_la_vague() 
         panic!("{erreur}")
     };
     // La main a bien réécrit le `.git` de son bac.
-    let v = branche.strip_prefix("kraken/vague-").unwrap();
+    let v = branche.strip_prefix("lydite/vague-").unwrap();
     let bac = dossier.join("bacs").join(format!("main-{v}-1"));
     assert_eq!(fs::read_to_string(bac.join(".git")).unwrap().trim(), gitdir);
     // Le gel et la fusion sont allés dans le dépôt visé : la branche de la vague y porte a.txt.
@@ -492,7 +492,7 @@ fn une_main_qui_reecrit_le_git_de_son_bac_ne_detourne_aucun_geste_de_la_vague() 
     // L'autre dépôt est intact : sa tête, un seul commit, ni branche de Kraken, ni index ni arbre touchés.
     assert_eq!(git(&autre, &["rev-parse", "HEAD"]), tete_de_l_autre);
     assert_eq!(git(&autre, &["rev-list", "--all", "--count"]), "1");
-    assert_eq!(git(&autre, &["branch", "--list", "kraken/*"]), "");
+    assert_eq!(git(&autre, &["branch", "--list", "lydite/*"]), "");
     assert_eq!(git(&autre, &["status", "--porcelain"]), "");
     let _ = fs::remove_dir_all(&racine);
 }
