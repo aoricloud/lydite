@@ -1,0 +1,5 @@
+# La CI et chaque poste suivent ce fichier ; une montée de version est une PR à part.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

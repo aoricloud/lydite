@@ -1,0 +1,90 @@
+name: binaires
+
+# Les binaires de Lydite, construits ici par GitHub Actions et attestés (provenance signée) : c'est ce que le catalogue
+# de Hermes demande de tout binaire natif (règle 17). Il ne part que pour une étiquette `v*` ou à la main ; la CI
+# ordinaire (ci.yml) ne le déclenche jamais. Il est écrit pour le dépôt public : l'attestation d'un dépôt privé
+# demande un forfait que le dépôt interne n'a pas.
+#
+# Vérifier un binaire téléchargé :  gh attestation verify <fichier> --repo <proprietaire>/<depot>
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  # La commande publique est `lydite` (le nom interne, Kraken, est déjà pris par l'outil d'une plateforme de
+  # cryptomonnaies). Elle n'est dite qu'ici ; le paquet Cargo et le binaire construit gardent le nom interne `kraken`.
+  COMMANDE: lydite
+
+permissions:
+  contents: read
+
+jobs:
+  construire:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, cible: linux-x86_64, binaire: kraken, archive: tar.gz }
+          - { os: windows-latest, cible: windows-x86_64, binaire: kraken.exe, archive: zip }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install --no-self-update
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - name: Emballer (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          nom="${COMMANDE}-${GITHUB_REF_NAME//\//-}-${{ matrix.cible }}"
+          mkdir -p "dist/$nom"
+          cp "target/release/${{ matrix.binaire }}" "dist/$nom/${COMMANDE}"
+          cp LICENSE README.md "dist/$nom/"
+          tar -czf "dist/$nom.tar.gz" -C dist "$nom"
+          (cd dist && sha256sum "$nom.tar.gz" > "$nom.tar.gz.sha256")
+          rm -rf "dist/$nom"
+      - name: Emballer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $nom = "$env:COMMANDE-$($env:GITHUB_REF_NAME -replace '/', '-')-${{ matrix.cible }}"
+          New-Item -ItemType Directory -Force "dist/$nom" | Out-Null
+          Copy-Item "target/release/${{ matrix.binaire }}" "dist/$nom/$env:COMMANDE.exe"
+          Copy-Item LICENSE, README.md "dist/$nom/"
+          Compress-Archive -Path "dist/$nom" -DestinationPath "dist/$nom.zip"
+          $hash = (Get-FileHash "dist/$nom.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $nom.zip" | Out-File -Encoding ascii "dist/$nom.zip.sha256"
+          Remove-Item -Recurse -Force "dist/$nom"
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*.${{ matrix.archive }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.cible }}
+          path: dist/*
+          if-no-files-found: error
+
+  publier:
+    # Une étiquette seulement : un lancement à la main construit et atteste, sans rien publier.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: construire
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Attacher à la version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

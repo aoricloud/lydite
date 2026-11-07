@@ -1,0 +1,30 @@
+name: hermes
+
+# Le plugin Hermes (dossier hermes/) : ses tests, sans rien installer (bibliothèque standard seulement).
+# `hermes plugins validate` se joue à la main sur une machine qui a Hermes : voir hermes/README.md.
+
+on:
+  push:
+    branches: [main]
+    paths: ["hermes/**", ".github/workflows/hermes.yml"]
+  pull_request:
+    paths: ["hermes/**", ".github/workflows/hermes.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  tester:
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.14"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -W error -m unittest discover -s hermes/tests -t hermes

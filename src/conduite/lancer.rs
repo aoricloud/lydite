@@ -1,0 +1,850 @@
+//! L'ordonnancement d'une vague : `lancer` mène les tâches d'un plan, chacune par une main dans un bac à elle, et rend
+//! l'issue de chacune. Les indépendantes partent ensemble, chacune dans son bac posé sur la base ; une dépendante part
+//! de la branche de la vague dès que les siennes y sont assemblées. Des copies (`Plan::copies`, le `--n` de `lancer`)
+//! sont un plan sans preuve de vague : rien ne s'y assemble.
+//!
+//! Un seul fil d'exécution, la vague, note au fil, pose les bacs et assemble. Chaque main joue sa tentative dans un fil
+//! d'exécution à elle et rend un seul message, que la vague reçoit dans l'ordre d'arrivée. Trois règles tiennent chaque
+//! main, relance comprise, par ses baux (`bail.rs`) : un résultat périmé est refusé, une tâche n'a jamais deux mains
+//! actives, une main jamais conclue expire seule. Une main tuée à son délai n'est pas relancée.
+//!
+//! Au plus [`MAINS_A_LA_FOIS`] mains tournent ensemble, copies de `--n` comprises : les tâches prêtes qui restent
+//! attendent qu'une main finisse, et partent dans l'ordre du plan. Chaque tâche a son profil, celui de la vague aux
+//! modèles de la tâche (`modele` et `relance` du plan, à défaut ceux du profil), que reçoivent sa main et son
+//! `main.lancement`. Une tâche qui a des `fichiers` ne reste prise que si sa main n'a changé que ces chemins (7013),
+//! à la fin de sa tentative comme au gel.
+//!
+//! Une vague de découpage, de relecture ou de correction porte de plus ses [`Liens`] : le juge de sa main, ce que
+//! Kraken pose dans le bac de sa main avant qu'elle parte (le `DIFF.kraken` du relecteur), le découpage dont elle joue
+//! le plan, la vague qu'elle corrige, et celle que relit son relecteur.
+
+use std::collections::HashMap;
+use std::fs;
+use std::iter;
+use std::mem;
+use std::panic::{self, AssertUnwindSafe};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Sender};
+use std::thread::{self, Scope};
+use std::time::{Duration, Instant};
+
+use crate::branchements::bac::{bac, reglages_du_bac, sans_claude};
+use crate::branchements::dossier::{Fil, depense_du_jour, lire_quota};
+use crate::branchements::git::{faire, geste};
+use crate::coeur::bail::Baux;
+use crate::coeur::erreur::{Code, Refus, nommee};
+use crate::coeur::fil::{Base, Couleur, Evenement, Foi, IssueVague, Verdict};
+use crate::coeur::fil::{instant, lot, maintenant, refus_en_clair};
+use crate::coeur::plan::{Plan, Tache};
+use crate::coeur::profil::{Prix, Profil};
+use crate::coeur::protocole::{Constat, Jetons, Usage, UsageModele};
+use crate::conduite::assemblage::{self, Assemblage};
+use crate::conduite::tentative::{Juge, Pris, tenter};
+
+/// Ce que devient chaque tâche d'une vague, dans l'ordre du plan : l'id de sa main, `main-<vague>-<k>`, qui nomme aussi
+/// son bac, et son issue.
+pub(crate) type Issues = Vec<(String, Result<Pris, String>)>;
+
+/// Ce que Kraken pose dans le bac d'une main avant qu'elle parte, une fois le bac fait : le `DIFF.kraken` du relecteur
+/// (`relecture.rs`). Un refus retient la main : sa tâche est refusée, sans bail ni départ.
+pub(crate) type Preparation<'a> = &'a dyn Fn(&Path) -> Result<(), Refus>;
+
+/// Ce qu'une vague de découpage, de relecture ou de correction porte de plus qu'une vague à plan ; par défaut, rien.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Liens<'a> {
+    /// Le juge de ses mains : celui du découpeur ou du relecteur, dont la preuve prêtée est une commande de Kraken
+    /// ([`Juge`]). Sa vague, des copies, ne note pas cette commande en `verifier` : Kraken ne la rejoue pas.
+    pub(crate) juge: Option<Juge<'a>>,
+    /// Le découpage dont elle joue le plan : son `vague.joue` se note à son ouverture, avant tout départ.
+    pub(crate) decoupage: Option<&'a str>,
+    /// La vague qu'elle corrige : son `vague.correction` se note à son ouverture, avant tout départ.
+    pub(crate) corrige: Option<&'a str>,
+    /// La vague que relit son relecteur : son `vague.relecteur` se note à son ouverture, avant tout départ.
+    pub(crate) relit: Option<&'a str>,
+    /// Ce qui se pose dans le bac de chacune de ses mains avant sa première tentative ([`Preparation`]).
+    pub(crate) preparation: Option<Preparation<'a>>,
+    /// Le numéro de l'issue dont elle joue le plan : son `vague.issue` se note à son ouverture, après ses autres notes
+    /// d'ouverture et avant tout départ.
+    pub(crate) issue: Option<u64>,
+}
+
+/// Ce que rend une vague partie d'une base donnée ([`lancer_sur`]) : ce que rend [`lancer`], et de quoi la pousser.
+pub(crate) struct Menee {
+    /// L'id de la vague, le lot dont sont faits les ids de ses mains et de ses bacs.
+    pub(crate) id: String,
+    /// La branche de la vague, `None` pour des copies.
+    pub(crate) branche: Option<String>,
+    /// La tête de son assemblage quand la vague finit : sa base, ou sa dernière fusion notée ; `None` pour des copies.
+    pub(crate) tete: Option<String>,
+    /// La vague s'est arrêtée sur le refus 7012.
+    pub(crate) arretee: bool,
+    pub(crate) issues: Issues,
+}
+
+/// Ce qu'une tentative rend, tel que `tenter` le rend : le constat de la main (`None` pour une main brute, qui ne
+/// déclare rien), la fin de la sortie de sa preuve (`None` si elle n'a pas tourné), et son verdict. Seule la vague
+/// note.
+type Rendu = (Option<Constat>, Option<String>, Result<Pris, String>);
+
+/// Les mains qui tournent en même temps, au plus, copies de `--n` comprises ; les autres attendent leur tour, dans
+/// l'ordre du plan. Une relance garde la place de la tentative qu'elle suit : elle part quand le message de celle-ci
+/// est reçu, et ne compte jamais en plus.
+// raccourci : quatre mains à la fois pour la mémoire d'un PC, monter vers ce que le nœud sait de sa machine
+const MAINS_A_LA_FOIS: usize = 4;
+
+/// Le plus long que la vague attend un message avant de regarder les échéances de ses baux.
+const ATTENTE: Duration = Duration::from_millis(50);
+
+/// Ce que le bail d'une main laisse en plus du délai de la main et de celui de sa preuve.
+const MARGE: Duration = Duration::from_secs(60);
+
+/// Le début de l'erreur d'une main que Kraken a tuée à son délai, figé : `main_tuee` le reconnaît à ce début.
+const TUEE: &str = "main : temps dépassé";
+
+/// La correction du refus 7012, qui arrête la vague.
+const ARRET: &str = "La vague s'arrête : plus aucune note, ni départ, ni fusion, et ses mains en cours finissent. \
+                     Rends le fil inscriptible, ou lisibles les réglages que la preuve nomme, puis relance dans une \
+                     vague neuve les tâches qui ne sont pas assemblées.";
+
+/// La durée du bail de chaque main de la vague : le délai de la main, celui de sa preuve, et une minute de marge. Une
+/// tentative conclut donc avant son échéance, qui ne tombe que sur une main qui n'a rien rendu.
+pub(crate) fn duree_du_bail(profil: &Profil) -> Duration {
+    profil.delai_main() + profil.delai_preuve() + MARGE
+}
+
+/// La base d'une vague sans `--pr` : le `HEAD` du dépôt visé, en sha. Un dépôt qui n'est pas un dossier est le refus
+/// 6002 ; un dépôt où git ne lit pas de commit, d'où partiraient les bacs, le refus 6003.
+pub(crate) fn base_du_depot(depot: &Path) -> Result<String, Refus> {
+    if !depot.is_dir() {
+        return Err(Refus::new(
+            Code::DepotIntrouvable,
+            format!("{} n'est pas un dossier qui existe", depot.display()),
+            "Lance Kraken depuis le dépôt visé, ou donne-le par --depot <chemin>.",
+        ));
+    }
+    let base = faire(geste(depot, &["rev-parse", "--verify", "HEAD"])).map_err(|vu| {
+        Refus::new(
+            Code::BacImpossible,
+            vu,
+            "Vise un dépôt git qui a au moins un commit (--depot <chemin>), puis relance.",
+        )
+    })?;
+    Ok(base.trim().to_string())
+}
+
+/// [`lancer_sur`], avec les [`Liens`] de la vague : son `vague.joue` suit son `vague.assemblage` s'il nomme un
+/// découpage, et le juge, s'il y en a un, rend le verdict de chaque tentative ([`tenter`]).
+pub(crate) fn lancer_avec(
+    depot: &Path,
+    dossier: &Path,
+    profil: &Profil,
+    plan: &Plan,
+    bail: Duration,
+    base: &str,
+    liens: Liens<'_>,
+) -> Result<Menee, Refus> {
+    fs::create_dir_all(dossier)
+        .map_err(|e| nommee(e, format!("création du dossier de Kraken {}", dossier.display())))?;
+    // Une vague par lancement, nommée par son lot : les ids de ses mains et de ses bacs en sont faits.
+    let id = lot();
+    let assemblage = match &plan.preuve {
+        Some(preuve) => Some(assemblage::ouvrir(depot, dossier, profil, &id, base, preuve)?),
+        None => None,
+    };
+    let fil = Fil::seance(dossier, "humain");
+    let notes = ouverture(&id, depot, plan, base, assemblage.as_ref(), liens);
+    let notees = notes.iter().try_for_each(|note| fil.noter(note)).and_then(|()| match liens.issue {
+        Some(issue) => fil.noter_issue(&IssueVague { vague: id.clone(), issue }),
+        None => Ok(()),
+    });
+    if let Err(erreur) = notees {
+        let mut refus = Refus::from(erreur);
+        if let Some(Err(echec)) = assemblage.map(Assemblage::retirer) {
+            refus.preuve = format!("{}\npuis {echec}", refus.preuve);
+        }
+        return Err(refus);
+    }
+    let branche = assemblage.as_ref().map(|assemblage| assemblage.branche().to_string());
+    let mut vague = Vague {
+        id,
+        base: base.into(),
+        depot,
+        profil,
+        plan,
+        duree: bail,
+        fil,
+        assemblage,
+        juge: liens.juge,
+        preparation: liens.preparation,
+        baux: Baux::new(),
+        rangs: (0..).zip(&plan.taches).map(|(rang, tache)| (tache.id.as_str(), rang)).collect(),
+        taches: plan.taches.iter().map(|_| Etat::Attente).collect(),
+        en_vol: Vec::new(),
+        arret: None,
+    };
+    let issues = thread::scope(|s| vague.mener(s));
+    let tete = vague.assemblage.as_ref().map(|assemblage| assemblage.tete().to_string());
+    Ok(Menee { id: vague.id, branche, tete, arretee: vague.arret.is_some(), issues })
+}
+
+/// Les notes qui ouvrent la vague : `vague.ouverte`, puis, pour un plan, `vague.assemblage`, son `vague.joue` s'il joue
+/// le plan d'un découpage, son `vague.correction` s'il corrige une vague, et un `vague.tache` par tâche, avant tout
+/// départ. Son `vague.relecteur`, si son relecteur relit une vague, suit l'assemblage d'un plan, ou l'ouverture de
+/// copies. Des copies portent dans `verifier` leur preuve commune, sauf celles d'un juge, dont la commande prêtée n'est
+/// pas rejouée ; un plan, `null`.
+fn ouverture(
+    vague: &str,
+    depot: &Path,
+    plan: &Plan,
+    base: &str,
+    assemblage: Option<&Assemblage<'_>>,
+    liens: Liens<'_>,
+) -> Vec<Evenement> {
+    let verifier = match (&plan.preuve, liens.juge) {
+        (None, None) => plan.taches.first().and_then(|tache| tache.preuve.clone()),
+        _ => None,
+    };
+    let mut notes = vec![Evenement::Vague {
+        vague: vague.into(),
+        n: plan.taches.len(),
+        depot: depot.to_string_lossy().into_owned(),
+        verifier,
+        objectif: plan.objectif.clone(),
+    }];
+    let relit = |relue: &str| Evenement::Relecteur { vague: vague.into(), relue: relue.into() };
+    if let (Some(assemblage), Some(preuve)) = (assemblage, &plan.preuve) {
+        let branche = assemblage.branche().into();
+        notes.push(Evenement::Assemblage { vague: vague.into(), branche, base: base.into(), preuve: preuve.clone() });
+        let joue = |decoupage: &str| Evenement::Joue { vague: vague.into(), decoupage: decoupage.into() };
+        notes.extend(liens.decoupage.map(joue));
+        let corrige = |corrigee: &str| Evenement::Correction { vague: vague.into(), corrige: corrigee.into() };
+        notes.extend(liens.corrige.map(corrige));
+        notes.extend(liens.relit.map(relit));
+        notes.extend((1..).zip(&plan.taches).map(|(main, tache)| Evenement::Tache {
+            vague: vague.into(),
+            main,
+            id: tache.id.clone(),
+            depend: tache.depend.clone(),
+            preuve: tache.preuve.clone().unwrap_or_else(|| preuve.clone()),
+            objectif: tache.objectif.clone(),
+        }));
+    } else {
+        notes.extend(liens.relit.map(relit));
+    }
+    notes
+}
+
+/// La main a été tuée à son délai : son erreur commence par `main : temps dépassé`, le texte que Kraken écrit en tête
+/// quand il tue l'arbre d'une main à `delai_main`. Il se lit en tête de l'erreur, jamais dans la sortie de la main, qui
+/// pourrait l'écrire.
+fn main_tuee(erreur: &str) -> bool {
+    erreur.starts_with(TUEE)
+}
+
+/// Joue la main et rend ce qu'elle rend ; une main qui panique rend une fin rouge qui le dit. La panique ne fait pas
+/// tomber la vague, et le message de la main arrive quand même.
+fn en_message(main: impl FnOnce() -> Rendu) -> Rendu {
+    panic::catch_unwind(AssertUnwindSafe(main)).unwrap_or_else(|panique| {
+        let quoi = panique
+            .downcast_ref::<&str>()
+            .map(|quoi| (*quoi).to_string())
+            .or_else(|| panique.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "sans message".into());
+        (None, None, Err(format!("la main a paniqué : {quoi}")))
+    })
+}
+
+/// Le refus dit en clair, le texte que `kraken etat` tire de sa note `vague.refus`.
+fn en_clair(refus: &Refus) -> String {
+    refus_en_clair(refus.code.numero(), refus.code.regle(), &refus.preuve, &refus.correction)
+}
+
+/// Le refus dit comme l'erreur d'une tentative qu'il rougit : son code et sa règle, puis sa preuve, puis sa correction,
+/// chacune sur sa ligne. C'est ce que la relance reçoit en contexte. Elle ne commence pas par `refusée (`, le début du
+/// refus d'une tâche (`en_clair`) : une tâche classée sur cette erreur reste une classée, au fil comme à l'écran. Le
+/// juge du découpeur rend ainsi ses refus.
+pub(crate) fn en_erreur(refus: &Refus) -> String {
+    format!("{} : {}\n{}\n{}", refus.code, refus.code.regle(), refus.preuve, refus.correction)
+}
+
+/// Le travail pris d'une tâche qui a des `fichiers` n'est pris que si sa main n'a changé que ces chemins ; sinon sa
+/// tentative est rouge (7013), et son erreur dit les chemins en trop et la règle, que la relance reçoit. Un git qui ne
+/// dit pas ce que la main a changé la rougit de même (7009) : rien ne prouve alors qu'elle est restée dans ses
+/// fichiers. Une tâche sans `fichiers` n'est bornée par rien.
+fn dans_ses_fichiers(bac: &Path, depart: &str, tache: &Tache, pris: Pris) -> Result<Pris, String> {
+    let Some(fichiers) = &tache.fichiers else { return Ok(pris) };
+    assemblage::fichiers_tenus(bac, depart, &tache.id, fichiers).map(|()| pris).map_err(|refus| en_erreur(&refus))
+}
+
+/// Le seul message qu'une main envoie à la vague : sa tâche, la tentative de son bail (le jeton que son résultat
+/// porte), et ce qu'elle a rendu.
+struct Message {
+    main: usize,
+    tentative: usize,
+    rendu: Rendu,
+}
+
+/// Où en est une tâche.
+enum Etat {
+    /// Elle attend ses dépendances.
+    Attente,
+    /// Sa main court, dans son bac parti de `depart`, jusqu'à l'échéance de son bail.
+    Partie { bac: PathBuf, depart: String, echeance: String },
+    /// Son issue, que plus rien ne change.
+    Finie(Result<Pris, String>),
+}
+
+/// Une vague qui tourne : ce qu'elle mène, et où en est chaque tâche.
+struct Vague<'a> {
+    id: String,
+    /// Le sha d'où partent les bacs des indépendantes, et la branche de la vague.
+    base: String,
+    depot: &'a Path,
+    profil: &'a Profil,
+    plan: &'a Plan,
+    /// La durée du bail de chaque tentative.
+    duree: Duration,
+    /// La séance de la vague, sur le fil du dossier de Kraken, où vivent aussi les bacs et les journaux des preuves.
+    fil: Fil,
+    /// L'assemblage d'un plan ; `None` pour des copies.
+    assemblage: Option<Assemblage<'a>>,
+    /// Le juge de ses mains, celui du découpeur ou du relecteur ([`Liens`]).
+    juge: Option<Juge<'a>>,
+    /// Ce qui se pose dans le bac de chaque main avant son premier départ ([`Preparation`]).
+    preparation: Option<Preparation<'a>>,
+    baux: Baux,
+    /// Le rang de chaque tâche dans le plan, par son id.
+    rangs: HashMap<&'a str, usize>,
+    taches: Vec<Etat>,
+    /// Les tentatives parties dont le message n'est pas encore arrivé, en (main, tentative).
+    en_vol: Vec<(usize, usize)>,
+    /// Le refus 7012 qui a arrêté la vague : plus aucune note, ni départ, ni fusion.
+    arret: Option<Refus>,
+}
+
+impl<'a> Vague<'a> {
+    fn main(&self, k: usize) -> String {
+        format!("main-{}-{k}", self.id)
+    }
+
+    /// Mène la vague jusqu'au bout : chaque tâche part dès que ses dépendances sont assemblées, ou est sautée ; chaque
+    /// message se reçoit dans l'ordre d'arrivée ; un bail échu expire. La vague finit quand plus aucune main n'est en
+    /// vol, mains expirées comprises : Kraken ne part pas en laissant tourner une main sans trace.
+    // raccourci : un fil d'exécution qui ne rend rien retient la fin de lancer ; monter vers des fils détachés avec le
+    // nœud
+    fn mener<'s>(&mut self, s: &'s Scope<'s, '_>) -> Issues
+    where
+        'a: 's,
+    {
+        let (envoi, reception) = mpsc::channel();
+        loop {
+            self.partir(s, &envoi);
+            if self.en_vol.is_empty() {
+                break;
+            }
+            let premier = reception.recv_timeout(ATTENTE).ok();
+            // L'instant d'expiration se prend avant de vider le canal : un résultat arrivé avant lui conclut son bail.
+            let maintenant = Instant::now();
+            for message in premier.into_iter().chain(iter::from_fn(|| reception.try_recv().ok())) {
+                self.recevoir(s, &envoi, message);
+            }
+            // Arrêtée, la vague ne décide plus rien : elle attend ses mains.
+            if self.arret.is_none() {
+                for (k, tentative) in self.baux.expirer(maintenant) {
+                    self.expirer(k, tentative);
+                }
+            }
+        }
+        // Plus rien ne court. Dans une vague qui ne s'est pas arrêtée, une tâche qui attend encore a une dépendance qui
+        // ne s'assemblera jamais (un cycle, que `Plan::lire` refuse) : elle est sautée, comme les autres.
+        if self.arret.is_none() {
+            for k in 1..=self.taches.len() {
+                if matches!(self.taches[k - 1], Etat::Attente) {
+                    self.sauter(k);
+                }
+            }
+        }
+        // Dans une vague arrêtée, une tâche qui n'a pas pu partir porte le refus qui l'a arrêtée.
+        let arretee = self.hors_du_fil("");
+        let taches = mem::take(&mut self.taches);
+        (1..)
+            .zip(taches)
+            .map(|(k, etat)| {
+                let issue = match etat {
+                    Etat::Finie(issue) => issue,
+                    Etat::Attente | Etat::Partie { .. } => Err(arretee.clone()),
+                };
+                (self.main(k), issue)
+            })
+            .collect()
+    }
+
+    /// Fait partir, dans l'ordre du plan, chaque tâche en attente dont toutes les dépendances sont assemblées, tant que
+    /// moins de [`MAINS_A_LA_FOIS`] mains sont en vol ; saute sans bac, de proche en proche, celles dont une dépendance
+    /// ne sera jamais assemblée. Une vague arrêtée ne fait plus rien partir.
+    fn partir<'s>(&mut self, s: &'s Scope<'s, '_>, envoi: &Sender<Message>)
+    where
+        'a: 's,
+    {
+        let plan = self.plan;
+        // Un saut peut en entraîner un autre, plus haut dans le plan : un tour de plus, jusqu'à ce que rien ne change.
+        let mut encore = true;
+        while encore {
+            encore = false;
+            for (k, tache) in (1..).zip(&plan.taches) {
+                if self.arret.is_some() {
+                    return;
+                }
+                if !matches!(self.taches[k - 1], Etat::Attente) {
+                    continue;
+                }
+                if tache.depend.iter().any(|id| self.perdue(id)) {
+                    self.sauter(k);
+                    encore = true;
+                } else if self.en_vol.len() < MAINS_A_LA_FOIS && tache.depend.iter().all(|id| self.assemblee(id)) {
+                    self.depart(s, envoi, k, None);
+                }
+            }
+        }
+    }
+
+    fn assemblee(&self, id: &str) -> bool {
+        self.rangs.get(id).is_some_and(|&rang| matches!(self.taches[rang], Etat::Finie(Ok(_))))
+    }
+
+    fn perdue(&self, id: &str) -> bool {
+        self.rangs.get(id).is_none_or(|&rang| matches!(self.taches[rang], Etat::Finie(Err(_))))
+    }
+
+    /// Fait partir une tentative de la tâche `k`. À la première, son bac se pose : celui d'une indépendante sur la
+    /// base, celui d'une dépendante sur la tête de la vague, où les siennes sont assemblées ; puis la préparation de
+    /// la vague, s'il y en a une, y pose ce qu'elle doit, et son refus refuse la tâche, sans bail. Puis son bail
+    /// s'ouvre et se note (`main.bail`), son début aussi (`main.debut`), son lancement enfin (`main.lancement`, voir
+    /// `noter_lancement`), et sa main part dans un fil d'exécution à elle, qui rend un seul message. La main et son
+    /// lancement reçoivent le profil de la tâche, celui de la vague aux modèles de la tâche (`Profil::avec_modeles`).
+    /// Une note ratée, ou des réglages du bac illisibles, arrêtent la vague, et la main ne part pas. `precedente` est
+    /// l'erreur de la tentative d'avant, que la relance porte en contexte. Une main verte dont la tâche a des
+    /// `fichiers` rend une tentative rouge si elle a changé un chemin hors d'eux (`dans_ses_fichiers`). Le juge de la
+    /// vague, s'il y en a un, rend le verdict de la main (`tenter`).
+    fn depart<'s>(&mut self, s: &'s Scope<'s, '_>, envoi: &Sender<Message>, k: usize, precedente: Option<String>)
+    where
+        'a: 's,
+    {
+        let plan = self.plan;
+        let tache = &plan.taches[k - 1];
+        let (bac, depart) = match &self.taches[k - 1] {
+            Etat::Partie { bac, depart, .. } => (bac.clone(), depart.clone()),
+            Etat::Attente | Etat::Finie(_) => {
+                let depart = match &self.assemblage {
+                    Some(assemblage) if !tache.depend.is_empty() => assemblage.tete().to_string(),
+                    _ => self.base.clone(),
+                };
+                match bac(self.depot, self.fil.dossier(), &self.main(k), &depart) {
+                    Ok(bac) => {
+                        // Ce que Kraken pose dans le bac se pose une fois, avant tout bail : un refus retient la main.
+                        if let Some(Err(refus)) = self.preparation.map(|preparer| preparer(&bac)) {
+                            self.refuser(k, refus, None);
+                            return;
+                        }
+                        (bac, depart)
+                    }
+                    Err(refus) => {
+                        self.refuser(k, refus, None);
+                        return;
+                    }
+                }
+            }
+        };
+        let verifier = tache.preuve.as_deref().or(plan.preuve.as_deref());
+        let profil = self.profil.avec_modeles(tache.modele.as_deref(), tache.relance.as_deref());
+        // Le quota du jour, avant tout bail : une main refusée ici n'a ni bail ni début ; les mains parties finissent.
+        if let Err(refus) = self.sous_le_quota(&profil, &bac, verifier, precedente.is_some()) {
+            self.refuser(k, refus, None);
+            return;
+        }
+        let (depuis, ms) = (Instant::now(), maintenant());
+        let tentative = match self.baux.ouvrir(k, depuis, self.duree) {
+            Ok(tentative) => tentative,
+            Err(refus) => {
+                self.refuser(k, refus, None);
+                return;
+            }
+        };
+        let echeance = instant(ms.saturating_add(self.duree.as_millis()));
+        let bail = Evenement::Bail { vague: self.id.clone(), main: k, tentative, echeance: echeance.clone() };
+        let debut = Evenement::Debut { vague: self.id.clone(), main: k, tentative };
+        if !(self.noter(&bail) && self.noter(&debut) && self.noter_lancement(&profil, &bac, k, tentative, verifier)) {
+            // La main ne part pas ; son issue garde l'erreur de sa tentative d'avant, s'il y en a une.
+            let issue = self.hors_du_fil(precedente.as_deref().unwrap_or_default());
+            self.taches[k - 1] = Etat::Finie(Err(issue));
+            return;
+        }
+        self.taches[k - 1] = Etat::Partie { bac: bac.clone(), depart: depart.clone(), echeance };
+        self.en_vol.push((k, tentative));
+        let envoi = envoi.clone();
+        // Hors du dépôt visé et du bac : la fin de la sortie entre au fil, le fichier s'efface.
+        // raccourci : tué en pleine vérification, Kraken laisse le fichier ; monter avec le nœud, qui rangera.
+        let journal = self.fil.dossier().join(format!("verif-{}-{k}-{tentative}.tmp", self.id));
+        let juge = self.juge;
+        s.spawn(move || {
+            let rendu = en_message(|| {
+                let (constat, verif, verdict) =
+                    tenter(&profil, &bac, &tache.objectif, verifier, precedente.as_deref(), &journal, juge);
+                let verdict = verdict.and_then(|pris| dans_ses_fichiers(&bac, &depart, tache, pris));
+                (constat, verif, verdict)
+            });
+            // La vague lit le canal jusqu'au dernier message qu'elle attend : celui-ci ne se perd pas.
+            let _ = envoi.send(Message { main: k, tentative, rendu });
+        });
+    }
+
+    /// Reçoit le message d'une main. Son bail se conclut, ou son résultat est périmé ; puis son constat, s'il y en a
+    /// un, et sa fin se notent, et la suite dépend d'elle : rouge à la première tentative, la relance, si rien ne
+    /// l'interdit ; rouge à la seconde, la tâche classée ; verte, la tâche prise, puis assemblée pour un plan.
+    fn recevoir<'s>(&mut self, s: &'s Scope<'s, '_>, envoi: &Sender<Message>, message: Message)
+    where
+        'a: 's,
+    {
+        let Message { main: k, tentative, rendu: (constat, verif, verdict) } = message;
+        self.en_vol.retain(|&vol| vol != (k, tentative));
+        let (couleur, foi, texte) = match &verdict {
+            Ok(Pris { sortie, prouve: true }) => (Couleur::Vert, Foi::Constate, sortie.clone()),
+            Ok(Pris { sortie, prouve: false }) => (Couleur::Vert, Foi::Declare, sortie.clone()),
+            Err(erreur) => (Couleur::Rouge, Foi::Constate, erreur.clone()),
+        };
+        let vague = self.id.clone();
+        // Le jeton : seul se prend un résultat qui porte la tentative du bail ouvert de sa tâche. Un résultat périmé
+        // n'est ni pris, ni figé, ni assemblé : il se note, et c'est tout.
+        if self.baux.conclure(k, tentative).is_err() {
+            let perimee = Evenement::Perimee { vague, main: k, tentative, couleur, foi, texte: texte.clone(), verif };
+            // Une main qui dépasse son bail a dépensé : son usage se note juste avant sa péremption, et compte pour
+            // le quota des départs qui suivent.
+            let bac = self.fil.dossier().join("bacs").join(self.main(k));
+            let usages = constat.as_ref().map(|constat| self.usages(k, tentative, &bac, constat)).unwrap_or_default();
+            if !usages.iter().chain(iter::once(&perimee)).all(|note| self.noter(note)) {
+                let hors = self.hors_du_fil(&texte);
+                if let Etat::Finie(Err(issue)) = &mut self.taches[k - 1] {
+                    issue.push('\n');
+                    issue.push_str(&hors);
+                }
+            }
+            return;
+        }
+        // Un bail ouvert est celui d'une tâche partie.
+        let Etat::Partie { bac, depart, .. } = &self.taches[k - 1] else { return };
+        let (bac, depart) = (bac.clone(), depart.clone());
+        // Son constat, quand Kraken a lu quelque chose d'elle, puis son usage, une ligne par modèle, puis sa fin : le
+        // constat précède l'usage, et l'usage la fin, au fil.
+        let usages = constat.as_ref().map(|constat| self.usages(k, tentative, &bac, constat)).unwrap_or_default();
+        let constat = constat.map(|Constat { version, mur_actif, .. }| Evenement::Constat {
+            vague: vague.clone(),
+            main: k,
+            tentative,
+            version,
+            mur_actif,
+        });
+        let fin =
+            Evenement::Fin { vague: vague.clone(), main: k, tentative, couleur, foi, texte: texte.clone(), verif };
+        let notes: Vec<Evenement> = constat.into_iter().chain(usages).chain(iter::once(fin)).collect();
+        if !notes.iter().all(|note| self.noter(note)) {
+            let issue = self.hors_du_fil(&texte);
+            self.taches[k - 1] = Etat::Finie(Err(issue));
+            return;
+        }
+        let bac = (bac.as_path(), depart.as_str());
+        match verdict {
+            Err(erreur) if tentative == 1 => self.relancer(s, envoi, k, bac, erreur),
+            Err(erreur) => {
+                let classee = Evenement::Verdict { vague, main: k, verdict: Verdict::Classee, foi: Foi::Constate };
+                let issue = if self.noter(&classee) { erreur } else { self.hors_du_fil(&erreur) };
+                self.taches[k - 1] = Etat::Finie(Err(issue));
+            }
+            Ok(pris) => {
+                let foi = if pris.prouve { Foi::Constate } else { Foi::Declare };
+                if self.noter(&Evenement::Verdict { vague, main: k, verdict: Verdict::Prise, foi }) {
+                    self.assembler(k, bac, pris);
+                } else {
+                    let issue = self.hors_du_fil(&pris.sortie);
+                    self.taches[k - 1] = Etat::Finie(Err(issue));
+                }
+            }
+        }
+    }
+
+    /// Après une première tentative rouge, dans cet ordre : la garde du `.claude/` du bac, parti de `depart`, avant
+    /// toute relance dans ce bac (7006, ou 7009 si git rate) ; la main tuée à son délai (7005) ; puis la relance,
+    /// l'erreur en contexte.
+    fn relancer<'s>(
+        &mut self,
+        s: &'s Scope<'s, '_>,
+        envoi: &Sender<Message>,
+        k: usize,
+        (bac, depart): (&Path, &str),
+        erreur: String,
+    ) where
+        'a: 's,
+    {
+        if let Err(refus) = sans_claude(bac, depart) {
+            self.refuser(k, refus, None);
+        } else if main_tuee(&erreur) {
+            // raccourci : une main tuée à son délai est refusée sans relance ; monter vers une relance quand le nœud
+            // prouvera la mort de l'arbre
+            let preuve = format!(
+                "{} ({}) : {}",
+                self.main(k),
+                self.plan.taches[k - 1].id,
+                erreur.lines().next().unwrap_or_default()
+            );
+            let correction = "La tâche est refusée sans relance, car l'arbre de sa main peut tourner encore : relève \
+                              le délai de la main dans son profil, ou donne-lui une tâche plus petite, dans une vague \
+                              neuve.";
+            self.refuser(k, Refus::new(Code::MainTuee, preuve, correction), None);
+        } else {
+            self.depart(s, envoi, k, Some(erreur));
+        }
+    }
+
+    /// Assemble la prise verte de la tâche `k`, dont le bac est parti de `depart`, dans la branche de la vague ; des
+    /// copies n'assemblent rien, et leur prise est leur issue. Assemblée, l'issue est la prise ; refusée, son refus,
+    /// noté. Une fusion qui ne se note pas est défaite, et arrête la vague (7012).
+    fn assembler(&mut self, k: usize, (bac, depart): (&Path, &str), pris: Pris) {
+        let plan = self.plan;
+        let tache = &plan.taches[k - 1];
+        let (vague, fil) = (self.id.as_str(), &self.fil);
+        let Some(assemblage) = &mut self.assemblage else {
+            self.taches[k - 1] = Etat::Finie(Ok(pris));
+            return;
+        };
+        let (verif, issue) =
+            assemblage.fusionner(bac, depart, &tache.id, tache.fichiers.as_deref(), k, |sha, verif| {
+                fil.noter(&Evenement::Fusion { vague: vague.into(), main: k, sha: sha.into(), verif: verif.into() })
+            });
+        match issue {
+            Ok(_) => self.taches[k - 1] = Etat::Finie(Ok(pris)),
+            Err(refus) if refus.code == Code::FilInjoignable => {
+                self.arret = Some(refus);
+                let issue = self.hors_du_fil(&pris.sortie);
+                self.taches[k - 1] = Etat::Finie(Err(issue));
+            }
+            Err(refus) => self.refuser(k, refus, verif),
+        }
+    }
+
+    /// La tentative `tentative` de la tâche `k` n'a rien rendu à l'échéance de son bail : elle expire (7004), et sa
+    /// tâche est refusée aussitôt, sans relance, car sa main peut tourner encore. Son résultat, s'il vient, est périmé.
+    // raccourci : une tâche expirée est refusée sans relance ; monter vers une relance après le retour de sa main si le
+    // besoin s'en montre
+    fn expirer(&mut self, k: usize, tentative: usize) {
+        let Etat::Partie { echeance, .. } = &self.taches[k - 1] else { return };
+        let preuve = format!(
+            "{} ({}) n'a rien rendu avant {echeance}, l'échéance du bail de sa tentative {tentative}",
+            self.main(k),
+            self.plan.taches[k - 1].id
+        );
+        let correction = "La tâche est refusée sans relance, car sa main peut tourner encore : relance-la dans une \
+                          vague neuve, avec une tâche plus petite si la main était trop lente.";
+        self.refuser(k, Refus::new(Code::MainExpiree, preuve, correction), None);
+    }
+
+    fn sauter(&mut self, k: usize) {
+        let plan = self.plan;
+        let tache = &plan.taches[k - 1];
+        let ids = || tache.depend.iter().map(String::as_str);
+        let mut perdues: Vec<&str> = ids().filter(|id| self.perdue(id)).collect();
+        if perdues.is_empty() {
+            perdues = ids().filter(|id| !self.assemblee(id)).collect();
+        }
+        let preuve = format!(
+            "{} ({}) ne part pas, et n'a pas de bac : elle dépend de {}, que la vague n'assemblera pas",
+            self.main(k),
+            tache.id,
+            perdues.join(", ")
+        );
+        let correction = "Relance-la dans une vague neuve, une fois assemblées les tâches dont elle dépend.";
+        self.refuser(k, Refus::new(Code::Sautee, preuve, correction), None);
+    }
+
+    /// Refuse la tâche `k` : le refus se note au fil (`vague.refus`), avec `verif`, la fin de la sortie de la preuve de
+    /// la vague si elle a tourné, et l'issue est ce refus en clair. Si la note ne s'écrit pas, l'issue garde ce refus
+    /// après celui qui a arrêté la vague.
+    fn refuser(&mut self, k: usize, refus: Refus, verif: Option<String>) {
+        let clair = en_clair(&refus);
+        let Refus { code, preuve, correction } = refus;
+        let regle = code.regle().into();
+        let note =
+            Evenement::Refus { vague: self.id.clone(), main: k, code: code.numero(), regle, preuve, correction, verif };
+        let issue = if self.noter(&note) { clair } else { self.hors_du_fil(&clair) };
+        self.taches[k - 1] = Etat::Finie(Err(issue));
+    }
+
+    /// Le quota du jour (`profils/quota`, voir `lire_quota`), avant le départ d'une tentative de la tâche `profil` :
+    /// sans fichier, rien ne se vérifie. Sinon la main ne part pas si son profil a une `api` sans `prix` pour son
+    /// modèle de cette tentative, ni si la dépense estimée du jour UTC (`depense_du_jour`) atteint le quota, ni si le
+    /// fichier ou le fil ne se lisent pas : un refus 6030 ou celui du fil. Le forfait et l'inconnu ne comptent pas.
+    fn sous_le_quota(&self, profil: &Profil, bac: &Path, verifier: Option<&str>, relance: bool) -> Result<(), Refus> {
+        let kraken = self.fil.dossier();
+        let Some(quota) = lire_quota(kraken)? else { return Ok(()) };
+        if let Some(declaration) = profil.demande(bac, verifier, relance).declaration
+            && declaration.fournisseur.is_some()
+            && profil.prix(&declaration.modele).is_none()
+        {
+            let preuve = format!(
+                "le profil nomme le fournisseur {}, sans `prix` pour le modèle {} de la main, sous un quota posé",
+                declaration.fournisseur.unwrap_or_default(),
+                declaration.modele
+            );
+            let correction = "Ajoute à la ligne `prix` du profil ce modèle et ses prix, puis accepte le profil \
+                              (kraken accepter <profil>) ; ou retire le fichier du quota.";
+            return Err(Refus::new(Code::Quota, preuve, correction));
+        }
+        let jour = &instant(maintenant())[..10];
+        let depense = depense_du_jour(kraken, jour)?;
+        if depense >= quota {
+            let dollars =
+                |micro_dollars: u64| format!("{}.{:06}", micro_dollars / 1_000_000, micro_dollars % 1_000_000);
+            let preuve = format!(
+                "la dépense estimée du {jour} (UTC), {} $, atteint le quota du jour, {} $",
+                dollars(depense),
+                dollars(quota)
+            );
+            let correction = "Aucune main ne part avant demain (UTC) : les mains parties finissent. Relève le quota \
+                              dans profils/quota, ou retire le fichier, si l'humain décide de dépenser davantage.";
+            return Err(Refus::new(Code::Quota, preuve, correction));
+        }
+        Ok(())
+    }
+
+    /// Les `main.usage` de la tentative `tentative` de la tâche `k`, dans `bac` : voir [`usages_de`], sous le modèle et
+    /// le profil de la tâche. Aucun si le profil ne déclare rien (une main brute) : elle n'a ni modèle ni usage.
+    fn usages(&self, k: usize, tentative: usize, bac: &Path, constat: &Constat) -> Vec<Evenement> {
+        let tache = &self.plan.taches[k - 1];
+        let verifier = tache.preuve.as_deref().or(self.plan.preuve.as_deref());
+        let profil = self.profil.avec_modeles(tache.modele.as_deref(), tache.relance.as_deref());
+        match profil.demande(bac, verifier, tentative > 1).declaration {
+            Some(declaration) => usages_de(&self.id, k, tentative, &declaration.modele, &profil, constat),
+            None => Vec::new(),
+        }
+    }
+
+    /// Note l'événement au fil. Une note ratée arrête la vague, sur le refus 7012, dont la preuve nomme le fil :
+    /// ensuite, plus rien ne se note, ce qui protège ce que le fil prouve (le compteur, les jetons et les échéances).
+    /// Rend vrai si la note est écrite.
+    fn noter(&mut self, evenement: &Evenement) -> bool {
+        if self.arret.is_some() {
+            return false;
+        }
+        let Err(erreur) = self.fil.noter(evenement) else { return true };
+        self.arret = Some(Refus::new(Code::FilInjoignable, erreur.to_string(), ARRET));
+        false
+    }
+
+    /// Note le `main.lancement` de la tentative `tentative` de la tâche `k`, dans `bac` : ce que `profil`, celui de la
+    /// tâche, déclare pour elle, et les réglages du dépôt que le bac porte à cet instant. Si le profil nomme un
+    /// fournisseur, le `main.fournisseur` de la même tentative suit, à chaque tentative et pour chaque main, copies
+    /// et mains du découpeur, du relecteur et de la correction comprises. Une main brute (`Profil::faux`) ne déclare
+    /// rien : rien n'est noté, et elle peut partir. Des réglages qui ne se lisent pas arrêtent la vague sur le même
+    /// refus 7012 qu'une note ratée, car la note ne peut pas s'écrire. Rend vrai si la main peut partir.
+    fn noter_lancement(
+        &mut self,
+        profil: &Profil,
+        bac: &Path,
+        k: usize,
+        tentative: usize,
+        verifier: Option<&str>,
+    ) -> bool {
+        let Some(declaration) = profil.demande(bac, verifier, tentative > 1).declaration else { return true };
+        match reglages_du_bac(bac).map(|reglages| declaration.lancement_selon(&self.id, k, tentative, reglages)) {
+            Ok(lancement) => {
+                let fournisseur = declaration.fournisseur(&self.id, k, tentative);
+                self.noter(&lancement) && fournisseur.iter().all(|note| self.noter(note))
+            }
+            Err(erreur) => {
+                self.arret.get_or_insert_with(|| Refus::new(Code::FilInjoignable, erreur.to_string(), ARRET));
+                false
+            }
+        }
+    }
+
+    /// Ce que le fil n'a pas reçu, gardé dans l'issue de sa tâche : le refus qui a arrêté la vague, puis `texte`, la
+    /// sortie de sa main ou un refus qui ne s'est pas noté. Rien ne se perd.
+    fn hors_du_fil(&self, texte: &str) -> String {
+        match (&self.arret, texte) {
+            (Some(arret), "") => en_clair(arret),
+            (Some(arret), texte) => format!("{}\n{texte}", en_clair(arret)),
+            (None, texte) => texte.to_string(),
+        }
+    }
+}
+
+/// Les `main.usage` d'une tentative : une ligne par modèle du détail de l'usage du `constat`, ou, sans détail, une
+/// ligne du total sous `modele`, le modèle de la tentative ; aucune si l'usage est vide ([`Usage::est_vide`]). La base
+/// de chaque ligne : `Forfait` sous l'abonnement (`apiKeySource` `none`) quand Claude Code dit sa base `list`, et sa
+/// dépense est celle qu'il annonce ; `Estime` si le profil donne un `prix` à ce modèle, ou, à défaut, au modèle de la
+/// tentative (sous un fournisseur, Claude Code appelle aussi des modèles que la main ne nomme pas, que le fournisseur
+/// sert et facture), la ligne gardant son propre nom (voir [`estimer`]) ; sinon `Inconnu`, à 0 : jamais le coût de
+/// Claude Code quand sa base n'est pas `list`. Un nom de modèle que le fil ne lirait pas (vide, ou avec un blanc ou un
+/// caractère hors de l'ASCII) s'écrit `?`.
+fn usages_de(
+    vague: &str,
+    main: usize,
+    tentative: usize,
+    modele: &str,
+    profil: &Profil,
+    constat: &Constat,
+) -> Vec<Evenement> {
+    let Usage { jetons, micro_dollars, modeles, .. } = &constat.usage;
+    if constat.usage.est_vide() {
+        return Vec::new();
+    }
+    let total = [UsageModele { modele: modele.into(), jetons: *jetons, micro_dollars: *micro_dollars, base: None }];
+    let lignes = if modeles.is_empty() { &total[..] } else { &modeles[..] };
+    // Le forfait ne vaut que sous un profil sans fournisseur : sous un `api`, ce que la main dit de sa clé et de sa
+    // base ne compte pas.
+    let abonnement = profil.variable_de_la_cle().is_none() && constat.source_cle.as_deref() == Some("none");
+    lignes
+        .iter()
+        .map(|ligne| {
+            let (base, depense) = if abonnement && ligne.base.as_deref() == Some("list") {
+                (Base::Forfait, ligne.micro_dollars)
+            } else if let Some(prix) = profil.prix(&ligne.modele).or_else(|| profil.prix(modele)) {
+                (Base::Estime, estimer(&ligne.jetons, &prix))
+            } else {
+                (Base::Inconnu, 0)
+            };
+            let valide = !ligne.modele.is_empty() && ligne.modele.bytes().all(|octet| octet.is_ascii_graphic());
+            let Jetons { entree, sortie, cache_ecrit, cache_lu, reflexion } = ligne.jetons;
+            Evenement::Usage {
+                vague: vague.into(),
+                main,
+                tentative,
+                modele: if valide { ligne.modele.clone() } else { "?".into() },
+                entree,
+                sortie,
+                cache_ecrit,
+                cache_lu,
+                reflexion,
+                micro_dollars: depense,
+                base,
+            }
+        })
+        .collect()
+}
+
+/// Le coût de ces jetons, en micro-dollars, au [`Prix`] d'un million de jetons : l'entrée, la sortie, le cache lu et le
+/// cache écrit, chacun à son prix ; la réflexion ne se compte pas, la sortie la contient déjà. Arrondi au micro-dollar
+/// supérieur (un quota ne se sous-estime pas) ; `u64::MAX` si cela ne tient pas.
+fn estimer(jetons: &Jetons, prix: &Prix) -> u64 {
+    let terme = |nombre: u64, prix: u64| u128::from(nombre) * u128::from(prix);
+    let cout = [
+        terme(jetons.entree, prix.entree),
+        terme(jetons.sortie, prix.sortie),
+        terme(jetons.cache_lu, prix.cache_lu),
+        terme(jetons.cache_ecrit, prix.cache_ecrit),
+    ]
+    .into_iter()
+    .fold(0u128, u128::saturating_add);
+    u64::try_from(cout.div_ceil(1_000_000)).unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod tests;
