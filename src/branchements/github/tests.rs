@@ -19,8 +19,8 @@ const AUTRE: (&str, &str) = ("autre", "autre@exemple.invalid");
 
 #[test]
 fn kraken_gh_nomme_le_programme_de_la_forge() {
-    // Lecture seule, rien n'est posé : `KRAKEN_GH` s'il l'est, sinon `gh`.
-    assert_eq!(programme_gh(), env::var_os("KRAKEN_GH").unwrap_or_else(|| "gh".into()));
+    // Lecture seule, rien n'est posé : `LYDITE_GH` s'il l'est, sinon `gh`.
+    assert_eq!(programme_gh(), env::var_os("LYDITE_GH").unwrap_or_else(|| "gh".into()));
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn l_url_d_un_distant_se_lit_en_trois_formes() {
 #[test]
 fn un_distant_illisible_est_refuse_en_8001() {
     let racine = racine("forge-8001");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     // Sans origin.
     let refus = distant(&kraken, &depot).unwrap_err();
     assert_eq!(refus.code, Code::DistantIllisible);
@@ -131,7 +131,7 @@ fn la_base_lue_ne_bouge_pas_quand_un_autre_fetch_ecrit_fetch_head_8002() {
     // Une autre branche du distant, que l'éditeur de l'humain va chercher pendant que Kraken lit sa base.
     let autre = sur(&lieu.depot, &base, &[("autre.txt", "autre\n")], "autre");
     git(&lieu.depot, &["push", "-q", "origin", &format!("{autre}:refs/heads/autre")]);
-    let refs = || git(&lieu.depot, &["for-each-ref", "--format=%(refname)", "refs/kraken"]);
+    let refs = || git(&lieu.depot, &["for-each-ref", "--format=%(refname)", "refs/lydite"]);
     let (mut fetch_head, mut pendant) = (String::new(), String::new());
     let entre = || {
         git(&lieu.depot, &["fetch", "-q", "origin", "autre"]);
@@ -142,7 +142,7 @@ fn la_base_lue_ne_bouge_pas_quand_un_autre_fetch_ecrit_fetch_head_8002() {
     // L'autre fetch a bien réécrit FETCH_HEAD ; la base lue est celle du fetch de Kraken, dans une ref à lui, que sa
     // lecture a retirée.
     assert_eq!(fetch_head, autre);
-    assert!(pendant.starts_with("refs/kraken/base/") && !pendant.contains('\n'), "{pendant:?}");
+    assert!(pendant.starts_with("refs/lydite/base/") && !pendant.contains('\n'), "{pendant:?}");
     assert_eq!(refs(), "");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
@@ -184,7 +184,7 @@ fn ni_github_ni_chemin_du_poste_ne_se_publie_8005() {
     // La racine du test tient lieu de dossier personnel : le dépôt et le dossier de Kraken sont sous elle.
     let chemins = [lieu.racine.as_path(), lieu.kraken.as_path(), lieu.depot.as_path()];
     let publier = |base: &str, tete: &str, titre: &str, corps: &str| {
-        forge.publiable(base, tete, titre, corps, &chemins).map_err(|refus| {
+        forge.publiable(base, tete, "lydite/vague-x", titre, corps, &chemins).map_err(|refus| {
             assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
             refus.preuve
         })
@@ -194,7 +194,7 @@ fn ni_github_ni_chemin_du_poste_ne_se_publie_8005() {
     assert_eq!(publier(&base, &propre, "Écrire a", "Écrire a\n"), Ok(()));
     let racine_du_systeme = env::current_dir().unwrap().ancestors().last().unwrap().to_path_buf();
     let avec_racine = [racine_du_systeme.as_path(), lieu.depot.as_path()];
-    assert_eq!(forge.publiable(&base, &propre, "titre", "corps", &avec_racine), Ok(()));
+    assert_eq!(forge.publiable(&base, &propre, "b", "titre", "corps", &avec_racine), Ok(()));
     // `.github/` à la racine, en toute casse.
     for chemin in [".github/workflows/ci.yml", ".GitHub/x.yml"] {
         let tete = sur(&lieu.depot, &base, &[(chemin, "x\n")], "ci");
@@ -239,7 +239,7 @@ fn un_depot_vise_depuis_un_sous_dossier_ne_cache_rien_a_8005() {
     let forge = Forge { depot: &sous, ..lieu.forge() };
     let chemins = [lieu.depot.as_path()];
     let refuse = |quoi: &str, tete: &str| {
-        let refus = forge.publiable(&base, tete, "t", "c", &chemins).expect_err(quoi);
+        let refus = forge.publiable(&base, tete, "b", "t", "c", &chemins).expect_err(quoi);
         assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
         refus.preuve
     };
@@ -254,7 +254,7 @@ fn un_depot_vise_depuis_un_sous_dossier_ne_cache_rien_a_8005() {
     assert!(preuve.contains("paraît dans les lignes ajoutées de b/notes.txt"), "{preuve}");
     // Ce qui ne change que sous le sous-dossier passe toujours.
     let propre = sur(&lieu.depot, &base, &[("sous/b.txt", "b\n")], "b");
-    assert_eq!(forge.publiable(&base, &propre, "t", "c", &chemins), Ok(()));
+    assert_eq!(forge.publiable(&base, &propre, "b", "t", "c", &chemins), Ok(()));
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -265,7 +265,7 @@ fn un_commit_qui_n_est_pas_de_kraken_ne_se_publie_pas_8005() {
     let base = lieu.base();
     let chemins = [lieu.racine.as_path(), lieu.kraken.as_path(), lieu.depot.as_path()];
     let publier = |base: &str, tete: &str| {
-        forge.publiable(base, tete, "t", "c", &chemins).map_err(|refus| {
+        forge.publiable(base, tete, "b", "t", "c", &chemins).map_err(|refus| {
             assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
             refus.preuve
         })
@@ -279,7 +279,7 @@ fn un_commit_qui_n_est_pas_de_kraken_ne_se_publie_pas_8005() {
         let preuve = publier(&base, &tete).unwrap_err();
         let dit = |(nom, adresse): (&str, &str)| format!("« {nom} <{adresse}> »");
         let porte = format!("auteur {}, committer {}", dit(auteur), dit(committer));
-        assert!(preuve.contains(&tete) && preuve.contains("n'est pas de Kraken"), "{preuve}");
+        assert!(preuve.contains(&tete) && preuve.contains("n'est pas de Lydite"), "{preuve}");
         assert!(preuve.contains(&porte), "la preuve dit {porte} : {preuve}");
     }
     // Un commit étranger sous un commit de Kraken, au milieu de ce qui se publie, compte aussi.
@@ -293,6 +293,221 @@ fn un_commit_qui_n_est_pas_de_kraken_ne_se_publie_pas_8005() {
 }
 
 #[test]
+fn un_mot_de_la_garde_ne_se_publie_pas_8005() {
+    let lieu = lieu("forge-garde");
+    let forge = lieu.forge();
+    let base = lieu.base();
+    let chemins = [lieu.depot.as_path()];
+    let garde = lieu.kraken.join("garde");
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    // Une ligne vide, une ligne commentée et des blancs de bord ne comptent pas : seule la ligne 4 garde.
+    fs::write(&garde, "\n# zébulon\n   \n  Zébulon Dupré  \n").unwrap();
+    let propre = sur(&lieu.depot, &base, &[("a.txt", "bonjour\n")], "a : écrire");
+    let publier = |tete: &str, branche: &str, titre: &str, corps: &str| {
+        forge.publiable(&base, tete, branche, titre, corps, &chemins).map_err(|refus| {
+            assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+            refus.preuve
+        })
+    };
+    // Le mot seul, sans la suite de mots de la ligne, ne la trouve pas : il passe.
+    assert_eq!(publier(&propre, "lydite/vague-1", "Écrire a", "Écrire a zébulon\n"), Ok(()));
+    let dit = |ou: &str| format!("la ligne 4 de la garde paraît dans {ou}");
+    // Chaque lieu, en toute casse, et la preuve ne dit pas le mot.
+    let notes = sur(&lieu.depot, &base, &[("notes.txt", "chez ZÉBULON DUPRÉ\n")], "notes");
+    let message = sur(&lieu.depot, &base, &[("b.txt", "b\n")], "chez zébulon dupré");
+    let refuse = [
+        (publier(&notes, "lydite/vague-1", "t", "c"), "les lignes ajoutées de b/notes.txt"),
+        (publier(&message, "b", "t", "c"), "les messages des commits poussés"),
+        (publier(&propre, "b", "Pour zébulon Dupré", "c"), "le titre"),
+        (publier(&propre, "b", "t", "voir ZÉBULON dupré\n"), "le corps"),
+        (publier(&propre, "lydite/zÉbulon dupré", "t", "c"), "le nom de la branche"),
+    ];
+    for (preuve, ou) in refuse {
+        let preuve = preuve.unwrap_err();
+        assert_eq!(preuve, dit(ou));
+        assert!(!preuve.to_lowercase().contains("zébulon"), "{preuve}");
+    }
+    // Un fichier dont le nom et une ligne portent le mot : la preuve ne nomme pas le fichier.
+    let nomme = sur(&lieu.depot, &base, &[("Zébulon Dupré.md", "chez zébulon dupré\n")], "nomme");
+    let preuve = publier(&nomme, "b", "t", "c").unwrap_err();
+    assert_eq!(preuve, dit("le nom d'un fichier changé"));
+    assert!(!preuve.to_lowercase().contains("zébulon"), "{preuve}");
+    // Un fichier qui ne se lit pas est le refus 6006, qui nomme son chemin.
+    fs::remove_file(&garde).unwrap();
+    fs::create_dir(&garde).unwrap();
+    let dossier = forge.publiable(&base, &propre, "b", "t", "c", &chemins).unwrap_err();
+    fs::remove_dir(&garde).unwrap();
+    fs::write(&garde, [0xff, 0xfe]).unwrap();
+    let octets = forge.publiable(&base, &propre, "b", "t", "c", &chemins).unwrap_err();
+    for refus in [dossier, octets] {
+        assert_eq!(refus.code, Code::EntreeSortie, "{refus}");
+        assert!(refus.preuve.contains(&garde.display().to_string()), "{refus}");
+    }
+    // Sans fichier, la publication passe comme avant.
+    fs::remove_file(&garde).unwrap();
+    assert_eq!(publier(&propre, "lydite/zébulon dupré", "Pour zébulon dupré", "c"), Ok(()));
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn un_mot_de_la_garde_ne_fuit_pas_par_le_nom_du_fichier_d_un_autre_8005() {
+    let lieu = lieu("forge-garde-deux");
+    let forge = lieu.forge();
+    let base = lieu.base();
+    let chemins = [lieu.depot.as_path()];
+    let garde = lieu.kraken.join("garde");
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    // La ligne 1 est dans une ligne ajoutée, la ligne 2 dans le nom de ce même fichier : chercher la ligne 1 d'abord
+    // dans les lignes ajoutées nommerait le fichier, donc écrirait le mot de la ligne 2.
+    fs::write(&garde, "alpha\nzébulon\n").unwrap();
+    let tete = sur(&lieu.depot, &base, &[("Zébulon.md", "alpha\n")], "notes");
+    let preuve = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(preuve.code, Code::PublicationRefusee, "{preuve}");
+    let preuve = preuve.preuve;
+    assert_eq!(preuve, "la ligne 2 de la garde paraît dans le nom d'un fichier changé");
+    for mot in ["alpha", "zébulon"] {
+        assert!(!preuve.to_lowercase().contains(mot), "{preuve}");
+    }
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn le_refus_de_la_garde_ne_dit_pas_le_chemin_de_la_garde_8005() {
+    let lieu = lieu("forge-garde-chemin");
+    let forge = lieu.forge();
+    let base = lieu.base();
+    let chemins = [lieu.depot.as_path()];
+    let garde = lieu.kraken.join("garde");
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    // La ligne 1 est le nom du dossier du test, que le chemin de la garde porte.
+    let dossier = lieu.racine.file_name().unwrap().to_string_lossy().to_string();
+    fs::write(&garde, format!("{dossier}\n")).unwrap();
+    assert!(garde.display().to_string().contains(&dossier));
+    let propre = sur(&lieu.depot, &base, &[("a.txt", "bonjour\n")], "a");
+    let refus = forge.publiable(&base, &propre, "b", &dossier, "c", &chemins).unwrap_err();
+    assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+    assert_eq!(refus.preuve, "la ligne 1 de la garde paraît dans le titre");
+    assert!(!refus.preuve.contains(&dossier), "{refus}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn un_git_qui_echoue_ne_dit_pas_le_chemin_de_la_garde_8005() {
+    let lieu = lieu("forge-garde-echec");
+    let forge = lieu.forge();
+    let chemins = [lieu.depot.as_path()];
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    // La ligne 1 est le nom du dossier du test, que le dépôt visé porte dans son chemin.
+    let dossier = lieu.racine.file_name().unwrap().to_string_lossy().to_string();
+    fs::write(lieu.kraken.join("garde"), format!("{dossier}\n")).unwrap();
+    let inconnue = "0123456789abcdef0123456789abcdef01234567";
+    let refus = forge.publiable(inconnue, inconnue, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+    assert_eq!(
+        refus.preuve,
+        "ce que Lydite publierait ne se lit pas : la ligne 1 de la garde paraît dans l'erreur de git"
+    );
+    assert!(!format!("{refus}").contains(&dossier), "{refus}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn un_bom_en_tete_de_la_garde_n_est_pas_un_mot_de_la_ligne_1() {
+    let lieu = lieu("forge-garde-bom");
+    let forge = lieu.forge();
+    let base = lieu.base();
+    let chemins = [lieu.depot.as_path()];
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    fs::write(lieu.kraken.join("garde"), "\u{feff}zébulon\r\n").unwrap();
+    let propre = sur(&lieu.depot, &base, &[("a.txt", "bonjour\n")], "a");
+    assert_eq!(forge.publiable(&base, &propre, "b", "t", "c", &chemins), Ok(()));
+    let refus = forge.publiable(&base, &propre, "b", "Pour Zébulon", "c", &chemins).unwrap_err();
+    assert_eq!(refus.preuve, "la ligne 1 de la garde paraît dans le titre");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn une_ligne_commentee_de_la_garde_ne_garde_pas_son_mot_8005() {
+    let lieu = lieu("forge-garde-commentaire");
+    let forge = lieu.forge();
+    let base = lieu.base();
+    let chemins = [lieu.depot.as_path()];
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    fs::write(lieu.kraken.join("garde"), "# zébulon\nalpha\n").unwrap();
+    let propre = sur(&lieu.depot, &base, &[("a.txt", "bonjour\n")], "a");
+    // Le corps qui porte le mot commenté passe ; celui du mot gardé est refusé, à la ligne 2.
+    assert_eq!(forge.publiable(&base, &propre, "b", "t", "voir zébulon", &chemins), Ok(()));
+    let refus = forge.publiable(&base, &propre, "b", "t", "voir alpha", &chemins).unwrap_err();
+    assert_eq!(refus.preuve, "la ligne 2 de la garde paraît dans le corps");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn deux_mots_de_la_garde_avec_un_nom_de_fichier_ascii_ne_fuient_pas_8005() {
+    let lieu = lieu("forge-garde-ascii");
+    let forge = lieu.forge();
+    let base = lieu.base();
+    let chemins = [lieu.depot.as_path()];
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    // La ligne 1 est dans une ligne ajoutée, la ligne 2 dans le nom de ce même fichier, en ASCII.
+    fs::write(lieu.kraken.join("garde"), "alpha\nBeta\n").unwrap();
+    let tete = sur(&lieu.depot, &base, &[("beta.md", "alpha\n")], "notes");
+    let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.preuve, "la ligne 2 de la garde paraît dans le nom d'un fichier changé");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn un_fichier_de_github_dont_le_nom_porte_un_mot_de_la_garde_est_refuse_sans_son_nom_8005() {
+    let lieu = lieu("forge-garde-github");
+    let forge = lieu.forge();
+    let base = lieu.base();
+    let chemins = [lieu.depot.as_path()];
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    fs::write(lieu.kraken.join("garde"), "zébulon\n").unwrap();
+    let tete = sur(&lieu.depot, &base, &[(".github/Zébulon.yml", "a\n")], "ci");
+    let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.preuve, "la ligne 1 de la garde paraît dans le nom d'un fichier changé");
+    // Sans le mot gardé dans son nom, le refus de `.github/` reste, avec son nom.
+    fs::write(lieu.kraken.join("garde"), "autre\n").unwrap();
+    let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert!(refus.preuve.starts_with(".github/Zébulon.yml change entre la base"), "{refus}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn un_commit_etranger_dont_l_auteur_porte_un_mot_de_la_garde_ne_cite_pas_l_identite_8005() {
+    let lieu = lieu("forge-garde-auteur");
+    let forge = lieu.forge();
+    let base = lieu.base();
+    let chemins = [lieu.depot.as_path()];
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    fs::write(lieu.kraken.join("garde"), "zébulon\n").unwrap();
+    let auteur = ("Zébulon Dupré", "z@exemple.invalid");
+    let tete = sur_par(&lieu.depot, &base, &[("b.txt", "b\n")], "b", (auteur, KRAKEN));
+    let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+    assert!(refus.preuve.contains(&tete) && refus.preuve.contains("n'est pas de Lydite"), "{refus}");
+    assert!(!refus.preuve.to_lowercase().contains("zébulon") && !refus.preuve.contains("auteur"), "{refus}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn les_diffs_de_la_publication_ignorent_la_configuration_des_prefixes_de_l_humain() {
+    let lieu = lieu("forge-garde-prefixes");
+    let forge = lieu.forge();
+    let base = lieu.base();
+    let chemins = [lieu.depot.as_path()];
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    fs::write(lieu.kraken.join("garde"), "zébulon\n").unwrap();
+    git(&lieu.depot, &["config", "diff.noprefix", "true"]);
+    let tete = sur(&lieu.depot, &base, &[("notes.txt", "chez zébulon\n")], "notes");
+    let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.preuve, "la ligne 1 de la garde paraît dans les lignes ajoutées de b/notes.txt");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
 fn pousser_envoie_un_sha_sans_forcer_8006() {
     let lieu = lieu("forge-8006");
     let forge = lieu.forge();
@@ -300,24 +515,24 @@ fn pousser_envoie_un_sha_sans_forcer_8006() {
     let tete = sur(&lieu.depot, &base, &[("a.txt", "a\n")], "a");
     // La branche locale du même nom porte autre chose : c'est le sha qui part, jamais un nom.
     let autre = sur(&lieu.depot, &base, &[("b.txt", "b\n")], "b");
-    git(&lieu.depot, &["branch", "kraken/vague-v", &autre]);
-    assert_eq!(forge.pousser(&tete, "kraken/vague-v"), Ok(()));
-    assert_eq!(lieu.distante("kraken/vague-v"), tete);
+    git(&lieu.depot, &["branch", "lydite/vague-v", &autre]);
+    assert_eq!(forge.pousser(&tete, "lydite/vague-v"), Ok(()));
+    assert_eq!(lieu.distante("lydite/vague-v"), tete);
     // Un nom n'est pas un sha : rien ne part.
-    let refus = forge.pousser("kraken/vague-v", "kraken/vague-w").unwrap_err();
+    let refus = forge.pousser("lydite/vague-v", "lydite/vague-w").unwrap_err();
     assert_eq!(refus.code, Code::PousseeRefusee);
-    assert_eq!(git(&lieu.nu, &["branch", "--list", "kraken/vague-w"]), "");
+    assert_eq!(git(&lieu.nu, &["branch", "--list", "lydite/vague-w"]), "");
     // La tête d'une relance, qui descend de la précédente, avance la branche.
     let suite = sur(&lieu.depot, &tete, &[("c.txt", "c\n")], "c");
-    assert_eq!(forge.pousser(&suite, "kraken/vague-v"), Ok(()));
-    assert_eq!(lieu.distante("kraken/vague-v"), suite);
+    assert_eq!(forge.pousser(&suite, "lydite/vague-v"), Ok(()));
+    assert_eq!(lieu.distante("lydite/vague-v"), suite);
     // Un commit étranger posé sur la branche distante : le push est refusé, et le distant n'a pas bougé.
     let etranger = sur(&lieu.depot, &base, &[("d.txt", "d\n")], "étranger");
-    git(&lieu.depot, &["push", "-q", "origin", &format!("{etranger}:refs/heads/kraken/vague-x")]);
-    let refus = forge.pousser(&tete, "kraken/vague-x").unwrap_err();
+    git(&lieu.depot, &["push", "-q", "origin", &format!("{etranger}:refs/heads/lydite/vague-x")]);
+    let refus = forge.pousser(&tete, "lydite/vague-x").unwrap_err();
     assert_eq!(refus.code, Code::PousseeRefusee);
     assert!(refus.preuve.contains(" push "), "{refus}");
-    assert_eq!(lieu.distante("kraken/vague-x"), etranger);
+    assert_eq!(lieu.distante("lydite/vague-x"), etranger);
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -329,7 +544,7 @@ fn ouvrir_cree_la_pr_et_la_relit_sur_le_sha_pousse_8007() {
     let vue = |oid: &str, numero: &str| format!(r#"{{"headRefOid":"{oid}","number":{numero},"url":"{url}"}}"#);
     let corps = "Écrire bonjour.txt\n\nPreuve : cargo test → vert\n\na : Écrire bonjour.txt\n\nLa fusion reste un \
                  geste humain.\n";
-    let ouvrir = || forge.ouvrir("main", "kraken/vague-v", "Ecrire bonjour", corps, TETE);
+    let ouvrir = || forge.ouvrir("main", "lydite/vague-v", "Ecrire bonjour", corps, TETE);
     lieu.gh.rendre(1, 0, &format!("{url}\n"), "");
     lieu.gh.rendre(2, 0, &vue(TETE, "12"), "");
     assert_eq!(ouvrir(), Ok(PrOuverte { numero: 12, url: url.into() }));
@@ -337,18 +552,18 @@ fn ouvrir_cree_la_pr_et_la_relit_sur_le_sha_pousse_8007() {
     assert_eq!(
         lieu.gh.appels(),
         [
-            "pr create --base main --head kraken/vague-v --title Ecrire bonjour --body-file - --repo forge.test/p/d",
-            "pr view kraken/vague-v --json number,url,headRefOid --repo forge.test/p/d",
+            "pr create --base main --head lydite/vague-v --title Ecrire bonjour --body-file - --repo forge.test/p/d",
+            "pr view lydite/vague-v --json number,url,headRefOid --repo forge.test/p/d",
         ]
     );
     // `gh pr create` refusé, et la branche n'a pas de PR à relire (appels 3 et 4) ; la PR relue sur un autre sha, sans
     // numéro positif, ou illisible : la branche reste poussée, sans PR.
     lieu.gh.rendre(3, 1, "", "pull request create failed: HTTP 502\n");
-    lieu.gh.rendre(4, 1, "", "no pull requests found for branch kraken/vague-v\n");
+    lieu.gh.rendre(4, 1, "", "no pull requests found for branch lydite/vague-v\n");
     let refus = ouvrir().unwrap_err();
     assert_eq!(refus.code, Code::PrImpossible);
     assert!(refus.preuve.contains("HTTP 502") && refus.preuve.contains("no pull requests found"), "{refus}");
-    assert!(refus.correction.contains("kraken/vague-v reste poussée"), "{refus}");
+    assert!(refus.correction.contains("lydite/vague-v reste poussée"), "{refus}");
     for (n, relue, vu) in [
         (5, vue("9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34", "12"), "pas le sha poussé"),
         (7, vue(TETE, "0"), "pas un numéro positif"),
@@ -454,14 +669,14 @@ fn une_issue_ouverte_se_lit_et_les_autres_sont_refusees_8012_8013() {
 fn un_create_rate_dont_la_pr_existe_sur_la_tete_pousse_est_reconcilie_8007() {
     let lieu = lieu("forge-reconcilier");
     let forge = lieu.forge();
-    let ouvrir = || forge.ouvrir("main", "kraken/vague-v", "Ecrire a", "corps\n", TETE);
+    let ouvrir = || forge.ouvrir("main", "lydite/vague-v", "Ecrire a", "corps\n", TETE);
     // `gh pr create` sort en erreur, ou meurt à son délai, alors que la PR s'est ouverte : la relire sur la branche
     // (appel 2) la donne sur la tête poussée, et le create ne se rejoue pas.
     lieu.gh.rendre(1, 1, "", "gh: connexion perdue\n");
     lieu.gh.rendre(2, 0, &pr_vue(TETE), "");
     assert_eq!(ouvrir(), Ok(PrOuverte { numero: 12, url: PR.into() }));
-    let create = "pr create --base main --head kraken/vague-v --title Ecrire a --body-file - --repo forge.test/p/d";
-    let view = "pr view kraken/vague-v --json number,url,headRefOid --repo forge.test/p/d";
+    let create = "pr create --base main --head lydite/vague-v --title Ecrire a --body-file - --repo forge.test/p/d";
+    let view = "pr view lydite/vague-v --json number,url,headRefOid --repo forge.test/p/d";
     assert_eq!(lieu.gh.appels(), [create, view]);
     // Une PR de la branche qui porte un autre sha n'est pas celle du sha poussé : le refus 8007 dit le create raté et
     // la relecture.
@@ -601,14 +816,14 @@ fn deux_checks_de_meme_nom_se_dedoublonnent_et_le_plus_recent_compte() {
 
 #[test]
 fn un_commit_de_kraken_se_reconnait_a_son_auteur_et_a_son_committer() {
-    let kraken = "kraken <kraken@invalid>";
+    let kraken = "lydite <lydite@invalid>";
     let sha = "c3a91e07d5f2486b0a7e3d915c28b4f60e1d7a39";
     let ligne = |auteur: &str, committer: &str| format!("{sha}\0{auteur}\0{committer}\n");
     assert_eq!(commit_etranger(""), None);
     assert_eq!(commit_etranger(&format!("{}{}", ligne(kraken, kraken), ligne(kraken, kraken))), None);
     // Le premier qui n'est pas de Kraken, dit en clair.
     let log = format!("{}{}{}", ligne(kraken, kraken), ligne("autre <a@b>", kraken), ligne(kraken, "autre <a@b>"));
-    let dit = format!("le commit {sha} n'est pas de Kraken : auteur « autre <a@b> », committer « {kraken} »");
+    let dit = (sha.to_string(), "autre <a@b>".to_string(), kraken.to_string());
     assert_eq!(commit_etranger(&log), Some(dit));
     // Une ligne qui n'a pas la forme attendue n'est pas de Kraken : le doute ne laisse rien passer.
     let trop = format!("{sha}\0{kraken}\0{kraken}\0{kraken}\n");
@@ -834,12 +1049,12 @@ fn une_commande_qui_depasse_son_delai_meurt_avec_son_arbre() {
     let mut lente = coquille(LENTE);
     lente.current_dir(&dir);
     let debut = Instant::now();
-    let erreur = jouer(lente, &dir.join("kraken"), None, ARBRE).unwrap_err();
+    let erreur = jouer(lente, &dir.join("lydite"), None, ARBRE).unwrap_err();
     assert!(erreur.contains(" : temps dépassé (10 s)"), "{erreur}");
     let pid = marque(&dir, Duration::ZERO);
     assert!(meurt(pid), "le petit-enfant {pid} survit au délai");
     assert!(debut.elapsed() < Duration::from_secs(28), "tuée à son délai, pas au bout de son sommeil");
-    assert_eq!(fs::read_dir(dir.join("kraken")).unwrap().count(), 0, "ses fichiers s'effacent");
+    assert_eq!(fs::read_dir(dir.join("lydite")).unwrap().count(), 0, "ses fichiers s'effacent");
     effacer(&dir);
 }
 
@@ -855,9 +1070,9 @@ fn un_petit_enfant_qui_garde_la_sortie_ouverte_ne_retient_rien() {
     let mut coquille = coquille(commande);
     coquille.current_dir(&dir);
     let debut = Instant::now();
-    let rendu = jouer(coquille, &dir.join("kraken"), None, ARBRE).unwrap();
+    let rendu = jouer(coquille, &dir.join("lydite"), None, ARBRE).unwrap();
     assert!(rendu.statut.success(), "{rendu:?}");
-    assert!(debut.elapsed() < Duration::from_secs(20), "Kraken n'attend que l'enfant : {:?}", debut.elapsed());
+    assert!(debut.elapsed() < Duration::from_secs(20), "Lydite n'attend que l'enfant : {:?}", debut.elapsed());
     let pid = marque(&dir, ARBRE);
     let _ = tuer_arbre(pid);
     assert!(meurt(pid), "le petit-enfant {pid} meurt au ménage du test");

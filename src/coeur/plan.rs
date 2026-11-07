@@ -1,5 +1,5 @@
-//! Le plan : ce que `kraken lancer <profil> --plan <fichier>` lit avant d'ouvrir la vague, ce qu'une main écrit quand
-//! elle découpe un objectif, et ce que `kraken plan [--decoupe] <fichier>` lit sans rien lancer.
+//! Le plan : ce que `lydite lancer <profil> --plan <fichier>` lit avant d'ouvrir la vague, ce qu'une main écrit quand
+//! elle découpe un objectif, et ce que `lydite plan [--decoupe] <fichier>` lit sans rien lancer.
 //!
 //! ```text
 //! plan 1
@@ -57,7 +57,7 @@
 //! - deux tâches qui pourraient tourner ensemble (aucune ne dépend de l'autre, même de loin) et qui partagent un chemin
 //!   (l'un des leurs couvre l'autre) passent en série, sans refus : Kraken ajoute au `depend` de l'une l'id de l'autre,
 //!   en suivant un ordre topologique du plan, les dépendances d'abord, puis l'ordre du fichier. Toutes les dépendances
-//!   ajoutées vont donc dans le même sens, et aucune ne fait de cycle ; [`Plan::lire_en`] les rend, et `kraken plan`
+//!   ajoutées vont donc dans le même sens, et aucune ne fait de cycle ; [`Plan::lire_en`] les rend, et `lydite plan`
 //!   les dit.
 //!
 //! Un plan se lit selon son mode ([`Mode`]). Écrit à la main (`--plan`), ses clés de tâche sont facultatives. Découpé
@@ -190,11 +190,11 @@ pub(crate) struct Tache {
 /// Le mode d'une lecture : qui a écrit le plan, et ce que Kraken sait de ce qu'il devait être.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Mode<'d> {
-    /// Écrit à la main, et donné par `--plan` ou par `kraken plan` : ses clés de tâche sont facultatives.
+    /// Écrit à la main, et donné par `--plan` ou par `lydite plan` : ses clés de tâche sont facultatives.
     Main,
     /// Découpé par une main : 12 tâches au plus, `fichiers` (100 chemins au plus) et `modele` sur chacune, et aucune
     /// `preuve` de tâche. Avec la demande de Kraken, au rejeu du découpage, de plus l'en-tête demandé (6026) et la
-    /// casse de la base (6024) ; sans elle, pour `kraken plan --decoupe`, seulement ce qui ne demande pas de contexte.
+    /// casse de la base (6024) ; sans elle, pour `lydite plan --decoupe`, seulement ce qui ne demande pas de contexte.
     Decoupe(Option<&'d Demande<'d>>),
 }
 
@@ -216,7 +216,7 @@ pub(crate) struct Attente {
     pub(crate) chemin: String,
 }
 
-/// `<id> attend <id> : elles partagent <chemin>`, ce que `kraken plan` écrit. Le chemin vient d'un fichier : ses
+/// `<id> attend <id> : elles partagent <chemin>`, ce que `lydite plan` écrit. Le chemin vient d'un fichier : ses
 /// caractères de contrôle s'écrivent (`\u{1b}`), pour ne pas piéger un terminal.
 impl fmt::Display for Attente {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -248,7 +248,7 @@ impl Plan {
         let premiere = lignes.next().unwrap_or(Ligne { numero: 1, texte: "" });
         if premiere.texte != "plan 1" {
             let correction =
-                "Écris `plan 1` seul en première ligne : Kraken ne lit que la version 1, avant tout le reste.";
+                "Écris `plan 1` seul en première ligne : Lydite ne lit que la version 1, avant tout le reste.";
             return Err(refus(Code::PlanVersion, premiere, "la première ligne d'un plan est `plan 1`", correction));
         }
         let mut lecteur = Lecteur::new(mode);
@@ -495,7 +495,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                     if let Some(juste) = self.base.as_ref().and_then(|base| base.casse(chemin)) {
                         let quoi = format!("le chemin {} s'écrit {} dans la base", cite(chemin), cite(&juste));
                         let correction = format!(
-                            "Écris-le {}, sous la casse que git lui connaît dans la base : Kraken compare les chemins \
+                            "Écris-le {}, sous la casse que git lui connaît dans la base : Lydite compare les chemins \
                              exactement, et un écart de casse ferait rater le gel.",
                             cite(&juste)
                         );
@@ -600,7 +600,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
 /// La correction d'une clé blanche, selon sa place.
 fn blanche(entete: bool, cle: &str) -> String {
     match (entete, cle) {
-        (true, _) => format!("Écris une valeur après `{cle} :` : sans elle, Kraken n'a rien à lire."),
+        (true, _) => format!("Écris une valeur après `{cle} :` : sans elle, Lydite n'a rien à lire."),
         (false, "preuve") => {
             "Écris la commande après `preuve :`, ou retire la ligne : la tâche joue alors la preuve de la vague.".into()
         }
@@ -622,9 +622,9 @@ fn demandee(mode: Mode<'_>, ligne: Ligne<'_>, cle: &str, valeur: &str) -> Result
     if valeur == attendue.trim() {
         return Ok(());
     }
-    let quoi = format!("la clé {} vaut {}, et Kraken a demandé {}", cite(cle), cite(valeur), cite(attendue));
+    let quoi = format!("la clé {} vaut {}, et Lydite a demandé {}", cite(cle), cite(valeur), cite(attendue));
     let correction = format!(
-        "Écris l'en-tête que Kraken a demandé, tel quel : `objectif : {}`, puis `preuve : {}`.",
+        "Écris l'en-tête que Lydite a demandé, tel quel : `objectif : {}`, puis `preuve : {}`.",
         demande.objectif.trim(),
         demande.preuve.trim()
     );

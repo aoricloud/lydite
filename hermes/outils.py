@@ -35,7 +35,7 @@ from .nom import ETAT, LANCER, PREFIXE, SECRET_ENV
 ENV_CONSERVE = (
     "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TERM", "TMPDIR",
     "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
-    "KRAKEN_DOSSIER", "KRAKEN_CLAUDE", "KRAKEN_GH", "KRAKEN_SRT",
+    "LYDITE_DOSSIER", "LYDITE_CLAUDE", "LYDITE_GH", "LYDITE_SRT",
     "GH_CONFIG_DIR", "CLAUDE_CONFIG_DIR",
 )
 
@@ -318,7 +318,7 @@ class Outils:
         binaire = self._binaire()
         env = self._env(avec_cle=True)
         with _VERROU:  # deux appels en parallèle ne démarrent pas deux vagues dans le même dossier de Lydite
-            return self._demarrer(demande, binaire, env, env.get("KRAKEN_DOSSIER", ""))
+            return self._demarrer(demande, binaire, env, env.get("LYDITE_DOSSIER", ""))
 
     def _demarrer(self, demande: dict, binaire: str, env: dict, dossier: str) -> dict:
         en_cours = self._en_cours(dossier)

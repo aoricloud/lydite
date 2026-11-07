@@ -48,15 +48,15 @@ const PUBLIER: &str =
     "Rien n'est poussé, et la branche de la vague reste locale : relis-la, puis pousse-la et ouvre sa PR toi-même.";
 
 /// La correction du refus 8009.
-const REINTEGRER: &str = "La PR reste ouverte, et Kraken ne relance pas sa CI : réintègre la base dans la \
+const REINTEGRER: &str = "La PR reste ouverte, et Lydite ne relance pas sa CI : réintègre la base dans la \
                           branche de la PR, puis relance-la toi-même.";
 
 /// La correction du refus 8010.
-const CHANGEE: &str = "Kraken s'arrête et ne touche plus à la PR : regarde qui l'a fermée, fusionnée ou poussée.";
+const CHANGEE: &str = "Lydite s'arrête et ne touche plus à la PR : regarde qui l'a fermée, fusionnée ou poussée.";
 
-/// Le programme `gh` de la forge : celui que nomme `KRAKEN_GH`, sinon `gh`. Le seul endroit où Kraken lit `KRAKEN_GH`.
+/// Le programme `gh` de la forge : celui que nomme `LYDITE_GH`, sinon `gh`. Le seul endroit où Kraken lit `LYDITE_GH`.
 pub(crate) fn programme_gh() -> OsString {
-    env::var_os("KRAKEN_GH").unwrap_or_else(|| "gh".into())
+    env::var_os("LYDITE_GH").unwrap_or_else(|| "gh".into())
 }
 
 /// Le distant `origin` du dépôt visé, lu une fois, avant la vague : Kraken s'en sert pour toute la suite.
@@ -94,7 +94,7 @@ pub(crate) fn distant(dossier: &Path, depot: &Path) -> Result<Distant, Refus> {
         let vue =
             if identifiants { "une URL https qui porte des identifiants".to_string() } else { format!("« {url} »") };
         refus(format!(
-            "l'URL d'origin, {vue}, ne nomme pas un hôte, un propriétaire et un dépôt : Kraken lit https://h/p/d, \
+            "l'URL d'origin, {vue}, ne nomme pas un hôte, un propriétaire et un dépôt : Lydite lit https://h/p/d, \
              ssh://[u@]h[:port]/p/d et [u@]h:p/d, chacune avec ou sans .git"
         ))
     })
@@ -245,7 +245,7 @@ fn partir(
     entree: Option<&Path>,
     (sortie, erreurs): (&Path, &Path),
 ) -> io::Result<Child> {
-    fs::create_dir_all(dossier).map_err(|e| nommee(e, format!("dossier de Kraken {}", dossier.display())))?;
+    fs::create_dir_all(dossier).map_err(|e| nommee(e, format!("dossier de Lydite {}", dossier.display())))?;
     let entree = match entree {
         Some(chemin) => Stdio::from(File::open(chemin).map_err(|e| nommee(e, chemin.display()))?),
         None => Stdio::null(),
@@ -469,13 +469,13 @@ impl Forge<'_> {
 
     /// La tête de `refs/heads/<branche>` du distant, lue dans une ref à Kraken et non dans `FETCH_HEAD`, que le fetch
     /// automatique d'un éditeur peut réécrire entre le fetch de Kraken et sa lecture : `git fetch --no-tags
-    /// --no-write-fetch-head <url> refs/heads/<branche>:refs/kraken/base/<lot>` la pose, `rev-parse` la lit, et
+    /// --no-write-fetch-head <url> refs/heads/<branche>:refs/lydite/base/<lot>` la pose, `rev-parse` la lit, et
     /// `update-ref -d` la retire, quoi qu'ait rendu la lecture. Le `<lot>` est celui de la commande ([`lot`]), que
     /// personne d'autre ne tire : deux vagues à `--pr` d'un même dépôt ne se disputent rien. `--no-tags` : un fetch qui
     /// range dans une ref rapporte aussi les étiquettes de l'histoire ramenée, que Kraken n'a pas à poser dans le dépôt
     /// visé. `--no-write-fetch-head` : Kraken n'écrit ni ne lit `FETCH_HEAD`, celui de l'humain reste tel qu'il est.
     /// Une ref qui ne se retire pas se dit sur stderr, et reste.
-    // raccourci : un Kraken tué entre le fetch et le retrait laisse sa ref refs/kraken/base/… dans le dépôt visé ;
+    // raccourci : un Kraken tué entre le fetch et le retrait laisse sa ref refs/lydite/base/… dans le dépôt visé ;
     // monter vers un ménage de ces refs au lancement si elles s'accumulent
     fn tete_distante(&self, branche: &str) -> Result<String, String> {
         self.tete_distante_avec(branche, || {})
@@ -484,7 +484,7 @@ impl Forge<'_> {
     /// [`Forge::tete_distante`], où `entre` joue entre le fetch et la lecture : la fenêtre où le fetch automatique d'un
     /// éditeur réécrit `FETCH_HEAD`, que les essais remplissent.
     fn tete_distante_avec(&self, branche: &str, entre: impl FnOnce()) -> Result<String, String> {
-        let ici = format!("refs/kraken/base/{}", lot());
+        let ici = format!("refs/lydite/base/{}", lot());
         let ramene = format!("refs/heads/{branche}:{ici}");
         self.faire(self.git(&["fetch", "--no-tags", "--no-write-fetch-head", &self.distant.url, &ramene]), None)?;
         entre();
@@ -503,7 +503,7 @@ impl Forge<'_> {
         self.faire(gh, None).map(drop).map_err(|vu| {
             let hote = &self.distant.hote;
             let correction = format!(
-                "Installe gh et connecte-le à {hote} (gh auth login --hostname {hote}), ou nomme par KRAKEN_GH le \
+                "Installe gh et connecte-le à {hote} (gh auth login --hostname {hote}), ou nomme par LYDITE_GH le \
                  programme gh à lancer, puis relance."
             );
             Refus::new(Code::GhInjoignable, vu, correction)
@@ -515,25 +515,59 @@ impl Forge<'_> {
     /// un autre que Kraken ([`commit_etranger`]) ; et aucun des `chemins` du poste (le dossier personnel, le dossier de
     /// Kraken, le dépôt visé), écrit avec `\` et avec `/`, sans casse sous Windows, ne paraît dans une ligne ajoutée du
     /// diff (`git diff -U0 --text --no-ext-diff`), dans le message d'un commit poussé (`base..tete`), dans le titre ou
-    /// dans le corps. Les deux `git diff` portent `--no-relative` : le dépôt visé peut être un sous-dossier du dépôt,
-    /// et avec `diff.relative` (la configuration de l'humain ou du dépôt) git ne dirait que ce qui change sous lui. Un
-    /// chemin sans nom, une racine, ne compte pas : il paraîtrait partout.
+    /// dans le corps. Les deux `git diff` fixent `--no-relative`, `--submodule=short` et `--src-prefix=a/
+    /// --dst-prefix=b/` : le dépôt visé peut être un sous-dossier du dépôt, et la configuration de l'humain ou du
+    /// dépôt (`diff.relative`, `diff.submodule`, `diff.noprefix`, `diff.dstPrefix`) ne change ni ce qu'ils disent ni
+    /// la forme de leurs noms. Un chemin sans nom, une racine, ne compte pas : il paraîtrait partout.
     // raccourci : un chemin écrit autrement (échappé en `\\`, en nom court 8.3, sous `~`) passe ; monter si une PR en
     // montre un
+    ///
+    /// La garde de l'utilisateur s'y ajoute : le fichier `garde` du dossier de Kraken, un mot ou une suite de mots par
+    /// ligne (une ligne vide ou commentée par `#` ne compte pas, les blancs des bords non plus), facultatif. Chaque
+    /// mot, sans casse (caractère par caractère) et comme sous-chaîne, se cherche d'abord dans les noms des fichiers
+    /// changés, avant tout autre refus, puis dans les mêmes lieux que les chemins et dans le nom de la `branche`
+    /// poussée. Un mot trouvé est le refus 8005, dont la preuve dit « la ligne <n> de la garde paraît dans <lieu> » :
+    /// ni le mot, ni le chemin de la garde. Aucune partie variable du refus ne porte un mot de la garde, sauf un sha :
+    /// fait d'hexadécimaux, il n'y est pas confronté, si bien qu'un mot court des lettres a à f (« cafe ») peut s'y
+    /// lire par hasard ; et un mot court peut se lire dans le texte fixe, comme « dan » dans « dans ». Un fichier qui
+    /// ne se lit pas est le refus 6006, qui garde son chemin, avant toute lecture du diff.
+    // raccourci : ß et la normalisation NFC ne sont pas repliés, et le sigma final se compare comme un sigma ; monter
+    // si un cas les montre
     pub(crate) fn publiable(
         &self,
         base: &str,
         tete: &str,
+        branche: &str,
         titre: &str,
         corps: &str,
         chemins: &[&Path],
     ) -> Result<(), Refus> {
+        let garde = lire_la_garde(self.dossier)?;
         let refus = |preuve: String| Refus::new(Code::PublicationRefusee, preuve, PUBLIER);
         let lire = |args: &[&str]| {
-            let vu = |vu: String| refus(format!("ce que Kraken publierait ne se lit pas : {vu}"));
+            let vu = |vu: String| {
+                let bas = minuscules(&vu);
+                let porte = garde.mots.iter().find(|(_, mot)| bas.contains(&minuscules(mot)));
+                match porte {
+                    Some((numero, _)) => {
+                        let dit = "ce que Lydite publierait ne se lit pas";
+                        refus(format!("{dit} : la ligne {numero} de la garde paraît dans l'erreur de git"))
+                    }
+                    None => refus(format!("ce que Lydite publierait ne se lit pas : {vu}")),
+                }
+            };
             self.faire(self.git(args), None).map_err(vu)
         };
         let noms = lire(&["diff", "--name-only", "--no-relative", "-z", "--no-renames", base, tete, "--"])?;
+        // Les noms des fichiers changés d'abord, pour tous les mots et avant tout autre refus : un lieu, ou le refus de
+        // `.github/`, nomme son fichier, qui ne doit porter aucun mot de la garde.
+        let noms_bas: Vec<String> = noms.split('\0').map(minuscules).collect();
+        for (numero, mot) in &garde.mots {
+            let cherche = minuscules(mot);
+            if noms_bas.iter().any(|nom| nom.contains(&cherche)) {
+                return Err(refus(format!("la ligne {numero} de la garde paraît dans le nom d'un fichier changé")));
+            }
+        }
         let github: Vec<&str> = noms
             .split('\0')
             .filter(|nom| {
@@ -548,6 +582,9 @@ impl Forge<'_> {
             "diff",
             "-U0",
             "--no-relative",
+            "--submodule=short",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
             "--text",
             "--no-ext-diff",
             "--no-textconv",
@@ -559,14 +596,31 @@ impl Forge<'_> {
         let plage = format!("{base}..{tete}");
         let messages = lire(&["log", "--format=%B", "--no-show-signature", &plage, "--"])?;
         let auteurs = lire(&["log", "--format=%H%x00%an <%ae>%x00%cn <%ce>", "--no-show-signature", &plage, "--"])?;
-        if let Some(etranger) = commit_etranger(&auteurs) {
-            return Err(refus(format!("{etranger}, entre la base {base} et la tête {tete}")));
+        if let Some((sha, auteur, committer)) = commit_etranger(&auteurs) {
+            let porte = |texte: &str| {
+                let texte = minuscules(texte);
+                garde.mots.iter().any(|(_, mot)| texte.contains(&minuscules(mot)))
+            };
+            let qui = if porte(&auteur) || porte(&committer) {
+                String::new()
+            } else {
+                format!(" : auteur « {auteur} », committer « {committer} »")
+            };
+            let preuve = format!("le commit {sha} n'est pas de Lydite{qui}, entre la base {base} et la tête {tete}");
+            return Err(refus(preuve));
         }
         let casse = |texte: &str| if cfg!(windows) { texte.to_lowercase() } else { texte.to_string() };
         let mut lieux = ajoutees(&diff);
         lieux.push(("les messages des commits poussés".into(), messages));
         lieux.push(("le titre".into(), titre.into()));
         lieux.push(("le corps".into(), corps.into()));
+        lieux.push(("le nom de la branche".into(), branche.into()));
+        for (numero, mot) in &garde.mots {
+            let cherche = minuscules(mot);
+            if let Some((lieu, _)) = lieux.iter().find(|(_, texte)| minuscules(texte).contains(&cherche)) {
+                return Err(refus(format!("la ligne {numero} de la garde paraît dans {lieu}")));
+            }
+        }
         let lieux: Vec<(String, String)> = lieux.into_iter().map(|(lieu, texte)| (lieu, casse(&texte))).collect();
         for chemin in chemins.iter().filter(|chemin| chemin.file_name().is_some()) {
             let ecrit = chemin.to_string_lossy();
@@ -594,7 +648,7 @@ impl Forge<'_> {
         };
         if !est_sha(tete) {
             return Err(refus(format!(
-                "« {tete} » n'est pas un sha de 40 hexadécimaux : Kraken ne pousse qu'un commit"
+                "« {tete} » n'est pas un sha de 40 hexadécimaux : Lydite ne pousse qu'un commit"
             )));
         }
         let cible = format!("{tete}:refs/heads/{branche}");
@@ -643,7 +697,7 @@ impl Forge<'_> {
             (creee, Ok(pr)) => {
                 if let Err(vu) = creee {
                     eprintln!(
-                        "gh pr create a échoué, mais la PR {} porte déjà {tete} : Kraken la prend ({vu})",
+                        "gh pr create a échoué, mais la PR {} porte déjà {tete} : Lydite la prend ({vu})",
                         pr.numero
                     );
                 }
@@ -954,14 +1008,14 @@ pub(crate) fn en_echec(texte: &str) -> String {
     texte.lines().filter(echec).collect::<Vec<_>>().join("\n")
 }
 
-/// Le premier commit de `log` qui n'est pas de Kraken, dit en clair, ou `None` si tous le sont. `log` est le `git log
-/// --format=%H%x00%an <%ae>%x00%cn <%ce>` de la plage publiée : une ligne par commit, `<sha>`, l'auteur et le committer
-/// séparés par un NUL, chacun écrit `nom <adresse>`. Un commit est de Kraken si l'un et l'autre sont l'identité de
-/// [`IDENTITE`], que `git::geste` pose sur chacun de ses gestes et la main sur son processus ; une ligne d'une autre
-/// forme n'est pas de lui.
+/// Le premier commit de `log` qui n'est pas de Kraken, `(sha, auteur, committer)`, ou `None` si tous le sont. `log`
+/// est le `git log --format=%H%x00%an <%ae>%x00%cn <%ce>` de la plage publiée : une ligne par commit, `<sha>`,
+/// l'auteur et le committer séparés par un NUL, chacun écrit `nom <adresse>`. Un commit est de Kraken si l'un et
+/// l'autre sont l'identité de [`IDENTITE`], que `git::geste` pose sur chacun de ses gestes et la main sur son
+/// processus ; une ligne d'une autre forme n'est pas de lui.
 // raccourci : l'identité se déclare, et un commit qui la porte sans être de Kraken passe ; monter vers des commits
 // signés d'une clé de Kraken
-fn commit_etranger(log: &str) -> Option<String> {
+fn commit_etranger(log: &str) -> Option<(String, String, String)> {
     let identite = |cle: &str| IDENTITE.iter().find(|(nom, _)| *nom == cle).map_or("", |&(_, valeur)| valeur);
     let kraken = |nom: &str, adresse: &str| format!("{} <{}>", identite(nom), identite(adresse));
     let attendu = format!(
@@ -972,7 +1026,41 @@ fn commit_etranger(log: &str) -> Option<String> {
     let ligne = log.lines().find(|ligne| ligne.split_once('\0').is_none_or(|(_, qui)| qui != attendu))?;
     let (sha, qui) = ligne.split_once('\0').unwrap_or((ligne, ""));
     let (auteur, committer) = qui.split_once('\0').unwrap_or((qui, ""));
-    Some(format!("le commit {sha} n'est pas de Kraken : auteur « {auteur} », committer « {committer} »"))
+    Some((sha.to_string(), auteur.to_string(), committer.to_string()))
+}
+
+/// `texte` en minuscules, caractère par caractère : sans le contexte du sigma final de `str::to_lowercase`.
+fn minuscules(texte: &str) -> String {
+    texte.chars().flat_map(char::to_lowercase).collect()
+}
+
+/// La garde de l'utilisateur : ses mots avec le numéro de leur ligne.
+struct Garde {
+    mots: Vec<(usize, String)>,
+}
+
+/// Le fichier `garde` de `dossier` : absent, la garde est vide ; qui ne se lit pas, ou pas en UTF-8, est le refus 6006
+/// qui nomme son chemin.
+fn lire_la_garde(dossier: &Path) -> Result<Garde, Refus> {
+    let chemin = dossier.join("garde");
+    let texte = match fs::read_to_string(&chemin) {
+        Ok(texte) => texte,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            let preuve = format!("la garde {} ne se lit pas : {e}", chemin.display());
+            let correction = "Rends-la lisible en UTF-8, ou retire-la, puis relance.";
+            return Err(Refus::new(Code::EntreeSortie, preuve, correction));
+        }
+    };
+    // Un BOM UTF-8 en tête (PowerShell 5.1 en écrit un) n'est pas un mot de la ligne 1.
+    let texte = texte.strip_prefix('\u{feff}').unwrap_or(&texte);
+    let mots = (1..)
+        .zip(texte.lines())
+        .map(|(numero, ligne)| (numero, ligne.trim()))
+        .filter(|(_, ligne)| !ligne.is_empty() && !ligne.starts_with('#'))
+        .map(|(numero, ligne)| (numero, ligne.to_string()))
+        .collect();
+    Ok(Garde { mots })
 }
 
 /// Les lignes qu'ajoute un diff de git (`-U0`), fichier par fichier : `les lignes ajoutées de <fichier>`, et leur

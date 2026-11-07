@@ -45,7 +45,7 @@ const JUSTES: [&str; 4] = [GET_SETTINGS, LIST_PERMISSION_RULES, GET_HOOKS_LISTIN
 /// Un `--settings` de la forme que Kraken passe, au mur demandé, réduit aux deux règles des réponses relevées.
 const REGLAGES: &str = concat!(
     r#"{"sandbox":{"enabled":true,"failIfUnavailable":false,"allowUnsandboxedCommands":false,"filesystem""#,
-    r#":{"denyRead":["~/","/srv/kraken"],"allowRead":["/srv/kraken/bacs/main-1","/srv/depot/.git"]},"#,
+    r#":{"denyRead":["~/","/srv/lydite"],"allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git"]},"#,
     r#""network":{"allowedDomains":[],"strictAllowlist":true}},"permissions":{"allow":["WebSearch"],"deny""#,
     r#":["CronCreate"]},"disableAllHooks":true,"autoMemoryEnabled":false}"#,
 );
@@ -137,9 +137,9 @@ fn regles_fideles(reglages: &str) -> String {
 #[test]
 fn la_main_trop_lente_est_tuee_avec_ses_enfants() {
     let (dir, bac) = bac_jetable("main-lente");
-    let (constat, sortie) = jouer(&arbre(&dir), &bac, "consigne", ARBRE, None, false, None);
+    let (constat, sortie) = jouer(&arbre(&dir), &bac, "consigne", Duration::from_secs(20), None, false, None);
     let erreur = sortie.unwrap_err();
-    assert!(erreur.starts_with("main : temps dépassé (10 s)"), "{erreur}");
+    assert!(erreur.starts_with("main : temps dépassé (20 s)"), "{erreur}");
     assert_eq!(constat, None, "une main brute ne rend pas de constat");
     let pid = marque(&bac, Duration::ZERO);
     assert!(meurt(pid), "le petit-enfant {pid} survit à la main tuée");
@@ -404,7 +404,7 @@ fn les_reglages_d_un_vrai_profil_se_jugent_pris_par_une_main_fidele() {
     let regle =
         |chemin: PathBuf| crate::coeur::profil::regle_de_chemin(&chemin.to_string_lossy(), cfg!(windows)).unwrap();
     let (kraken, config, claude) =
-        (regle(dir.join("kraken")), regle(dir.join("config")), regle(dir.join("personnel").join(".claude")));
+        (regle(dir.join("lydite")), regle(dir.join("config")), regle(dir.join("personnel").join(".claude")));
     let commun = regle(dir.join("depot").join(".git"));
     let fermes = format!(
         concat!(

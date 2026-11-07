@@ -1,4 +1,4 @@
-//! Le rendu de `kraken etat` : la chaîne des vagues montrées, et le code de sortie qu'elle vaut.
+//! Le rendu de `lydite etat` : la chaîne des vagues montrées, et le code de sortie qu'elle vaut.
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -8,7 +8,7 @@ use crate::coeur::erreur::Refus;
 use crate::coeur::fil::{self, Evenement, Foi, Lecture, Main, Note, Vague, Verdict, correction_de, etat, relecture_de};
 use crate::conduite::publication::recu_de;
 
-/// `kraken etat` dans ce dossier de Kraken : les écarts du fil sur stderr, un refus chacun, puis la chaîne de la
+/// `lydite etat` dans ce dossier de Kraken : les écarts du fil sur stderr, un refus chacun, puis la chaîne de la
 /// dernière vague sur stdout (voir `montrees`), vue à l'heure de la lecture. Un fil absent est un fil vide.
 pub(crate) fn etat_dans(dossier: &Path) -> Result<ExitCode, Refus> {
     let (Lecture { notes, ecarts }, issues) = lire_tout(dossier)?;
@@ -23,7 +23,7 @@ pub(crate) fn etat_dans(dossier: &Path) -> Result<ExitCode, Refus> {
     Ok(if toutes_menees_a_bout(&montrees(&vagues), &vagues) { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
-/// Ce que `kraken etat` dit sans vague : « aucune vague », et l'ancien fil à tabulations (version 1) s'il reste seul,
+/// Ce que `lydite etat` dit sans vague : « aucune vague », et l'ancien fil à tabulations (version 1) s'il reste seul,
 /// qu'il ne lit pas.
 fn aucune_vague(dossier: &Path) -> String {
     let m1 = dossier.join("fil");
@@ -42,7 +42,7 @@ fn relecteur_de<'a>(vagues: &'a [Vague], id: &str) -> Option<&'a Vague> {
     vagues.iter().rev().find(|vague| vague.relit.as_deref() == Some(id))
 }
 
-/// La vague que `kraken etat` montre à la place de `vague` : une relecture, prise ou classée, ou une correction se
+/// La vague que `lydite etat` montre à la place de `vague` : une relecture, prise ou classée, ou une correction se
 /// montre dans la vague qu'elle relit ou corrige. Le parcours suit les liens du fil, d'au plus autant de pas que le fil
 /// a de vagues : un fil dont les liens bouclent ne fait pas boucler Kraken.
 fn principale<'a>(vagues: &'a [Vague], vague: &'a Vague) -> &'a Vague {
@@ -58,7 +58,7 @@ fn principale<'a>(vagues: &'a [Vague], vague: &'a Vague) -> &'a Vague {
     courante
 }
 
-/// Les vagues que `kraken etat` montre, en partant de la dernière du fil et en remontant ses liens : la dernière,
+/// Les vagues que `lydite etat` montre, en partant de la dernière du fil et en remontant ses liens : la dernière,
 /// ramenée à sa vague principale (`principale`), puis celle qu'elle relance. Le découpage, la relecture et la
 /// correction d'une vague se disent dans son texte (`bloc`), non comme des vagues de plus. Une vague déjà montrée
 /// n'est pas reprise : des liens qui bouclent s'arrêtent là.
@@ -76,14 +76,14 @@ fn montrees(vagues: &[Vague]) -> Vec<&Vague> {
     chaine
 }
 
-/// Le texte de `kraken etat` : le bloc de chaque vague montrée (voir `montrees`), séparés par une ligne vide, ou
+/// Le texte de `lydite etat` : le bloc de chaque vague montrée (voir `montrees`), séparés par une ligne vide, ou
 /// « aucune vague ».
 #[cfg(test)]
 pub(crate) fn rendu(vagues: &[Vague], maintenant: &str) -> String {
     rendu_avec(vagues, &[], maintenant)
 }
 
-/// Le texte de `kraken etat` avec le reçu de chaque vague montrée, lu dans les `notes` du fil (voir `recu_de`).
+/// Le texte de `lydite etat` avec le reçu de chaque vague montrée, lu dans les `notes` du fil (voir `recu_de`).
 pub(crate) fn rendu_avec(vagues: &[Vague], notes: &[Note], maintenant: &str) -> String {
     let blocs: Vec<String> = montrees(vagues).into_iter().map(|vague| bloc(vague, vagues, notes, maintenant)).collect();
     if blocs.is_empty() { "aucune vague".into() } else { blocs.join("\n\n") }
@@ -269,13 +269,13 @@ fn toutes_assemblees(vague: &Vague) -> bool {
     vague.n > 0 && vague.mains.len() == vague.n && (1..=vague.n).all(assemblee)
 }
 
-/// Ce que le code 0 de `kraken etat` demande de la vague : toutes ses tâches assemblées si elle a un plan ; sinon, pour
+/// Ce que le code 0 de `lydite etat` demande de la vague : toutes ses tâches assemblées si elle a un plan ; sinon, pour
 /// des copies, toutes ses mains prises et constatées.
 fn menee_a_bout(vague: &Vague) -> bool {
     if vague.assemblage.is_some() { toutes_assemblees(vague) } else { toutes_prises(vague) }
 }
 
-/// Ce que le code 0 de `kraken etat` demande, en plus de `menee_a_bout`, d'une vague qui joue un plan découpé ou
+/// Ce que le code 0 de `lydite etat` demande, en plus de `menee_a_bout`, d'une vague qui joue un plan découpé ou
 /// qu'une relecture a relue : le découpage qu'elle joue a un plan au fil, et sa main est prise et constatée ; une
 /// correction qu'elle a est assemblée ; un relecteur qui la relit a rendu sa relecture ; et ses remarques bloquantes,
 /// s'il y en a, ont leur correction. Une vague sans lien de découpage ni de relecture n'a rien de plus à faire.
@@ -291,7 +291,7 @@ fn satellites_a_bout(vague: &Vague, vagues: &[Vague]) -> bool {
     decoupage_pris && relue && corrigee
 }
 
-/// Ce que le code 0 de `kraken etat` demande des vagues montrées (voir `montrees`), et rien n'étant affirmé s'il n'y en
+/// Ce que le code 0 de `lydite etat` demande des vagues montrées (voir `montrees`), et rien n'étant affirmé s'il n'y en
 /// a aucune. Chacune est menée à bout, et ses liens de découpage, de relecture et de correction aussi
 /// (`satellites_a_bout`). Si la dernière a des notes de forge, de plus : aucune n'a de refus de forge, et la dernière
 /// CI lue est verte, celle de la dernière vague qui en a une. Une vague sans note de forge garde la règle d'une vague

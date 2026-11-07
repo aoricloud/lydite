@@ -11,7 +11,7 @@ fn absolu(chemin: &str) -> PathBuf {
     PathBuf::from(if cfg!(windows) { r"C:\" } else { "/" }).join(chemin)
 }
 
-/// Le profil de ce texte, lu comme le fichier `essai.profil` d'un dossier de Kraken fictif, sans `KRAKEN_CLAUDE`.
+/// Le profil de ce texte, lu comme le fichier `essai.profil` d'un dossier de Kraken fictif, sans `LYDITE_CLAUDE`.
 fn lu(texte: &str) -> Result<Profil, Refus> {
     lire("essai", texte, Some(&absolu("k").join("profils").join("essai.profil")), None)
 }
@@ -93,7 +93,7 @@ fn charger_claude_ou_un_inconnu() {
     // Un dossier de Kraken jetable, sans le moindre profil : `claude` est le profil intégré.
     let dossier = kraken("charger");
     let profil = charger_dans("claude", &dossier).unwrap();
-    // Le programme dépend de KRAKEN_CLAUDE, que ce test ne touche pas : le reste est fixe.
+    // Le programme dépend de LYDITE_CLAUDE, que ce test ne touche pas : le reste est fixe.
     assert_eq!(profil.delai_preuve(), Duration::from_secs(300));
     assert_eq!(profil.delai_main(), Duration::from_secs(3600));
     assert_eq!(claude(&profil).modele, "sonnet");
@@ -143,7 +143,7 @@ fn un_profil_se_lit_d_un_fichier() {
     assert_eq!(lu.ligne_lecture, (12, "lecture = ~/.cargo".to_string()));
     assert_eq!((profil.delai_main(), profil.delai_preuve()), (Duration::from_secs(1800), Duration::from_secs(60)));
     assert!(lu.bornes.is_none(), "rien n'est borné avant borner");
-    // Un nom nu est un programme aussi ; sans programme écrit, c'est KRAKEN_CLAUDE, sinon claude.
+    // Un nom nu est un programme aussi ; sans programme écrit, c'est LYDITE_CLAUDE, sinon claude.
     let nu = lu_programme("sorte = claude\nprogramme = claude-essai\n", None);
     assert_eq!(nu, "claude-essai");
     assert_eq!(lu_programme("sorte = claude\n", None), "claude");
@@ -159,7 +159,7 @@ fn un_profil_se_lit_d_un_fichier() {
     let _ = fs::remove_dir_all(&dossier);
 }
 
-/// Le programme d'un profil lu de ce texte, avec cette valeur de `KRAKEN_CLAUDE`.
+/// Le programme d'un profil lu de ce texte, avec cette valeur de `LYDITE_CLAUDE`.
 fn lu_programme(texte: &str, kraken_claude: Option<&str>) -> String {
     let profil = lire("essai", texte, None, kraken_claude).unwrap();
     claude(&profil).programme.clone()
@@ -192,7 +192,7 @@ fn sans_fichier_claude_est_le_profil_integre() {
     let ecrit = charger_dans("claude", &dossier).unwrap();
     assert_eq!((claude(&ecrit).modele.as_str(), claude(&ecrit).fichier.is_some()), ("haiku", true));
     // Sans dossier de Kraken du tout, l'intégré vaut encore, et rien n'est créé.
-    let absent = env::temp_dir().join(format!("kraken-test-profil-absent-{}", lot()));
+    let absent = env::temp_dir().join(format!("lydite-test-profil-absent-{}", lot()));
     assert!(claude(&charger_dans("claude", &absent).unwrap()).fichier.is_none());
     assert!(!absent.exists(), "charger ne crée rien");
     let _ = fs::remove_dir_all(&dossier);
@@ -273,7 +273,7 @@ fn un_profil_faux_est_refuse_avec_sa_ligne() {
         let lieu = absolu("k").join("profils").join("essai.profil").display().to_string();
         assert!(refus.preuve.starts_with(&format!("{lieu}:2 : « {faute} » : ")), "{faute:?} : {refus}");
         assert!(refus.preuve.contains(regle), "{faute:?} devait être refusée par « {regle} » : {refus}");
-        assert!(refus.correction.contains("ligne 2") && refus.correction.contains("kraken accepter essai"));
+        assert!(refus.correction.contains("ligne 2") && refus.correction.contains("lydite accepter essai"));
     }
     // Une clé redite est refusée à sa seconde ligne.
     let refus = lu("sorte = claude\nmodele = opus\nmodele = sonnet\n").err().unwrap();
@@ -300,7 +300,7 @@ fn un_profil_faux_est_refuse_avec_sa_ligne() {
     let refus = charger_dans("utf16", &dossier).err().unwrap();
     assert_eq!(refus.code, Code::ProfilIllisible);
     assert_eq!(refus.preuve, format!("{} : UTF-8 invalide après l'octet 0", utf16.display()));
-    assert!(refus.correction.contains("kraken accepter utf16"), "{refus}");
+    assert!(refus.correction.contains("lydite accepter utf16"), "{refus}");
     let coupe = dossier.join("profils").join("coupe.profil");
     fs::write(&coupe, b"sorte = claude\n\xC3\n").unwrap();
     assert!(charger_dans("coupe", &dossier).err().unwrap().preuve.ends_with("UTF-8 invalide après l'octet 15"));
@@ -340,7 +340,7 @@ fn la_relance_prend_son_modele() {
 fn le_decoupeur_a_son_modele_opus_par_defaut() {
     // Sans la clé, opus, profil intégré compris ; avec, la valeur lue, dans le domaine de `modele`.
     assert_eq!(lu("sorte = claude\n").unwrap().decoupeur(), Some("opus"));
-    let absent = env::temp_dir().join(format!("kraken-test-profil-decoupeur-{}", lot()));
+    let absent = env::temp_dir().join(format!("lydite-test-profil-decoupeur-{}", lot()));
     assert_eq!(charger_dans("claude", &absent).unwrap().decoupeur(), Some("opus"));
     let profil = borne("sorte = claude\nmodele = haiku\nrelance = sonnet\ndecoupeur = claude-sonnet-5-5\n");
     assert_eq!(profil.decoupeur(), Some("claude-sonnet-5-5"));
@@ -365,7 +365,7 @@ fn le_decoupeur_a_son_modele_opus_par_defaut() {
 fn le_relecteur_a_son_modele_opus_par_defaut() {
     // Sans la clé, opus, profil intégré compris ; avec, la valeur lue, dans le domaine de `modele`.
     assert_eq!(lu("sorte = claude\n").unwrap().relecteur(), Some("opus"));
-    let absent = env::temp_dir().join(format!("kraken-test-profil-relecteur-{}", lot()));
+    let absent = env::temp_dir().join(format!("lydite-test-profil-relecteur-{}", lot()));
     assert_eq!(charger_dans("claude", &absent).unwrap().relecteur(), Some("opus"));
     let profil = borne("sorte = claude\nmodele = haiku\nrelance = sonnet\nrelecteur = claude-opus-5-5\n");
     assert_eq!(profil.relecteur(), Some("claude-opus-5-5"));
@@ -534,7 +534,7 @@ fn un_fournisseur_mal_donne_est_le_refus_6027_qui_ne_reprend_pas_la_valeur() {
         let refus = lu(&format!("# un fournisseur\n{faute}\n{autre}\nsorte = claude\n")).err().expect(faute);
         assert_eq!(refus.code, Code::Fournisseur, "{faute} : {refus}");
         assert!(refus.preuve.starts_with(&format!("{lieu}:2 : « {nom} » : ")), "{faute} : {refus}");
-        assert!(refus.correction.contains("ligne 2") && refus.correction.contains("kraken accepter essai"), "{refus}");
+        assert!(refus.correction.contains("ligne 2") && refus.correction.contains("lydite accepter essai"), "{refus}");
         let valeur = faute.split_once('=').unwrap().1.trim();
         assert!(!refus.to_string().contains(valeur), "le refus reprend {valeur} : {refus}");
     }
@@ -566,7 +566,7 @@ fn une_cle_du_fournisseur_seule_est_le_refus_6027() {
         assert_eq!(refus.preuve, dit);
         let ajoute = format!("Ajoute la ligne « {manque} = ");
         assert!(refus.correction.starts_with(&ajoute) && refus.correction.contains("ou retire la ligne 2"), "{refus}");
-        assert!(refus.correction.ends_with("kraken accepter essai."), "{refus}");
+        assert!(refus.correction.ends_with("lydite accepter essai."), "{refus}");
     }
     // Les deux ensemble, dans l'ordre qu'on veut, et séparées d'autres lignes : le profil se lit.
     for texte in ["api = https://a.exemple.test\ncle = X\n", "cle = X\nmodele = haiku\napi = https://a.exemple.test\n"]
@@ -684,7 +684,7 @@ fn la_cle_du_fournisseur_se_lit_au_lancement_ou_c_est_le_refus_6027() {
             .unwrap_err();
         assert_eq!(refus.code, Code::Fournisseur, "{motif}");
         assert_eq!(refus.preuve, format!("{lieu} : la variable d'environnement CLE_ESSAI, que cle nomme, {motif}"));
-        assert!(refus.correction.starts_with("Pose CLE_ESSAI dans l'environnement de Kraken"), "{refus}");
+        assert!(refus.correction.starts_with("Pose CLE_ESSAI dans l'environnement de Lydite"), "{refus}");
         assert!(refus.correction.contains("api.exemple.test:8443"), "{refus}");
         assert_eq!(profil.fournisseur(), None, "{motif}");
         assert_eq!(profil.demande(&absolu("bac"), None, false).argv, Vec::<String>::new(), "la main ne part pas");
@@ -840,9 +840,9 @@ fn les_reglages_disent_le_mur_du_profil() {
     // avec guillemet et barre inverse, qui ne va qu'à allowRead. Chaque chemin, puis sa chaîne JSON écrite à la
     // main.
     let (dossier, dossier_json, regle) = if cfg!(windows) {
-        (r"C:\Users\é t\.kraken", r#""C:\\Users\\é t\\.kraken""#, "//c/Users/é t/.kraken")
+        (r"C:\Users\é t\.lydite", r#""C:\\Users\\é t\\.lydite""#, "//c/Users/é t/.lydite")
     } else {
-        ("/home/é t/.kraken", r#""/home/é t/.kraken""#, "//home/é t/.kraken")
+        ("/home/é t/.lydite", r#""/home/é t/.lydite""#, "//home/é t/.lydite")
     };
     let (lecture, lecture_json) = if cfg!(windows) {
         (r"C:\Program Files\outil", r#""C:\\Program Files\\outil""#)
@@ -951,19 +951,19 @@ fn les_reglages_de_srt_portent_toutes_leurs_cles_et_les_regles_de_la_main() {
 #[test]
 fn les_regles_de_chemin_suivent_le_systeme() {
     // Sous Windows, la lettre de lecteur en minuscule et des barres obliques ; ailleurs, `//` devant le chemin.
-    assert_eq!(regle_de_chemin(r"C:\Users\x\.kraken", true), Ok("//c/Users/x/.kraken".into()));
+    assert_eq!(regle_de_chemin(r"C:\Users\x\.lydite", true), Ok("//c/Users/x/.lydite".into()));
     assert_eq!(regle_de_chemin(r"d:/k\é t", true), Ok("//d/k/é t".into()));
     assert_eq!(regle_de_chemin(r"C:\", true), Ok("//c".into()));
-    assert_eq!(regle_de_chemin("/home/x/.kraken", false), Ok("//home/x/.kraken".into()));
+    assert_eq!(regle_de_chemin("/home/x/.lydite", false), Ok("//home/x/.lydite".into()));
     assert_eq!(regle_de_chemin("/home//é t/", false), Ok("//home/é t".into()));
     // Ce qu'une règle ne sait pas écrire : sa raison, dont `borner` fait le refus 6023 qui nomme le chemin.
     let refuses = [
-        (r"C:\Users\compte (perso)\.kraken", true),
+        (r"C:\Users\compte (perso)\.lydite", true),
         (r"C:\a)\k", true),
-        (r"\\serveur\partage\kraken", true),
-        (r"\\?\C:\kraken", true),
-        ("C:kraken", true),
-        ("/home/x/.kraken", true),
+        (r"\\serveur\partage\lydite", true),
+        (r"\\?\C:\lydite", true),
+        ("C:lydite", true),
+        ("/home/x/.lydite", true),
         ("1:/k", true),
         ("/a(b)/k", false),
         (r"/a\b/k", false),
@@ -1301,7 +1301,7 @@ fn une_preuve_qui_preterait_plus_n_est_pas_pretee() {
 
 #[test]
 fn le_programme_du_fichier_l_emporte_sur_kraken_claude() {
-    // `KRAKEN_CLAUDE` n'est que le programme d'un profil qui n'en nomme pas, nu ou en chemin absolu.
+    // `LYDITE_CLAUDE` n'est que le programme d'un profil qui n'en nomme pas, nu ou en chemin absolu.
     let absolu = absolu("outils").join("claude").display().to_string();
     assert_eq!(lu_programme(&format!("sorte = claude\nprogramme = {absolu}\n"), Some("/opt/claude")), absolu);
     assert_eq!(lu_programme("sorte = claude\nprogramme = claude-essai\n", Some("/opt/claude")), "claude-essai");
@@ -1335,7 +1335,7 @@ fn une_lecture_qui_n_est_ni_absolue_ni_du_dossier_personnel_est_refusee() {
 
 #[test]
 fn une_entree_lecture_qui_recouvre_le_dossier_de_kraken_est_refusee() {
-    let (dossier, git, (config, personnel)) = (absolu("k").join("kraken"), absolu("depot").join(".git"), leurres());
+    let (dossier, git, (config, personnel)) = (absolu("k").join("lydite"), absolu("depot").join(".git"), leurres());
     // Lui, un de ses ancêtres, la racine, un chemin sous lui : le refus 6009, qui nomme la ligne lecture.
     let cas = [
         (dossier.clone(), true),
@@ -1344,7 +1344,7 @@ fn une_entree_lecture_qui_recouvre_le_dossier_de_kraken_est_refusee() {
         (dossier.join("profils"), true),
         (dossier.join("bacs").join("main-1"), true),
         (absolu("k").join("autre"), false),
-        (absolu("k").join("krakenx"), false),
+        (absolu("k").join("lyditex"), false),
         (absolu("ailleurs"), false),
     ];
     for (entree, recouvre) in cas {
@@ -1362,9 +1362,9 @@ fn une_entree_lecture_qui_recouvre_le_dossier_de_kraken_est_refusee() {
         assert_eq!(profil.demande(&absolu("bac"), None, false).argv, Vec::<String>::new(), "la main ne part pas");
     }
     // `~/` mène au dossier personnel que `borner` reçoit, que Claude Code lit aussi pour `~`.
-    let sous = personnel.join(".kraken-essai");
+    let sous = personnel.join(".lydite-essai");
     for (entree, recouvre) in
-        [("~/", true), ("~/.kraken-essai", true), ("~/.kraken-essai/profils", true), ("~/.cargo", false)]
+        [("~/", true), ("~/.lydite-essai", true), ("~/.lydite-essai/profils", true), ("~/.cargo", false)]
     {
         let mut profil = lu(&format!("sorte = claude\nlecture = {entree}\n")).unwrap();
         let issue = profil.borner(&sous, &git, Some(&config), Some(&personnel));
@@ -1379,15 +1379,15 @@ fn une_entree_lecture_qui_recouvre_le_dossier_de_kraken_est_refusee() {
 #[test]
 fn un_dossier_de_kraken_au_chemin_refuse_est_refuse() {
     let git = absolu("depot").join(".git");
-    let mut cas = vec![absolu("a(b)").join("kraken"), absolu("k").join("[x]"), absolu("k").join("{x}"), absolu("k*")];
+    let mut cas = vec![absolu("a(b)").join("lydite"), absolu("k").join("[x]"), absolu("k").join("{x}"), absolu("k*")];
     if cfg!(windows) {
         cas.extend([
-            PathBuf::from(r"\\serveur\partage\kraken"),
-            PathBuf::from(r"\\?\C:\kraken"),
-            PathBuf::from("C:kraken"),
+            PathBuf::from(r"\\serveur\partage\lydite"),
+            PathBuf::from(r"\\?\C:\lydite"),
+            PathBuf::from("C:lydite"),
         ]);
     } else {
-        cas.extend([PathBuf::from(r"/a\b/kraken"), PathBuf::from("/a\"b/kraken"), PathBuf::from("kraken")]);
+        cas.extend([PathBuf::from(r"/a\b/lydite"), PathBuf::from("/a\"b/lydite"), PathBuf::from("lydite")]);
     }
     cas.push(non_utf8());
     let (config, personnel) = leurres();
@@ -1395,8 +1395,8 @@ fn un_dossier_de_kraken_au_chemin_refuse_est_refuse() {
         let mut profil = lu("sorte = claude\n").unwrap();
         let refus = profil.borner(&dossier, &git, Some(&config), Some(&personnel)).unwrap_err();
         assert_eq!(refus.code, Code::DossierCheminRefuse, "{}", dossier.display());
-        assert!(refus.preuve.starts_with(&format!("le dossier de Kraken {}", dossier.display())), "{refus}");
-        assert!(refus.correction.contains("KRAKEN_DOSSIER"), "{refus}");
+        assert!(refus.preuve.starts_with(&format!("le dossier de Lydite {}", dossier.display())), "{refus}");
+        assert!(refus.correction.contains("LYDITE_DOSSIER"), "{refus}");
         // Rien n'est posé : la main ne part pas, et ses règles ne tombent pas en silence.
         assert_eq!(profil.demande(&absolu("bac"), None, false).argv, Vec::<String>::new());
     }
@@ -1455,7 +1455,7 @@ fn un_dossier_de_connexion_au_chemin_refuse_est_refuse() {
     // Le dossier de Kraken se juge d'abord, avec sa correction.
     let mut profil = lu("sorte = claude\n").unwrap();
     let refus = profil.borner(&absolu("k(1)"), &git, Some(Path::new("config")), Some(&refuse)).unwrap_err();
-    assert!(refus.correction.contains("KRAKEN_DOSSIER"), "{refus}");
+    assert!(refus.correction.contains("LYDITE_DOSSIER"), "{refus}");
 }
 
 #[test]

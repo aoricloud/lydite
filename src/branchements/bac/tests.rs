@@ -13,11 +13,11 @@ use std::time::{Duration, Instant};
 #[test]
 fn le_bac_est_hors_du_depot() {
     let depot = depot("hors");
-    let kraken = neuf("hors-kraken"); // pas encore créé : le premier bac le crée
+    let kraken = neuf("hors-lydite"); // pas encore créé : le premier bac le crée
     let pose = bac(&depot, &kraken, "main-1", "HEAD").unwrap();
     assert_eq!(pose, kraken.join("bacs").join("main-1"));
     assert!(pose.is_dir() && !pose.starts_with(&depot));
-    assert_eq!(git(&pose, &["branch", "--show-current"]), "kraken/main-1");
+    assert_eq!(git(&pose, &["branch", "--show-current"]), "lydite/main-1");
     assert_eq!(git(&depot, &["status", "--porcelain"]), "", "le dépôt visé ne voit rien du bac");
     let _ = fs::remove_dir_all(&depot);
     let _ = fs::remove_dir_all(&kraken);
@@ -25,7 +25,7 @@ fn le_bac_est_hors_du_depot() {
 
 #[test]
 fn un_bac_part_de_son_depart() {
-    let (depot, kraken) = (depot("depart"), neuf("depart-kraken"));
+    let (depot, kraken) = (depot("depart"), neuf("depart-lydite"));
     let premier = git(&depot, &["rev-parse", "HEAD"]);
     git(&depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "second"]);
     let second = git(&depot, &["rev-parse", "HEAD"]);
@@ -33,7 +33,7 @@ fn un_bac_part_de_son_depart() {
     for (id, depart, attendu) in [("main-1", premier.as_str(), &premier), ("main-2", "HEAD", &second)] {
         let pose = bac(&depot, &kraken, id, depart).unwrap();
         assert_eq!(&git(&pose, &["rev-parse", "HEAD"]), attendu, "{id}");
-        assert_eq!(git(&pose, &["branch", "--show-current"]), format!("kraken/{id}"));
+        assert_eq!(git(&pose, &["branch", "--show-current"]), format!("lydite/{id}"));
     }
     let _ = fs::remove_dir_all(&depot);
     let _ = fs::remove_dir_all(&kraken);
@@ -91,7 +91,7 @@ fn effacer_ne_se_tait_pas_quand_le_dossier_ne_s_efface_pas() {
 
 #[test]
 fn un_bac_ne_joue_aucun_crochet_du_depot() {
-    let (depot, kraken, temoin) = (depot("crochets"), neuf("crochets-kraken"), neuf("crochets-temoin"));
+    let (depot, kraken, temoin) = (depot("crochets"), neuf("crochets-lydite"), neuf("crochets-temoin"));
     // Deux crochets du dépôt visé, que `git worktree add` joue : chacun ajoute son nom au témoin. Le dépôt les
     // nomme lui-même par son core.hooksPath, qu'un réglage global ne remplace pas.
     let crochets = depot.join(".git").join("hooks");
@@ -143,7 +143,7 @@ fn commit_de_l_index(dir: &Path, message: &str) {
 
 #[test]
 fn sans_claude_voit_suivi_non_suivi_ignore_commite_efface_et_autre_casse() {
-    let (depot, kraken) = (depot("claude"), neuf("claude-kraken"));
+    let (depot, kraken) = (depot("claude"), neuf("claude-lydite"));
     // Le dépôt suit .claude/settings.json et ignore *.local.json, comme le settings.local.json de Claude Code.
     ecrire(&depot, ".claude/settings.json", "{}");
     ecrire(&depot, ".gitignore", "*.local.json\n");
@@ -184,7 +184,7 @@ fn sans_claude_voit_suivi_non_suivi_ignore_commite_efface_et_autre_casse() {
 
 #[test]
 fn sans_claude_voit_un_claude_stage_puis_efface() {
-    let (depot, kraken) = (depot("stage-puis-efface"), neuf("stage-puis-efface-kraken"));
+    let (depot, kraken) = (depot("stage-puis-efface"), neuf("stage-puis-efface-lydite"));
     // Un .claude stagé que la main efface ensuite du worktree : `git diff` n'en dit plus rien, `git log` non plus,
     // et `git ls-files --others` le tait, car l'index le suit. Seul `git diff --cached` le nomme. Sans quoi le gel,
     // dont l'exclusion ne retire pas une entrée déjà stagée, le commiterait.
@@ -200,7 +200,7 @@ fn sans_claude_voit_un_claude_stage_puis_efface() {
 
 #[test]
 fn sans_claude_voit_un_claude_imbrique() {
-    let (depot, kraken) = (depot("imbrique"), neuf("imbrique-kraken"));
+    let (depot, kraken) = (depot("imbrique"), neuf("imbrique-lydite"));
     // Claude Code charge les compétences d'un <dossier>/.claude/skills imbriqué : un .claude sous un dossier compte.
     for chemin in ["sous/.claude/skills/k/SKILL.md", "sous/.claude/settings.json"] {
         touche(&depot, &kraken, |bac| ecrire(bac, chemin, "x"), &[chemin]);
@@ -211,7 +211,7 @@ fn sans_claude_voit_un_claude_imbrique() {
 
 #[test]
 fn sans_claude_voit_un_claude_commite_puis_ote() {
-    let (depot, kraken) = (depot("commite-ote"), neuf("commite-ote-kraken"));
+    let (depot, kraken) = (depot("commite-ote"), neuf("commite-ote-lydite"));
     // Un .claude commité, puis ôté : l'arbre redevient celui du départ, mais le commit reste dans l'histoire que la
     // fusion ferait entrer dans la branche de la vague. Seul `git log` le dit.
     for chemin in [".claude/settings.json", "sous/.claude/skills/k/SKILL.md"] {
@@ -254,6 +254,49 @@ fn sans_claude_voit_un_claude_commite_puis_ote() {
     let _ = fs::remove_dir_all(&kraken);
 }
 
+/// Pose une butée du mur : un fichier vide en lecture seule.
+fn butee(bac: &Path, chemin: &str) {
+    ecrire(bac, chemin, "");
+    regler_ecriture(&bac.join(chemin), false);
+}
+
+/// Rend un fichier inscriptible ou en lecture seule.
+fn regler_ecriture(fichier: &Path, inscriptible: bool) {
+    let mut droits = fs::metadata(fichier).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    droits.set_readonly(!inscriptible);
+    fs::set_permissions(fichier, droits).unwrap();
+}
+
+#[test]
+fn sans_claude_laisse_passer_les_butees_du_mur() {
+    let (depot, kraken) = (depot("butees"), neuf("butees-lydite"));
+    let (bac, depart) = pose(&depot, &kraken);
+    for nom in ["settings.json", "settings.local.json", "skills", "scheduled_tasks.json", "loop.md"] {
+        butee(&bac, &format!(".claude/{nom}"));
+    }
+    assert_eq!(sans_claude(&bac, &depart), Ok(()));
+    // Une butée à laquelle la main ajoute un octet, ou qu'elle rend inscriptible, est refusée.
+    let avec_octet = |bac: &Path| {
+        butee(bac, ".claude/hooks");
+        regler_ecriture(&bac.join(".claude/hooks"), true);
+        fs::write(bac.join(".claude/hooks"), "x").unwrap();
+        regler_ecriture(&bac.join(".claude/hooks"), false);
+    };
+    touche(&depot, &kraken, avec_octet, &[".claude/hooks"]);
+    let inscriptible = |bac: &Path| {
+        butee(bac, ".claude/settings.json");
+        regler_ecriture(&bac.join(".claude/settings.json"), true);
+    };
+    touche(&depot, &kraken, inscriptible, &[".claude/settings.json"]);
+    // Un fichier vide inscriptible est refusé.
+    touche(&depot, &kraken, |bac| ecrire(bac, ".claude/loop.md", ""), &[".claude/loop.md"]);
+    // Un dossier qui porte un fichier est refusé.
+    touche(&depot, &kraken, |bac| ecrire(bac, ".claude/hooks/h.sh", ""), &[".claude/hooks/h.sh"]);
+    let _ = fs::remove_dir_all(&depot);
+    let _ = fs::remove_dir_all(&kraken);
+}
+
 /// Un commit qui écrit `chemin`, posé hors de la branche du bac, sur un HEAD détaché : rend son sha, le bac étant
 /// revenu sur sa branche. Aucune branche n'est nommée, car celles du dépôt sont partagées entre ses bacs.
 fn commit_a_cote(bac: &Path, chemin: &str) -> String {
@@ -268,7 +311,7 @@ fn commit_a_cote(bac: &Path, chemin: &str) -> String {
 
 #[test]
 fn sans_claude_voit_un_claude_venu_d_une_fusion() {
-    let (depot, kraken) = (depot("fusion"), neuf("fusion-kraken"));
+    let (depot, kraken) = (depot("fusion"), neuf("fusion-lydite"));
     // La fusion `ours` garde l'arbre du bac, sans le .claude de l'autre côté : par défaut, git ne suit alors que le
     // côté dont la fusion a l'arbre, et ne montre pas le commit qui porte ce .claude. `-m` et `--full-history` suivent
     // les deux. Le côté du bac a un commit de la main, sans quoi son parent serait le départ, que `<départ>..HEAD`
@@ -297,7 +340,7 @@ fn sans_claude_voit_un_claude_venu_d_une_fusion() {
 
 #[test]
 fn sans_claude_voit_l_entree_claude_elle_meme() {
-    let (depot, kraken) = (depot("entree"), neuf("entree-kraken"));
+    let (depot, kraken) = (depot("entree"), neuf("entree-lydite"));
     // Un fichier nommé .claude, à la racine ou sous un dossier, en toute casse : `**/.claude/**` veut un nom sous
     // .claude/ et ne le prend pas. Un lien nommé ainsi mène au dossier qu'il vise : voir le test du lien.
     for chemin in [".claude", "sous/.claude", "sous/.Claude"] {
@@ -328,7 +371,7 @@ fn sans_claude_voit_l_entree_claude_elle_meme() {
 #[test]
 fn sans_claude_voit_un_lien_nomme_claude() {
     use std::os::unix::fs::symlink;
-    let (depot, kraken) = (depot("lien"), neuf("lien-kraken"));
+    let (depot, kraken) = (depot("lien"), neuf("lien-lydite"));
     // Le lien mène à un dossier ordinaire, `reglages`, qui porte le réglage : rien sous lui n'est un .claude.
     let lier = |bac: &Path, lien: &str, cible: &str| {
         ecrire(bac, "reglages/settings.json", "{}");
@@ -352,7 +395,7 @@ fn sans_claude_voit_un_lien_nomme_claude() {
 
 #[test]
 fn l_etat_de_claude_code_passe_et_rien_d_autre() {
-    let (depot, kraken) = (depot("etat"), neuf("etat-kraken"));
+    let (depot, kraken) = (depot("etat"), neuf("etat-lydite"));
     let (bac, depart) = pose(&depot, &kraken);
     etat_de_claude(&bac);
     assert_eq!(sans_claude(&bac, &depart), Ok(()), "l'état de Claude Code, hors de git, passe");
@@ -377,7 +420,7 @@ fn l_etat_de_claude_code_passe_et_rien_d_autre() {
 
 #[test]
 fn sans_claude_ne_verifie_aucune_signature() {
-    let (depot, kraken, temoin, gpg) = (depot("gpg"), neuf("gpg-kraken"), neuf("gpg-temoin"), neuf("gpg-faux"));
+    let (depot, kraken, temoin, gpg) = (depot("gpg"), neuf("gpg-lydite"), neuf("gpg-temoin"), neuf("gpg-faux"));
     // Un faux gpg : il lit son entrée jusqu'au bout, comme le vrai (git l'y écrit ; sorti avant, il fait échouer la
     // signature sous Linux, « gpg failed to sign the data »), signe de rien, trouve toute signature bonne et note
     // chaque appel dans le témoin. Le dépôt visé le nomme (gpg.program) et demande à `git log` d'afficher les
@@ -420,41 +463,41 @@ fn sans_claude_ne_verifie_aucune_signature() {
 
 #[test]
 fn retirer_un_bac_ne_perd_aucun_travail() {
-    let (depot, kraken) = (depot("retirer"), neuf("retirer-kraken"));
+    let (depot, kraken) = (depot("retirer"), neuf("retirer-lydite"));
     let depart = git(&depot, &["rev-parse", "HEAD"]);
     // Un bac propre, son dossier temporaire et sa branche, à la valeur lue : tout se retire.
     let propre = bac(&depot, &kraken, "main-1", &depart).unwrap();
     let temporaire = temporaire_de(&propre).unwrap();
     ecrire(&temporaire, "x", "temporaire");
-    assert_eq!(retirer(&depot, &propre, Some(("kraken/main-1", &depart)), faire), Ok(()));
+    assert_eq!(retirer(&depot, &propre, Some(("lydite/main-1", &depart)), faire), Ok(()));
     assert!(!propre.exists() && !temporaire.exists());
-    assert_eq!(git(&depot, &["branch", "--list", "kraken/main-1"]), "");
+    assert_eq!(git(&depot, &["branch", "--list", "lydite/main-1"]), "");
     // Un bac qui garde un fichier non suivi : git le refuse, et rien ne bouge, ni le fichier, ni le dossier
     // temporaire, ni la branche.
     let sale = bac(&depot, &kraken, "main-2", &depart).unwrap();
     ecrire(&sale, "travail.txt", "nulle part ailleurs");
     let temporaire = temporaire_de(&sale).unwrap();
     ecrire(&temporaire, "x", "temporaire");
-    let vu = retirer(&depot, &sale, Some(("kraken/main-2", &depart)), faire).unwrap_err();
+    let vu = retirer(&depot, &sale, Some(("lydite/main-2", &depart)), faire).unwrap_err();
     assert!(vu.starts_with("git worktree remove "), "le refus nomme le geste : {vu}");
     assert!(sale.join("travail.txt").is_file() && temporaire.is_dir());
-    assert_eq!(git(&depot, &["rev-parse", "kraken/main-2"]), depart);
+    assert_eq!(git(&depot, &["rev-parse", "lydite/main-2"]), depart);
     // Une branche qui a bougé depuis sa lecture reste, une fois son worktree retiré.
     let parti = bac(&depot, &kraken, "main-3", &depart).unwrap();
     ecrire(&parti, "suite.txt", "commité");
     commit(&parti);
     let suite = git(&parti, &["rev-parse", "HEAD"]);
-    let vu = retirer(&depot, &parti, Some(("kraken/main-3", &depart)), faire).unwrap_err();
-    assert!(vu.starts_with("git update-ref -d refs/heads/kraken/main-3 "), "{vu}");
+    let vu = retirer(&depot, &parti, Some(("lydite/main-3", &depart)), faire).unwrap_err();
+    assert!(vu.starts_with("git update-ref -d refs/heads/lydite/main-3 "), "{vu}");
     assert!(!parti.exists());
-    assert_eq!(git(&depot, &["rev-parse", "kraken/main-3"]), suite);
+    assert_eq!(git(&depot, &["rev-parse", "lydite/main-3"]), suite);
     let _ = fs::remove_dir_all(&depot);
     let _ = fs::remove_dir_all(&kraken);
 }
 
 #[test]
 fn retirer_joue_ses_deux_gestes_par_le_lanceur_qu_on_lui_donne() {
-    let (depot, kraken) = (depot("lanceur"), neuf("lanceur-kraken"));
+    let (depot, kraken) = (depot("lanceur"), neuf("lanceur-lydite"));
     let depart = git(&depot, &["rev-parse", "HEAD"]);
     // Un lanceur qui note chaque geste avant de le jouer : il voit le retrait du worktree, puis celui de la branche, et
     // seulement eux.
@@ -464,25 +507,25 @@ fn retirer_joue_ses_deux_gestes_par_le_lanceur_qu_on_lui_donne() {
         vus.borrow_mut().push(decrire(&geste));
         faire(geste)
     };
-    assert_eq!(retirer(&depot, &propre, Some(("kraken/main-1", &depart)), noteur), Ok(()));
+    assert_eq!(retirer(&depot, &propre, Some(("lydite/main-1", &depart)), noteur), Ok(()));
     let vus = vus.into_inner();
     assert_eq!(vus.len(), 2, "{vus:?}");
     assert!(vus[0].starts_with(&format!("git worktree remove {} ", propre.display())), "{vus:?}");
-    assert!(vus[1].starts_with(&format!("git update-ref -d refs/heads/kraken/main-1 {depart} ")), "{vus:?}");
-    assert!(!propre.exists() && git(&depot, &["branch", "--list", "kraken/main-1"]).is_empty());
+    assert!(vus[1].starts_with(&format!("git update-ref -d refs/heads/lydite/main-1 {depart} ")), "{vus:?}");
+    assert!(!propre.exists() && git(&depot, &["branch", "--list", "lydite/main-1"]).is_empty());
     // Un lanceur qui refuse le premier geste : rien ne bouge, et `retirer` rend ce que le lanceur a dit.
     let refuse = bac(&depot, &kraken, "main-2", &depart).unwrap();
-    let vu = retirer(&depot, &refuse, Some(("kraken/main-2", &depart)), |_| Err("lanceur muet".into()));
+    let vu = retirer(&depot, &refuse, Some(("lydite/main-2", &depart)), |_| Err("lanceur muet".into()));
     assert_eq!(vu, Err("lanceur muet".to_string()));
     assert!(refuse.is_dir());
-    assert_eq!(git(&depot, &["rev-parse", "kraken/main-2"]), depart);
+    assert_eq!(git(&depot, &["rev-parse", "lydite/main-2"]), depart);
     let _ = fs::remove_dir_all(&depot);
     let _ = fs::remove_dir_all(&kraken);
 }
 
 #[test]
 fn retirer_un_bac_au_chemin_long_efface_aussi_ce_que_le_depot_ignore() {
-    let (depot, kraken) = (depot("long"), neuf("long-kraken"));
+    let (depot, kraken) = (depot("long"), neuf("long-lydite"));
     // Le dépôt ignore `cible/`, comme le `target` d'un projet cargo : git ne le compte pas pour du travail à perdre, et
     // l'efface avec le bac.
     ecrire(&depot, ".gitignore", "cible/\n");
@@ -497,22 +540,22 @@ fn retirer_un_bac_au_chemin_long_efface_aussi_ce_que_le_depot_ignore() {
     }
     fs::create_dir_all(&profond).unwrap();
     fs::write(profond.join("objet.o"), "compilé").unwrap();
-    assert_eq!(retirer(&depot, &long, Some(("kraken/main-1", &depart)), faire), Ok(()));
+    assert_eq!(retirer(&depot, &long, Some(("lydite/main-1", &depart)), faire), Ok(()));
     assert!(!long.exists(), "le bac est parti avec ce qu'il ignorait");
-    assert_eq!(git(&depot, &["branch", "--list", "kraken/main-1"]), "");
+    assert_eq!(git(&depot, &["branch", "--list", "lydite/main-1"]), "");
     let _ = fs::remove_dir_all(&depot);
     let _ = fs::remove_dir_all(&kraken);
 }
 
 #[test]
 fn un_bac_qui_ne_se_pose_pas_est_refuse_en_7001() {
-    let (nu, kraken) = (neuf("nu"), neuf("nu-kraken"));
+    let (nu, kraken) = (neuf("nu"), neuf("nu-lydite"));
     fs::create_dir_all(&nu).unwrap();
     let refus = bac(&nu, &kraken, "main-1", "HEAD").unwrap_err();
     assert_eq!(refus.code, Code::VagueBacImpossible);
     assert!(refus.preuve.starts_with("git worktree add"), "la preuve nomme la commande de git : {refus}");
     assert!(refus.preuve.contains(&format!("dans {} a échoué", nu.display())), "et son dossier : {refus}");
-    assert!(refus.correction.contains("kraken/main-1"), "la correction nomme la branche : {refus}");
+    assert!(refus.correction.contains("lydite/main-1"), "la correction nomme la branche : {refus}");
     let _ = fs::remove_dir_all(&nu);
 }
 
@@ -535,8 +578,8 @@ fn deux_depots_partagent_le_dossier_sans_se_heurter() {
     let (id_a, id_b) = (format!("main-{}-1", lot()), format!("main-{}-1", lot()));
     let (bac_a, bac_b) = (bac(&a, &kraken, &id_a, "HEAD").unwrap(), bac(&b, &kraken, &id_b, "HEAD").unwrap());
     assert_ne!(bac_a, bac_b);
-    assert_eq!(git(&bac_a, &["branch", "--show-current"]), format!("kraken/{id_a}"));
-    assert_eq!(git(&bac_b, &["branch", "--show-current"]), format!("kraken/{id_b}"));
+    assert_eq!(git(&bac_a, &["branch", "--show-current"]), format!("lydite/{id_a}"));
+    assert_eq!(git(&bac_b, &["branch", "--show-current"]), format!("lydite/{id_b}"));
     for dir in [a, b, kraken] {
         let _ = fs::remove_dir_all(dir);
     }
@@ -545,7 +588,7 @@ fn deux_depots_partagent_le_dossier_sans_se_heurter() {
 #[test]
 fn une_erreur_de_git_nomme_son_programme_et_son_depot() {
     // Un dépôt absent : git ne part pas. Le refus 7001 dit quel programme, dans quel dépôt.
-    let (depot, kraken) = (neuf("absent"), neuf("absent-kraken"));
+    let (depot, kraken) = (neuf("absent"), neuf("absent-lydite"));
     let refus = bac(&depot, &kraken, "main-1", "HEAD").unwrap_err();
     assert_eq!(refus.code, Code::VagueBacImpossible);
     assert!(refus.preuve.contains("git"), "le programme : {refus}");

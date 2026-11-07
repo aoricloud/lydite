@@ -38,10 +38,10 @@ fn la_consigne_dit_l_objectif_les_taches_critiques_la_regle_le_format_et_la_preu
         "Une remarque est bloquante (`bloquante : oui`) si le travail manque son objectif, perd des données, publie \
          ce qu'il ne doit pas, affaiblit un contrôle, ou laisse un test qui ne peut pas échouer. Toute autre remarque \
          est à noter",
-        "Écris tes remarques dans le fichier REMARQUES.kraken, à la racine de ton dossier, et ne touche à rien d'autre",
+        "Écris tes remarques dans le fichier REMARQUES.lydite, à la racine de ton dossier, et ne touche à rien d'autre",
         "ni à un autre fichier, ni à l'histoire du dépôt (aucun commit)",
-        "le fichier DIFF.kraken, à la racine de ton dossier",
-        "seule et telle qu'elle est écrite, sans rien y ajouter : kraken remarques REMARQUES.kraken.",
+        "le fichier DIFF.lydite, à la racine de ton dossier",
+        "seule et telle qu'elle est écrite, sans rien y ajouter : lydite remarques REMARQUES.lydite.",
         FORME,
     ] {
         assert!(consigne.contains(bout), "« {bout} » : {consigne}");
@@ -124,7 +124,7 @@ fn le_diff_est_borne_a_1_mo_et_une_ligne_le_dit() {
     assert!(coupe.len() <= TAILLE_MAX && coupe.len() > TAILLE_MAX - 300, "{} octets", coupe.len());
     let derniere = coupe.lines().last().unwrap();
     let mention = format!(
-        "[diff coupé par Kraken : {} octets gardés sur {}, le reste n'est pas montré]",
+        "[diff coupé par Lydite : {} octets gardés sur {}, le reste n'est pas montré]",
         coupe.len() - derniere.len() - 1,
         gros.len()
     );
@@ -147,7 +147,7 @@ fn le_diff_est_borne_a_1_mo_et_une_ligne_le_dit() {
 #[test]
 fn la_lecture_du_diff_garde_les_premiers_octets_et_compte_le_reste() {
     let racine = racine("relecture-diff-borne");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = commiter(&depot, &[("a.txt", "a\n")]);
     let gros = "une ligne de texte assez longue pour que le diff pèse\n".repeat(40_000);
     let tete = commiter(&depot, &[("gros/g.txt", &gros)]);
@@ -178,7 +178,7 @@ fn commiter(depot: &Path, fichiers: &[(&str, &str)]) -> String {
 #[test]
 fn le_diff_est_limite_aux_fichiers_critiques_sans_joker() {
     let racine = racine("relecture-diff");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = commiter(&depot, &[("src/a.txt", "a\n"), ("doc/b.txt", "b\n"), ("x[1].txt", "x\n"), ("x1.txt", "y\n")]);
     let fichiers = [("src/a.txt", "a2\n"), ("doc/b.txt", "b2\n"), ("x[1].txt", "x2\n"), ("x1.txt", "y2\n")];
     let tete = commiter(&depot, &[fichiers.as_slice(), &[("src/neuf.txt", "neuf\n")]].concat());
@@ -213,7 +213,7 @@ fn le_diff_est_limite_aux_fichiers_critiques_sans_joker() {
     let ecrit = fs::read_to_string(bac_c.join(DIFF)).unwrap();
     assert!(ecrit.len() <= TAILLE_MAX && ecrit.len() > TAILLE_MAX - 300, "{} octets", ecrit.len());
     assert!(ecrit.starts_with("diff --git a/gros/g.txt b/gros/g.txt\n"), "{}", &ecrit[..100]);
-    assert!(ecrit.lines().last().unwrap().starts_with("[diff coupé par Kraken : "), "la dernière ligne le dit");
+    assert!(ecrit.lines().last().unwrap().starts_with("[diff coupé par Lydite : "), "la dernière ligne le dit");
     assert!(!ecrit.contains("petit/p.txt"));
     // Un git qui ne dit pas le diff (une tête qui n'existe pas) est le refus 7009 ; une base inconnue aussi.
     let refus = ecrire_le_diff(&bac_c, &"0".repeat(40), &lourd, None).unwrap_err();
@@ -254,17 +254,17 @@ fn remarques_justes() -> String {
 #[test]
 fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
     let racine = racine("relecture-juge");
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     commiter(&depot, &[("suivi.txt", "1\n"), (".gitignore", "ignore/\n")]);
     let juge = |bac: &Path, depart: &str| juger(bac, depart);
     // Absent : 7014.
     let (bac_a, depart) = bac_neuf(&depot, &kraken, "absent");
     let refus = juge(&bac_a, &depart).unwrap_err();
     assert!(
-        refus.code == Code::BacTouche && refus.preuve.contains("REMARQUES.kraken n'est pas à la racine du bac"),
+        refus.code == Code::BacTouche && refus.preuve.contains("REMARQUES.lydite n'est pas à la racine du bac"),
         "{refus}"
     );
-    // Seul, avec le DIFF.kraken de Kraken ou sans lui, et un fichier que le dépôt ignore : il se lit, et ses octets
+    // Seul, avec le DIFF.lydite de Kraken ou sans lui, et un fichier que le dépôt ignore : il se lit, et ses octets
     // sont ceux du fichier.
     let (bac_b, depart) = bac_neuf(&depot, &kraken, "juste");
     ecrire(&bac_b, REMARQUES, &remarques_justes());
@@ -273,12 +273,12 @@ fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
     assert_eq!((remarques.len(), brut), (2, remarques_justes()));
     ecrire(&bac_b, DIFF, "diff --git a/x b/x\n");
     assert_eq!(juge(&bac_b, &depart).map(|(r, _)| r.len()), Ok(2));
-    // Un autre fichier de plus, suivi ou non : 7014, qui le cite, mais pas le DIFF.kraken.
+    // Un autre fichier de plus, suivi ou non : 7014, qui le cite, mais pas le DIFF.lydite.
     ecrire(&bac_b, "suivi.txt", "2\n");
     ecrire(&bac_b, "autre.txt", "x");
     let refus = juge(&bac_b, &depart).unwrap_err();
     assert_eq!(refus.code, Code::BacTouche, "{refus}");
-    assert!(refus.preuve.ends_with(r#"en plus de REMARQUES.kraken : "autre.txt", "suivi.txt""#), "{refus}");
+    assert!(refus.preuve.ends_with(r#"en plus de REMARQUES.lydite : "autre.txt", "suivi.txt""#), "{refus}");
     // Un commit, même du seul fichier : 7014.
     let (bac_c, depart) = bac_neuf(&depot, &kraken, "commite");
     ecrire(&bac_c, REMARQUES, &remarques_justes());
@@ -292,11 +292,11 @@ fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
     let refus = juge(&bac_d, &depart).unwrap_err();
     assert_eq!(refus.code, Code::RemarquesIllisibles, "{refus}");
     // Un fichier que le dépôt ignore : 7014, bien qu'il soit seul et se lise.
-    commiter(&depot, &[(".gitignore", "ignore/\nREMARQUES.kraken\n")]);
+    commiter(&depot, &[(".gitignore", "ignore/\nREMARQUES.lydite\n")]);
     let (bac_e, depart) = bac_neuf(&depot, &kraken, "ignore");
     ecrire(&bac_e, REMARQUES, &remarques_justes());
     let refus = juge(&bac_e, &depart).unwrap_err();
-    assert!(refus.code == Code::BacTouche && refus.preuve.contains("le dépôt visé ignore REMARQUES.kraken"), "{refus}");
+    assert!(refus.code == Code::BacTouche && refus.preuve.contains("le dépôt visé ignore REMARQUES.lydite"), "{refus}");
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -332,12 +332,12 @@ impl Essai {
         let depot = depot(&racine);
         let faux = racine.join("relecteur");
         let profil = Profil::faux(faux_relecteur(&faux), DELAI);
-        Essai { kraken: racine.join("kraken"), racine, depot, faux, profil }
+        Essai { kraken: racine.join("lydite"), racine, depot, faux, profil }
     }
 
     /// Les remarques que le faux relecteur écrit à sa tentative `n`.
     fn remarques(&self, n: usize, texte: &str) {
-        fs::write(self.faux.join(format!("remarques-{n}.kraken")), texte).unwrap();
+        fs::write(self.faux.join(format!("remarques-{n}.lydite")), texte).unwrap();
     }
 
     /// Pose une marque dans le dossier du faux relecteur : `toucher-1`, `hors-fichiers`, `ne-rien-faire`.
@@ -548,7 +548,7 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     assert!(!fil.iter().any(|evenement| matches!(evenement, Evenement::Correction { .. })));
     assert_eq!(fins_de(&fil, r).iter().map(|(couleur, _)| *couleur).collect::<Vec<_>>(), [Couleur::Vert]);
     // La forge a poussé la tête de la vague : la branche locale, la distante et la dernière fusion s'accordent.
-    let (t, branche) = (tete_de(&fil, v), format!("kraken/vague-{v}"));
+    let (t, branche) = (tete_de(&fil, v), format!("lydite/vague-{v}"));
     assert_eq!(git(&essai.depot, &["rev-parse", &branche]), t);
     assert_eq!(essai.distante(&branche), Some(t.clone()));
     // Son corps dit la relecture en nombres, jamais en texte.
@@ -561,9 +561,9 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     assert!(consigne.contains("Objectif de la vague : Ecrire deux fichiers\n"), "{consigne}");
     assert!(consigne.contains("- tâche a, fichiers : sortie/\n    Ecrire le fichier critique\n"), "{consigne}");
     assert!(!consigne.contains("autre/") && !consigne.contains("l'autre fichier"), "{consigne}");
-    assert!(consigne.contains("kraken remarques REMARQUES.kraken"), "{consigne}");
+    assert!(consigne.contains("lydite remarques REMARQUES.lydite"), "{consigne}");
     // Son bac portait le diff du seul travail critique, et le dossier de l'exécutable de Kraken tête son PATH.
-    let diff = essai.garde("diff-1.txt").expect("le relecteur a vu DIFF.kraken");
+    let diff = essai.garde("diff-1.txt").expect("le relecteur a vu DIFF.lydite");
     assert!(diff.contains(&format!("diff --git a/sortie/main-{v}-1.txt b/sortie/main-{v}-1.txt")), "{diff}");
     assert!(!diff.contains("autre/"), "le travail de b n'est pas critique : {diff}");
     let exe = env::current_exe().unwrap();
@@ -572,9 +572,9 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     assert_eq!(path_garde(&essai.faux.join("path-relecteur-1.txt")), attendu);
     // Rien de la relecture ne reste : son bac et sa branche sont retirés, et le dépôt visé n'a rien vu.
     assert!(!essai.bacs().iter().any(|nom| nom.starts_with(&format!("main-{r}"))), "{:?}", essai.bacs());
-    assert_eq!(git(&essai.depot, &["branch", "--list", &format!("kraken/main-{r}-1")]), "");
+    assert_eq!(git(&essai.depot, &["branch", "--list", &format!("lydite/main-{r}-1")]), "");
     assert_eq!(git(&essai.depot, &["status", "--porcelain", "--untracked-files=all"]), "");
-    // La PR est partie de la tête de la vague : `kraken etat` dit la relecture, sa PR verte, et sort en 0.
+    // La PR est partie de la tête de la vague : `lydite etat` dit la relecture, sa PR verte, et sort en 0.
     let dit = rendu(&etat(&fil), PLUS_TARD);
     // La ligne de reçu a ses propres essais : ici, le reste du texte.
     let dit = dit.lines().filter(|ligne| !ligne.starts_with("Coût : ")).collect::<Vec<_>>().join("\n");
@@ -607,7 +607,7 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     let tache = rang(&|e| matches!(e, Evenement::Tache { vague, .. } if vague == c));
     assert!(assemblage < lien && lien < tache, "{assemblage} {lien} {tache}");
     // La correction part de `t`, la tête de la vague, et la branche de la vague avance à `t2`, que la forge pousse.
-    let (t, t2, branche) = (tete_de(&fil, v), tete_de(&fil, c), format!("kraken/vague-{v}"));
+    let (t, t2, branche) = (tete_de(&fil, v), tete_de(&fil, c), format!("lydite/vague-{v}"));
     assert_ne!(t, t2);
     assert!(fil.iter().any(|e| matches!(e, Evenement::Assemblage { vague, base, .. } if vague == c && *base == t)));
     assert_eq!(git(&essai.depot, &["rev-parse", &branche]), t2);
@@ -635,12 +635,12 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     // Tout est rangé : les bacs de la vague, du relecteur et de la correction, leurs branches, le worktree de la
     // vague et celui de la correction. La branche de la vague reste, qui porte la PR.
     assert!(essai.bacs().is_empty(), "{:?}", essai.bacs());
-    let branches = git(&essai.depot, &["for-each-ref", "--format=%(refname:short)", "refs/heads/kraken"]);
+    let branches = git(&essai.depot, &["for-each-ref", "--format=%(refname:short)", "refs/heads/lydite"]);
     assert_eq!(branches, branche);
     let rangements =
         |id: &String| fil.iter().filter(|e| matches!(e, Evenement::Rangement { vague, .. } if vague == id)).count();
     assert_eq!((rangements(v), rangements(c)), (1, 1), "la forge range la vague et sa correction");
-    // `kraken etat` montre la chaîne entière, la correction assemblée, et sort en 0.
+    // `lydite etat` montre la chaîne entière, la correction assemblée, et sort en 0.
     let dit = rendu(&etat(&fil), PLUS_TARD);
     // La ligne de reçu a ses propres essais : ici, le reste du texte.
     let dit = dit.lines().filter(|ligne| !ligne.starts_with("Coût : ")).collect::<Vec<_>>().join("\n");
@@ -654,7 +654,7 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
 /// Rien ne s'est poussé : le distant nu ne connaît aucune branche de Kraken, et `gh` n'a servi qu'à se dire connecté.
 fn rien_de_pousse(essai: &Essai) {
     let nu = essai.racine.join("distant.git");
-    assert_eq!(git(&nu, &["branch", "--list", "kraken/*"]), "", "rien n'est poussé");
+    assert_eq!(git(&nu, &["branch", "--list", "lydite/*"]), "", "rien n'est poussé");
     assert_eq!(essai.appels_de_gh(), ["auth status --hostname forge.test"]);
 }
 
@@ -681,12 +681,12 @@ fn une_correction_non_assemblee_est_le_refus_7017_et_rien_ne_se_pousse() {
     let [(7017, preuve)] = &refus[..] else { panic!("{refus:?}") };
     assert!(preuve.contains(&format!("la vague de correction {c} n'a pas assemblé sa tâche")), "{preuve}");
     assert!(preuve.contains("dehors.txt"), "{preuve}");
-    assert_eq!(git(&essai.depot, &["rev-parse", &format!("kraken/vague-{v}")]), tete_de(&fil, v));
+    assert_eq!(git(&essai.depot, &["rev-parse", &format!("lydite/vague-{v}")]), tete_de(&fil, v));
     rien_de_pousse(&essai);
     // La correction n'a pas de seconde relecture, et les bacs demeurent : la tâche classée garde le sien.
     assert_eq!(fil.iter().filter(|e| matches!(e, Evenement::Relecture { .. })).count(), 1);
     assert!(essai.bacs().contains(&format!("main-{c}-1")), "{:?}", essai.bacs());
-    // `kraken etat` dit la relecture, la correction dehors, le refus 7017, et sort en 1.
+    // `lydite etat` dit la relecture, la correction dehors, le refus 7017, et sort en 1.
     let dit = rendu(&etat(&fil), PLUS_TARD);
     assert!(dit.contains(&format!("Correction : main-{c}-1 correction : classée")), "{dit}");
     assert!(dit.contains("refusée (7017) : "), "{dit}");
@@ -776,7 +776,7 @@ fn un_relecteur_qui_touche_un_fichier_est_7014_et_se_reprend_a_sa_relance() {
     assert_eq!(fins.iter().map(|(couleur, _)| *couleur).collect::<Vec<_>>(), [Couleur::Rouge, Couleur::Vert]);
     let debut = format!("7014 vague.bac_touche : {}\n", Code::BacTouche.regle());
     assert!(
-        fins[0].1.starts_with(&debut) && fins[0].1.contains(r#"en plus de REMARQUES.kraken : "autre.txt""#),
+        fins[0].1.starts_with(&debut) && fins[0].1.contains(r#"en plus de REMARQUES.lydite : "autre.txt""#),
         "{}",
         fins[0].1
     );
@@ -865,9 +865,9 @@ fn sous_une_issue_un_diff_juste_sous_la_borne_se_relit_en_entier() {
         panic!("un diff sous la borne se relit")
     };
     // Le relecteur a vu le diff entier, sans mention de coupe.
-    let diff = essai.garde("diff-1.txt").expect("le relecteur a vu DIFF.kraken");
+    let diff = essai.garde("diff-1.txt").expect("le relecteur a vu DIFF.lydite");
     assert_eq!(diff.len(), TAILLE_MAX - 1);
-    assert!(!diff.contains("[diff coupé par Kraken"), "le diff n'est pas coupé");
+    assert!(!diff.contains("[diff coupé par Lydite"), "le diff n'est pas coupé");
     let _ = fs::remove_dir_all(&essai.racine);
 }
 
@@ -879,9 +879,9 @@ fn hors_issue_un_diff_de_plus_de_1_mo_se_relit_coupe_comme_avant() {
     let Relue::Prise(Prise { n: 0, .. }) = relire_sous(&essai, &menee, &base, Origine::Plan) else {
         panic!("hors issue, un diff coupé se relit")
     };
-    let diff = essai.garde("diff-1.txt").expect("le relecteur a vu DIFF.kraken");
+    let diff = essai.garde("diff-1.txt").expect("le relecteur a vu DIFF.lydite");
     assert!(diff.len() <= TAILLE_MAX, "{} octets", diff.len());
-    assert!(diff.lines().last().unwrap().starts_with("[diff coupé par Kraken : "), "la dernière ligne le dit");
+    assert!(diff.lines().last().unwrap().starts_with("[diff coupé par Lydite : "), "la dernière ligne le dit");
     let _ = fs::remove_dir_all(&essai.racine);
 }
 

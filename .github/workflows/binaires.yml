@@ -13,8 +13,8 @@ on:
   workflow_dispatch:
 
 env:
-  # La commande publique est `lydite` (le nom interne, Kraken, est déjà pris par l'outil d'une plateforme de
-  # cryptomonnaies). Elle n'est dite qu'ici ; le paquet Cargo et le binaire construit gardent le nom interne `kraken`.
+  # La commande s'appelle `lydite`, comme le paquet Cargo et le binaire construit (« Kraken », son nom interne
+  # d'avant, est déjà pris par l'outil d'une plateforme de cryptomonnaies).
   COMMANDE: lydite
 
 permissions:
@@ -26,8 +26,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, cible: linux-x86_64, binaire: kraken, archive: tar.gz }
-          - { os: windows-latest, cible: windows-x86_64, binaire: kraken.exe, archive: zip }
+          - { os: ubuntu-latest, cible: linux-x86_64, binaire: lydite, archive: tar.gz }
+          - { os: windows-latest, cible: windows-x86_64, binaire: lydite.exe, archive: zip }
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read

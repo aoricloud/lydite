@@ -109,7 +109,7 @@ const A_VENIR: &str = "2026-10-31T22:30:00.5Z";
 const BASE: &str = "9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34";
 
 fn assemblage(vague: &str) -> Evenement {
-    let (branche, base, preuve) = (format!("kraken/vague-{vague}"), BASE.into(), "cargo test".into());
+    let (branche, base, preuve) = (format!("lydite/vague-{vague}"), BASE.into(), "cargo test".into());
     Evenement::Assemblage { vague: vague.into(), branche, base, preuve }
 }
 
@@ -142,7 +142,7 @@ fn prise_de(vague: &str, main: usize) -> Vec<Evenement> {
 /// Les notes d'une vague de deux mains, sous l'id de cette vague : ce qu'un test écrit au fil.
 type Notes = fn(&str) -> Vec<Evenement>;
 
-/// Ce que `kraken etat` dit de la tâche `t`, seule de la vague à plan V1, après ces événements.
+/// Ce que `lydite etat` dit de la tâche `t`, seule de la vague à plan V1, après ces événements.
 fn etat_de_t(evenements: &[Evenement]) -> String {
     let tete = [ouverture(V1, 1, "o"), assemblage(V1), tache(V1, 1, "t", &[])];
     let texte = rendu(&etat(&[&tete[..], evenements].concat()), MAINTENANT);
@@ -210,7 +210,7 @@ fn kraken_etat_affiche_une_vague_a_plan() {
     .concat();
     let attendu = [
         "Dix tâches".to_string(),
-        format!("branche : kraken/vague-{V2} · preuve : cargo test"),
+        format!("branche : lydite/vague-{V2} · preuve : cargo test"),
         format!("main-{V2}-1 a : assemblée"),
         format!("main-{V2}-2 b : refusée (7007) : {}", Code::Conflit.regle()),
         format!("main-{V2}-3 c : classée : test salut ... FAILED"),
@@ -355,7 +355,7 @@ fn des_copies_refusees_ou_sans_nouvelles_le_disent() {
     ];
     assert_eq!(rendu(&etat(&evenements), MAINTENANT), attendu.join("\n"));
     // Leur code reste celui des prises constatées : deux copies prises donnent 0, une copie refusée donne 1.
-    let dossier = env::temp_dir().join(format!("kraken-test-copies-{}", lot()));
+    let dossier = env::temp_dir().join(format!("lydite-test-copies-{}", lot()));
     fs::create_dir_all(&dossier).unwrap();
     let fil = Fil::seance(&dossier, "humain");
     let cas: [(&str, Notes, ExitCode); 2] = [
@@ -404,9 +404,9 @@ fn toutes_assemblees_si_chaque_tache_l_est() {
     // Des copies gardent le code des prises constatées.
     let copies = derniere(vec![ouverture(V1, 2, "o"), verdict(V1, 1, PRISE), verdict(V1, 2, PRISE)]);
     assert!(menee_a_bout(&copies) && !toutes_assemblees(&copies));
-    // `kraken etat` ne sort en 0 que sur une vague à plan toute assemblée : cinq vagues de deux tâches, ajoutées au
+    // `lydite etat` ne sort en 0 que sur une vague à plan toute assemblée : cinq vagues de deux tâches, ajoutées au
     // même fil, dont seule la dernière compte.
-    let dossier = env::temp_dir().join(format!("kraken-test-assemblees-{}", lot()));
+    let dossier = env::temp_dir().join(format!("lydite-test-assemblees-{}", lot()));
     fs::create_dir_all(&dossier).unwrap();
     let fil = Fil::seance(&dossier, "humain");
     let cas: [(&str, Notes, ExitCode); 5] = [
@@ -509,7 +509,7 @@ const URL_DE_LA_PR: &str = "https://github.com/exemple/depot/pull/12";
 
 /// La branche distante où la forge pousse la vague : celle de son assemblage.
 fn branche_de(vague: &str) -> String {
-    format!("kraken/vague-{vague}")
+    format!("lydite/vague-{vague}")
 }
 
 fn poussee(vague: &str, branche: &str) -> Evenement {
@@ -527,28 +527,28 @@ fn ci(vague: &str, couleur: Couleur, foi: Foi) -> Evenement {
     Evenement::Ci { vague: vague.into(), numero: 12, sha: TETE.into(), couleur, texte, foi }
 }
 
-/// Un refus de forge de ce code, aux textes de l'essai : le fil ne tient que le numéro du code, et `kraken etat` dit
+/// Un refus de forge de ce code, aux textes de l'essai : le fil ne tient que le numéro du code, et `lydite etat` dit
 /// la règle que porte la note.
 fn refus_de_forge(vague: &str, code: u16) -> Evenement {
     let (regle, preuve, correction) = ("Une règle de l'essai.".into(), format!("preuve {code}"), "Corrige.".into());
     Evenement::RefusForge { vague: vague.into(), code, regle, preuve, correction }
 }
 
-/// Les notes d'une vague à plan dont les tâches `ids`, indépendantes, sont toutes assemblées, et ce que `kraken etat`
+/// Les notes d'une vague à plan dont les tâches `ids`, indépendantes, sont toutes assemblées, et ce que `lydite etat`
 /// en dit.
 fn assemblees(vague: &str, objectif: &str, ids: &[&str]) -> (Vec<Evenement>, String) {
     let mut notes = vec![ouverture(vague, ids.len(), objectif), assemblage(vague)];
     notes.extend((1..).zip(ids).map(|(main, id)| tache(vague, main, id, &[])));
     notes.extend((1..=ids.len()).map(|main| fusion(vague, main)));
     let lignes: String = (1..).zip(ids).map(|(main, id)| format!("\nmain-{vague}-{main} {id} : assemblée")).collect();
-    let texte = format!("{objectif}\nbranche : kraken/vague-{vague} · preuve : cargo test{lignes}");
+    let texte = format!("{objectif}\nbranche : lydite/vague-{vague} · preuve : cargo test{lignes}");
     (notes, texte)
 }
 
-/// Écrit ces événements au fil d'un dossier neuf, comme Kraken, puis rend ce que `kraken etat` en dit : son texte et
+/// Écrit ces événements au fil d'un dossier neuf, comme Kraken, puis rend ce que `lydite etat` en dit : son texte et
 /// son code de sortie.
 fn etat_du_fil(evenements: &[Evenement]) -> (String, ExitCode) {
-    let dossier = env::temp_dir().join(format!("kraken-test-forge-{}", lot()));
+    let dossier = env::temp_dir().join(format!("lydite-test-forge-{}", lot()));
     fs::create_dir_all(&dossier).unwrap();
     let fil = Fil::seance(&dossier, "humain");
     for evenement in evenements {
@@ -573,7 +573,7 @@ fn kraken_etat_dit_la_pr_et_sa_ci() {
     let refusee = |code: u16| format!("refusée ({code}) : Une règle de l'essai.");
     let ouverte = || vec![poussee(V1, &branche), pr(V1, &branche, Foi::Constate)];
     let verte = || ci(V1, Couleur::Vert, Foi::Constate);
-    // Chaque cas : les notes de forge qui suivent les deux tâches assemblées, les lignes que `kraken etat` ajoute à
+    // Chaque cas : les notes de forge qui suivent les deux tâches assemblées, les lignes que `lydite etat` ajoute à
     // leur texte, et son code. Seule une CI verte constatée, sans refus de forge, donne 0.
     let cas = [
         ("PR verte", [ouverte(), vec![verte()]].concat(), vec![ligne_pr("CI verte (constatée)")], ExitCode::SUCCESS),
@@ -685,7 +685,7 @@ fn decoupeur_pris(issue: (Verdict, Foi)) -> Vec<Evenement> {
     vec![
         ouverture(vague, 1, "Découper l'objectif"),
         debut(vague, 1, 1),
-        fin(vague, 1, 1, VERTE, "PLAN.kraken écrit"),
+        fin(vague, 1, 1, VERTE, "PLAN.lydite écrit"),
         verdict(vague, 1, issue),
     ]
 }
@@ -696,7 +696,7 @@ fn decoupeur_classe() -> Vec<Evenement> {
     vec![
         ouverture(vague, 1, "Découper l'objectif"),
         debut(vague, 1, 1),
-        fin(vague, 1, 1, ROUGE, "PLAN.kraken manque"),
+        fin(vague, 1, 1, ROUGE, "PLAN.lydite manque"),
         debut(vague, 1, 2),
         fin(vague, 1, 2, ROUGE, "plan refusé\n6021 : le plan ne contient aucune tâche\n"),
         verdict(vague, 1, CLASSEE),
@@ -728,7 +728,7 @@ fn correction_de_la(corrige: &str, issue: Evenement) -> Vec<Evenement> {
     vec![ouverte, assemblage(CORRECTION), lien, tache(CORRECTION, 1, "correction", &[]), issue]
 }
 
-/// La ligne que `kraken etat` dit d'un découpage qui a pris un plan de `taches` tâches.
+/// La ligne que `lydite etat` dit d'un découpage qui a pris un plan de `taches` tâches.
 fn ligne_du_decoupage_pris(taches: usize) -> String {
     format!("Découpage : {taches} tâches · main-{DECOUPAGE}-1 · prise (constatée)")
 }
@@ -868,7 +868,7 @@ fn kraken_etat_ne_dit_pas_comme_un_fait_un_decoupage_qu_il_n_a_pas_lu() {
 
 #[test]
 fn kraken_etat_suit_ses_liens_sans_boucler() {
-    // Un autre écrivain peut lier des vagues en boucle, ou à des vagues que le fil ne porte pas : `kraken etat`
+    // Un autre écrivain peut lier des vagues en boucle, ou à des vagues que le fil ne porte pas : `lydite etat`
     // s'arrête, et ne dit pas 0 d'une chaîne qu'il ne peut pas suivre.
     let (a, b) = (V1, V2);
     let corrige = |vague: &str, corrige: &str| Evenement::Correction { vague: vague.into(), corrige: corrige.into() };
@@ -919,7 +919,7 @@ fn kraken_etat_remonte_toutes_les_relances() {
 
 #[test]
 fn kraken_etat_dit_le_fournisseur_declare() {
-    // Une main dont le profil nomme un fournisseur le dit à `kraken etat`, après le mur : toujours déclaré. La
+    // Une main dont le profil nomme un fournisseur le dit à `lydite etat`, après le mur : toujours déclaré. La
     // dernière tentative l'emporte, comme pour le mur.
     use crate::coeur::fil::Mur::Exige;
     let fournisseur = |tentative: usize, hote: &str| Evenement::Fournisseur {
@@ -966,10 +966,10 @@ fn toutes_prises_si_chaque_main_a_pris() {
 
 #[test]
 fn kraken_etat_ne_sort_en_0_que_sur_des_prises_constatees() {
-    let dossier = env::temp_dir().join(format!("kraken-test-sortie-{}", lot()));
+    let dossier = env::temp_dir().join(format!("lydite-test-sortie-{}", lot()));
     fs::create_dir_all(&dossier).unwrap();
     let fil = Fil::seance(&dossier, "humain");
-    // Quatre vagues de deux mains, ajoutées au même fil : `kraken etat` ne regarde que la dernière, et son code ne
+    // Quatre vagues de deux mains, ajoutées au même fil : `lydite etat` ne regarde que la dernière, et son code ne
     // dépend que d'elle. Une prise déclarée donne 1, comme une main classée.
     let cas = [
         ("deux prises constatées", PRISE, PRISE, ExitCode::SUCCESS),
@@ -989,18 +989,18 @@ fn kraken_etat_ne_sort_en_0_que_sur_des_prises_constatees() {
 
 #[test]
 fn un_fil_absent_est_aucune_vague() {
-    let dossier = env::temp_dir().join(format!("kraken-test-etat-{}", lot()));
+    let dossier = env::temp_dir().join(format!("lydite-test-etat-{}", lot()));
     assert_eq!(crate::branchements::dossier::lire(&dossier), Ok(Lecture::default()));
     assert_eq!(aucune_vague(&dossier), "aucune vague");
     assert_eq!(rendu(&[], MAINTENANT), "aucune vague");
     // Sans vague, rien n'est affirmé : le code 0, comme en M1.
     assert_eq!(etat_dans(&dossier), Ok(ExitCode::SUCCESS));
-    assert!(!dossier.exists(), "kraken etat ne crée rien");
+    assert!(!dossier.exists(), "lydite etat ne crée rien");
 }
 
 #[test]
 fn un_fil_de_m1_seul_est_dit() {
-    let dossier = env::temp_dir().join(format!("kraken-test-m1-{}", lot()));
+    let dossier = env::temp_dir().join(format!("lydite-test-m1-{}", lot()));
     fs::create_dir_all(&dossier).unwrap();
     let m1 = dossier.join("fil");
     let ancien = "1761901200000\tvague\t1761901200000\t1\t/srv/depot\t\tÉcrire bonjour.txt\n";
@@ -1023,7 +1023,7 @@ fn un_fil_de_m1_seul_est_dit() {
 
 #[test]
 fn un_declare_ne_s_affiche_jamais_comme_un_fait() {
-    // `kraken etat` : un verdict déclaré porte son mot, un constaté s'affiche seul. Kraken n'écrit pas de classée
+    // `lydite etat` : un verdict déclaré porte son mot, un constaté s'affiche seul. Kraken n'écrit pas de classée
     // déclarée, mais un autre écrivain le peut : son mot la suit aussi.
     let vague = etat(&[
         ouverture(V1, 4, "o"),
@@ -1053,7 +1053,7 @@ fn un_declare_ne_s_affiche_jamais_comme_un_fait() {
 fn kraken_etat_ne_panique_pas_sur_un_nombre_demesure() {
     // Un autre écrivain peut poser un `n` ou un `main` qui tient en u64 : `rendu` écrirait une ligne par main, jusqu'à
     // la panique ou la mémoire pleine. Le lecteur refuse ces lignes (1009), et l'état se dit sans elles.
-    let dossier = env::temp_dir().join(format!("kraken-test-demesure-{}", lot()));
+    let dossier = env::temp_dir().join(format!("lydite-test-demesure-{}", lot()));
     fs::create_dir_all(&dossier).unwrap();
     let fil = Fil::seance(&dossier, "humain");
     // Une vague de deux mains prises et constatées, puis, sur elle, un `n` démesuré et une main démesurée.
@@ -1082,7 +1082,7 @@ fn kraken_etat_ne_panique_pas_sur_un_nombre_demesure() {
 #[test]
 fn une_main_0_n_est_pas_une_main_de_la_vague() {
     // `rendu` part de la main 1 : une main 0, lue, serait comptée par `toutes_prises` sans jamais être dite.
-    let dossier = env::temp_dir().join(format!("kraken-test-main0-{}", lot()));
+    let dossier = env::temp_dir().join(format!("lydite-test-main0-{}", lot()));
     fs::create_dir_all(&dossier).unwrap();
     let fil = Fil::seance(&dossier, "humain");
     for evenement in
@@ -1099,7 +1099,7 @@ fn une_main_0_n_est_pas_une_main_de_la_vague() {
 
 #[test]
 fn kraken_etat_refuse_un_fil_d_une_autre_version() {
-    let dossier = env::temp_dir().join(format!("kraken-test-version-{}", lot()));
+    let dossier = env::temp_dir().join(format!("lydite-test-version-{}", lot()));
     fs::create_dir_all(&dossier).unwrap();
     let v2 = concat!(
         r#"{"v":2,"seance":"s","seq":1,"instant":"2026-10-31T21:03:00.123Z","origine":"humain","#,
@@ -1207,7 +1207,7 @@ fn le_recu_de_kraken_etat_somme_les_usages_meles_la_vague_et_ses_vagues_liees() 
     let texte = rendu_avec(&etat(&evenements), &notes, MAINTENANT);
     assert!(texte.ends_with("\nCoût : inconnu · 1 main, 0 relance, 0 classée · 2 min"), "{texte}");
 
-    // Sans aucun usage au fil, `kraken etat` dit tout de même la ligne de reçu, au coût inconnu.
+    // Sans aucun usage au fil, `lydite etat` dit tout de même la ligne de reçu, au coût inconnu.
     let sans = [ouverture(V2, 1, "Une main"), debut(V2, 1, 1)];
     let notes = notes_de(&sans, "2026-10-31T21:00:00.000Z", "2026-10-31T21:00:30.000Z");
     let texte = rendu_avec(&etat(&sans), &notes, MAINTENANT);

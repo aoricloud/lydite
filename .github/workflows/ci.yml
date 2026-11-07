@@ -1,26 +1,36 @@
 name: ci
 
+# Linux à chaque PR ; Windows seulement à la main (workflow_dispatch), pour une PR qui touche à Windows : comme le
+# miroir, depuis que les minutes d'Actions du mois sont épuisées (07/11). Rien sur un push vers main : la PR vient d'y
+# être vérifiée. Windows sur une branche : gh workflow run ci.yml --ref <branche>.
+
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-# Une nouvelle tête sur une PR annule le run de l'ancienne ; chaque push sur main a son groupe à lui, rien ne l'annule.
+# Une nouvelle tête sur une PR annule le run de l'ancienne.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  verifier:
-    strategy:
-      fail-fast: false
-      matrix:
-        # Linux seul sur main : la PR vient de passer sous les deux systèmes.
-        os: ${{ fromJSON(github.event_name == 'push' && '["ubuntu-latest"]' || '["ubuntu-latest", "windows-latest"]') }}
-    runs-on: ${{ matrix.os }}
+  linux:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install --no-self-update
+      - run: cargo fmt --check
+      - run: cargo test
+      - run: cargo clippy --all-targets -- -D warnings
+  windows:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:

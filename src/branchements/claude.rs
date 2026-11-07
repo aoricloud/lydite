@@ -155,12 +155,12 @@ pub(crate) fn temporaire(bac: &Path, vider: bool) -> Result<Option<PathBuf>, Str
 /// Un exécutable introuvable, ou un dossier qui ne s'écrit pas dans un `PATH` (un `"` sous Windows, un `:` ailleurs),
 /// est une erreur : la main ne part pas.
 fn path_de_kraken() -> Result<OsString, String> {
-    let exe = env::current_exe().map_err(|e| format!("main : l'exécutable de Kraken ne se trouve pas : {e}"))?;
+    let exe = env::current_exe().map_err(|e| format!("main : l'exécutable de Lydite ne se trouve pas : {e}"))?;
     let Some(dossier) = exe.parent() else {
-        return Err(format!("main : l'exécutable de Kraken {} n'a pas de dossier", exe.display()));
+        return Err(format!("main : l'exécutable de Lydite {} n'a pas de dossier", exe.display()));
     };
     let mut path = env::join_paths([dossier])
-        .map_err(|e| format!("main : le dossier de Kraken {} ne s'écrit pas dans un PATH : {e}", dossier.display()))?;
+        .map_err(|e| format!("main : le dossier de Lydite {} ne s'écrit pas dans un PATH : {e}", dossier.display()))?;
     if let Some(ancien) = env::var_os("PATH").filter(|ancien| !ancien.is_empty()) {
         path.push(if cfg!(windows) { ";" } else { ":" });
         path.push(ancien);

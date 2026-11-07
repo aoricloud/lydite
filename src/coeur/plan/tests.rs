@@ -562,7 +562,7 @@ fn demande(chemins: &[String]) -> Demande<'_> {
     Demande { objectif: "Ajouter etat", preuve: "cargo test", chemins }
 }
 
-/// Les dépendances ajoutées, comme `kraken plan` les dit.
+/// Les dépendances ajoutées, comme `lydite plan` les dit.
 fn dites(attentes: &[Attente]) -> Vec<String> {
     attentes.iter().map(Attente::to_string).collect()
 }
@@ -931,13 +931,13 @@ fn au_rejeu_l_en_tete_est_celui_que_kraken_a_demande() {
         (
             ["plan 1", "objectif : Ajouter état", "preuve : cargo test"],
             2,
-            "la clé « objectif » vaut « Ajouter état », et Kraken a demandé « Ajouter etat »",
+            "la clé « objectif » vaut « Ajouter état », et Lydite a demandé « Ajouter etat »",
         ),
         (["plan 1", "objectif : ajouter etat", "preuve : cargo test"], 2, "vaut « ajouter etat »"),
         (
             ["plan 1", "objectif : Ajouter etat", "preuve : exit 0"],
             3,
-            "la clé « preuve » vaut « exit 0 », et Kraken a demandé « cargo test »",
+            "la clé « preuve » vaut « exit 0 », et Lydite a demandé « cargo test »",
         ),
         (["plan 1", "preuve : cargo test --lib", "objectif : Ajouter etat"], 2, "vaut « cargo test --lib »"),
     ];

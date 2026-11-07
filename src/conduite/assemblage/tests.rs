@@ -18,7 +18,7 @@ const PREUVE: &str = if cfg!(windows) {
 /// Une racine neuve à ce test : elle, le dépôt visé, le dossier de Kraken (que le premier geste crée) et la base.
 fn vise(nom: &str) -> (PathBuf, PathBuf, PathBuf, String) {
     let racine = racine(nom);
-    let (depot, kraken) = (depot(&racine), racine.join("kraken"));
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let base = git(&depot, &["rev-parse", "HEAD"]);
     (racine, depot, kraken, base)
 }
@@ -53,7 +53,7 @@ fn chemins(chemins: &[&str]) -> Vec<String> {
 }
 
 fn profil() -> Profil {
-    Profil::faux(vec!["kraken-main-inutile".into()], DELAI)
+    Profil::faux(vec!["lydite-main-inutile".into()], DELAI)
 }
 
 /// Le bac de la tâche `id`, posé par le test sur `depart`, où la main a écrit `fichiers` (chemin, contenu).
@@ -136,8 +136,8 @@ fn deux_taches_disjointes_s_assemblent() {
     let (racine, depot, kraken, base) = vise("disjointes");
     let profil = profil();
     let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
-    assert_eq!((assemblage.branche(), assemblage.tete()), ("kraken/vague-v", base.as_str()));
-    assert_eq!(git(&depot, &["rev-parse", "kraken/vague-v"]), base);
+    assert_eq!((assemblage.branche(), assemblage.tete()), ("lydite/vague-v", base.as_str()));
+    assert_eq!(git(&depot, &["rev-parse", "lydite/vague-v"]), base);
     a_sa_tete(&kraken, &base);
     let mut notes = Vec::new();
     for (k, id, fichier) in [(1, "a", "a.txt"), (2, "b", "b.txt")] {
@@ -149,7 +149,7 @@ fn deux_taches_disjointes_s_assemblent() {
         let sha = issue.unwrap();
         assert_eq!(verif.as_deref().map(str::trim), Some("vert"));
         // La branche avance sur la fusion notée, dont le gel est le second parent ; le worktree la suit.
-        assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "kraken/vague-v"])), (sha.as_str(), sha.clone()));
+        assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (sha.as_str(), sha.clone()));
         assert_eq!(notes.last(), Some(&(sha.clone(), "vert".to_string())));
         for commit in [sha.clone(), format!("{sha}^2")] {
             assert_eq!(git(&depot, &["log", "-1", "--format=%s", &commit]), id);
@@ -157,7 +157,7 @@ fn deux_taches_disjointes_s_assemblent() {
         a_sa_tete(&kraken, &sha);
     }
     assert_eq!(notes.len(), 2);
-    assert_eq!(fichiers(&depot, "kraken/vague-v"), ["a.txt", "b.txt"]);
+    assert_eq!(fichiers(&depot, "lydite/vague-v"), ["a.txt", "b.txt"]);
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -198,7 +198,7 @@ fn un_conflit_laisse_la_vague_a_sa_tete() {
     assert_eq!(refus.preuve, format!("la fusion de b sur la tête {tete} est en conflit : commun.txt"));
     assert!(!refus.correction.trim().is_empty());
     assert_eq!((verif, notee), (None, false), "ni preuve rejouée, ni note");
-    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "kraken/vague-v"])), (tete.as_str(), tete.clone()));
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (tete.as_str(), tete.clone()));
     a_sa_tete(&kraken, &tete);
     let _ = fs::remove_dir_all(&racine);
 }
@@ -216,7 +216,7 @@ fn une_preuve_rouge_ne_fait_pas_avancer_la_branche() {
     assert!(refus.preuve.starts_with("la preuve de la vague, rejouée après la fusion de r : "), "{refus}");
     assert_eq!(verif.as_deref().map(str::trim), Some("rouge vue"), "le verif de la preuve rouge");
     assert!(!refus.correction.trim().is_empty());
-    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "kraken/vague-v"])), (base.as_str(), base.clone()));
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
     a_sa_tete(&kraken, &base);
     let _ = fs::remove_dir_all(&racine);
 }
@@ -259,7 +259,7 @@ fn le_gel_et_la_fusion_portent_l_identite_de_kraken() {
     assert_eq!(git(&depot, &["rev-parse", &format!("{sha}^1")]), base);
     for commit in [sha.clone(), format!("{sha}^2")] {
         let qui = git(&depot, &["log", "-1", "--format=%an <%ae>|%cn <%ce>|%s", &commit]);
-        assert_eq!(qui, "kraken <kraken@invalid>|kraken <kraken@invalid>|t", "{commit}");
+        assert_eq!(qui, "lydite <lydite@invalid>|lydite <lydite@invalid>|t", "{commit}");
         let brut = git(&depot, &["cat-file", "commit", &commit]);
         assert!(!brut.contains("gpgsig"), "{commit} n'est pas signé : {brut}");
     }
@@ -293,7 +293,7 @@ fn aucun_geste_de_la_vague_ne_joue_un_crochet_du_depot() {
     let temoins = (fs::read_to_string(&crochets).unwrap(), fs::read_to_string(&moniteur).unwrap());
     assert_eq!(temoins, (String::new(), String::new()), "ni ouvrir, ni le gel, ni la fusion, ni update-ref");
     let sha = issue.unwrap();
-    assert_eq!(git(&depot, &["rev-parse", "kraken/vague-v"]), sha);
+    assert_eq!(git(&depot, &["rev-parse", "lydite/vague-v"]), sha);
     assert_eq!(fichiers(&depot, &sha), ["travail.txt"]);
     let _ = fs::remove_dir_all(&racine);
 }
@@ -313,7 +313,7 @@ fn un_bac_sans_changement_s_assemble_sans_commit() {
     assert_eq!(issue.unwrap(), base);
     assert_eq!(notee, Some(base.clone()));
     assert_eq!(git(&bac, &["rev-parse", "HEAD"]), base, "aucun commit dans le bac");
-    assert_eq!(git(&depot, &["rev-parse", "kraken/vague-v"]), base, "ni dans la branche");
+    assert_eq!(git(&depot, &["rev-parse", "lydite/vague-v"]), base, "ni dans la branche");
     a_sa_tete(&kraken, &base);
     let _ = fs::remove_dir_all(&racine);
 }
@@ -333,7 +333,7 @@ fn un_bac_qui_a_change_de_branche_s_assemble_avec_son_travail() {
     assert_eq!(fichiers(&depot, &sha), ["commite.txt", "laisse.txt"]);
     // La fusion a pris le HEAD du bac, gelé sur `ailleurs` ; la branche du bac n'a pas bougé.
     assert_eq!(git(&depot, &["rev-parse", &format!("{sha}^2")]), git(&depot, &["rev-parse", "ailleurs"]));
-    assert_eq!(git(&depot, &["rev-parse", "kraken/t"]), base);
+    assert_eq!(git(&depot, &["rev-parse", "lydite/t"]), base);
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -350,7 +350,7 @@ fn un_bac_qui_touche_claude_n_est_pas_fige() {
     // Ni figé (aucun commit, rien d'ajouté), ni assemblé : la branche à sa tête.
     assert_eq!(git(&bac, &["rev-parse", "HEAD"]), base);
     assert_eq!(git(&bac, &["diff", "--cached", "--name-only"]), "");
-    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "kraken/vague-v"])), (base.as_str(), base.clone()));
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
     a_sa_tete(&kraken, &base);
     let _ = fs::remove_dir_all(&racine);
 }
@@ -374,7 +374,7 @@ fn un_claude_commite_puis_ote_n_est_ni_fige_ni_fusionne() {
     // tête.
     assert_eq!(git(&bac, &["rev-list", "--count", &format!("{base}..HEAD")]), "1");
     assert_eq!(git(&bac, &["diff", "--cached", "--name-only"]), "");
-    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "kraken/vague-v"])), (base.as_str(), base.clone()));
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
     a_sa_tete(&kraken, &base);
     let _ = fs::remove_dir_all(&racine);
 }
@@ -399,7 +399,7 @@ fn un_claude_ecrit_apres_sans_claude_est_le_refus_7006_au_gel() {
     assert!(refus.correction.contains("la fusion n'a pas eu lieu"), "{refus}");
     // Le gel a eu lieu et porte le chemin ; ni fusion, ni note : la branche et le worktree restent à leur tête.
     assert_eq!(git(&avec_fichiers, &["rev-list", "--count", &format!("{base}..HEAD")]), "1");
-    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "kraken/vague-v"])), (base.as_str(), base.clone()));
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
     a_sa_tete(&kraken, &base);
     // Sans `fichiers`, le gel est jugé de même : une vague sans plan reste fermée à ce `.claude`.
     let sans_fichiers = prise(&depot, &kraken, "b", &base, &[("b.txt", "b")]);
@@ -411,7 +411,7 @@ fn un_claude_ecrit_apres_sans_claude_est_le_refus_7006_au_gel() {
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
     assert!(refus.preuve.ends_with(r#" : ".claude/settings.json""#), "{refus}");
     assert_eq!(git(&sans_fichiers, &["rev-list", "--count", &format!("{base}..HEAD")]), "1");
-    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "kraken/vague-v"])), (base.as_str(), base.clone()));
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
     a_sa_tete(&kraken, &base);
     let _ = fs::remove_dir_all(&racine);
 }
@@ -441,7 +441,7 @@ fn un_claude_commite_puis_ote_apres_sans_claude_est_le_refus_7006_au_gel() {
         git(&avec_fichiers, &["log", "--format=", "--name-only", &format!("{base}..HEAD"), "--", ".claude"])
             .contains(".claude/settings.json")
     );
-    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "kraken/vague-v"])), (base.as_str(), base.clone()));
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
     a_sa_tete(&kraken, &base);
     // Sans `fichiers`, le même commit puis le même retrait : l'histoire est jugée de même.
     let sans_fichiers = prise(&depot, &kraken, "b", &base, &[("b.txt", "b")]);
@@ -455,7 +455,7 @@ fn un_claude_commite_puis_ote_apres_sans_claude_est_le_refus_7006_au_gel() {
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
     assert!(refus.preuve.ends_with(r#" : ".claude/settings.json""#), "{refus}");
     assert_eq!(git(&sans_fichiers, &["diff", "--name-only", &base, "HEAD", "--", ".claude"]), "");
-    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "kraken/vague-v"])), (base.as_str(), base.clone()));
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
     a_sa_tete(&kraken, &base);
     let _ = fs::remove_dir_all(&racine);
 }
@@ -470,7 +470,7 @@ fn le_gel_laisse_l_etat_de_claude_code_hors_de_la_branche() {
     let sha = assemblage.fusionner(&bac, &base, "t", None, 1, |_, _| Ok(())).1.unwrap();
     // La tâche est assemblée, sans rien de l'état de Claude Code : ni ses fichiers, ni ses sous-agents en dépôts
     // imbriqués. Cet état reste dans le bac, hors de git.
-    assert_eq!(git(&depot, &["rev-parse", "kraken/vague-v"]), sha);
+    assert_eq!(git(&depot, &["rev-parse", "lydite/vague-v"]), sha);
     assert_eq!(fichiers(&depot, &sha), ["sous/travail.txt", "travail.txt"]);
     let arbre = git(&depot, &["ls-tree", "-r", &sha]);
     assert!(!arbre.lines().any(|entree| entree.starts_with("160000")), "aucun dépôt imbriqué : {arbre}");
@@ -484,7 +484,7 @@ fn une_fusion_non_notee_est_defaite() {
     let profil = profil();
     let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
     let bac = prise(&depot, &kraken, "t", &base, &[("travail.txt", "fait")]);
-    let fil = "note au fil /kraken/fil.jsonl : disque plein";
+    let fil = "note au fil /lydite/fil.jsonl : disque plein";
     let (verif, issue) = assemblage.fusionner(&bac, &base, "t", None, 1, |_, _| Err(io::Error::other(fil)));
     let refus = issue.unwrap_err();
     assert_eq!(refus.code, Code::FilInjoignable);
@@ -492,7 +492,7 @@ fn une_fusion_non_notee_est_defaite() {
     assert!(!refus.correction.trim().is_empty());
     assert_eq!(verif.as_deref().map(str::trim), Some("vert"), "la preuve a tourné");
     // Défaite : la branche et le worktree de la vague à la base, sans le travail ; l'assemblage reste ouvert.
-    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "kraken/vague-v"])), (base.as_str(), base.clone()));
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
     a_sa_tete(&kraken, &base);
     assert_eq!(assemblage.fermeture, None);
     let _ = fs::remove_dir_all(&racine);
@@ -524,7 +524,7 @@ fn un_retour_rate_ferme_l_assemblage() {
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::AssemblageFerme, None));
     assert!(refus.preuve.starts_with("l'assemblage de la vague v est fermé, et b n'y entre pas : "), "{refus}");
-    assert_eq!(git(&depot, &["rev-parse", "kraken/vague-v"]), base);
+    assert_eq!(git(&depot, &["rev-parse", "lydite/vague-v"]), base);
     assert_eq!(git(&suivante, &["rev-parse", "HEAD"]), base, "la suivante n'est pas figée");
     let _ = fs::remove_dir_all(&racine);
 }
@@ -541,7 +541,7 @@ fn une_base_rouge_n_ouvre_rien() {
     // Ni worktree, ni branche, ni journal.
     assert!(!kraken.join("bacs").join("vague-v").exists());
     assert_eq!(git(&depot, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1);
-    assert_eq!(git(&depot, &["branch", "--list", "kraken/*"]), "");
+    assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "");
     assert_eq!(journaux(&racine), Vec::<PathBuf>::new());
     let _ = fs::remove_dir_all(&racine);
 }
@@ -554,8 +554,8 @@ fn un_geste_rate_avant_la_preuve_est_6006_et_ne_retire_que_le_sien() {
     // Sa branche existe : la même vague ne se rouvre pas, et rien de la première ne se retire.
     let Err(refus) = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE) else { panic!("la branche existe") };
     assert_eq!(refus.code, Code::EntreeSortie);
-    assert!(refus.preuve.starts_with("git branch kraken/vague-v "), "la commande : {refus}");
-    assert!(refus.correction.contains("kraken/vague-v"), "{refus}");
+    assert!(refus.preuve.starts_with("git branch lydite/vague-v "), "la commande : {refus}");
+    assert!(refus.correction.contains("lydite/vague-v"), "{refus}");
     assert_eq!(git(&depot, &["rev-parse", ouverte.branche()]), base);
     a_sa_tete(&kraken, &base);
     // Son dossier est pris : le worktree ne se pose pas, et la branche que ce geste a posée se retire.
@@ -563,7 +563,7 @@ fn un_geste_rate_avant_la_preuve_est_6006_et_ne_retire_que_le_sien() {
     let Err(refus) = ouvrir(&depot, &kraken, &profil, "w", &base, PREUVE) else { panic!("le dossier est pris") };
     assert_eq!(refus.code, Code::EntreeSortie);
     assert!(refus.preuve.starts_with("git worktree add -q --detach "), "la commande : {refus}");
-    assert_eq!(git(&depot, &["branch", "--list", "kraken/vague-w"]), "");
+    assert_eq!(git(&depot, &["branch", "--list", "lydite/vague-w"]), "");
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -580,10 +580,10 @@ fn le_depot_vise_ne_voit_que_des_branches() {
     // Rien dans le dossier du dépôt visé hors de .git, rien de suivi ni de non suivi ; des branches à Kraken.
     assert_eq!(git(&depot, &["status", "--porcelain", "--untracked-files=all"]), "");
     assert_eq!(noms(&depot), [".git"]);
-    let branches = git(&depot, &["for-each-ref", "--format=%(refname)", "refs/heads/kraken"]);
+    let branches = git(&depot, &["for-each-ref", "--format=%(refname)", "refs/heads/lydite"]);
     assert_eq!(
         branches.lines().collect::<Vec<_>>(),
-        ["refs/heads/kraken/a", "refs/heads/kraken/r", "refs/heads/kraken/vague-v"]
+        ["refs/heads/lydite/a", "refs/heads/lydite/r", "refs/heads/lydite/vague-v"]
     );
     // Aucun journal de la preuve ne reste, ni dans le dossier de Kraken, ni ailleurs.
     assert_eq!(noms(&kraken), ["bacs"]);
@@ -719,7 +719,7 @@ fn un_chemin_ecrit_apres_la_fin_de_la_tentative_est_refuse_au_gel() {
         ["hors.txt", "src/a.txt"]
     );
     // Ni fusion, ni note : la branche et le worktree de la vague restent à leur tête.
-    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "kraken/vague-v"])), (tete.as_str(), tete.clone()));
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (tete.as_str(), tete.clone()));
     a_sa_tete(&kraken, &tete);
     let _ = fs::remove_dir_all(&racine);
 }

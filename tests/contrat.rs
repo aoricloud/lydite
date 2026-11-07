@@ -24,8 +24,8 @@ fn non_utf8() -> OsString {
 /// processus du test, et le vrai dossier personnel de l'humain n'est jamais lu. Un test qui veut un autre `USERPROFILE`
 /// le pose après.
 fn kraken() -> Command {
-    let leurres = std::env::temp_dir().join(format!("kraken-contrat-leurres-{}", std::process::id()));
-    let mut commande = Command::new(env!("CARGO_BIN_EXE_kraken"));
+    let leurres = std::env::temp_dir().join(format!("lydite-contrat-leurres-{}", std::process::id()));
+    let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
     commande
         .env("USERPROFILE", leurres.join("personnel"))
         .env("HOME", leurres.join("personnel"))
@@ -33,7 +33,7 @@ fn kraken() -> Command {
     commande
 }
 
-/// Un refus lu sur stderr : sa première ligne, `kraken : <numéro> <nom>`, puis la règle, la preuve et la correction,
+/// Un refus lu sur stderr : sa première ligne, `lydite : <numéro> <nom>`, puis la règle, la preuve et la correction,
 /// sans leur étiquette.
 #[derive(Debug)]
 struct Refus {
@@ -61,14 +61,14 @@ fn lire_refus(commande: &mut Command) -> Refus {
     Refus { code: lignes[0].to_string(), regle, preuve, correction }
 }
 
-/// Comme `lire_refus`, mais ne rend que la première ligne, `kraken : <numéro> <nom>`.
+/// Comme `lire_refus`, mais ne rend que la première ligne, `lydite : <numéro> <nom>`.
 fn refus(commande: &mut Command) -> String {
     lire_refus(commande).code
 }
 
 /// Un dossier neuf et vide, à ce test, dans le dossier temporaire du système.
 fn neuf(nom: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kraken-contrat-{nom}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("lydite-contrat-{nom}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -118,8 +118,8 @@ fn assert_regle(refus: &Refus) {
 /// La correction d'un refus de la ligne de commande donne l'usage : les trois commandes de la liste fermée, `lancer`
 /// avec ses trois drapeaux.
 fn assert_usage(refus: &Refus) {
-    let lancer = r#"kraken lancer <profil> "<objectif>" [--n N] [--verifier "<commande>"] [--depot <chemin>]"#;
-    for morceau in [lancer, "kraken accepter <profil>", "kraken etat"] {
+    let lancer = r#"lydite lancer <profil> "<objectif>" [--n N] [--verifier "<commande>"] [--depot <chemin>]"#;
+    for morceau in [lancer, "lydite accepter <profil>", "lydite etat"] {
         assert!(refus.correction.contains(morceau), "la correction donne l'usage ({morceau}) : {refus:?}");
     }
 }
@@ -128,8 +128,8 @@ fn assert_usage(refus: &Refus) {
 fn un_argument_non_utf8_ne_panique_pas() {
     let mauvais = non_utf8();
     // Comme mot de commande, ce n'est pas une commande ; là où il faut un texte, la ligne est mal formée.
-    assert_eq!(refus(kraken().arg(&mauvais)), "kraken : 1005 contrat.commande_inconnue");
-    let mal_formee = "kraken : 1006 contrat.commande_mal_formee";
+    assert_eq!(refus(kraken().arg(&mauvais)), "lydite : 1005 contrat.commande_inconnue");
+    let mal_formee = "lydite : 1006 contrat.commande_mal_formee";
     assert_eq!(refus(kraken().arg("lancer").arg(&mauvais).arg("objectif")), mal_formee);
     assert_eq!(refus(kraken().args(["lancer", "claude"]).arg(&mauvais)), mal_formee);
     assert_eq!(refus(kraken().args(["lancer", "claude", "objectif", "--verifier"]).arg(&mauvais)), mal_formee);
@@ -140,22 +140,22 @@ fn un_argument_non_utf8_ne_panique_pas() {
 /// de `kraken()` pour les dossiers de connexion de Claude.
 fn kraken_dans(dossier: &Path, depot: &Path) -> Command {
     let mut commande = kraken();
-    commande.current_dir(depot).env("KRAKEN_DOSSIER", dossier).env("KRAKEN_CLAUDE", "kraken-claude-introuvable");
+    commande.current_dir(depot).env("LYDITE_DOSSIER", dossier).env("LYDITE_CLAUDE", "lydite-claude-introuvable");
     commande
 }
 
 #[test]
 fn toute_sortie_en_2_est_un_refus_en_quatre_lignes() {
     // Pas de commande, une commande sans ses arguments : la ligne se refuse avant toute main.
-    assert_eq!(refus(&mut kraken()), "kraken : 1006 contrat.commande_mal_formee");
-    assert_eq!(refus(kraken().arg("lancer")), "kraken : 1006 contrat.commande_mal_formee");
+    assert_eq!(refus(&mut kraken()), "lydite : 1006 contrat.commande_mal_formee");
+    assert_eq!(refus(kraken().arg("lancer")), "lydite : 1006 contrat.commande_mal_formee");
     // Un profil inconnu : dans un dépôt et un dossier de Kraken jetables, car le dépôt se lit avant le profil, et le
     // profil dans le dossier de Kraken.
-    let (depot, dossier) = (depot_git("quatre-depot"), neuf("quatre-kraken"));
+    let (depot, dossier) = (depot_git("quatre-depot"), neuf("quatre-lydite"));
     let inconnu = refus(kraken_dans(&dossier, &depot).args(["lancer", "inconnu", "x"]));
-    assert_eq!(inconnu, "kraken : 6001 lancer.profil_inconnu");
+    assert_eq!(inconnu, "lydite : 6001 lancer.profil_inconnu");
     // `etat` aussi : un dossier de Kraken relatif est refusé avant de lire quoi que ce soit.
-    assert_eq!(refus(kraken().arg("etat").env("KRAKEN_DOSSIER", "relatif")), "kraken : 6004 lancer.dossier_relatif");
+    assert_eq!(refus(kraken().arg("etat").env("LYDITE_DOSSIER", "relatif")), "lydite : 6004 lancer.dossier_relatif");
     for dir in [&depot, &dossier] {
         let _ = fs::remove_dir_all(dir);
     }
@@ -165,7 +165,7 @@ fn toute_sortie_en_2_est_un_refus_en_quatre_lignes() {
 fn sans_commande_le_refus_enseigne() {
     // Rien à lire : la ligne ne nomme aucune commande. C'est le refus 1006, avant tout dossier et toute main.
     let refus = lire_refus(&mut kraken());
-    assert_eq!(refus.code, "kraken : 1006 contrat.commande_mal_formee");
+    assert_eq!(refus.code, "lydite : 1006 contrat.commande_mal_formee");
     assert_regle(&refus);
     assert!(refus.preuve.contains("aucune commande"), "la preuve dit ce qui a été vu : {refus:?}");
     assert_usage(&refus);
@@ -177,7 +177,7 @@ fn une_commande_inconnue_est_refusee() {
     // 1005, dont la preuve nomme le mot et dont la correction donne l'usage.
     for mot in ["bonjour", "--help", "ETAT", "lancer2", ""] {
         let refus = lire_refus(kraken().arg(mot));
-        assert_eq!(refus.code, "kraken : 1005 contrat.commande_inconnue", "{mot:?}");
+        assert_eq!(refus.code, "lydite : 1005 contrat.commande_inconnue", "{mot:?}");
         assert_regle(&refus);
         assert!(refus.preuve.contains(&format!("« {mot} »")), "la preuve nomme le mot {mot:?} : {refus:?}");
         assert_usage(&refus);
@@ -187,7 +187,7 @@ fn une_commande_inconnue_est_refusee() {
 #[test]
 fn kraken_etat_lit_un_fil_demesure_sans_paniquer() {
     // Un fil écrit par un autre programme : des lignes v2 valides dont un `n` ou un `main` tient en u64, mais ferait
-    // écrire à `kraken etat` une ligne par main, jusqu'à la panique (code 101) ou la mémoire pleine (mort brutale). Le
+    // écrire à `lydite etat` une ligne par main, jusqu'à la panique (code 101) ou la mémoire pleine (mort brutale). Le
     // lecteur les refuse en 1009 : chacune se dit sur stderr, et la lecture va au bout.
     let dossier = neuf("demesure");
     let ligne = |seq: u64, corps: &str| {
@@ -215,7 +215,7 @@ fn kraken_etat_lit_un_fil_demesure_sans_paniquer() {
         debut(4, "0"),
     ];
     fs::write(dossier.join("fil.jsonl"), lignes.join("\n") + "\n").unwrap();
-    let sortie = kraken().arg("etat").env("KRAKEN_DOSSIER", &dossier).output().unwrap();
+    let sortie = kraken().arg("etat").env("LYDITE_DOSSIER", &dossier).output().unwrap();
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     // Aucune vague lisible : rien n'est affirmé, le code 0.
     assert_eq!(sortie.status.code(), Some(0), "{erreur}");
@@ -224,7 +224,7 @@ fn kraken_etat_lit_un_fil_demesure_sans_paniquer() {
     let lignes_d_erreur: Vec<&str> = erreur.lines().collect();
     assert_eq!(lignes_d_erreur.len(), 16, "{erreur}");
     for refus in lignes_d_erreur.chunks(4) {
-        assert_eq!(refus[0], "kraken : 1009 contrat.evenement_mal_forme", "{erreur}");
+        assert_eq!(refus[0], "lydite : 1009 contrat.evenement_mal_forme", "{erreur}");
         assert!(refus[2].contains("hors de son domaine"), "{erreur}");
     }
     let _ = fs::remove_dir_all(&dossier);
@@ -235,15 +235,15 @@ fn un_profil_inconnu_est_refuse_avant_tout_dossier() {
     // La ligne est entière, avec tous ses drapeaux : seul le profil manque. Le dossier courant est neuf et vide ; le
     // dépôt visé est un `git init` neuf, car git doit le connaître avant que le profil se lise ; le dossier de Kraken,
     // que l'enfant reçoit seul, est neuf et vide : on voit que rien n'y est posé.
-    let (courant, depot, dossier) = (neuf("profil-courant"), depot_git("profil-depot"), neuf("profil-kraken"));
+    let (courant, depot, dossier) = (neuf("profil-courant"), depot_git("profil-depot"), neuf("profil-lydite"));
     let refus = lire_refus(
         kraken()
             .current_dir(&courant)
-            .env("KRAKEN_DOSSIER", &dossier)
+            .env("LYDITE_DOSSIER", &dossier)
             .args(["lancer", "inconnu", "objectif", "--n", "3", "--verifier", "exit 0", "--depot"])
             .arg(&depot),
     );
-    assert_eq!(refus.code, "kraken : 6001 lancer.profil_inconnu");
+    assert_eq!(refus.code, "lydite : 6001 lancer.profil_inconnu");
     assert_regle(&refus);
     assert!(refus.preuve.contains("« inconnu »"), "la preuve nomme le profil : {refus:?}");
     assert!(refus.correction.contains("claude"), "la correction nomme les profils connus : {refus:?}");
@@ -261,18 +261,18 @@ fn un_profil_inconnu_est_refuse_avant_tout_dossier() {
 #[test]
 fn le_dossier_et_le_depot_se_lisent_avant_le_profil() {
     // Le dossier de Kraken d'abord : relatif (6004), il l'emporte sur un dépôt absent et sur un profil inconnu.
-    let absent = std::env::temp_dir().join(format!("kraken-contrat-absent-{}", std::process::id()));
+    let absent = std::env::temp_dir().join(format!("lydite-contrat-absent-{}", std::process::id()));
     let _ = fs::remove_dir_all(&absent);
     let ligne = ["lancer", "inconnu", "objectif", "--depot"];
-    let relatif = refus(kraken().args(ligne).arg(&absent).env("KRAKEN_DOSSIER", "relatif"));
-    assert_eq!(relatif, "kraken : 6004 lancer.dossier_relatif");
+    let relatif = refus(kraken().args(ligne).arg(&absent).env("LYDITE_DOSSIER", "relatif"));
+    assert_eq!(relatif, "lydite : 6004 lancer.dossier_relatif");
     // Puis le dépôt, avant le profil : absent (6002), puis hors git (6003) ; le profil inconnu n'est pas lu.
-    let (nu, dossier) = (neuf("ordre-nu"), neuf("ordre-kraken"));
-    let refus_absent = lire_refus(kraken().args(ligne).arg(&absent).env("KRAKEN_DOSSIER", &dossier));
-    assert_eq!(refus_absent.code, "kraken : 6002 lancer.depot_introuvable");
+    let (nu, dossier) = (neuf("ordre-nu"), neuf("ordre-lydite"));
+    let refus_absent = lire_refus(kraken().args(ligne).arg(&absent).env("LYDITE_DOSSIER", &dossier));
+    assert_eq!(refus_absent.code, "lydite : 6002 lancer.depot_introuvable");
     assert!(refus_absent.preuve.contains(&absent.display().to_string()), "{refus_absent:?}");
-    let refus_nu = lire_refus(kraken().args(ligne).arg(&nu).env("KRAKEN_DOSSIER", &dossier));
-    assert_eq!(refus_nu.code, "kraken : 6003 lancer.bac_impossible");
+    let refus_nu = lire_refus(kraken().args(ligne).arg(&nu).env("LYDITE_DOSSIER", &dossier));
+    assert_eq!(refus_nu.code, "lydite : 6003 lancer.bac_impossible");
     // Rien n'est posé : ni dans le dépôt hors git, ni dans le dossier de Kraken, ni à la place du dépôt absent.
     assert_eq!(noms(&nu), Vec::<String>::new());
     assert_eq!(noms(&dossier), Vec::<String>::new());
@@ -287,7 +287,7 @@ fn un_drapeau_a_la_place_du_profil_ou_de_l_objectif_est_refuse() {
     // Sans ce refus, `lancer claude --verifier x` lancerait une main sur l'objectif « --verifier ». Le dépôt et le
     // dossier de Kraken sont jetables, et le `claude` n'existe pas : si le refus manquait, aucune vraie main ne
     // partirait.
-    let (depot, dossier) = (depot_commite("drapeau-depot"), neuf("drapeau-kraken"));
+    let (depot, dossier) = (depot_commite("drapeau-depot"), neuf("drapeau-lydite"));
     let cas: [(&[&str], &str); 4] = [
         (&["lancer", "claude", "--verifier", "x"], "il manque l'objectif"),
         (&["lancer", "claude", "--n", "3"], "il manque l'objectif"),
@@ -296,7 +296,7 @@ fn un_drapeau_a_la_place_du_profil_ou_de_l_objectif_est_refuse() {
     ];
     for (mots, manque) in cas {
         let refus = lire_refus(kraken_dans(&dossier, &depot).args(mots));
-        assert_eq!(refus.code, "kraken : 1006 contrat.commande_mal_formee", "{mots:?}");
+        assert_eq!(refus.code, "lydite : 1006 contrat.commande_mal_formee", "{mots:?}");
         assert_regle(&refus);
         assert!(refus.preuve.contains(manque), "la preuve dit ce qui manque ({manque}) : {refus:?}");
         assert_usage(&refus);
@@ -311,11 +311,11 @@ fn un_drapeau_a_la_place_du_profil_ou_de_l_objectif_est_refuse() {
 #[test]
 fn une_preuve_blanche_est_refusee_avant_tout_dossier() {
     // Rejouée, une commande blanche réussirait toujours : toute main serait prouvée.
-    let (depot, dossier) = (depot_commite("blanche-depot"), neuf("blanche-kraken"));
+    let (depot, dossier) = (depot_commite("blanche-depot"), neuf("blanche-lydite"));
     for blanche in ["", "   ", "\t"] {
         let refus =
             lire_refus(kraken_dans(&dossier, &depot).args(["lancer", "claude", "objectif", "--verifier", blanche]));
-        assert_eq!(refus.code, "kraken : 6014 lancer.preuve_vide", "{blanche:?}");
+        assert_eq!(refus.code, "lydite : 6014 lancer.preuve_vide", "{blanche:?}");
         assert_regle(&refus);
         assert!(refus.preuve.contains("--verifier") && refus.preuve.contains("blanche"), "{refus:?}");
         assert!(refus.correction.contains("--verifier"), "{refus:?}");
@@ -331,23 +331,23 @@ fn une_preuve_blanche_est_refusee_avant_tout_dossier() {
 fn le_dossier_de_kraken_est_hors_du_depot_et_s_ecrit_dans_une_regle() {
     let depot = depot_commite("regle-depot");
     // Sous le dépôt visé : le refus 6015, qui nomme le dossier. Rien n'est posé.
-    let sous = depot.join("kraken");
+    let sous = depot.join("lydite");
     let ligne = ["lancer", "claude", "objectif"];
     let refus = lire_refus(kraken_dans(&sous, &depot).args(ligne));
-    assert_eq!(refus.code, "kraken : 6015 lancer.dossier_sous_le_depot");
+    assert_eq!(refus.code, "lydite : 6015 lancer.dossier_sous_le_depot");
     assert_regle(&refus);
     assert!(refus.preuve.contains(&sous.display().to_string()), "la preuve nomme le dossier : {refus:?}");
-    assert!(refus.correction.contains("KRAKEN_DOSSIER"), "{refus:?}");
+    assert!(refus.correction.contains("LYDITE_DOSSIER"), "{refus:?}");
     assert_eq!(noms(&depot), [".git"]);
     // Hors du dépôt, mais à un chemin qu'une règle de permission ne sait pas écrire (une parenthèse) : le refus 6023,
     // qui nomme le chemin, avant tout bac.
     let parent = neuf("regle-parent");
     let rare = parent.join("k(1)");
     let refus = lire_refus(kraken_dans(&rare, &depot).args(ligne));
-    assert_eq!(refus.code, "kraken : 6023 lancer.dossier_chemin_refuse");
+    assert_eq!(refus.code, "lydite : 6023 lancer.dossier_chemin_refuse");
     assert_regle(&refus);
     assert!(refus.preuve.contains("k(1)"), "la preuve nomme le chemin : {refus:?}");
-    assert!(refus.correction.contains("KRAKEN_DOSSIER"), "{refus:?}");
+    assert!(refus.correction.contains("LYDITE_DOSSIER"), "{refus:?}");
     assert_eq!(noms(&parent), Vec::<String>::new(), "rien n'est posé");
     for dir in [&depot, &parent] {
         let _ = fs::remove_dir_all(dir);
@@ -356,23 +356,23 @@ fn le_dossier_de_kraken_est_hors_du_depot_et_s_ecrit_dans_une_regle() {
 
 #[test]
 fn accepter_refuse_ce_qui_n_a_pas_de_fichier() {
-    let (depot, dossier) = (depot_git("sans-fichier-depot"), neuf("sans-fichier-kraken"));
+    let (depot, dossier) = (depot_git("sans-fichier-depot"), neuf("sans-fichier-lydite"));
     let accepter = |nom: &str| lire_refus(kraken_dans(&dossier, &depot).args(["accepter", nom]));
     // Le profil intégré n'a pas d'empreinte à garder (6013) ; un nom sans fichier ni profil intégré est inconnu (6001)
     // ; un nom qui sortirait de `profils` est refusé (6007).
     let integre = accepter("claude");
-    assert_eq!(integre.code, "kraken : 6013 lancer.profil_sans_fichier");
+    assert_eq!(integre.code, "lydite : 6013 lancer.profil_sans_fichier");
     assert_regle(&integre);
     assert!(integre.preuve.contains("claude.profil"), "la preuve nomme le fichier attendu : {integre:?}");
-    assert_eq!(accepter("hermes").code, "kraken : 6001 lancer.profil_inconnu");
-    assert_eq!(accepter("../x").code, "kraken : 6007 lancer.profil_nom_refuse");
+    assert_eq!(accepter("hermes").code, "lydite : 6001 lancer.profil_inconnu");
+    assert_eq!(accepter("../x").code, "lydite : 6007 lancer.profil_nom_refuse");
     // Une ligne mal formée : un nom, rien d'autre ; un dossier de Kraken relatif est refusé avant de lire quoi que ce
     // soit.
-    let mal_formee = "kraken : 1006 contrat.commande_mal_formee";
+    let mal_formee = "lydite : 1006 contrat.commande_mal_formee";
     assert_eq!(lire_refus(kraken().arg("accepter")).code, mal_formee);
     assert_usage(&lire_refus(kraken().args(["accepter", "a", "b"])));
-    let relatif = refus(kraken().args(["accepter", "claude"]).env("KRAKEN_DOSSIER", "relatif"));
-    assert_eq!(relatif, "kraken : 6004 lancer.dossier_relatif");
+    let relatif = refus(kraken().args(["accepter", "claude"]).env("LYDITE_DOSSIER", "relatif"));
+    assert_eq!(relatif, "lydite : 6004 lancer.dossier_relatif");
     // Rien n'est créé : accepter ne pose que l'empreinte d'un fichier qui existe.
     assert_eq!(noms(&dossier), Vec::<String>::new());
     for dir in [&depot, &dossier] {
@@ -382,25 +382,25 @@ fn accepter_refuse_ce_qui_n_a_pas_de_fichier() {
 
 #[test]
 fn accepter_garde_l_empreinte_que_lancer_exige_et_note_au_fil() {
-    let (depot, dossier) = (depot_commite("accepter-depot"), neuf("accepter-kraken"));
+    let (depot, dossier) = (depot_commite("accepter-depot"), neuf("accepter-lydite"));
     let profils = dossier.join("profils");
     fs::create_dir(&profils).unwrap();
     // Un profil dont le programme n'existe pas : la main se déclare et ne part pas. Son empreinte est le SHA-256 de ses
     // octets (printf '…' | sha256sum), avec ou sans la ligne vide ajoutée plus bas.
-    let texte = "# la main de veille\nsorte = claude\nprogramme = kraken-claude-introuvable\nmodele = haiku\n";
+    let texte = "# la main de veille\nsorte = claude\nprogramme = lydite-claude-introuvable\nmodele = haiku\n";
     let (empreinte, autre) = (
-        "641d5ba8244269a7400e8bb5bb1e04d3f54d95aef8dcaf4e7f12f467fb5d4988",
-        "7da89a59d05aaedb09e1b9e6b9c9014551e363cf66d57a3206a6aeb58b942f4c",
+        "37849dc3ce500b5fdefd2be31521bb1ee101de575a7f59050f8ff7dbe1b03418",
+        "8c558c59eebb935b3e0081d2bc0d557d659b0788515e0d99590764de53185cab",
     );
     let (fichier, garde) = (profils.join("veille.profil"), profils.join("veille.empreinte"));
     fs::write(&fichier, texte).unwrap();
     let lancer = || kraken_dans(&dossier, &depot).args(["lancer", "veille", "objectif"]).output().unwrap();
     // Pas accepté : le refus 6011 dit comment, avant tout bac et tout fil.
     let refus = lire_refus(kraken_dans(&dossier, &depot).args(["lancer", "veille", "objectif"]));
-    assert_eq!(refus.code, "kraken : 6011 lancer.profil_non_accepte");
-    assert!(refus.correction.contains("kraken accepter veille"), "{refus:?}");
+    assert_eq!(refus.code, "lydite : 6011 lancer.profil_non_accepte");
+    assert!(refus.correction.contains("lydite accepter veille"), "{refus:?}");
     assert_eq!(noms(&dossier), ["profils"]);
-    // `kraken accepter veille` montre le texte et l'empreinte, et garde l'empreinte à côté du profil.
+    // `lydite accepter veille` montre le texte et l'empreinte, et garde l'empreinte à côté du profil.
     let sortie = kraken_dans(&dossier, &depot).args(["accepter", "veille"]).output().unwrap();
     assert_eq!(sortie.status.code(), Some(0), "{sortie:?}");
     assert!(sortie.stderr.is_empty(), "{sortie:?}");
@@ -412,7 +412,7 @@ fn accepter_garde_l_empreinte_que_lancer_exige_et_note_au_fil() {
     assert_eq!(sortie.status.code(), Some(1), "{sortie:?}");
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     assert!(erreur.contains("échec classé : main-"), "{erreur}");
-    assert!(erreur.contains("lancement impossible de kraken-claude-introuvable"), "{erreur}");
+    assert!(erreur.contains("lancement impossible de lydite-claude-introuvable"), "{erreur}");
     // Le fil compte les lancements par profil et par empreinte : un par tentative, noté avant la main, avec son modèle.
     // Un constat suit chacun, vide, car rien n'a été lu d'une main qui n'est pas partie.
     let fil = fs::read_to_string(dossier.join("fil.jsonl")).unwrap();
@@ -432,7 +432,7 @@ fn accepter_garde_l_empreinte_que_lancer_exige_et_note_au_fil() {
     let constats = lignes_de(&fil, "main.constat");
     assert_eq!(constats.len(), 2, "{fil}");
     assert!(constats.iter().all(|l| l.contains(r#""version":null,"mur_actif":null,"foi":"constate""#)), "{constats:?}");
-    // `kraken etat` dit le mur de la dernière tentative : ce que le profil demandait, déclaré, car rien n'a été
+    // `lydite etat` dit le mur de la dernière tentative : ce que le profil demandait, déclaré, car rien n'a été
     // constaté.
     let etat = kraken_dans(&dossier, &depot).arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(1), "une main classée donne 1 : {etat:?}");
@@ -443,9 +443,9 @@ fn accepter_garde_l_empreinte_que_lancer_exige_et_note_au_fil() {
     fs::write(&fichier, format!("{texte}\n")).unwrap();
     let avant = fs::read(dossier.join("fil.jsonl")).unwrap();
     let refus = lire_refus(kraken_dans(&dossier, &depot).args(["lancer", "veille", "objectif"]));
-    assert_eq!(refus.code, "kraken : 6012 lancer.profil_change");
+    assert_eq!(refus.code, "lydite : 6012 lancer.profil_change");
     assert!(refus.preuve.contains(empreinte) && refus.preuve.contains(autre), "{refus:?}");
-    assert!(refus.correction.contains("kraken accepter veille"), "{refus:?}");
+    assert!(refus.correction.contains("lydite accepter veille"), "{refus:?}");
     assert_eq!(fs::read(dossier.join("fil.jsonl")).unwrap(), avant, "le fil n'a pas bougé");
     // Réaccepté, il passe de nouveau, avec sa nouvelle empreinte.
     let sortie = kraken_dans(&dossier, &depot).args(["accepter", "veille"]).output().unwrap();
@@ -460,17 +460,17 @@ fn accepter_garde_l_empreinte_que_lancer_exige_et_note_au_fil() {
 #[cfg(windows)]
 #[test]
 fn sous_windows_le_dossier_est_userprofile_point_kraken() {
-    // Le fil de M1 posé dans <USERPROFILE>\.kraken : `etat` le nomme, donc lit ce dossier-là.
+    // Le fil de M1 posé dans <USERPROFILE>\.lydite : `etat` le nomme, donc lit ce dossier-là.
     let profil = neuf("userprofile");
-    fs::create_dir_all(profil.join(".kraken")).unwrap();
-    fs::write(profil.join(".kraken").join("fil"), "").unwrap();
-    let sortie = kraken().arg("etat").env_remove("KRAKEN_DOSSIER").env("USERPROFILE", &profil).output().unwrap();
-    let attendu = profil.join(".kraken").join("fil").display().to_string();
+    fs::create_dir_all(profil.join(".lydite")).unwrap();
+    fs::write(profil.join(".lydite").join("fil"), "").unwrap();
+    let sortie = kraken().arg("etat").env_remove("LYDITE_DOSSIER").env("USERPROFILE", &profil).output().unwrap();
+    let attendu = profil.join(".lydite").join("fil").display().to_string();
     assert!(String::from_utf8_lossy(&sortie.stdout).contains(&attendu), "{sortie:?}");
-    let relatif = kraken().arg("etat").env_remove("KRAKEN_DOSSIER").env("USERPROFILE", "relatif").output().unwrap();
+    let relatif = kraken().arg("etat").env_remove("LYDITE_DOSSIER").env("USERPROFILE", "relatif").output().unwrap();
     assert_eq!(relatif.status.code(), Some(2), "{relatif:?}");
     assert!(
-        String::from_utf8_lossy(&relatif.stderr).starts_with("kraken : 6005 lancer.dossier_introuvable"),
+        String::from_utf8_lossy(&relatif.stderr).starts_with("lydite : 6005 lancer.dossier_introuvable"),
         "{relatif:?}"
     );
     let _ = fs::remove_dir_all(&profil);
@@ -489,7 +489,7 @@ fn kraken_plan_dit_les_dependances_ajoutees_sans_rien_lancer() {
     // Un plan découpé, à ses clés : b change src/b.rs, que le dossier src/ de a couvre ; c ne partage rien.
     let chemin = plan_dans(
         &dir,
-        "PLAN.kraken",
+        "PLAN.lydite",
         &[
             "plan 1",
             "objectif : Trois fichiers",
@@ -509,11 +509,11 @@ fn kraken_plan_dit_les_dependances_ajoutees_sans_rien_lancer() {
             "    Écrire docs/c.md.",
         ],
     );
-    // Lu à la main ou en plan découpé, par un chemin relatif au dossier courant ou absolu. `kraken plan` ne lit ni le
+    // Lu à la main ou en plan découpé, par un chemin relatif au dossier courant ou absolu. `lydite plan` ne lit ni le
     // dossier de Kraken, ni un dépôt : un dossier relatif, que `lancer` refuserait en 6004, ne le gêne pas.
-    for (drapeaux, fichier) in [(&[][..], Path::new("PLAN.kraken")), (&["--decoupe"][..], chemin.as_path())] {
+    for (drapeaux, fichier) in [(&[][..], Path::new("PLAN.lydite")), (&["--decoupe"][..], chemin.as_path())] {
         let sortie = kraken()
-            .env("KRAKEN_DOSSIER", "relatif")
+            .env("LYDITE_DOSSIER", "relatif")
             .current_dir(&dir)
             .arg("plan")
             .args(drapeaux)
@@ -526,7 +526,7 @@ fn kraken_plan_dit_les_dependances_ajoutees_sans_rien_lancer() {
         assert_eq!(String::from_utf8_lossy(&sortie.stdout), "b attend a : elles partagent src/b.rs\n");
     }
     // Rien n'est posé à côté du plan.
-    assert_eq!(noms(&dir), ["PLAN.kraken"]);
+    assert_eq!(noms(&dir), ["PLAN.lydite"]);
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -539,18 +539,18 @@ fn kraken_plan_refuse_un_plan_faux_par_son_refus() {
         (
             &[],
             &["tache a", "fichiers : ../voisin/x", "    x"],
-            "kraken : 6024 lancer.plan_chemin",
+            "lydite : 6024 lancer.plan_chemin",
             "ligne 5 « fichiers : ../voisin/x » : le chemin « ../voisin/x » sort du dépôt par `..`",
         ),
-        (&[], &["tache a", "fichiers : .git/hooks/", "    x"], "kraken : 6024 lancer.plan_chemin", "est sous `.git/`"),
+        (&[], &["tache a", "fichiers : .git/hooks/", "    x"], "lydite : 6024 lancer.plan_chemin", "est sous `.git/`"),
         (
             &["--decoupe"],
             &["tache a", "modele : haiku", "    x"],
-            "kraken : 6025 lancer.plan_borne",
+            "lydite : 6025 lancer.plan_borne",
             "la tâche « a » n'a pas de clé `fichiers`",
         ),
-        (&["--decoupe"], &["tache a", "fichiers : src/", "    x"], "kraken : 6025 lancer.plan_borne", "`modele`"),
-        (&[], &["tache a", "modele : Opus", "    x"], "kraken : 6018 lancer.plan_ligne", "le modèle « Opus »"),
+        (&["--decoupe"], &["tache a", "fichiers : src/", "    x"], "lydite : 6025 lancer.plan_borne", "`modele`"),
+        (&[], &["tache a", "modele : Opus", "    x"], "lydite : 6018 lancer.plan_ligne", "le modèle « Opus »"),
     ];
     for (i, (drapeaux, taches, code, bout)) in cas.into_iter().enumerate() {
         let chemin = plan_dans(&dir, &format!("plan-{i}.txt"), &[&entete[..], taches].concat());
@@ -561,18 +561,18 @@ fn kraken_plan_refuse_un_plan_faux_par_son_refus() {
     }
     // Une tâche sans `fichiers` ni `modele` : refusée avec `--decoupe`, lue sans, comme `--plan` la lit.
     let sans_cles = plan_dans(&dir, "sans-cles.txt", &[&entete[..], &["tache a", "    x"]].concat());
-    assert_eq!(refus(kraken().args(["plan", "--decoupe"]).arg(&sans_cles)), "kraken : 6025 lancer.plan_borne");
+    assert_eq!(refus(kraken().args(["plan", "--decoupe"]).arg(&sans_cles)), "lydite : 6025 lancer.plan_borne");
     let sortie = kraken().arg("plan").arg(&sans_cles).output().unwrap();
     assert_eq!((sortie.status.code(), sortie.stdout.is_empty(), sortie.stderr.is_empty()), (Some(0), true, true));
     // Un fichier absent : 6006, qui nomme son chemin.
     let absent = dir.join("absent.txt");
     let refus_absent = lire_refus(kraken().arg("plan").arg(&absent));
-    assert_eq!(refus_absent.code, "kraken : 6006 lancer.entree_sortie");
+    assert_eq!(refus_absent.code, "lydite : 6006 lancer.entree_sortie");
     assert!(refus_absent.preuve.contains(&absent.display().to_string()), "{refus_absent:?}");
-    assert!(refus_absent.correction.contains("kraken plan"), "{refus_absent:?}");
+    assert!(refus_absent.correction.contains("lydite plan"), "{refus_absent:?}");
     // Une ligne de commande fausse : 1006, avant toute lecture.
     for mots in [&["plan"][..], &["plan", "--decoupe"], &["plan", "a.txt", "b.txt"], &["plan", "--n", "1"]] {
-        assert_eq!(refus(kraken().args(mots)), "kraken : 1006 contrat.commande_mal_formee", "{mots:?}");
+        assert_eq!(refus(kraken().args(mots)), "lydite : 1006 contrat.commande_mal_formee", "{mots:?}");
     }
     let _ = fs::remove_dir_all(&dir);
 }
@@ -592,7 +592,7 @@ fn kraken_plan_refuse_un_fichier_de_plus_de_1_mo() {
         let lourd = dir.join(format!("lourd-{taille}.txt"));
         fs::write(&lourd, de_taille(taille)).unwrap();
         let refus = lire_refus(kraken().arg("plan").arg(&lourd));
-        assert_eq!(refus.code, "kraken : 6025 lancer.plan_borne");
+        assert_eq!(refus.code, "lydite : 6025 lancer.plan_borne");
         assert_eq!(refus.preuve, "le plan dépasse 1 Mo : plus de 1000000 octets");
     }
     let _ = fs::remove_dir_all(&dir);
@@ -604,6 +604,6 @@ fn kraken_plan_ne_lit_pas_au_dela_de_1_mo() {
     // `/dev/zero` ne finit jamais : une lecture sans borne n'en reviendrait pas. Kraken en lit un octet de plus que 1
     // Mo, et refuse.
     let refus = lire_refus(kraken().args(["plan", "/dev/zero"]));
-    assert_eq!(refus.code, "kraken : 6025 lancer.plan_borne");
+    assert_eq!(refus.code, "lydite : 6025 lancer.plan_borne");
     assert_eq!(refus.preuve, "le plan dépasse 1 Mo : plus de 1000000 octets");
 }

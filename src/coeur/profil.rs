@@ -1,5 +1,5 @@
 //! Le profil d'une main : sa sorte, son modèle, ce qu'on lui prête et ce qu'on lui ferme, et le temps qu'on lui laisse.
-//! C'est un fichier du dossier de Kraken, que l'humain écrit puis accepte (`kraken accepter <nom>`), et que son
+//! C'est un fichier du dossier de Kraken, que l'humain écrit puis accepte (`lydite accepter <nom>`), et que son
 //! empreinte garde avant chaque lancement. Aucun budget : il rendrait la main sous-productive.
 //!
 //! Le format :
@@ -14,7 +14,7 @@
 //!   règle.
 //! - Les clés, et aucune autre, `budget` compris :
 //!   - `sorte`, la seule obligatoire : `claude`, une main Claude Code ;
-//!   - `programme` : un nom nu, que le système cherche, ou un chemin absolu ; par défaut `KRAKEN_CLAUDE`, sinon
+//!   - `programme` : un nom nu, que le système cherche, ou un chemin absolu ; par défaut `LYDITE_CLAUDE`, sinon
 //!     `claude` ;
 //!   - `modele`, et `relance` pour la seconde tentative : `sonnet` par défaut, en `[a-z0-9.-]`, un alias (`sonnet`,
 //!     `haiku`, `opus`) ou un nom complet (`claude-sonnet-5-5`) ;
@@ -51,8 +51,8 @@
 //!     sous lui ;
 //!   - `delai_main` (3600 par défaut) et `delai_preuve` (300), en secondes, des entiers positifs : au premier, Kraken
 //!     tue la main ; au second, la preuve qu'il rejoue.
-//! - L'empreinte d'un profil est le SHA-256 des octets de son fichier. `kraken accepter <nom>` l'écrit dans
-//!   `<dossier de Kraken>/profils/<nom>.empreinte`, en 64 hexadécimaux minuscules ; `kraken lancer` refuse un profil
+//! - L'empreinte d'un profil est le SHA-256 des octets de son fichier. `lydite accepter <nom>` l'écrit dans
+//!   `<dossier de Kraken>/profils/<nom>.empreinte`, en 64 hexadécimaux minuscules ; `lydite lancer` refuse un profil
 //!   dont l'empreinte n'est pas celle-là. Le profil intégré a l'empreinte de son texte : elle s'inscrit au fil, sans
 //!   être gardée. Le programme désigné n'est pas empreint, pas plus que le mur : ce sont des briques externes.
 //!
@@ -129,7 +129,7 @@ const SORTANTS: [&str; 19] = [
 ];
 
 /// La correction du refus 6023 du dossier de Kraken.
-const CHEMIN_A_REECRIRE: &str = "Pose KRAKEN_DOSSIER à un chemin absolu qu'une règle de permission sait écrire : sous \
+const CHEMIN_A_REECRIRE: &str = "Pose LYDITE_DOSSIER à un chemin absolu qu'une règle de permission sait écrire : sous \
     Windows avec sa lettre de lecteur, et partout des noms sans parenthèse, joker, guillemet ni barre inverse ; puis \
     relance.";
 
@@ -391,14 +391,14 @@ impl Profil {
             return Err(Refus::new(
                 Code::ProfilNonAccepte,
                 format!("{} n'a pas d'empreinte acceptée : {} est absent", fichier.display(), garde.display()),
-                format!("Relis {}, puis accepte-le : kraken accepter {nom}.", fichier.display()),
+                format!("Relis {}, puis accepte-le : lydite accepter {nom}.", fichier.display()),
             ));
         };
         if acceptee != *lue {
             return Err(Refus::new(
                 Code::ProfilChange,
                 format!("{} a changé : empreinte acceptée « {acceptee} », empreinte lue « {lue} »", fichier.display()),
-                format!("Relis {}, puis réaccepte-le : kraken accepter {nom}.", fichier.display()),
+                format!("Relis {}, puis réaccepte-le : lydite accepter {nom}.", fichier.display()),
             ));
         }
         Ok(())
@@ -431,7 +431,7 @@ impl Profil {
     ) -> Result<(), Refus> {
         let Sorte::Claude(claude) = &mut self.sorte else { return Ok(()) };
         let (kraken, de_config, de_personnel) = (
-            "le dossier de Kraken",
+            "le dossier de Lydite",
             "le dossier de connexion de Claude (CLAUDE_CONFIG_DIR)",
             "le dossier de connexion de Claude (dossier personnel)",
         );
@@ -500,7 +500,7 @@ impl Profil {
                 Code::Fournisseur,
                 format!("{lieu} : la variable d'environnement {nom}, que cle nomme, {motif}"),
                 format!(
-                    "Pose {nom} dans l'environnement de Kraken, à la clé du fournisseur {hote} (sa valeur ne s'écrit \
+                    "Pose {nom} dans l'environnement de Lydite, à la clé du fournisseur {hote} (sa valeur ne s'écrit \
                      jamais dans le profil), puis relance."
                 ),
             )
@@ -524,7 +524,7 @@ impl Profil {
         matches!(&self.sorte, Sorte::Claude(claude) if claude.exige)
     }
 
-    /// Le programme qui rejoue la preuve sous un mur exigé, `srt` sinon : `preparer` y pose `KRAKEN_SRT`, et un test
+    /// Le programme qui rejoue la preuve sous un mur exigé, `srt` sinon : `preparer` y pose `LYDITE_SRT`, et un test
     /// son faux srt, sans toucher à l'environnement. Une main brute n'a pas de mur.
     pub(crate) fn avec_srt(&mut self, srt: OsString) {
         if let Sorte::Claude(claude) = &mut self.sorte {
@@ -737,7 +737,7 @@ impl Claude {
 /// Ce qui rejoue une preuve sous un mur exigé (voir [`Profil::rejeu`]).
 #[derive(Debug)]
 pub(crate) struct Srt {
-    /// Le programme : `KRAKEN_SRT`, que `preparer` lit, sinon `srt`.
+    /// Le programme : `LYDITE_SRT`, que `preparer` lit, sinon `srt`.
     pub(crate) programme: OsString,
     /// Le fichier de réglages, neuf, dans le dossier de Kraken : hors de la portée des mains.
     pub(crate) fichier: PathBuf,
@@ -747,7 +747,7 @@ pub(crate) struct Srt {
 }
 
 /// Le profil `nom` lu de son texte, au format de l'en-tête, sans rien lire d'autre : `chemin` est son fichier, `None`
-/// pour le profil intégré, et `kraken_claude` la valeur de `KRAKEN_CLAUDE`, programme d'un profil qui n'en nomme
+/// pour le profil intégré, et `kraken_claude` la valeur de `LYDITE_CLAUDE`, programme d'un profil qui n'en nomme
 /// pas. Une ligne fausse est le refus 6009, qui la nomme par `<chemin>:<n>` avec la règle de son cas ; un profil qui
 /// ne dit pas sa sorte, le refus 6010. Un fournisseur mal donné (voir `api` et `cle`) est le refus 6027 : une URL qui
 /// n'est pas en https, un nom hors de `[A-Z0-9_]`, une des deux clés seule. Il ne lit pas l'environnement : la clé se
@@ -903,7 +903,7 @@ pub(crate) fn lire(
             Code::Fournisseur,
             format!("{lieu}:{n} : « {cle} » est seule : un fournisseur se donne par api et cle ensemble"),
             format!(
-                "Ajoute la ligne « {manque} » à {lieu}, ou retire la ligne {n}, puis accepte le profil : kraken \
+                "Ajoute la ligne « {manque} » à {lieu}, ou retire la ligne {n}, puis accepte le profil : lydite \
                  accepter {nom}."
             ),
         )
@@ -922,7 +922,7 @@ pub(crate) fn lire(
             format!("{lieu}:{ligne_prix} : « prix » est seul : un prix se donne avec api"),
             format!(
                 "Ajoute les lignes « api = https://<hôte>/<chemin> » et « cle = <NOM_DE_LA_VARIABLE> » à {lieu}, ou \
-                 retire la ligne {ligne_prix}, puis accepte le profil : kraken accepter {nom}."
+                 retire la ligne {ligne_prix}, puis accepte le profil : lydite accepter {nom}."
             ),
         ));
     }
@@ -930,7 +930,7 @@ pub(crate) fn lire(
         return Err(Refus::new(
             Code::ProfilIncomplet,
             format!("{lieu} ne dit pas sa sorte"),
-            format!("Ajoute la ligne « sorte = claude » à {lieu}, puis accepte le profil : kraken accepter {nom}."),
+            format!("Ajoute la ligne « sorte = claude » à {lieu}, puis accepte le profil : lydite accepter {nom}."),
         ));
     }
     Ok(Profil { sorte: Sorte::Claude(Box::new(claude)), delai_main, delai_preuve })
@@ -984,7 +984,7 @@ fn ligne_refusee(lieu: &str, nom: &str, n: usize, ligne: &str, regle: &str) -> R
     Refus::new(
         Code::ProfilLigneRefusee,
         format!("{lieu}:{n} : « {ligne} » : {regle}"),
-        format!("Corrige la ligne {n} de {lieu}, puis accepte le profil : kraken accepter {nom}."),
+        format!("Corrige la ligne {n} de {lieu}, puis accepte le profil : lydite accepter {nom}."),
     )
 }
 
@@ -1068,7 +1068,7 @@ fn fournisseur_refuse(lieu: &str, nom: &str, n: usize, cle: &str, regle: &str) -
     Refus::new(
         Code::Fournisseur,
         format!("{lieu}:{n} : « {cle} » : {regle}"),
-        format!("Corrige la ligne {n} de {lieu}, puis accepte le profil : kraken accepter {nom}."),
+        format!("Corrige la ligne {n} de {lieu}, puis accepte le profil : lydite accepter {nom}."),
     )
 }
 

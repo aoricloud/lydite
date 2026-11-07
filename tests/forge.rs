@@ -1,7 +1,7 @@
-//! La forge de `kraken lancer <profil> --plan <fichier> --pr <branche>`, jouée sur le binaire lui-même : sa ligne de
+//! La forge de `lydite lancer <profil> --plan <fichier> --pr <branche>`, jouée sur le binaire lui-même : sa ligne de
 //! commande, et les refus d'avant la vague (8001 à 8003), chacun en code 2, sans bac ni note. Chaque test lance
 //! `kraken` sur un dépôt git jetable qui a un commit, avec un dossier de Kraken jetable hors de ce dépôt, un `claude`
-//! qui n'existe pas et un faux `gh`, que `KRAKEN_GH` nomme sur l'enfant seul : aucun vrai `claude` ni `gh` ne part, et
+//! qui n'existe pas et un faux `gh`, que `LYDITE_GH` nomme sur l'enfant seul : aucun vrai `claude` ni `gh` ne part, et
 //! le seul distant est un dépôt nu local. Le dossier personnel et `CLAUDE_CONFIG_DIR` vont, sur l'enfant seul aussi, à
 //! des leurres : rien de l'humain n'est lu, ce que le dernier essai éprouve en rejouant les refus sous un environnement
 //! hostile. Le chemin d'après la vague se joue au niveau du crate (`src/conduite/publication.rs`).
@@ -16,7 +16,7 @@ const URL: &str = "https://forge.test/p/d";
 /// Une racine neuve et vide, à ce test, dans le dossier temporaire du système : le dépôt visé (`depot`), son plan, le
 /// dossier de Kraken (`kraken`), le faux `gh` et le distant nu y vivent côte à côte, hors de ce dépôt-ci.
 fn racine(nom: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("kraken-forge-{nom}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("lydite-forge-{nom}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -83,18 +83,18 @@ fn appels(racine: &Path) -> Vec<String> {
     texte.lines().map(|ligne| ligne.replace('"', "").trim().to_string()).collect()
 }
 
-/// `kraken` joué dans la racine, avec ces arguments. Sur l'enfant seul : le dossier de Kraken `<racine>/kraken`, un
+/// `kraken` joué dans la racine, avec ces arguments. Sur l'enfant seul : le dossier de Kraken `<racine>/lydite`, un
 /// `claude` absent (le test ne retire jamais cette variable : sans elle, Kraken prendrait `claude` dans le PATH), le
 /// faux `gh`, et `USERPROFILE`, `HOME` et `CLAUDE_CONFIG_DIR` vers des leurres sous la racine, jamais créés, d'où
 /// Kraken tire les dossiers de connexion de Claude : le vrai dossier personnel de l'humain n'est jamais lu.
 fn kraken(racine: &Path, args: &[&str]) -> Output {
     let personnel = racine.join("personnel");
-    Command::new(env!("CARGO_BIN_EXE_kraken"))
+    Command::new(env!("CARGO_BIN_EXE_lydite"))
         .args(args)
         .current_dir(racine)
-        .env("KRAKEN_DOSSIER", racine.join("kraken"))
-        .env("KRAKEN_CLAUDE", racine.join("claude-absent"))
-        .env("KRAKEN_GH", faux_gh(racine))
+        .env("LYDITE_DOSSIER", racine.join("lydite"))
+        .env("LYDITE_CLAUDE", racine.join("claude-absent"))
+        .env("LYDITE_GH", faux_gh(racine))
         .env("USERPROFILE", &personnel)
         .env("HOME", personnel)
         .env("CLAUDE_CONFIG_DIR", racine.join("config"))
@@ -102,13 +102,13 @@ fn kraken(racine: &Path, args: &[&str]) -> Output {
         .unwrap()
 }
 
-/// `kraken lancer claude --plan plan.txt --depot depot --pr <branche>`, joué dans la racine.
+/// `lydite lancer claude --plan plan.txt --depot depot --pr <branche>`, joué dans la racine.
 fn lancer_la_pr(racine: &Path, branche: &str) -> Output {
     kraken(racine, &["lancer", "claude", "--plan", "plan.txt", "--depot", "depot", "--pr", branche])
 }
 
 /// Le refus que Kraken a écrit : le code 2, sans panique et sans rien sur stdout, et quatre lignes sur stderr. Rend sa
-/// première ligne, `kraken : <numéro> <nom>`, et sa preuve.
+/// première ligne, `lydite : <numéro> <nom>`, et sa preuve.
 fn lire_refus(sortie: &Output) -> (String, String) {
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     assert_eq!(sortie.status.code(), Some(2), "{erreur}");
@@ -125,14 +125,14 @@ fn lire_refus(sortie: &Output) -> (String, String) {
 /// n'a ni branche de Kraken, ni ref de Kraken (celle où il lit la base du distant se retire avec sa lecture), ni
 /// `FETCH_HEAD` écrit par lui, ni autre worktree que le sien.
 fn rien_n_est_parti(racine: &Path) {
-    let (depot, kraken) = (racine.join("depot"), racine.join("kraken"));
+    let (depot, kraken) = (racine.join("depot"), racine.join("lydite"));
     let restes: Vec<_> = fs::read_dir(&kraken)
         .map(|entrees| entrees.map(|entree| entree.unwrap().file_name()).collect())
         .unwrap_or_default();
-    assert!(restes.is_empty(), "le dossier de Kraken reste vide : {restes:?}");
-    assert_eq!(git(&depot, &["branch", "--list", "kraken/*"]), "", "ni branche");
-    assert_eq!(git(&depot, &["for-each-ref", "refs/kraken"]), "", "ni ref à Kraken");
-    assert!(!depot.join(".git").join("FETCH_HEAD").exists(), "Kraken n'écrit pas FETCH_HEAD");
+    assert!(restes.is_empty(), "le dossier de Lydite reste vide : {restes:?}");
+    assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "", "ni branche");
+    assert_eq!(git(&depot, &["for-each-ref", "refs/lydite"]), "", "ni ref à Lydite");
+    assert!(!depot.join(".git").join("FETCH_HEAD").exists(), "Lydite n'écrit pas FETCH_HEAD");
     assert_eq!(git(&depot, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "ni worktree");
 }
 
@@ -147,7 +147,7 @@ fn pr_ne_va_qu_avec_un_plan_et_veut_une_branche() {
     ];
     for ligne in lignes {
         let (code, preuve) = lire_refus(&kraken(&racine, ligne));
-        assert_eq!(code, "kraken : 1006 contrat.commande_mal_formee", "{ligne:?}");
+        assert_eq!(code, "lydite : 1006 contrat.commande_mal_formee", "{ligne:?}");
         assert!(preuve.contains("--pr"), "{preuve}");
     }
     assert!(appels(&racine).is_empty(), "gh n'est pas lancé");
@@ -160,7 +160,7 @@ fn un_depot_sans_origin_est_refuse_en_8001() {
     let racine = racine("8001");
     depot(&racine);
     let (code, preuve) = lire_refus(&lancer_la_pr(&racine, "main"));
-    assert_eq!(code, "kraken : 8001 forge.distant_illisible");
+    assert_eq!(code, "lydite : 8001 forge.distant_illisible");
     assert!(preuve.contains("n'a pas de distant origin"), "{preuve}");
     assert!(appels(&racine).is_empty(), "gh n'est pas lancé");
     rien_n_est_parti(&racine);
@@ -173,7 +173,7 @@ fn une_base_absente_du_distant_est_refusee_en_8002() {
     let depot = depot(&racine);
     distant(&racine, &depot);
     let (code, preuve) = lire_refus(&lancer_la_pr(&racine, "absente"));
-    assert_eq!(code, "kraken : 8002 forge.base_inconnue");
+    assert_eq!(code, "lydite : 8002 forge.base_inconnue");
     assert!(preuve.contains("refs/heads/absente"), "la preuve nomme la branche cherchée : {preuve}");
     assert!(appels(&racine).is_empty(), "gh n'est pas lancé");
     rien_n_est_parti(&racine);
@@ -186,9 +186,9 @@ fn gh_qui_ne_se_dit_pas_connecte_est_refuse_en_8003() {
     let depot = depot(&racine);
     distant(&racine, &depot);
     let (code, preuve) = lire_refus(&lancer_la_pr(&racine, "main"));
-    assert_eq!(code, "kraken : 8003 forge.gh_injoignable");
+    assert_eq!(code, "lydite : 8003 forge.gh_injoignable");
     assert!(preuve.contains("You are not logged into any GitHub hosts."), "{preuve}");
-    assert_eq!(appels(&racine), ["auth status --hostname forge.test"], "KRAKEN_GH nomme le gh de la forge");
+    assert_eq!(appels(&racine), ["auth status --hostname forge.test"], "LYDITE_GH nomme le gh de la forge");
     rien_n_est_parti(&racine);
     let _ = fs::remove_dir_all(&racine);
 }

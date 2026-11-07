@@ -88,7 +88,7 @@ pub(crate) fn lire_remarques(octets: &[u8]) -> Result<Vec<Remarque>, Refus> {
     let premiere = lignes.next().unwrap_or(Ligne { numero: 1, texte: "" });
     if premiere.texte != "remarques 1" {
         let correction =
-            "Écris `remarques 1` seul en première ligne : Kraken ne lit que cette forme, avant tout le reste.";
+            "Écris `remarques 1` seul en première ligne : Lydite ne lit que cette forme, avant tout le reste.";
         return Err(refus(premiere, "la première ligne d'un fichier de remarques est `remarques 1`", correction));
     }
     let mut lecteur = Lecteur::default();

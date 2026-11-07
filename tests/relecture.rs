@@ -1,4 +1,4 @@
-//! La relecture, jouée sur le binaire lui-même : `kraken remarques <fichier>` seul, puis `kraken lancer <profil> --plan
+//! La relecture, jouée sur le binaire lui-même : `lydite remarques <fichier>` seul, puis `lydite lancer <profil> --plan
 //! <fichier>` d'un plan dont une tâche est critique. Chaque essai lance `kraken` sur un dépôt git jetable qui a un
 //! commit, avec un dossier de Kraken jetable hors de lui et une fausse `claude` que le profil d'essai nomme :
 //! `fausse-claude.cmd` sous Windows, `fausse-claude.sh` ailleurs. C'est Kraken qui la lance. Elle parle en stream-json
@@ -7,10 +7,10 @@
 //!
 //! - si sa consigne commence la correction (`Corrige au plus petit`), elle garde sa consigne dans `correction.txt` et
 //!   écrit `sortie/correction.txt` dans son bac ;
-//! - si sa consigne nomme `REMARQUES.kraken`, elle est le relecteur, à sa tentative `n` (1, puis 2 une fois posée la
-//!   marque `relecteur-1`) : elle garde son `PATH` dans `path-relecteur-<n>.txt` et le `DIFF.kraken` de son bac dans
-//!   `diff-<n>.txt`, copie `remarques-<n>.kraken` en `REMARQUES.kraken` à la racine de son bac, puis joue elle-même
-//!   `kraken remarques REMARQUES.kraken`, que son `PATH` doit trouver, et en garde la sortie dans `preuve-<n>.txt` et
+//! - si sa consigne nomme `REMARQUES.lydite`, elle est le relecteur, à sa tentative `n` (1, puis 2 une fois posée la
+//!   marque `relecteur-1`) : elle garde son `PATH` dans `path-relecteur-<n>.txt` et le `DIFF.lydite` de son bac dans
+//!   `diff-<n>.txt`, copie `remarques-<n>.lydite` en `REMARQUES.lydite` à la racine de son bac, puis joue elle-même
+//!   `lydite remarques REMARQUES.lydite`, que son `PATH` doit trouver, et en garde la sortie dans `preuve-<n>.txt` et
 //!   le code dans `code-<n>.txt` ;
 //! - sinon, elle est la main d'une tâche : elle écrit sa consigne dans `sortie/<bac>.txt` de son bac si elle dit «
 //!   critique », dans `autre/<bac>.txt` sinon.
@@ -27,7 +27,7 @@ use std::process::{Command, Output};
 
 /// La preuve de la vague, que Kraken prête aux mains des tâches et de la correction, et celle qu'il prête au relecteur.
 const VERIFIER: &str = "git status";
-const PREUVE: &str = "kraken remarques REMARQUES.kraken";
+const PREUVE: &str = "lydite remarques REMARQUES.lydite";
 
 /// Le plan des essais : a, critique, écrit sous `sortie/` ; b, qui ne l'est pas, sous `autre/`.
 const PLAN: &str = "plan 1\nobjectif : Ecrire deux fichiers\npreuve : git status\n\n\
@@ -101,7 +101,7 @@ const FAUSSE_WINDOWS: &[&str] = &[
     r#"findstr "^" > "%TEMP%\entree.jsonl""#,
     r#"findstr /l /c:"Corrige au plus petit" "%TEMP%\entree.jsonl" > nul"#,
     "if not errorlevel 1 goto correction",
-    r#"findstr /l /c:"REMARQUES.kraken" "%TEMP%\entree.jsonl" > nul"#,
+    r#"findstr /l /c:"REMARQUES.lydite" "%TEMP%\entree.jsonl" > nul"#,
     "if not errorlevel 1 goto relecteur",
     "set dossier=autre",
     r#"findstr /l /c:"critique" "%TEMP%\entree.jsonl" > nul"#,
@@ -119,9 +119,9 @@ const FAUSSE_WINDOWS: &[&str] = &[
     r#"if exist "%ici%relecteur-1" set n=2"#,
     r#"type nul > "%ici%relecteur-%n%""#,
     r#"set PATH > "%ici%path-relecteur-%n%.txt""#,
-    r#"if exist DIFF.kraken copy /y DIFF.kraken "%ici%diff-%n%.txt" > nul"#,
-    r#"if exist "%ici%remarques-%n%.kraken" copy /y "%ici%remarques-%n%.kraken" REMARQUES.kraken > nul"#,
-    r#"kraken remarques REMARQUES.kraken > "%ici%preuve-%n%.txt" 2>&1"#,
+    r#"if exist DIFF.lydite copy /y DIFF.lydite "%ici%diff-%n%.txt" > nul"#,
+    r#"if exist "%ici%remarques-%n%.lydite" copy /y "%ici%remarques-%n%.lydite" REMARQUES.lydite > nul"#,
+    r#"lydite remarques REMARQUES.lydite > "%ici%preuve-%n%.txt" 2>&1"#,
     // La redirection d'abord : `echo 0> f` redirigerait l'entrée, et écrirait l'état d'echo sur la sortie.
     r#">"%ici%code-%n%.txt" echo %errorlevel%"#,
     ":fin",
@@ -143,14 +143,14 @@ const FAUSSE_UNIX: &[&str] = &[
     r#"cp "$TMPDIR/entree.jsonl" "$ici/correction.txt""#,
     "mkdir -p sortie",
     "echo corrige > sortie/correction.txt",
-    r#"elif grep -q 'REMARQUES\.kraken' "$TMPDIR/entree.jsonl"; then"#,
+    r#"elif grep -q 'REMARQUES\.lydite' "$TMPDIR/entree.jsonl"; then"#,
     "n=1",
     r#"if [ -f "$ici/relecteur-1" ]; then n=2; fi"#,
     r#": > "$ici/relecteur-$n""#,
     r#"printf 'PATH=%s\n' "$PATH" > "$ici/path-relecteur-$n.txt""#,
-    r#"if [ -f DIFF.kraken ]; then cp DIFF.kraken "$ici/diff-$n.txt"; fi"#,
-    r#"if [ -f "$ici/remarques-$n.kraken" ]; then cp "$ici/remarques-$n.kraken" REMARQUES.kraken; fi"#,
-    r#"kraken remarques REMARQUES.kraken > "$ici/preuve-$n.txt" 2>&1"#,
+    r#"if [ -f DIFF.lydite ]; then cp DIFF.lydite "$ici/diff-$n.txt"; fi"#,
+    r#"if [ -f "$ici/remarques-$n.lydite" ]; then cp "$ici/remarques-$n.lydite" REMARQUES.lydite; fi"#,
+    r#"lydite remarques REMARQUES.lydite > "$ici/preuve-$n.txt" 2>&1"#,
     r#"echo $? > "$ici/code-$n.txt""#,
     "else",
     "dossier=autre",
@@ -162,7 +162,7 @@ const FAUSSE_UNIX: &[&str] = &[
     "exit 0",
 ];
 
-/// Le faux srt de Windows, que `KRAKEN_SRT` nomme : il saute `--settings <fichier>`, puis joue la preuve de `sh -c
+/// Le faux srt de Windows, que `LYDITE_SRT` nomme : il saute `--settings <fichier>`, puis joue la preuve de `sh -c
 /// <preuve>` par la coquille de Windows, où `sh` peut manquer, et `true`, l'épreuve du mur, sort en 0.
 const FAUX_SRT_WINDOWS: &[&str] =
     &["@echo off", "rem Le faux srt des essais.", r#"if "%~5"=="true" exit /b 0"#, "%~5", "exit /b %errorlevel%"];
@@ -275,11 +275,11 @@ impl Essai {
         fs::create_dir(&main).unwrap();
         git(&depot, &["init", "-q"]);
         git(&depot, &["commit", "-q", "--allow-empty", "-m", "init"]);
-        let essai = Essai { dossier: racine.join("kraken"), racine, depot, main };
+        let essai = Essai { dossier: racine.join("lydite"), racine, depot, main };
         essai.poser_la_fausse_claude();
         essai.accepter_le_profil(relecteur);
         essai.poser_les_reponses();
-        fs::write(essai.racine.join("plan.kraken"), PLAN).unwrap();
+        fs::write(essai.racine.join("plan.lydite"), PLAN).unwrap();
         essai
     }
 
@@ -301,7 +301,7 @@ impl Essai {
         }
     }
 
-    /// Le faux srt de l'essai, que `kraken` nomme en `KRAKEN_SRT` : sous le mur exigé, Kraken rejoue toute preuve par
+    /// Le faux srt de l'essai, que `kraken` nomme en `LYDITE_SRT` : sous le mur exigé, Kraken rejoue toute preuve par
     /// lui.
     fn faux_srt(&self) -> PathBuf {
         self.racine.join(if cfg!(windows) { "faux-srt.cmd" } else { "faux-srt.sh" })
@@ -367,13 +367,13 @@ impl Essai {
     /// de Kraken, un `claude` qui n'existe pas pour le profil intégré, le faux srt, et les leurres du dossier personnel
     /// et de `CLAUDE_CONFIG_DIR`, jamais créés.
     fn kraken(&self) -> Command {
-        let mut commande = Command::new(env!("CARGO_BIN_EXE_kraken"));
+        let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
         let personnel = self.racine.join("personnel");
         commande
             .current_dir(&self.racine)
-            .env("KRAKEN_DOSSIER", &self.dossier)
-            .env("KRAKEN_CLAUDE", self.racine.join("claude-absent"))
-            .env("KRAKEN_SRT", self.faux_srt())
+            .env("LYDITE_DOSSIER", &self.dossier)
+            .env("LYDITE_CLAUDE", self.racine.join("claude-absent"))
+            .env("LYDITE_SRT", self.faux_srt())
             .env("USERPROFILE", &personnel)
             .env("HOME", personnel)
             .env("CLAUDE_CONFIG_DIR", self.racine.join("config"));
@@ -382,13 +382,13 @@ impl Essai {
 
     /// Les remarques que la fausse claude pose à sa tentative `n` de relecteur.
     fn remarques(&self, n: usize, texte: &str) {
-        fs::write(self.main.join(format!("remarques-{n}.kraken")), texte).unwrap();
+        fs::write(self.main.join(format!("remarques-{n}.lydite")), texte).unwrap();
     }
 
-    /// `kraken lancer essai --plan plan.kraken --depot <depot>`.
+    /// `lydite lancer essai --plan plan.lydite --depot <depot>`.
     fn lancer(&self) -> Output {
         let mut commande = self.kraken();
-        commande.args(["lancer", "essai", "--plan"]).arg(self.racine.join("plan.kraken")).arg("--depot");
+        commande.args(["lancer", "essai", "--plan"]).arg(self.racine.join("plan.lydite")).arg("--depot");
         commande.arg(&self.depot).output().unwrap()
     }
 
@@ -403,16 +403,16 @@ impl Essai {
         String::from_utf8_lossy(&octets).replace("\r\n", "\n")
     }
 
-    /// `kraken etat`.
+    /// `lydite etat`.
     fn etat(&self) -> Output {
         self.kraken().arg("etat").output().unwrap()
     }
 }
 
-/// Un fichier de remarques sur le disque, dans un dossier neuf, que `kraken remarques` lit.
+/// Un fichier de remarques sur le disque, dans un dossier neuf, que `lydite remarques` lit.
 fn remarques_sur_disque(nom: &str, octets: &[u8]) -> (PathBuf, PathBuf) {
     let dir = neuf(nom);
-    let fichier = dir.join("REMARQUES.kraken");
+    let fichier = dir.join("REMARQUES.lydite");
     fs::write(&fichier, octets).unwrap();
     (dir, fichier)
 }
@@ -421,7 +421,7 @@ fn remarques_sur_disque(nom: &str, octets: &[u8]) -> (PathBuf, PathBuf) {
 fn kraken_remarques_sort_en_0_sur_un_fichier_juste_et_ne_fait_rien_d_autre() {
     for (nom, octets) in [("juste", remarques_justes().into_bytes()), ("vide", b"remarques 1\n".to_vec())] {
         let (dir, fichier) = remarques_sur_disque(&format!("remarques-{nom}"), &octets);
-        let sortie = Command::new(env!("CARGO_BIN_EXE_kraken")).arg("remarques").arg(&fichier).output().unwrap();
+        let sortie = Command::new(env!("CARGO_BIN_EXE_lydite")).arg("remarques").arg(&fichier).output().unwrap();
         assert_eq!(sortie.status.code(), Some(0), "{nom} : {}", dit(&sortie));
         assert!(sortie.stdout.is_empty() && sortie.stderr.is_empty(), "rien d'autre qu'un code : {}", dit(&sortie));
         // Il lit, il n'écrit pas : le dossier ne porte que le fichier.
@@ -431,9 +431,9 @@ fn kraken_remarques_sort_en_0_sur_un_fichier_juste_et_ne_fait_rien_d_autre() {
     }
     // Un chemin relatif part du dossier courant.
     let (dir, _) = remarques_sur_disque("remarques-relatif", b"remarques 1\n");
-    let sortie = Command::new(env!("CARGO_BIN_EXE_kraken"))
+    let sortie = Command::new(env!("CARGO_BIN_EXE_lydite"))
         .current_dir(&dir)
-        .args(["remarques", "REMARQUES.kraken"])
+        .args(["remarques", "REMARQUES.lydite"])
         .output()
         .unwrap();
     assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
@@ -456,13 +456,13 @@ fn kraken_remarques_sort_en_2_sur_un_refus_de_quatre_lignes_sans_panique() {
     ];
     for (nom, octets, code) in cas {
         let (dir, fichier) = remarques_sur_disque(&format!("refus-{nom}"), &octets);
-        let sortie = Command::new(env!("CARGO_BIN_EXE_kraken")).arg("remarques").arg(&fichier).output().unwrap();
+        let sortie = Command::new(env!("CARGO_BIN_EXE_lydite")).arg("remarques").arg(&fichier).output().unwrap();
         let erreur = String::from_utf8_lossy(&sortie.stderr);
         assert_eq!(sortie.status.code(), Some(2), "{nom} : {}", dit(&sortie));
         assert!(sortie.stdout.is_empty() && !erreur.contains("panicked"), "{nom} : {}", dit(&sortie));
         let lignes: Vec<&str> = erreur.lines().collect();
         assert_eq!(lignes.len(), 4, "{nom} : {erreur}");
-        assert!(lignes[0].starts_with(&format!("kraken : {code}")), "{nom} : {erreur}");
+        assert!(lignes[0].starts_with(&format!("lydite : {code}")), "{nom} : {erreur}");
         for (ligne, debut) in lignes[1..].iter().zip(["  règle : ", "  preuve : ", "  correction : "]) {
             assert!(ligne.starts_with(debut) && ligne.len() > debut.len(), "{nom} : {erreur}");
         }
@@ -470,11 +470,11 @@ fn kraken_remarques_sort_en_2_sur_un_refus_de_quatre_lignes_sans_panique() {
     }
     // Un fichier qu'on ne lit pas, absent ou dossier : le refus 6006, qui nomme son chemin, et sort en 2 aussi.
     let dir = neuf("refus-absent");
-    for chemin in [dir.join("absent.kraken"), dir.clone()] {
-        let sortie = Command::new(env!("CARGO_BIN_EXE_kraken")).arg("remarques").arg(&chemin).output().unwrap();
+    for chemin in [dir.join("absent.lydite"), dir.clone()] {
+        let sortie = Command::new(env!("CARGO_BIN_EXE_lydite")).arg("remarques").arg(&chemin).output().unwrap();
         let erreur = String::from_utf8_lossy(&sortie.stderr);
         assert_eq!(sortie.status.code(), Some(2), "{}", dit(&sortie));
-        assert!(erreur.starts_with("kraken : 6006 lancer.entree_sortie\n"), "{erreur}");
+        assert!(erreur.starts_with("lydite : 6006 lancer.entree_sortie\n"), "{erreur}");
         assert!(erreur.contains(&format!("lecture des remarques {}", chemin.display())), "{erreur}");
     }
     let _ = fs::remove_dir_all(&dir);
@@ -489,17 +489,17 @@ fn kraken_remarques_veut_un_fichier_et_un_seul() {
         (vec![fichier.as_os_str(), "autre".as_ref()], "« autre » le suit"),
     ];
     for (args, vu) in cas {
-        let sortie = Command::new(env!("CARGO_BIN_EXE_kraken")).arg("remarques").args(&args).output().unwrap();
+        let sortie = Command::new(env!("CARGO_BIN_EXE_lydite")).arg("remarques").args(&args).output().unwrap();
         let erreur = String::from_utf8_lossy(&sortie.stderr);
         assert_eq!(sortie.status.code(), Some(2), "{args:?} : {}", dit(&sortie));
-        assert!(erreur.starts_with("kraken : 1006 contrat.commande_mal_formee\n"), "{erreur}");
-        assert!(erreur.contains(vu) && erreur.contains("kraken remarques <fichier>"), "{erreur}");
+        assert!(erreur.starts_with("lydite : 1006 contrat.commande_mal_formee\n"), "{erreur}");
+        assert!(erreur.contains(vu) && erreur.contains("lydite remarques <fichier>"), "{erreur}");
     }
     // Le mot est dans la liste fermée que le refus 1005 donne.
-    let sortie = Command::new(env!("CARGO_BIN_EXE_kraken")).arg("Remarques").output().unwrap();
+    let sortie = Command::new(env!("CARGO_BIN_EXE_lydite")).arg("Remarques").output().unwrap();
     let erreur = String::from_utf8_lossy(&sortie.stderr);
-    assert!(erreur.starts_with("kraken : 1005 contrat.commande_inconnue\n"), "{erreur}");
-    assert!(erreur.contains("kraken remarques <fichier>"), "{erreur}");
+    assert!(erreur.starts_with("lydite : 1005 contrat.commande_inconnue\n"), "{erreur}");
+    assert!(erreur.contains("lydite remarques <fichier>"), "{erreur}");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -546,14 +546,14 @@ fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     // défaut), `relance` à la correction.
     let modeles = (modeles_de(&fil, v), modeles_de(&fil, r), modeles_de(&fil, c));
     assert_eq!(modeles, ("haiku,haiku".to_string(), "claude-opus-5-5".to_string(), "sonnet".to_string()));
-    // Le relecteur a joué lui-même `kraken remarques REMARQUES.kraken`, que son PATH trouve : sans rien dire, code 0.
+    // Le relecteur a joué lui-même `lydite remarques REMARQUES.lydite`, que son PATH trouve : sans rien dire, code 0.
     assert_eq!((essai.garde("code-1.txt").trim(), essai.garde("preuve-1.txt")), ("0", String::new()));
     let separateur = if cfg!(windows) { ';' } else { ':' };
     let (tete, _) = path_garde(&essai.main.join("path-relecteur-1.txt"))
         .split_once(separateur)
         .map(|(t, r)| (t.to_string(), r.to_string()))
         .expect("un PATH de plusieurs dossiers");
-    let exe = Path::new(env!("CARGO_BIN_EXE_kraken")).parent().unwrap();
+    let exe = Path::new(env!("CARGO_BIN_EXE_lydite")).parent().unwrap();
     assert_eq!(fs::canonicalize(tete).unwrap(), fs::canonicalize(exe).unwrap());
     // Son bac portait le diff du seul travail critique, et la correction a reçu la seule remarque bloquante.
     let diff = essai.garde("diff-1.txt");
@@ -564,13 +564,13 @@ fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     assert!(!correction.contains("Un nom peu clair"), "{correction}");
     // La branche de la vague a avancé à la tête de la correction, qui porte son fichier ; le bac du relecteur est
     // retiré.
-    let branche = format!("kraken/vague-{v}");
+    let branche = format!("lydite/vague-{v}");
     assert_eq!(git(&essai.depot, &["rev-parse", &branche]), t2);
     let arbre = git(&essai.depot, &["ls-tree", "-r", "--name-only", &branche]);
     assert_eq!(arbre, format!("autre/main-{v}-2.txt\nsortie/correction.txt\nsortie/main-{v}-1.txt"));
     assert!(!essai.dossier.join("bacs").join(format!("main-{r}-1")).exists(), "le bac du relecteur est retiré");
-    assert_eq!(git(&essai.depot, &["branch", "--list", &format!("kraken/main-{r}-1")]), "");
-    // `kraken etat` montre la chaîne entière et sort en 0.
+    assert_eq!(git(&essai.depot, &["branch", "--list", &format!("lydite/main-{r}-1")]), "");
+    // `lydite etat` montre la chaîne entière et sort en 0.
     let etat = essai.etat();
     let montre = String::from_utf8_lossy(&etat.stdout);
     assert_eq!(etat.status.code(), Some(0), "{montre}");
@@ -587,12 +587,12 @@ fn un_relecteur_sans_fichier_classe_la_relecture_et_rien_ne_se_pousse() {
     let sortie = essai.lancer();
     assert_eq!(sortie.status.code(), Some(1), "{}", dit(&sortie));
     let erreur = String::from_utf8_lossy(&sortie.stderr);
-    assert!(erreur.contains("kraken : 7016 vague.relecture_manquee\n"), "{erreur}");
+    assert!(erreur.contains("lydite : 7016 vague.relecture_manquee\n"), "{erreur}");
     assert!(erreur.contains("est classée : main-"), "{erreur}");
     assert!(erreur.contains("7014 vague.bac_touche"), "{erreur}");
     assert!(!erreur.contains("relecture prise"), "{erreur}");
     assert_eq!(essai.garde("code-1.txt").trim(), "2");
-    assert!(essai.garde("preuve-1.txt").starts_with("kraken : 6006 lancer.entree_sortie\n"));
+    assert!(essai.garde("preuve-1.txt").starts_with("lydite : 6006 lancer.entree_sortie\n"));
     // Ni relecture ni correction au fil, mais le refus 7016 de la forge, noté sur la vague relue.
     let fil = essai.fil();
     let ouvertes = vagues(&fil);
@@ -602,8 +602,8 @@ fn un_relecteur_sans_fichier_classe_la_relecture_et_rien_ne_se_pousse() {
     let refus = lignes_de(&fil, "forge.refus");
     let [refus] = &refus[..] else { panic!("{fil}") };
     assert!(refus.contains(&format!(r#""vague":"{v}","code":7016"#)), "{refus}");
-    // La branche de la vague est restée à sa tête, et `kraken etat` sort en 1.
-    let tete = git(&essai.depot, &["rev-parse", &format!("kraken/vague-{v}")]);
+    // La branche de la vague est restée à sa tête, et `lydite etat` sort en 1.
+    let tete = git(&essai.depot, &["rev-parse", &format!("lydite/vague-{v}")]);
     let fusions = lignes_de(&fil, "vague.fusion");
     assert!(fusions.last().unwrap().contains(&format!(r#""sha":"{tete}""#)), "{fil}");
     assert_eq!(essai.etat().status.code(), Some(1));

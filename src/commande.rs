@@ -2,11 +2,11 @@
 //! chaque main est prise et sa prise constatée (Kraken a rejoué sa vérification), ou si chaque tâche d'une vague à plan
 //! est assemblée ; 1 sinon : une prise déclarée (sans vérification, la main seule a dit `PREUVE: vert`) donne 1, comme
 //! une main classée, et un refus de la forge pendant la vague aussi. Il vaut 2 pour un refus d'avant la vague, et si
-//! le fil ne se lit pas. `kraken etat` y ajoute ses règles : découpage, relecture et CI verte, et le code 0 quand il
+//! le fil ne se lit pas. `lydite etat` y ajoute ses règles : découpage, relecture et CI verte, et le code 0 quand il
 //! n'y a aucune vague, rien n'étant alors affirmé.
 //!
 //! Un déclaré ne s'affiche jamais comme un fait : il porte toujours son mot (« pris, déclaré : main-… » dans `lancer`,
-//! « prise déclarée, non prouvée » et « mur exigé (déclaré) » dans `kraken etat`), et ne donne jamais le code 0.
+//! « prise déclarée, non prouvée » et « mur exigé (déclaré) » dans `lydite etat`), et ne donne jamais le code 0.
 //!
 //! Toute sortie en 2 est un refus (`erreur.rs`) : quatre lignes sur stderr, le code et son nom, la règle, la preuve et
 //! la correction. La ligne de commande se lit par `args_os` : aucun argument ne fait paniquer Kraken.
@@ -90,14 +90,14 @@ fn lire_plan(fichier: &Path, mode: plan::Mode<'_>) -> Result<(Plan, Vec<plan::At
     let lu = std::fs::File::open(fichier).and_then(|ouvert| ouvert.take(borne).read_to_end(&mut octets));
     lu.map_err(|e| {
         let preuve = format!("lecture du plan {} : {e}", fichier.display());
-        let correction = "Donne à --plan, ou à kraken plan, le chemin d'un fichier que Kraken peut lire (un chemin \
+        let correction = "Donne à --plan, ou à lydite plan, le chemin d'un fichier que Lydite peut lire (un chemin \
                           relatif part du dossier courant), puis relance.";
         Refus::new(Code::EntreeSortie, preuve, correction)
     })?;
     Plan::lire_en(&octets, mode)
 }
 
-/// `kraken plan [--decoupe] <fichier>` : lit le plan et écrit sur stdout chaque dépendance que Kraken ajoute. Le mode
+/// `lydite plan [--decoupe] <fichier>` : lit le plan et écrit sur stdout chaque dépendance que Kraken ajoute. Le mode
 /// découpé ne juge ni l'en-tête ni la casse, que seul le rejeu juge.
 fn plan_cmd(fichier: &Path, decoupe: bool) -> Result<ExitCode, Refus> {
     let mode = if decoupe { plan::Mode::Decoupe(None) } else { plan::Mode::Main };
@@ -107,19 +107,19 @@ fn plan_cmd(fichier: &Path, decoupe: bool) -> Result<ExitCode, Refus> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// `kraken remarques <fichier>` : lit le fichier comme Kraken lira celui du relecteur
+/// `lydite remarques <fichier>` : lit le fichier comme Kraken lira celui du relecteur
 /// (`remarques::lire_remarques`), et ne fait rien d'autre : rien sur stdout.
 fn remarques_cmd(fichier: &Path) -> Result<ExitCode, Refus> {
     let octets = relecture::lire_borne(fichier).map_err(|e| {
         let preuve = format!("lecture des remarques {} : {e}", fichier.display());
-        let correction = "Donne à kraken remarques le chemin d'un fichier que Kraken peut lire (un chemin relatif \
+        let correction = "Donne à lydite remarques le chemin d'un fichier que Lydite peut lire (un chemin relatif \
                           part du dossier courant), puis relance.";
         Refus::new(Code::EntreeSortie, preuve, correction)
     })?;
     remarques::lire_remarques(&octets).map(|_| ExitCode::SUCCESS)
 }
 
-/// `kraken accepter <nom>` : lit et valide le profil du dossier de Kraken, écrit l'empreinte qu'il accepte, puis dit à
+/// `lydite accepter <nom>` : lit et valide le profil du dossier de Kraken, écrit l'empreinte qu'il accepte, puis dit à
 /// l'humain ce qu'il vient d'accepter : le texte du profil et son empreinte.
 fn accepter_cmd(nom: &str) -> Result<ExitCode, Refus> {
     let (texte, empreinte) = dossier::accepter(nom, &dossier::dossier()?)?;

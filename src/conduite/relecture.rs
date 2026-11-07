@@ -1,6 +1,6 @@
 //! La relecture : après la vague d'un plan, une main, le relecteur, relit le travail de ses tâches critiques
 //! (`critique : oui`) et en dit des remarques, que Kraken lit lui-même ; des remarques bloquantes valent une seule
-//! correction. `kraken remarques <fichier>` lit un fichier de remarques comme Kraken le lira. Dans l'ordre, une fois la
+//! correction. `lydite remarques <fichier>` lit un fichier de remarques comme Kraken le lira. Dans l'ordre, une fois la
 //! vague finie, avant la forge ([`relire`]) :
 //!
 //! 1. sans tâche critique assemblée, il n'y a pas de relecture ;
@@ -49,14 +49,14 @@ use crate::conduite::decoupage::retirer_le_bac;
 use crate::conduite::lancer::{Liens, Menee, en_erreur, lancer_avec};
 
 /// Le fichier du relecteur, à la racine de son bac.
-pub(crate) const REMARQUES: &str = "REMARQUES.kraken";
+pub(crate) const REMARQUES: &str = "REMARQUES.lydite";
 
 /// Le diff que Kraken écrit dans le bac du relecteur avant qu'il parte : le travail à relire.
-pub(crate) const DIFF: &str = "DIFF.kraken";
+pub(crate) const DIFF: &str = "DIFF.lydite";
 
-/// La preuve que Kraken prête au relecteur, seule et telle quelle : `kraken remarques` lit son fichier comme Kraken le
+/// La preuve que Kraken prête au relecteur, seule et telle quelle : `lydite remarques` lit son fichier comme Kraken le
 /// lira. Kraken ne la rejoue pas : son verdict est celui de [`juger`].
-pub(crate) const PREUVE: &str = "kraken remarques REMARQUES.kraken";
+pub(crate) const PREUVE: &str = "lydite remarques REMARQUES.lydite";
 
 /// La première ligne de l'objectif de la correction ; les remarques bloquantes la suivent.
 const CORRIGER: &str = "Corrige au plus petit les remarques bloquantes de la relecture, et rien d'autre";
@@ -106,7 +106,7 @@ fn consigne(objectif: &str, critiques: &[&Tache]) -> String {
         }
     }
     format!(
-        "Relis le travail des tâches critiques d'une vague de Kraken, sans rien construire ni corriger toi-même : \
+        "Relis le travail des tâches critiques d'une vague de Lydite, sans rien construire ni corriger toi-même : \
          d'autres mains corrigeront ce que tu juges bloquant.\n\n\
          Objectif de la vague : {objectif}\n\n\
          Les tâches critiques, dont le travail est assemblé :\n\n\
@@ -125,8 +125,8 @@ fn consigne(objectif: &str, critiques: &[&Tache]) -> String {
          `bloquante` vaut `oui` ou `non`. Le texte dit le constat, puis la correction, en lignes indentées. Sans \
          remarque, le fichier ne porte que `remarques 1`.\n\n\
          Quand tu as fini, joue toi-même dans ton dossier, seule et telle qu'elle est écrite, sans rien y ajouter : \
-         {PREUVE}. Elle lit ton fichier comme Kraken le lira, et dit ce qui ne va pas : corrige-le jusqu'à ce qu'elle \
-         passe. Kraken relira ensuite {REMARQUES} lui-même. La dernière ligne de ta réponse est exactement PREUVE: \
+         {PREUVE}. Elle lit ton fichier comme Lydite le lira, et dit ce qui ne va pas : corrige-le jusqu'à ce qu'elle \
+         passe. Lydite relira ensuite {REMARQUES} lui-même. La dernière ligne de ta réponse est exactement PREUVE: \
          vert si elle passe, sinon PREUVE: rouge."
     )
 }
@@ -185,7 +185,7 @@ fn borner(diff: String, total: u64) -> String {
         return diff;
     }
     let mention = |gardes: u64| {
-        format!("[diff coupé par Kraken : {gardes} octets gardés sur {total}, le reste n'est pas montré]\n")
+        format!("[diff coupé par Lydite : {gardes} octets gardés sur {total}, le reste n'est pas montré]\n")
     };
     // La mention se pèse au plus long, celle de `total` octets gardés, et un saut de ligne de plus s'il faut clore la
     // ligne.

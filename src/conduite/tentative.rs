@@ -36,10 +36,10 @@ fn consigne(objectif: &str, verifier: Option<&str>, precedente: Option<&str>, pr
              qu'il est écrit, dans l'ordre (les morceaux sont ceux que joint ` && ` ; une commande sans ` && ` en a \
              un seul), sans rien y ajouter avant ni après, ni `;`, ni `|`, ni redirection : c'est seul ainsi qu'un \
              morceau t'est permis. Reprends ton travail jusqu'à ce qu'elle \
-             réussisse : Kraken la rejouera ensuite, et ton travail est pris si elle réussit."
+             réussisse : Lydite la rejouera ensuite, et ton travail est pris si elle réussit."
         ),
         (Some(commande), false) => format!(
-            "\n\nQuand tu auras fini, Kraken jouera dans ton dossier : {commande}. Ton travail est pris si elle \
+            "\n\nQuand tu auras fini, Lydite jouera dans ton dossier : {commande}. Ton travail est pris si elle \
              réussit."
         ),
         (None, _) => PREUVE.into(),

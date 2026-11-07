@@ -5,9 +5,9 @@ an objective), the **command that proves it done**, and a repository. Lydite spl
 Claude Code worker per task behind its sandbox wall, **replays your proof itself** on every result, keeps only what
 passes, and opens a pull request that states the proof result and the review outcome. Lydite never merges: that stays a human gesture.
 
-Lydite is the public name. The source code and its environment variables still use the internal name Kraken
-(`KRAKEN_DOSSIER`, `KRAKEN_SRT`, ...); the Rust package keeps it. The plugin's own name lives in `nom.py` and
-`plugin.yaml`, and `tests/test_manifeste.py` fails if the two disagree.
+The program, its environment variables (`LYDITE_DOSSIER`, `LYDITE_SRT`, ...) and its state folder are all named
+Lydite. The plugin's own name lives in `nom.py` and `plugin.yaml`, and `tests/test_manifeste.py` fails if the two
+disagree.
 
 ## What it adds to Hermes
 
@@ -83,7 +83,7 @@ hermes config set tools.tool_search.enabled off
 - **Secrets.** Only through Hermes: `get_secret("LYDITE_CLE_FOURNISSEUR")`, passed in the environment of the
   Lydite process under the variable named by `cle_nom`, and in no log, argument, state or tool result. The plugin
   never reads `.env`, `auth.json` or any key file.
-- **Environment.** The Lydite process gets a closed list of variables (`PATH`, `HOME`, `LANG`, the `KRAKEN_*` paths of
+- **Environment.** The Lydite process gets a closed list of variables (`PATH`, `HOME`, `LANG`, the `LYDITE_*` paths of
   the binary, `GH_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, ...), not the rest of Hermes' environment.
 - **Approvals.** A `pre_tool_call` hook sends every `lydite_lancer` call to Hermes' human approval, showing the exact
   repository, work, proof and profile. A request that would be refused anyway is answered without asking. "Always"

@@ -36,7 +36,7 @@ class AvecOutils(AvecDossier):
         (self.depot / ".git").mkdir(parents=True)
         self.environ = {
             "PATH": "/usr/bin:/bin", "HOME": str(self.dossier), "LANG": "C.UTF-8",
-            "KRAKEN_DOSSIER": str(self.dossier / "dossier-lydite"),
+            "LYDITE_DOSSIER": str(self.dossier / "dossier-lydite"),
             "OPENAI_API_KEY": "sk-une-autre-cle", "HERMES_YOLO_MODE": "1",
         }
         self.reglages = {}
@@ -249,8 +249,8 @@ class Commande(AvecOutils):
         demande = outils._demande(self.demande_de_plan(profil="nautile"))
         demande["plan_copie"] = "/donnees/20261107.plan"
         self.assertEqual(
-            outils._commande("/k/kraken", demande),
-            ["/k/kraken", "lancer", "nautile", "--plan", "/donnees/20261107.plan",
+            outils._commande("/k/lydite", demande),
+            ["/k/lydite", "lancer", "nautile", "--plan", "/donnees/20261107.plan",
              "--depot", str(self.depot), "--pr", "main"],
         )
 
@@ -306,18 +306,18 @@ class Lancement(AvecOutils):
         self.faux_lydite("sleep 30")
         self.lancer()
         env = self.lu("env")
-        self.assertIn("KRAKEN_DOSSIER=", env)
+        self.assertIn("LYDITE_DOSSIER=", env)
         self.assertIn("PATH=/usr/bin:/bin", env)
         self.assertNotIn("OPENAI_API_KEY", env)
         self.assertNotIn("HERMES_YOLO_MODE", env)
 
     def test_la_cle_du_fournisseur_va_au_processus_et_nulle_part_ailleurs(self):
         self.faux_lydite("echo debut; sleep 30")
-        outils = self.outils(cle_nom="KRAKEN_CLE_DEEPSEEK")
+        outils = self.outils(cle_nom="CLE_DEEPSEEK")
         with faux_secrets():
             rendu = self.lancer(outils)
         self.assertTrue(rendu["lance"], rendu)
-        self.assertIn(f"KRAKEN_CLE_DEEPSEEK={SECRET}", self.lu("env"))
+        self.assertIn(f"CLE_DEEPSEEK={SECRET}", self.lu("env"))
         for endroit in (json.dumps(rendu), json.dumps(self.ctx.state._valeurs), self.lu("argv")):
             self.assertNotIn(SECRET, endroit)
         with open(rendu["journal"], encoding="utf-8") as journal:
@@ -332,7 +332,7 @@ class Lancement(AvecOutils):
     def test_une_cle_nommee_mais_absente_est_un_refus_clair(self):
         self.faux_lydite("sleep 30")
         with faux_secrets(valeur=None):
-            rendu = self.lancer(self.outils(cle_nom="KRAKEN_CLE_DEEPSEEK"))
+            rendu = self.lancer(self.outils(cle_nom="CLE_DEEPSEEK"))
         self.assertIn("key is not set", rendu["erreur"])
 
     def test_un_nom_de_cle_reserve_ou_mal_forme_est_refuse(self):
@@ -468,7 +468,7 @@ class Etat(AvecOutils):
     def test_etat_ne_donne_pas_la_cle_a_lydite(self):
         self.faux_lydite(suite="", texte_etat="aucune vague")
         with faux_secrets():
-            rendu = json.loads(self.outils(cle_nom="KRAKEN_CLE_DEEPSEEK").etat({}))
+            rendu = json.loads(self.outils(cle_nom="CLE_DEEPSEEK").etat({}))
         self.assertNotIn(SECRET, json.dumps(rendu))
 
     def test_la_memoire_ne_garde_que_les_derniers_lancements(self):
