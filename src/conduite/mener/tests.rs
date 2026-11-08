@@ -109,6 +109,13 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
 }
 
 #[test]
+fn la_relance_de_la_ci_porte_son_drapeau_et_aucun_autre_lien() {
+    let liens = liens_de_la_relance();
+    assert!(liens.relance_ci);
+    assert!(liens.decoupage.is_none() && liens.issue.is_none() && liens.corrige.is_none());
+}
+
+#[test]
 fn lancer_ne_rend_0_que_si_chaque_prise_est_constatee() {
     let pris = |id: &str, prouve| -> (String, Result<Pris, String>) {
         (id.into(), Ok(Pris { sortie: "fait".into(), prouve }))
@@ -119,6 +126,8 @@ fn lancer_ne_rend_0_que_si_chaque_prise_est_constatee() {
     assert!(!toutes_constatees(&[pris("main-v-1", true), ("main-v-2".into(), Err("classée".into()))]));
 }
 
+// Le guetteur ferme le fil par ses droits Unix (`0o444`) : le test n'a de sens que là, comme ses voisins.
+#[cfg(unix)]
 #[test]
 fn une_vague_ouverte_puis_refusee_finit_par_un_sceau() {
     use std::os::unix::fs::PermissionsExt;

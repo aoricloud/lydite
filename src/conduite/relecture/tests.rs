@@ -796,6 +796,12 @@ fn une_reponse_qui_dit_rien_de_bloquant_ne_vaut_pas_moins_que_la_bloquante_du_fi
     assert!(fil.contains(&Evenement::Correction { vague: c.clone(), corrige: v.clone() }));
     let consigne = essai.garde("consigne-correction.txt").unwrap();
     assert!(consigne.contains("Le test ne peut pas echouer."), "{consigne}");
+    // La réponse gardée du relecteur porte bien la phrase qui dit qu'il n'y a rien de bloquant.
+    let fins = fins_de(&fil, r);
+    assert!(
+        fins.iter().any(|(_, texte)| texte.contains("There is nothing blocking in my review.")),
+        "la réponse du relecteur : {fins:?}"
+    );
     let _ = fs::remove_dir_all(&essai.racine);
 }
 

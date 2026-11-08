@@ -233,7 +233,7 @@ codes! {
         "Le découpeur et le relecteur n'écrivent que leur fichier, ordinaire et que le dépôt n'ignore pas, à \
          la racine de leur bac ; rien d'autre n'y change.";
     RemarquesIllisibles = 7015, "vague.remarques_illisibles",
-        "Le fichier du relecteur suit le format `remarques 1` ; sinon sa tentative est rouge.";
+        "Le fichier du relecteur suit le format `remarques 2` ; sinon sa tentative est rouge.";
     RelectureManquee = 7016, "vague.relecture_manquee",
         "Le travail d'une tâche critique ne se pousse qu'une fois relu ; une relecture classée, et rien ne se pousse.";
     BloquantesRestantes = 7017, "vague.bloquantes_restantes",

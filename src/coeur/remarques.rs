@@ -133,6 +133,7 @@ struct Ligne<'a> {
 
 /// Lit un fichier de remarques dans ses octets : ses remarques dans l'ordre, ou le refus 7015 de la première faute
 /// (voir l'en-tête du module pour la forme). Aucune entrée ne fait paniquer la lecture.
+#[cfg(test)]
 pub(crate) fn lire_remarques(octets: &[u8]) -> Result<Vec<Remarque>, Refus> {
     lire_fichier(octets).map(|fichier| fichier.remarques)
 }
