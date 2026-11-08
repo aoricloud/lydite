@@ -39,7 +39,7 @@ use crate::coeur::plan::{Plan, Tache};
 use crate::coeur::profil::{Prix, Profil};
 use crate::coeur::protocole::{Constat, Jetons, Usage, UsageModele};
 use crate::conduite::assemblage::{self, Assemblage};
-use crate::conduite::tentative::{Juge, Pris, impossible_declaree, tenter};
+use crate::conduite::tentative::{Echec, IMPOSSIBLE, Juge, Pris, tenter};
 
 /// Ce que devient chaque tâche d'une vague, dans l'ordre du plan : l'id de sa main, `main-<vague>-<k>`, qui nomme aussi
 /// son bac, et son issue.
@@ -84,7 +84,7 @@ pub(crate) struct Menee {
 /// Ce qu'une tentative rend, tel que `tenter` le rend : le constat de la main (`None` pour une main brute, qui ne
 /// déclare rien), la fin de la sortie de sa preuve (`None` si elle n'a pas tourné), et son verdict. Seule la vague
 /// note.
-type Rendu = (Option<Constat>, Option<String>, Result<Pris, String>);
+type Rendu = (Option<Constat>, Option<String>, Result<Pris, Echec>);
 
 /// Les mains qui tournent en même temps, au plus, copies de `--n` comprises ; les autres attendent leur tour, dans
 /// l'ordre du plan. Une relance garde la place de la tentative qu'elle suit : elle part quand le message de celle-ci
@@ -250,7 +250,7 @@ fn en_message(main: impl FnOnce() -> Rendu) -> Rendu {
             .map(|quoi| (*quoi).to_string())
             .or_else(|| panique.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "sans message".into());
-        (None, None, Err(format!("la main a paniqué : {quoi}")))
+        (None, None, Err(Echec::Erreur(format!("la main a paniqué : {quoi}"))))
     })
 }
 
@@ -517,8 +517,10 @@ impl<'a> Vague<'a> {
                     &journal,
                     juge,
                 );
-                let verdict = verdict.and_then(|pris| dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris));
-                let verdict = verdict.and_then(|pris| textes_exacts(&bac, tache, pris));
+                let verdict = verdict.and_then(|pris| {
+                    dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris).map_err(Echec::Erreur)
+                });
+                let verdict = verdict.and_then(|pris| textes_exacts(&bac, tache, pris).map_err(Echec::Erreur));
                 (constat, verif, verdict)
             });
             // La vague lit le canal jusqu'au dernier message qu'elle attend : celui-ci ne se perd pas.
@@ -539,10 +541,8 @@ impl<'a> Vague<'a> {
             Ok(Pris { sortie, prouve: true }) => (Couleur::Vert, Foi::Constate, sortie.clone()),
             Ok(Pris { sortie, prouve: false }) => (Couleur::Vert, Foi::Declare, sortie.clone()),
             // La raison d'une main qui déclare l'impossible : rouge, et déclarée, car Kraken n'a rien vu.
-            Err(erreur) => match impossible_declaree(erreur) {
-                Some(raison) => (Couleur::Rouge, Foi::Declare, raison.to_string()),
-                None => (Couleur::Rouge, Foi::Constate, erreur.clone()),
-            },
+            Err(Echec::Impossible(raison)) => (Couleur::Rouge, Foi::Declare, raison.clone()),
+            Err(Echec::Erreur(erreur)) => (Couleur::Rouge, Foi::Constate, erreur.clone()),
         };
         let vague = self.id.clone();
         // Le jeton : seul se prend un résultat qui porte la tentative du bail ouvert de sa tâche. Un résultat périmé
@@ -587,13 +587,14 @@ impl<'a> Vague<'a> {
         match verdict {
             // Impossible, déclarée : classée sans relance (l'erreur en contexte la pousserait à plier), rien ne
             // s'assemble.
-            Err(erreur) if impossible_declaree(&erreur).is_some() => {
+            Err(Echec::Impossible(raison)) => {
                 let impossible = Evenement::Verdict { vague, main: k, verdict: Verdict::Impossible, foi: Foi::Declare };
+                let erreur = format!("{IMPOSSIBLE}{raison}");
                 let issue = if self.noter(&impossible) { erreur } else { self.hors_du_fil(&erreur) };
                 self.taches[k - 1] = Etat::Finie(Err(issue));
             }
-            Err(erreur) if tentative == 1 => self.relancer(s, envoi, k, bac, erreur),
-            Err(erreur) => {
+            Err(Echec::Erreur(erreur)) if tentative == 1 => self.relancer(s, envoi, k, bac, erreur),
+            Err(Echec::Erreur(erreur)) => {
                 let classee = Evenement::Verdict { vague, main: k, verdict: Verdict::Classee, foi: Foi::Constate };
                 let issue = if self.noter(&classee) { erreur } else { self.hors_du_fil(&erreur) };
                 self.taches[k - 1] = Etat::Finie(Err(issue));

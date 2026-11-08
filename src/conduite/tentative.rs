@@ -28,13 +28,17 @@ const PERIMETRE: &str = "Change only the files of your task; the other tasks do 
 /// La phrase fixe qui suit la ligne des fichiers : le gel est de Lydite, et le réglage de la main refuse `git commit`.
 const COMMIT: &str = "Lydite commits your work itself: do not run git commit.";
 
-/// Le début de l'erreur d'une main qui a déclaré la tâche impossible : Kraken l'écrit lui-même en tête, et la raison
-/// de la main suit. La vague le reconnaît à ce début ([`impossible_declaree`]) et ne relance pas.
-const IMPOSSIBLE: &str = "impossible (déclarée) : ";
+/// Le début du texte de l'issue d'une tâche classée impossible : Kraken l'écrit lui-même en tête, et la raison de la
+/// main suit. Il ne sert qu'à dire l'issue ; aucune décision ne le lit.
+pub(crate) const IMPOSSIBLE: &str = "impossible (déclarée) : ";
 
-/// La raison d'une main qui a déclaré sa tâche impossible, si l'erreur `erreur` est celle que `tenter` écrit alors.
-pub(crate) fn impossible_declaree(erreur: &str) -> Option<&str> {
-    erreur.strip_prefix(IMPOSSIBLE)
+/// L'échec d'une tentative, du point où elle le rend jusqu'à celui où la vague décide.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Echec {
+    /// La main a déclaré sa tâche impossible (`IMPOSSIBLE: <raison>`) ; la raison est la sienne. Classée sans relance.
+    Impossible(String),
+    /// Toute autre erreur, dite en texte. Suit la relance.
+    Erreur(String),
 }
 
 /// La raison de la dernière ligne non vide du texte d'une main si elle commence par `IMPOSSIBLE`, suivi de blancs
@@ -120,7 +124,7 @@ fn avec_precedente(objectif: &str, precedente: Option<&str>) -> String {
 /// par `journal`.
 ///
 /// Une main de tâche (sans `juge`) dont la dernière ligne non vide est `IMPOSSIBLE: <raison>` est déclarée impossible :
-/// sa preuve n'est pas rejouée, et son verdict est l'erreur que [`impossible_declaree`] reconnaît. `fichiers` est le
+/// sa preuve n'est pas rejouée, et son verdict est [`Echec::Impossible`]. `fichiers` est le
 /// périmètre de sa tâche, que sa consigne nomme.
 ///
 /// Avec `juge`, la main est le découpeur ou le relecteur, dont la preuve prêtée, `verifier`, est une commande de
@@ -142,7 +146,7 @@ pub(crate) fn tenter(
     precedente: Option<&str>,
     journal: &Path,
     juge: Option<Juge<'_>>,
-) -> (Option<Constat>, Option<String>, Result<Pris, String>) {
+) -> (Option<Constat>, Option<String>, Result<Pris, Echec>) {
     let mut verif = None;
     // Le socle porte l'heure où la main s'arrête : son départ, pris ici, et son délai.
     let depart = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs();
@@ -162,18 +166,18 @@ pub(crate) fn tenter(
         Err(erreur) => (attendu.as_ref().map(|_| Constat::default()), Err(erreur)),
         Ok(_) => jouer(&argv, bac, &consigne, profil.delai_main(), attendu.as_ref(), juge.is_some(), fournisseur),
     };
-    let verdict = jeu.and_then(|sortie| match (juge, verifier) {
-        // Une main de tâche qui déclare l'impossible : rien n'est rejoué, et l'erreur le dit pour que la vague classe.
+    let verdict = jeu.map_err(Echec::Erreur).and_then(|sortie| match (juge, verifier) {
+        // Une main de tâche qui déclare l'impossible : rien n'est rejoué, et l'échec le dit pour que la vague classe.
         (None, _) if declare_impossible(&sortie).is_some() => {
-            Err(format!("{IMPOSSIBLE}{}", queue(declare_impossible(&sortie).unwrap_or_default())))
+            Err(Echec::Impossible(queue(declare_impossible(&sortie).unwrap_or_default())))
         }
-        (Some(juge), _) => juge(bac).map(|()| Pris { sortie, prouve: true }),
+        (Some(juge), _) => juge(bac).map(|()| Pris { sortie, prouve: true }).map_err(Echec::Erreur),
         (None, Some(commande)) => {
             let (fin, rejeu) = rejouer(profil, commande, bac, journal);
             verif = fin;
-            rejeu.map(|()| Pris { sortie, prouve: true })
+            rejeu.map(|()| Pris { sortie, prouve: true }).map_err(Echec::Erreur)
         }
-        (None, None) => annonce_vert(sortie).map(|sortie| Pris { sortie, prouve: false }),
+        (None, None) => annonce_vert(sortie).map(|sortie| Pris { sortie, prouve: false }).map_err(Echec::Erreur),
     });
     (constat, verif, verdict)
 }

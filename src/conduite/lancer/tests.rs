@@ -702,6 +702,59 @@ fn une_ligne_impossible_au_milieu_de_la_reponse_ne_compte_pas() {
     let _ = fs::remove_dir_all(&racine);
 }
 
+/// Lance une seule main de copie qui finit par `fin`, sous la preuve `verifier` ; rend le nombre de départs de main,
+/// l'issue, et le verdict que le fil garde pour la main.
+#[cfg(unix)]
+fn une_main_finie_par(nom: &str, fin: &str, verifier: Option<&str>) -> (usize, Result<Pris, String>, Verdict, Foi) {
+    let racine = racine(nom);
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(main_qui_finit_par(&racine, fin), DELAI);
+    let (_, mut issues) = lancer(&depot, &kraken, &profil, &Plan::copies("objectif", verifier, 1), BAIL).unwrap();
+    let departs = fs::read_to_string(racine.join("departs")).unwrap().lines().count();
+    let vagues = etat(&fil(&kraken));
+    let (verdict, foi) = vagues[0].mains[&1].verdict.expect("la main a un verdict");
+    let _ = fs::remove_dir_all(&racine);
+    (departs, issues.remove(0).1, verdict, foi)
+}
+
+#[cfg(unix)]
+#[test]
+fn une_erreur_qui_n_est_pas_une_declaration_est_relancee_puis_classee_meme_si_son_texte_la_copie() {
+    // La preuve rouge imprime le texte que Kraken écrit pour une main impossible : ce n'est pas la main qui l'a dit.
+    let preuve = "echo 'impossible (déclarée) : pas la main'; exit 1";
+    let (departs, issue, verdict, foi) = une_main_finie_par("copie-impossible", "echo 'PREUVE: vert'", Some(preuve));
+    assert_eq!(departs, 2, "relancée une fois");
+    assert_eq!((verdict, foi), (Verdict::Classee, Foi::Constate));
+    let erreur = issue.unwrap_err();
+    assert!(erreur.contains("impossible (déclarée) : pas la main"), "la preuve rouge est dans l'erreur : {erreur}");
+}
+
+#[cfg(unix)]
+#[test]
+fn un_resume_de_main_ne_fait_pas_monter_la_confiance() {
+    // La preuve rejouée est rouge : « PREUVE: vert » ne prend pas la main.
+    let (departs, issue, verdict, foi) = une_main_finie_par("resume-rouge", "echo 'PREUVE: vert'", Some("exit 3"));
+    assert_eq!(departs, 2);
+    assert!(issue.is_err());
+    assert_eq!((verdict, foi), (Verdict::Classee, Foi::Constate));
+    // Sans commande de preuve, « PREUVE: vert » prend la main, mais déclarée, jamais constatée.
+    let (departs, issue, verdict, foi) = une_main_finie_par("resume-sans-preuve", "echo 'PREUVE: vert'", None);
+    assert_eq!(departs, 1);
+    assert!(issue.is_ok_and(|pris| !pris.prouve));
+    assert_eq!((verdict, foi), (Verdict::Prise, Foi::Declare));
+}
+
+#[cfg(unix)]
+#[test]
+fn un_resume_de_main_peut_faire_baisser_la_confiance() {
+    // La main déclare IMPOSSIBLE : classée « impossible » bien que sa preuve rejouée serait verte.
+    let (departs, issue, verdict, foi) =
+        une_main_finie_par("resume-impossible", "echo 'IMPOSSIBLE: contradiction'", Some("exit 0"));
+    assert_eq!(departs, 1, "sans relance");
+    assert_eq!(issue.unwrap_err(), "impossible (déclarée) : contradiction");
+    assert_eq!((verdict, foi), (Verdict::Impossible, Foi::Declare));
+}
+
 #[test]
 fn un_dossier_impossible_nomme_son_chemin() {
     let racine = racine("pose");
@@ -1286,9 +1339,12 @@ fn une_main_sans_programme_est_classee_sans_faire_tomber_la_vague() {
 #[test]
 fn une_panique_de_main_devient_son_message() {
     let (constat, verif, verdict) = en_message(|| panic!("boum"));
-    assert_eq!((constat, verif, verdict.unwrap_err()), (None, None, "la main a paniqué : boum".to_string()));
+    assert_eq!(
+        (constat, verif, verdict.unwrap_err()),
+        (None, None, Echec::Erreur("la main a paniqué : boum".to_string()))
+    );
     let (_, _, verdict) = en_message(|| panic!("boum {}", 2));
-    assert_eq!(verdict.unwrap_err(), "la main a paniqué : boum 2");
+    assert_eq!(verdict.unwrap_err(), Echec::Erreur("la main a paniqué : boum 2".to_string()));
     // Sans panique, ce que la main rend passe tel quel, son constat compris.
     let lu = Constat { version: Some("2.1.312".into()), mur_actif: Some(false), ..Constat::default() };
     let pris = Ok(Pris { sortie: "fait".into(), prouve: true });
