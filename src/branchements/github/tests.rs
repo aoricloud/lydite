@@ -398,6 +398,12 @@ fn un_mot_seul_de_la_garde_reste_compare_a_la_lettre_8005() {
 }
 
 #[test]
+fn une_garde_faite_de_signes_ne_refuse_pas_une_plage_propre_8005() {
+    let res = garde_sur_un_contenu("forge-garde-replie-6", "!! ??\n", "fn a() {}\n");
+    assert_eq!(res, Ok(()));
+}
+
+#[test]
 fn un_contenu_ajoute_puis_retire_ne_se_publie_pas_8005() {
     let lieu = lieu("forge-historique");
     let forge = lieu.forge();
