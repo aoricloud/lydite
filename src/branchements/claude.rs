@@ -79,8 +79,9 @@ struct Partie {
 /// `(URL de l'API, clé, nom de la variable qui tient la clé)`, elle reçoit `ANTHROPIC_BASE_URL` et `ANTHROPIC_API_KEY`,
 /// et perd cette variable et un `ANTHROPIC_AUTH_TOKEN` hérité : le jeton de l'humain ne va pas chez un autre
 /// fournisseur, et la clé ne va qu'à la main. L'ordre compte : la variable est retirée avant que `ANTHROPIC_API_KEY` ne
-/// soit posée, car le profil peut nommer `ANTHROPIC_API_KEY` elle-même. Sans fournisseur, rien de cela ne change. Un
-/// argv vide est une erreur, pas une panique.
+/// soit posée, car le profil peut nommer `ANTHROPIC_API_KEY` elle-même. Sans fournisseur, rien de cela ne change.
+/// Elle ne pose pas `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, car avec elle Claude Code ouvre la session en `default` au
+/// lieu de `acceptEdits` et la main ne peut plus éditer. Un argv vide est une erreur, pas une panique.
 #[expect(clippy::expect_used, reason = "tuyaux demandés au lancement de l'enfant")]
 fn partir(
     argv: &[String],
@@ -113,6 +114,9 @@ fn partir(
             commande.env(nom, &temporaire);
         }
     }
+    // raccourci : hors du bac à sable (la preuve prêtée sous un mur demandé, une main sans bac à sable), les commandes
+    // voient encore la clé du fournisseur ; monter quand le mur sera exigé partout, ou quand la main passera en mode
+    // `default` avec des règles `allow`.
     let mut enfant = sans_session(&mut commande, retire_de_l_env)
         .spawn()
         .map_err(|e| format!("lancement impossible de {programme} : {e}"))?;

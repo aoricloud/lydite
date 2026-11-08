@@ -569,3 +569,61 @@ fn un_usage_est_vide_sans_jeton_ni_depense_ni_modele() {
     assert!(!Usage { micro_dollars: 1, ..Usage::default() }.est_vide());
     assert!(!Usage { modeles: vec![UsageModele::default()], ..Usage::default() }.est_vide());
 }
+
+#[test]
+fn les_regles_des_identifiants_se_jugent_telles_que_declarees() {
+    let regles = concat!(
+        r#","credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
+        r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}"#,
+    );
+    let apres = format!(r#""strictAllowlist":true}}{regles}"#);
+    let declare = REGLAGES.replace(r#""strictAllowlist":true}"#, &apres);
+    let settings = GET_SETTINGS.replace(r#""strictAllowlist":true}"#, &apres);
+    assert!(declare != REGLAGES && settings != GET_SETTINGS);
+    assert_eq!(juger_reponses(&attendu(&declare), &avec(&settings)), (Some(false), Ok(())));
+    // Absentes de l'effectif, ou autres : un écart, et la main meurt sans sa consigne.
+    let autres = settings.replace(r#""name":"ANTHROPIC_AUTH_TOKEN""#, r#""name":"AUTRE""#);
+    for effectif in [GET_SETTINGS.to_string(), autres] {
+        let (_, jugement) = juger_reponses(&attendu(&declare), &avec(&effectif));
+        let ecart = jugement.unwrap_err();
+        assert!(
+            ecart.starts_with("main : réglages non pris : get_settings : effective.sandbox.credentials.envVars "),
+            "{ecart}"
+        );
+    }
+}
+
+#[test]
+fn les_regles_des_identifiants_s_additionnent_d_une_source_a_l_autre() {
+    let cle = r#"{"name":"ANTHROPIC_API_KEY","mode":"deny"}"#;
+    let jeton = r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}"#;
+    let declare = REGLAGES.replace(
+        r#""strictAllowlist":true}"#,
+        &format!(r#""strictAllowlist":true}},"credentials":{{"envVars":[{cle},{jeton}]}}"#),
+    );
+    let jugement = |effectif: Option<&str>| {
+        let apres = effectif.map_or_else(
+            || r#""strictAllowlist":true}"#.to_string(),
+            |liste| format!(r#""strictAllowlist":true}},"credentials":{{"envVars":{liste}}}"#),
+        );
+        let settings = GET_SETTINGS.replace(r#""strictAllowlist":true}"#, &apres);
+        juger_reponses(&attendu(&declare), &avec(&settings)).1
+    };
+    // L'effectif égal au déclaré, puis celui de la VM : userSettings, puis flagSettings.
+    assert_eq!(jugement(Some(&format!("[{cle},{jeton}]"))), Ok(()));
+    assert_eq!(jugement(Some(&format!("[{cle},{jeton},{cle},{jeton}]"))), Ok(()));
+    // Un refus de plus, pour une autre variable, ne rouvre rien.
+    let autre = r#"{"name":"AUTRE","mode":"deny"}"#;
+    assert_eq!(jugement(Some(&format!("[{cle},{jeton},{autre}]"))), Ok(()));
+    // Une entrée déclarée qui manque, la même variable en `allow`, ou pas de liste : un écart.
+    let allow = r#"{"name":"ANTHROPIC_API_KEY","mode":"allow"}"#;
+    for effectif in [Some(format!("[{cle}]")), Some(format!("[{cle},{jeton},{allow}]")), Some("{}".to_string()), None] {
+        let ecart = jugement(effectif.as_deref()).unwrap_err();
+        assert!(
+            ecart.starts_with("main : réglages non pris : get_settings : effective.sandbox.credentials.envVars "),
+            "{ecart}"
+        );
+    }
+    let ecart = jugement(Some(&format!("[{cle}]"))).unwrap_err();
+    assert!(ecart.ends_with("[1 élément], déclaré [2 éléments]"), "{ecart}");
+}

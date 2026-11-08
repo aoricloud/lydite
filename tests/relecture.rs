@@ -63,7 +63,9 @@ const GET_SETTINGS: &str = concat!(
     r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_settings","response":{"applied":"#,
     r#"{"model":"MODELE"},"effective":{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox":{"enabled":true,"f"#,
     r#"ailIfUnavailable":true,"allowUnsandboxedCommands":false,"network":{"allowedDomains":[],"strictAllowlist":true"#,
-    r#"}}},"sources":[{"source":"userSettings","settings":{}},{"source":"flagSettings","settings":{}}]}}}"#,
+    r#"},"credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
+    r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}}},"#,
+    r#""sources":[{"source":"userSettings","settings":{}},{"source":"flagSettings","settings":{}}]}}}"#,
 );
 const GET_HOOKS_LISTING: &str = concat!(
     r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_hooks_listing","response":{"poli"#,

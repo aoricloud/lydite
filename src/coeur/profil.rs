@@ -631,7 +631,9 @@ impl Profil {
     ///   ```text
     ///   {"sandbox":{"enabled":true,"failIfUnavailable":<mur exigé>,"allowUnsandboxedCommands":false,<exclues>
     ///   "filesystem":{"denyRead":["~/","<dossier>"],"allowRead":["<bac>","<git commun>",<lecture>…]},
-    ///   "network":{"allowedDomains":[<reseau>…],"strictAllowlist":true}},
+    ///   "network":{"allowedDomains":[<reseau>…],"strictAllowlist":true},
+    ///   "credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},
+    ///   {"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}},
     ///   "permissions":{"allow":["Skill","Workflow","ExitPlanMode",<WebFetch(domain:<d>)>…,<sortants déclarés>…,
     ///   <mcp__<serveur> déclarés>…,<prêt de la preuve>…],"deny":[<sortants non déclarés>…,
     ///   "Edit(<dossier en règle>/fil.jsonl)","Edit(<dossier en règle>/profils/**)",
@@ -642,6 +644,8 @@ impl Profil {
     ///   "Edit(<bac en règle>/<dossier>/**)">…]},
     ///   "disableAllHooks":true,"autoMemoryEnabled":false}
     ///   ```
+    ///   `credentials` ferme aux commandes du bac à sable la clé du fournisseur et un jeton hérité, que la main tient
+    ///   de son environnement (constaté avec Claude Code 2.1.317 : sans la règle, une commande les lit).
     ///   `<exclues>` n'est rien, sauf sous un mur demandé quand un morceau de la preuve est prêté :
     ///   `"excludedCommands":[<morceaux prêtés>…],`, les morceaux des règles du prêt, dans leur ordre. Sous un mur
     ///   demandé, la preuve prêtée tourne ainsi hors du bac à sable de Claude Code, comme Kraken la rejoue ensuite :
@@ -711,7 +715,9 @@ impl Profil {
             concat!(
                 r#"{{"sandbox":{{"enabled":true,"failIfUnavailable":{mur},"allowUnsandboxedCommands":false,"#,
                 r#"{exclues}"filesystem":{{"denyRead":{fermes},"allowRead":{lus}}},"#,
-                r#""network":{{"allowedDomains":{domaines},"strictAllowlist":true}}}},"#,
+                r#""network":{{"allowedDomains":{domaines},"strictAllowlist":true}},"#,
+                r#""credentials":{{"envVars":[{{"name":"ANTHROPIC_API_KEY","mode":"deny"}},"#,
+                r#"{{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}}]}}}},"#,
                 r#""permissions":{{"allow":{allow},"deny":{deny}}},"disableAllHooks":true,"autoMemoryEnabled":false}}"#,
             ),
             mur = claude.exige,

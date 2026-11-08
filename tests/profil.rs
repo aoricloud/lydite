@@ -90,7 +90,9 @@ const GET_SETTINGS: &str = concat!(
     r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_settings","response":{"applied":"#,
     r#"{"model":"<modele>"},"effective":{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox":{"enabled":true,"#,
     r#""failIfUnavailable":<exige>,"allowUnsandboxedCommands":false,<exclues>"network":{"allowedDomains":["exemple.t"#,
-    r#"est"],"strictAllowlist":true}}},"sources":[{"source":"userSettings","settings":{}},{"source":"flagSettings",""#,
+    r#"est"],"strictAllowlist":true},"credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
+    r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}}},"#,
+    r#""sources":[{"source":"userSettings","settings":{}},{"source":"flagSettings",""#,
     r#"settings":{}}]}}}"#,
 );
 /// Le `get_settings` du `--settings` tombé du 1/11 : une valeur mal typée le fait ignorer, sans `flagSettings` parmi
@@ -708,7 +710,9 @@ impl Essai {
             concat!(
                 r#"{{"sandbox":{{"enabled":true,"failIfUnavailable":{exige},"allowUnsandboxedCommands":false,"#,
                 r#"{exclues}"filesystem":{{"denyRead":{fermes},"allowRead":{lus}}},"#,
-                r#""network":{{"allowedDomains":{domaines},"strictAllowlist":true}}}},"#,
+                r#""network":{{"allowedDomains":{domaines},"strictAllowlist":true}},"#,
+                r#""credentials":{{"envVars":[{{"name":"ANTHROPIC_API_KEY","mode":"deny"}},"#,
+                r#"{{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}}]}}}},"#,
                 r#""permissions":{{"allow":{allow},"deny":{deny}}},"disableAllHooks":true,"autoMemoryEnabled":false}}"#,
             ),
             exige = exige,
@@ -1375,7 +1379,7 @@ fn l_environnement_de_session_n_atteint_pas_la_main() {
         ("SSH_ASKPASS", "askpass-essai"),
         ("SSH_AUTH_SOCK", "agent-essai"),
     ];
-    let otees: Vec<&str> = ["CLAUDE_CODE_ESSAI"]
+    let otees: Vec<&str> = ["CLAUDE_CODE_ESSAI", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"]
         .into_iter()
         .chain(jetons)
         .chain(depot.iter().map(|(nom, _)| *nom))
@@ -1424,6 +1428,8 @@ fn l_environnement_de_session_n_atteint_pas_la_main() {
         .env("CLAUDECODE", "1")
         .env("CLAUDE_CODE_ESSAI", "session")
         .env("CLAUDE_EFFORT", "high")
+        // Kraken lancé avec la variable à `0` ne la donne ni à la main ni à sa preuve : comme toute `CLAUDE*`.
+        .env("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "0")
         .envs(jetons.map(|jeton| (jeton, "jeton")))
         .envs(depot)
         .envs(authentification)

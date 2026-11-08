@@ -1228,7 +1228,9 @@ fn le_lancement_et_le_constat_font_l_aller_retour() {
         concat!(
             r#"{{"sandbox":{{"enabled":true,"failIfUnavailable":false,"allowUnsandboxedCommands"#,
             r#"":false,"filesystem":{{"denyRead":["~/",{}],"allowRead":[{}]}},"network":{{"allo"#,
-            r#"wedDomains":["docs.exemple.test"],"strictAllowlist":true}}}},"permissions":{{"al"#,
+            r#"wedDomains":["docs.exemple.test"],"strictAllowlist":true}},"credentials":{{"envVars":"#,
+            r#"[{{"name":"ANTHROPIC_API_KEY","mode":"deny"}},{{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}}]}}}},"#,
+            r#""permissions":{{"al"#,
             r#"low":["WebSearch","Skill"],"deny":["AskUserQuestion",{},{},{},{}]}},"disableAllH"#,
             r#"ooks":true,"autoMemoryEnabled":false}}"#,
         ),
