@@ -432,8 +432,10 @@ fn une_main_qui_reecrit_le_git_de_son_bac_ne_detourne_aucun_geste_de_la_vague() 
         let lignes = vec![
             "@echo off".to_string(),
             // La règle des leçons nomme le bac de la main : `@BAC@` y est remplacé par sa règle.
+            // PowerShell rend le dossier courant en nom long, la règle de Lydite le garde tel quel : `%CD%` aussi.
+            "set \"bac_cd=%CD%\"".to_string(),
             format!(
-                "powershell -NoProfile -Command \"$p=(Get-Location).Path; $r='//'+$p.Substring(0,1).ToLower()\
+                "powershell -NoProfile -Command \"$p=$env:bac_cd; $r='//'+$p.Substring(0,1).ToLower()\
                  +$p.Substring(2).Replace('\\','/'); \
                  [Console]::Out.Write((Get-Content -Raw '{}').Replace('@BAC@',$r))\"",
                 controle_jsonl.display()
