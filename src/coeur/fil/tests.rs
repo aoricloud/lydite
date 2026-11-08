@@ -851,6 +851,14 @@ fn chaque_type_fait_l_aller_retour() {
     };
     let correction = Evenement::Correction { vague: "c".into(), corrige: "v".into() };
     let relecteur = Evenement::Relecteur { vague: "r".into(), relue: "v".into() };
+    let jugement = |profil: Option<&str>| Evenement::VerdictRelecture {
+        vague: "r".into(),
+        relue: "v".into(),
+        sha: "9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34".into(),
+        profil: profil.map(Into::into),
+        empreinte: profil.map(|_| EMPREINTE.into()),
+        modele: profil.map(|_| "sonnet".into()),
+    };
     let fournisseur =
         |hote: &str| Evenement::Fournisseur { vague: "v".into(), main: 2, tentative: 1, fournisseur: hote.into() };
     let usage = |modele: &str, micro_dollars, base| Evenement::Usage {
@@ -1153,6 +1161,21 @@ fn chaque_type_fait_l_aller_retour() {
         ),
         (correction, r#""type":"vague.correction","vague":"c","corrige":"v""#),
         (relecteur, r#""type":"vague.relecteur","vague":"r","relue":"v""#),
+        (
+            jugement(Some("claude")),
+            concat!(
+                r#""type":"vague.verdict","vague":"r","relue":"v","sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34","#,
+                r#""profil":"claude","empreinte":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","#,
+                r#""modele":"sonnet""#,
+            ),
+        ),
+        (
+            jugement(None),
+            concat!(
+                r#""type":"vague.verdict","vague":"r","relue":"v","sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34","#,
+                r#""profil":null,"empreinte":null,"modele":null"#,
+            ),
+        ),
         (
             fournisseur("api.deepseek.com"),
             concat!(
@@ -2384,6 +2407,76 @@ fn un_type_de_forge_aux_champs_faux_est_mal_forme() {
 }
 
 #[test]
+fn un_verdict_de_relecture_aux_champs_faux_est_mal_forme() {
+    const SHA: &str = "9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34";
+    let verdict = |sha: &str, profil: &str| {
+        format!(
+            r#""type":"vague.verdict","vague":"r","relue":"v","sha":{sha},"profil":{profil},"#,
+            // les deux autres jetons sont nuls : seuls `sha` et `profil` varient ici
+        ) + r#""empreinte":null,"modele":null"#
+    };
+    let juste = verdict(&format!("\"{SHA}\""), "\"claude\"");
+    let hors_domaine = "hors de son domaine";
+    let cas = vec![
+        (verdict("\"9f2c41a7\"", "\"claude\""), hors_domaine.to_string()),
+        (verdict(&format!("\"{SHA}0\""), "\"claude\""), hors_domaine.to_string()),
+        (verdict(&format!("\"{}\"", SHA.to_uppercase()), "\"claude\""), hors_domaine.to_string()),
+        (verdict(&format!("\"{}\"", SHA.replacen('9', "g", 1)), "\"claude\""), hors_domaine.to_string()),
+        (verdict("12", "\"claude\""), "« sha » manque ou n'est pas une chaîne".to_string()),
+        (juste.replace(r#","sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34""#, ""), "« sha » manque".to_string()),
+        (verdict(&format!("\"{SHA}\""), "\"\""), "« profil » vaut \"\", hors de son domaine".to_string()),
+        (verdict(&format!("\"{SHA}\""), "\"deux mots\""), "« profil » vaut \"deux mots\"".to_string()),
+        (juste.replace(r#","profil":"claude""#, ""), "« profil » manque".to_string()),
+        (format!(r#"{juste},"foi":"declare""#), "champ en trop pour vague.verdict : « foi »".to_string()),
+        (juste.replace(r#""relue":"v""#, r#""relue":"r""#), "« relue » vaut \"r\"".to_string()),
+    ];
+    let mut lignes = Vec::new();
+    for (i, (faux, _)) in cas.iter().enumerate() {
+        lignes.push(ligne_s(2 * i as u64 + 1, faux));
+        lignes.push(ligne_s(2 * i as u64 + 2, &juste));
+    }
+    let dir = dossier("verdict-faux");
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert_eq!(codes(&ecarts), (0..cas.len()).map(|i| (2 * i + 1, 1009)).collect::<Vec<_>>(), "et aucun 1010");
+    for ((_, refus), (_, bout)) in ecarts.iter().zip(&cas) {
+        assert!(refus.preuve.contains(bout.as_str()), "la preuve devait dire « {bout} » : {refus}");
+    }
+    assert_eq!(notes.len(), cas.len(), "les lignes justes se lisent");
+    // `null` est accepté pour les trois jetons, et une ligne sans `foi` est la bonne forme.
+    let nul = juste.replace(r#""profil":"claude""#, r#""profil":null"#);
+    poser(&dir, &[&ligne_s(1, &nul)]);
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(ecarts.is_empty(), "{ecarts:?}");
+    let Evenement::VerdictRelecture { profil, empreinte, modele, .. } = &notes[0].evenement else { panic!() };
+    assert_eq!((profil, empreinte, modele), (&None, &None, &None));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn au_rejeu_le_verdict_se_garde_sur_la_vague_relue() {
+    let sha = |c: char| c.to_string().repeat(40);
+    let verdict = |sha: String, profil: Option<&str>| Evenement::VerdictRelecture {
+        vague: "r".into(),
+        relue: "v".into(),
+        sha,
+        profil: profil.map(Into::into),
+        empreinte: profil.map(|_| EMPREINTE.into()),
+        modele: profil.map(|_| "sonnet".into()),
+    };
+    let vagues = etat(&[verdict(sha('a'), Some("claude")), verdict(sha('b'), None)]);
+    let ids: Vec<&str> = vagues.iter().map(|vague| vague.id.as_str()).collect();
+    assert_eq!(ids, ["r", "v"], "la vague du relecteur et la vague relue sont nommées");
+    assert_eq!(vagues[0].jugement, None, "le relecteur ne porte pas le verdict");
+    // Le dernier verdict noté l'emporte.
+    let jugement = vagues[1].jugement.as_ref().unwrap();
+    assert_eq!((jugement.relecteur.as_str(), jugement.sha.as_str()), ("r", sha('b').as_str()));
+    assert_eq!((&jugement.profil, &jugement.empreinte, &jugement.modele), (&None, &None, &None));
+    let un = etat(&[verdict(sha('a'), Some("claude"))]);
+    assert_eq!(un[1].jugement.as_ref().unwrap().profil.as_deref(), Some("claude"));
+}
+
+#[test]
 fn au_rejeu_la_forge_ne_garde_que_le_constate() {
     let sha = "9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34";
     let ouverture = |vague: &str| Evenement::Vague {
@@ -2845,7 +2938,7 @@ fn les_exemples_du_fil_se_relisent_sans_trou_ni_doublon() {
         // relecture, dans la séance de l'objectif ; la vague qui joue le plan, de deux tâches assemblées ; la vague de
         // copies du relecteur, une main ; la correction, d'une tâche assemblée.
         ("1761901700000_13_1", [&["vague.ouverte"][..], &tentative].concat()),
-        ("1761901780000_13_2", vec!["vague.decoupage", "vague.relecture"]),
+        ("1761901780000_13_2", vec!["vague.decoupage", "vague.relecture", "vague.verdict"]),
         (
             "1761901790000_13_4",
             [
