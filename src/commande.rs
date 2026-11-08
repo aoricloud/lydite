@@ -20,6 +20,7 @@ use self::ligne::{Commande, options};
 use crate::branchements::dossier;
 use crate::branchements::github;
 use crate::coeur::erreur::{Code, Refus};
+use crate::coeur::lecons;
 use crate::coeur::plan;
 use crate::coeur::plan::Plan;
 use crate::coeur::remarques;
@@ -58,6 +59,7 @@ fn executer() -> Result<ExitCode, Refus> {
         Commande::Etat => return etat_cmd(),
         Commande::LirePlan { fichier, decoupe } => return plan_cmd(&fichier, decoupe),
         Commande::LireRemarques { fichier } => return remarques_cmd(&fichier),
+        Commande::LireLecons { dossier } => return lecons_cmd(&dossier),
     };
     let (gh, personnel) = (github::programme_gh(), env::home_dir());
     let lieu = Lieu {
@@ -117,6 +119,47 @@ fn remarques_cmd(fichier: &Path) -> Result<ExitCode, Refus> {
         Refus::new(Code::EntreeSortie, preuve, correction)
     })?;
     remarques::lire_fichier(&octets)?.exiger_la_forme_2().map(|_| ExitCode::SUCCESS)
+}
+
+/// `lydite lecons <dossier>` : lit chaque `.agents/skills/*/SKILL.md` du dépôt de ce dossier, dans l'ordre des noms, et
+/// ne dit rien si toutes sont justes. Sinon, le refus de la première fausse, avec son fichier et sa ligne. Un dépôt
+/// sans `.agents/skills`, ou un sous-dossier sans `SKILL.md`, n'a aucune leçon à lire.
+fn lecons_cmd(depot: &Path) -> Result<ExitCode, Refus> {
+    use std::io::Read;
+    let illisible = |chemin: &Path, e: std::io::Error| {
+        let preuve = format!("lecture des leçons {} : {e}", chemin.display());
+        let correction = "Donne à lydite lecons le dossier d'un dépôt dont `.agents/skills` se lit (un chemin relatif \
+                          part du dossier courant), puis relance.";
+        Refus::new(Code::EntreeSortie, preuve, correction)
+    };
+    let skills = depot.join(".agents").join("skills");
+    let entrees = match std::fs::read_dir(&skills) {
+        Ok(entrees) => entrees,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(ExitCode::SUCCESS),
+        Err(e) => return Err(illisible(&skills, e)),
+    };
+    let mut dossiers = Vec::new();
+    for entree in entrees {
+        let entree = entree.map_err(|e| illisible(&skills, e))?;
+        if entree.file_type().map_err(|e| illisible(&entree.path(), e))?.is_dir() {
+            dossiers.push(entree.file_name());
+        }
+    }
+    dossiers.sort();
+    for nom in dossiers {
+        let fichier = skills.join(&nom).join("SKILL.md");
+        let mut octets = Vec::new();
+        let borne = lecons::TAILLE_MAX as u64 + 1;
+        match std::fs::File::open(&fichier).and_then(|ouvert| ouvert.take(borne).read_to_end(&mut octets)) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(illisible(&fichier, e)),
+        }
+        lecons::lire(&nom.to_string_lossy(), &octets).map_err(|refus| {
+            Refus::new(refus.code, format!("{} : {}", fichier.display(), refus.preuve), refus.correction)
+        })?;
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `lydite accepter <nom>` : lit et valide le profil du dossier de Kraken, écrit l'empreinte qu'il accepte, puis dit à

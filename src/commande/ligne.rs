@@ -17,6 +17,7 @@ const USAGE: &str = concat!(
     " [--pr <branche>]",
     " ou lydite plan [--decoupe] <fichier>",
     " ou lydite remarques <fichier>",
+    " ou lydite lecons <dossier>",
     " ou lydite accepter <profil>",
     " ou lydite etat",
 );
@@ -49,6 +50,24 @@ pub(crate) enum Commande {
     /// Le fichier de remarques, lu comme Kraken lira celui du relecteur, sans rien lancer. Le chemin garde son
     /// `OsString`.
     LireRemarques { fichier: PathBuf },
+    /// Les leçons `.agents/skills/*/SKILL.md` du dépôt de ce dossier, lues sans rien lancer. Le chemin garde son
+    /// `OsString`.
+    LireLecons { dossier: PathBuf },
+}
+
+/// Lit ce qui suit `lecons` : `<dossier>`, rien d'autre. Le dossier garde son `OsString`, et n'est pas un drapeau.
+fn options_lire_lecons(args: &[OsString]) -> Result<Commande, Refus> {
+    let mal_formee = |preuve: String| refus_de_ligne(Code::CommandeMalFormee, preuve);
+    let [dossier, suite @ ..] = args else {
+        return Err(mal_formee("`lecons` : il manque le dossier du dépôt".into()));
+    };
+    if dossier.to_str().is_some_and(|nom| nom.starts_with('-')) {
+        return Err(mal_formee(format!("`lecons` veut le dossier d'un dépôt, et {} est un drapeau", mot(dossier))));
+    }
+    if let Some(autre) = suite.first() {
+        return Err(mal_formee(format!("`lecons` ne prend que `<dossier>`, et {} le suit", mot(autre))));
+    }
+    Ok(Commande::LireLecons { dossier: PathBuf::from(dossier) })
 }
 
 /// Lit ce qui suit `remarques` : `<fichier>`, rien d'autre. Le fichier garde son `OsString`, et n'est pas un drapeau :
@@ -106,6 +125,7 @@ pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
         }
         (Some("plan"), reste) => options_lire_plan(reste),
         (Some("remarques"), reste) => options_lire_remarques(reste),
+        (Some("lecons"), reste) => options_lire_lecons(reste),
         (Some("accepter"), [nom]) => Ok(Commande::Accepter(texte(nom, "le profil")?)),
         (Some("accepter"), []) => Err(refus_de_ligne(Code::CommandeMalFormee, "`accepter` : il manque le profil")),
         (Some("accepter"), [_, autre, ..]) => {

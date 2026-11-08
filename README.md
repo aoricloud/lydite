@@ -104,6 +104,15 @@ In a plan, the repeatable task key `exact : <file> : <text>` makes Lydite check 
 model, that the text appears in that file of the task (the file must be covered by the task's `fichiers`); a hand that
 splits it or leaves it out gets a red attempt.
 
+**Lessons.** A lesson is a file of the target repository, `.agents/skills/<name>/SKILL.md`, in the open skills format.
+It starts with a header of exactly `name: <name>` (the folder's name: `a-z`, digits and `-`, 1 to 64 characters) and
+`description: <the rule>` (one line, 1 to 200 characters), between two `---` lines. Then six sections, each once and in
+this order, each with text: `## What happened`, `## Why`, `## How it is checked`, `## Pitfall`, `## Files` (zero or
+more `- <path>` lines, written like a plan's `fichiers`; none means a general lesson) and `## Falls when`. UTF-8, 4096
+bytes at most. `lydite lecons <repository folder>` reads every lesson of a repository: it says nothing and exits 0 if
+all are right, otherwise it refuses (6031) with the file and the line of the first wrong one. A lesson is written by the
+session or the pilot, in the pull request that fixes the mistake, never by a hand.
+
 **Windows.** The wall (the sandbox) is not held under Windows: a profile asks for it there, it does not require it.
 
 ## Claude Code and your accounts
