@@ -1,0 +1,4 @@
+# ruff relit et met en forme le Python du dépôt (le plugin hermes/ et la garde de .github/) ; sa version est épinglée
+# dans .github/workflows/ci.yml. Les lignes vont jusqu'à 120 caractères, comme partout ici.
+line-length = 120
+target-version = "py311"
