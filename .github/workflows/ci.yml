@@ -1,8 +1,7 @@
 name: ci
 
-# Linux à chaque PR ; Windows seulement à la main (workflow_dispatch), pour une PR qui touche à Windows : comme le
-# miroir, depuis que les minutes d'Actions du mois sont épuisées (07/11). Rien sur un push vers main : la PR vient d'y
-# être vérifiée. Windows sur une branche : gh workflow run ci.yml --ref <branche>.
+# Linux et Windows à chaque PR, et les essais de la garde : un dépôt public ne paie pas ses minutes. Rien sur un push
+# vers main : la PR vient d'y être vérifiée. Sur une branche sans PR : gh workflow run ci.yml --ref <branche>.
 
 on:
   pull_request:
@@ -18,7 +17,6 @@ concurrency:
 
 jobs:
   linux:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +27,6 @@ jobs:
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
   windows:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,3 +36,10 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
+  garde:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -I .github/garde_test.py
