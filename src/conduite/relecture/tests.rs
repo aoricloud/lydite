@@ -509,6 +509,9 @@ fn seules_les_taches_critiques_assemblees_se_relisent() {
     let consigne = essai.garde("consigne-relecteur-1.txt").unwrap();
     assert!(consigne.contains("- tâche a, fichiers : sortie/\n    Ecrire a, critique\n"), "{consigne}");
     assert!(!consigne.contains("tâche c") && !consigne.contains("doc/") && !consigne.contains("tâche b"), "{consigne}");
+    for fixe in ["IMPOSSIBLE: <reason>", "Change only the files of your task"] {
+        assert!(!consigne.contains(fixe), "« {fixe} » : {consigne}");
+    }
     let diff = essai.garde("diff-1.txt").unwrap();
     assert!(diff.contains(&format!("sortie/main-{v}-1.txt")) && !diff.contains("autre/"), "{diff}");
     // Relue sans remarque : prise, sans correction.
