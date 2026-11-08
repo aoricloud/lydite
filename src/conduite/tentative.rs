@@ -25,6 +25,9 @@ result.";
 
 const PERIMETRE: &str = "Change only the files of your task; the other tasks do the rest.";
 
+/// La phrase fixe qui suit la ligne des fichiers : le gel est de Lydite, et le réglage de la main refuse `git commit`.
+const COMMIT: &str = "Lydite commits your work itself: do not run git commit.";
+
 /// Le début de l'erreur d'une main qui a déclaré la tâche impossible : Kraken l'écrit lui-même en tête, et la raison
 /// de la main suit. La vague le reconnaît à ce début ([`impossible_declaree`]) et ne relance pas.
 const IMPOSSIBLE: &str = "impossible (déclarée) : ";
@@ -72,6 +75,7 @@ fn consigne(
         Some(fichiers) => format!("{PERIMETRE} Your files: {}", fichiers.join(" ")),
         None => PERIMETRE.to_string(),
     };
+    let perimetre = format!("{perimetre}\n{COMMIT}");
     // Avec une commande, c'est Kraken qui la rejoue ; la main la joue d'abord si on la lui prête, car en `acceptEdits`
     // elle ne peut souvent pas la lancer sans ce prêt.
     let preuve = match (verifier, pretee) {

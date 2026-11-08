@@ -270,8 +270,10 @@ pub(crate) fn en_erreur(refus: &Refus) -> String {
 /// Le travail pris d'une tâche qui a des `fichiers` n'est pris que si sa main n'a changé que ces chemins ; sinon sa
 /// tentative est rouge (7013), et son erreur dit les chemins en trop et la règle, que la relance reçoit. Un git qui ne
 /// dit pas ce que la main a changé la rougit de même (7009) : rien ne prouve alors qu'elle est restée dans ses
-/// fichiers. Une tâche sans `fichiers` n'est bornée par rien.
-fn dans_ses_fichiers(bac: &Path, depart: &str, tache: &Tache, pris: Pris) -> Result<Pris, String> {
+/// fichiers. Une tâche sans `fichiers` n'est bornée que par `proteges` : un chemin protégé changé, `fichiers` ou non,
+/// rougit la tentative (7018), avant le jugement des `fichiers`.
+fn dans_ses_fichiers(bac: &Path, depart: &str, tache: &Tache, proteges: &[String], pris: Pris) -> Result<Pris, String> {
+    assemblage::proteges_tenus(bac, depart, &tache.id, proteges).map_err(|refus| en_erreur(&refus))?;
     let Some(fichiers) = &tache.fichiers else { return Ok(pris) };
     assemblage::fichiers_tenus(bac, depart, &tache.id, fichiers).map(|()| pris).map_err(|refus| en_erreur(&refus))
 }
@@ -498,7 +500,7 @@ impl<'a> Vague<'a> {
                     &journal,
                     juge,
                 );
-                let verdict = verdict.and_then(|pris| dans_ses_fichiers(&bac, &depart, tache, pris));
+                let verdict = verdict.and_then(|pris| dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris));
                 (constat, verif, verdict)
             });
             // La vague lit le canal jusqu'au dernier message qu'elle attend : celui-ci ne se perd pas.

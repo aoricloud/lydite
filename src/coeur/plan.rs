@@ -641,7 +641,7 @@ fn modele_permis(modele: &str) -> bool {
 /// Ce qui écarte un chemin de `fichiers` de la forme que git écrit, s'il y a quelque chose : `None` pour un chemin
 /// relatif à la racine du dépôt, en noms séparés par `/` (un `/` final pour un dossier), hors de `.git/` et de
 /// `.claude/`.
-fn hors_forme(chemin: &str) -> Option<&'static str> {
+pub(crate) fn hors_forme(chemin: &str) -> Option<&'static str> {
     if chemin.contains('\\') {
         return Some("s'écrit avec une barre inverse, et git sépare les noms par `/`");
     }

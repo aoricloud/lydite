@@ -71,6 +71,8 @@ delai_main = 3600
 delai_preuve = 300
 ```
 
+The optional `proteges` key lists repository paths (files, or folders ending in `/`) that no hand may change, whatever the `fichiers` of its task, and the hand never runs `git commit`: Lydite commits its work itself.
+
 ```bash
 lydite accepter <name>        # shows the profile and accepts its fingerprint; a changed profile must be accepted again
 ```
