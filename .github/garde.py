@@ -4,7 +4,9 @@ Elle cherche les mots de la liste `GARDE` (un par ligne, sans casse ; BOM retir�
 quelques motifs génériques (adresses et noms d'un réseau privé, chemins personnels, adresses électroniques) dans les
 noms neufs des fichiers changés, les lignes ajoutées par le diff net et par chaque commit, les commits (messages,
 auteurs et committers), le nom de la branche, le titre et le corps. Elle nomme le lieu, jamais le mot ni ce qu'un motif
-a trouvé : les noms passent d'abord, et un fichier n'est nommé que si aucun nom neuf ne porte rien.
+a trouvé : les noms passent d'abord, et un fichier n'est nommé que si aucun nom neuf ne porte rien. Une ligne de la
+liste qui porte plusieurs mots se cherche aussi repliée (voir `porte`) : coupée en fin de ligne ou séparée par d'autres
+signes, elle se trouve encore.
 
 La PR d'un fork ne lit pas la liste (`LISTE=fork`) : sa sortie est publique, et rougir sur un mot deviné le
 confirmerait. Ailleurs, une liste vide ou absente est une faute : la garde ne passe pas sans elle.
@@ -73,10 +75,26 @@ def courriel_permis(trouve):
     return adresse in COURRIELS_PERMIS or domaine in DOMAINES_PERMIS or domaine.endswith(SUFFIXES_PERMIS)
 
 
+def replier(texte):
+    """La forme repliée d'un texte, comme `publiable` la fait dans Lydite : en minuscules, chaque suite de signes qui ne
+    sont ni lettres ni chiffres réduite à un blanc, sans blanc aux bords."""
+    return " ".join(re.findall(r"[^\W_]+", texte.lower()))
+
+
+def porte(bas, replie, mot):
+    """Le texte, en minuscules (`bas`) et replié (`replie`), porte la ligne `mot` de la liste : à la lettre ; ou, pour
+    une ligne d'au moins deux mots que le repli garde, sous sa forme repliée. Un mot seul ne se compare qu'à la
+    lettre."""
+    if mot in bas:
+        return True
+    forme = replier(mot)
+    return len(mot.split()) >= 2 and len(forme.split()) >= 2 and forme in replie
+
+
 def trouvailles(texte, mots):
     """Ce que porte le texte, nommé sans ce qui a été trouvé : les lignes de la liste, puis les motifs."""
-    bas = texte.lower()
-    trouve = [f"Line {numero} of the guard list" for numero, mot in mots if mot in bas]
+    bas, replie = texte.lower(), replier(texte)
+    trouve = [f"Line {numero} of the guard list" for numero, mot in mots if porte(bas, replie, mot)]
     if RESEAU_PRIVE.search(texte):
         trouve.append("A private network address")
     if NOM_DE_RESEAU.search(texte):
