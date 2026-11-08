@@ -32,7 +32,9 @@ proof. It is a small harness written in Rust, with no dependencies, for Linux an
   that was reviewed and replayed: a reviewed wave only pushes the head its review judged, or the correction of that
   review. Merging stays a human gesture.
 - **One thread of facts.** Everything that happens is appended to a journal outside the repository, and `lydite etat`
-  is read from it. A fact only declared by a hand is never shown as a fact Lydite observed.
+  is read from it. A fact only declared by a hand is never shown as a fact Lydite observed. Before a hand leaves, a
+  `main.consigne` line says what it received: its role, the SHA-256 of the exact text sent, the SHA-256 of its system
+  prompt file, and the lessons given and set aside. Both texts are kept in `consignes/<SHA-256>.txt`.
 - **A sealed thread.** Before it builds the body of its PR, and again when it ends (on every exit, published or not),
   a wave writes a `vague.sceau` line: the journal's length in bytes and the SHA-256 of those bytes. The PR receipt
   repeats the first one (`Fil sealed at <bytes> bytes: sha256 <hash>.`). `lydite etat` recomputes every seal, names
@@ -82,7 +84,9 @@ delai_main = 3600
 delai_preuve = 300
 ```
 
-The optional `proteges` key lists repository paths (files, or folders ending in `/`) that no hand may change, whatever the `fichiers` of its task, and the hand never runs `git commit`: Lydite commits its work itself.
+The optional `proteges` key lists repository paths (files, or folders ending in `/`) that no hand may change, whatever the `fichiers` of its task, and the hand never runs `git commit`: Lydite commits its work itself. The lessons folder `.agents/skills/` is always protected, with or without the key: a hand never changes a lesson (a change there turns its attempt red, and at the freeze the task is refused with 7018), only the human does. A neighbouring path such as `.agents/other` stays free.
+
+The optional `mesure` key is made for a measurement bench only, never for a real wave. It lists one or two settings, `sans-lecture` and `sans-a1`, to measure the effect of a lesson: `sans-lecture` keeps the lessons block in the system prompt but drops the reading instruction; `sans-a1` drops the two fixed sentences (honesty and perimeter) from a task hand's instruction, and keeps its list of files and everything else. Any other value is refused like any unknown profile value. The thread notes the active settings in `main.consigne.mesure`, and the receipt (the PR body and `lydite etat`) says so on a line of its own, `Measurement: <settings>.`, so a real wave is never weakened without saying it.
 
 ```bash
 lydite accepter <name>        # shows the profile and accepts its fingerprint; a changed profile must be accepted again

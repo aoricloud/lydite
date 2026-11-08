@@ -66,7 +66,7 @@ fn chemins_json() -> [&'static str; 3] {
 /// Les règles de `deny` sans aucun sortant déclaré, dans l'ordre : les dix-neuf sortants, les deux `Edit` du dossier
 /// `regle`, `Read` et `Edit` de ses réglages de srt, `Read` et `Edit` du fichier de connexion de chaque leurre, puis
 /// l'`Edit` du git commun `commun`, en règles écrites à la main.
-fn deny_sans_declare(regle: &str, commun: &str) -> String {
+fn deny_sans_declare(regle: &str, commun: &str, bac: &str) -> String {
     let (config, personnel) =
         if cfg!(windows) { ("//c/config", "//c/personnel/.claude") } else { ("//config", "//personnel/.claude") };
     format!(
@@ -80,8 +80,9 @@ fn deny_sans_declare(regle: &str, commun: &str) -> String {
             r#""Read({config}/.credentials.json)","Edit({config}/.credentials.json)","#,
             r#""Read({personnel}/.credentials.json)","Edit({personnel}/.credentials.json)","#,
             r#""Edit({commun}/**)","Bash(git commit:*)","Bash(git commit *)","#,
-            r#""PowerShell(git commit:*)","PowerShell(git commit *)"]"#,
+            r#""PowerShell(git commit:*)","PowerShell(git commit *)","Edit({bac}/.agents/skills/**)"]"#,
         ),
+        bac = bac,
         regle = regle,
         commun = commun,
         config = config,
@@ -197,6 +198,46 @@ fn sans_fichier_claude_est_le_profil_integre() {
     assert!(claude(&charger_dans("claude", &absent).unwrap()).fichier.is_none());
     assert!(!absent.exists(), "charger ne crée rien");
     let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn la_cle_mesure_liste_un_ou_deux_reglages_et_aucun_par_defaut() {
+    let mesure = |ligne: &str| lu(&format!("sorte = claude\n{ligne}\n")).map(|profil| profil.mesure());
+    assert_eq!(lu("sorte = claude\n").unwrap().mesure(), Mesure::default());
+    assert_eq!(lu("sorte = claude\n").unwrap().mesure().texte(), "");
+    assert_eq!(mesure("mesure = sans-lecture").unwrap(), Mesure { sans_lecture: true, sans_a1: false });
+    assert_eq!(mesure("mesure = sans-a1").unwrap(), Mesure { sans_lecture: false, sans_a1: true });
+    let deux = Mesure { sans_lecture: true, sans_a1: true };
+    assert_eq!(mesure("mesure = sans-lecture, sans-a1").unwrap(), deux);
+    assert_eq!(mesure("mesure = sans-a1 ,sans-lecture").unwrap(), deux);
+    // Les réglages actifs se disent un par ligne, dans le même ordre quel que soit celui du fichier.
+    assert_eq!(deux.texte(), "sans-lecture\nsans-a1");
+    assert_eq!(Mesure { sans_lecture: false, sans_a1: true }.texte(), "sans-a1");
+    // Le profil intégré et une main brute n'ont aucun réglage.
+    assert_eq!(lire("claude", integre("claude").unwrap(), None, None).unwrap().mesure(), Mesure::default());
+    assert_eq!(Profil::faux(Vec::new(), Duration::from_secs(1)).mesure(), Mesure::default());
+    // Une autre valeur, un réglage redit, une valeur vide, une clé redite : refusés comme toute valeur d'un profil.
+    for ligne in [
+        "mesure = autre",
+        "mesure = sans-lecture, autre",
+        "mesure = SANS-A1",
+        "mesure = sans-a1 sans-lecture",
+        "mesure = sans-a1, sans-a1",
+        "mesure = sans-lecture,sans-a1,sans-lecture",
+        "mesure =",
+        "mesure = sans-a1,",
+        "mesure = -sans-a1",
+        "mesure = sans-a1\nmesure = sans-lecture",
+    ] {
+        let refus = mesure(ligne).expect_err(ligne);
+        assert_eq!(refus.code, Code::ProfilLigneRefusee, "{ligne} : {refus}");
+        assert!(refus.preuve.contains("essai.profil:"), "{ligne} : {refus}");
+    }
+    let refus = mesure("mesure = autre").unwrap_err();
+    assert!(refus.preuve.contains("sans-lecture, sans-a1"), "{refus}");
+    // Elle s'accepte avec le profil, comme toute clé : l'empreinte est celle du fichier.
+    let texte = "sorte = claude\nmesure = sans-a1\n";
+    assert_eq!(claude(&lu(texte).unwrap()).empreinte, empreinte(texte));
 }
 
 #[test]
@@ -886,7 +927,12 @@ fn les_reglages_disent_le_mur_du_profil() {
     } else {
         ("/opt/outil x", r#""/opt/outil x""#)
     };
-    let (bac, bac_json) = (r#"bac "é"\ 1"#, r#""bac \"é\"\\ 1""#);
+    // Le bac est en règle (la règle `Edit` des leçons le dit) : ni guillemet ni barre inverse dans ses noms.
+    let (bac, bac_json, regle_du_bac) = if cfg!(windows) {
+        (r"C:\bac é 1", r#""C:\\bac é 1""#, "//c/bac é 1")
+    } else {
+        ("/bac é 1", r#""/bac é 1""#, "//bac é 1")
+    };
     let (git_commun, git_json, regle_git) = if cfg!(windows) {
         (r"C:\dépôt x\.git", r#""C:\\dépôt x\\.git""#, "//c/dépôt x/.git")
     } else {
@@ -916,7 +962,7 @@ fn les_reglages_disent_le_mur_du_profil() {
         bac_json = bac_json,
         git_json = git_json,
         lecture_json = lecture_json,
-        deny = deny_sans_declare(regle, regle_git),
+        deny = deny_sans_declare(regle, regle_git, regle_du_bac),
     );
     let Demande { argv, declaration } = exige.demande(Path::new(bac), None, false);
     let declaration = declaration.unwrap();
@@ -1041,7 +1087,7 @@ fn les_outils_ouvrent_le_bac_et_ferment_le_reste() {
             r#""permissions":{{"allow":["Skill","Workflow","ExitPlanMode","#,
             r#""WebFetch(domain:exemple.test)","WebFetch(domain:autre.test)"],{}}},"#,
         ),
-        deny_sans_declare(regle_k(), regle_depot())
+        deny_sans_declare(regle_k(), regle_depot(), regle_bac())
     );
     assert!(ouvert.contains(&permissions), "{ouvert}");
     assert!(ouvert.contains(r#""allowedDomains":["exemple.test","autre.test"]"#), "{ouvert}");
@@ -1049,7 +1095,7 @@ fn les_outils_ouvrent_le_bac_et_ferment_le_reste() {
     let ferme = reglages(&borne("sorte = claude\n"), None);
     let permissions = format!(
         r#""permissions":{{"allow":["Skill","Workflow","ExitPlanMode"],{}}},"#,
-        deny_sans_declare(regle_k(), regle_depot())
+        deny_sans_declare(regle_k(), regle_depot(), regle_bac())
     );
     assert!(ferme.contains(&permissions), "{ferme}");
     assert!(ferme.contains(r#""allowedDomains":[],"strictAllowlist":true"#), "{ferme}");
@@ -1120,17 +1166,21 @@ fn regle_bac() -> &'static str {
 #[test]
 fn la_cle_proteges_se_lit_et_sans_elle_rien_ne_change() {
     let profil = lu("sorte = claude\nproteges = Cargo.lock, tests/juge/ ,ci/echecs.txt\n").unwrap();
-    assert_eq!(profil.proteges(), ["Cargo.lock", "tests/juge/", "ci/echecs.txt"]);
+    assert_eq!(profil.proteges(), [".agents/skills/", "Cargo.lock", "tests/juge/", "ci/echecs.txt"]);
     // La clé ne s'écrit qu'une fois.
     let refus = lu("sorte = claude\nproteges = a\nproteges = b\n").err().unwrap();
     assert_eq!(refus.code, Code::ProfilLigneRefusee);
-    // Sans elle, rien n'est protégé, et les réglages ne portent aucune règle `Edit` du bac.
+    // Sans elle, seules les leçons sont protégées, et les réglages ne portent que leur règle `Edit` du bac.
     let sans = borne("sorte = claude\n");
-    assert!(sans.proteges().is_empty());
-    assert!(!reglages(&sans, None).contains(&format!("Edit({}/", regle_bac())));
-    assert!(lu("sorte = claude\n").unwrap().avec_modeles(Some("opus"), None).proteges().is_empty());
+    assert_eq!(sans.proteges(), [".agents/skills/"]);
+    let regles = reglages(&sans, None);
+    assert_eq!(regles.matches(&format!("Edit({}/", regle_bac())).count(), 1, "{regles}");
+    assert!(regles.contains(&format!("Edit({}/.agents/skills/**)", regle_bac())), "{regles}");
+    assert_eq!(lu("sorte = claude\n").unwrap().avec_modeles(Some("opus"), None).proteges(), [".agents/skills/"]);
     // Une copie aux modèles d'une tâche garde les chemins protégés.
-    assert_eq!(profil.avec_modeles(Some("opus"), None).proteges().len(), 3);
+    assert_eq!(profil.avec_modeles(Some("opus"), None).proteges().len(), 4);
+    // Un fichier voisin des leçons reste libre : seul `.agents/skills/` est protégé.
+    assert!(!regles.contains(".agents/**") && !regles.contains(".agents/autre"), "{regles}");
 }
 
 #[test]
@@ -1141,7 +1191,8 @@ fn les_reglages_ferment_l_edition_d_un_fichier_et_d_un_dossier_proteges() {
     // Les trois règles sont dans `deny`, après celles de `git commit`, un fichier tel quel, un dossier en `/**`.
     let attendu = format!(
         concat!(
-            r#""PowerShell(git commit *)","Edit({regle}/Cargo.lock)","Edit({regle}/tests/juge/**)","#,
+            r#""PowerShell(git commit *)","Edit({regle}/.agents/skills/**)","#,
+            r#""Edit({regle}/Cargo.lock)","Edit({regle}/tests/juge/**)","#,
             r#""Edit({regle}/ci/echecs.txt)"]"#,
         ),
         regle = regle
@@ -1157,7 +1208,7 @@ fn les_reglages_ferment_l_edition_d_un_fichier_et_d_un_dossier_proteges() {
 fn le_reglage_de_tout_profil_refuse_git_commit_sous_les_deux_formes_de_prefixe() {
     let refus = concat!(
         r#""Bash(git commit:*)","Bash(git commit *)","PowerShell(git commit:*)","PowerShell(git commit *)""#,
-        r#"]"#,
+        r#","Edit("#,
     );
     for texte in ["sorte = claude\n", "sorte = claude\nmur = exige\nreseau = exemple.test\n"] {
         for verifier in [None, Some("cargo test && cargo clippy")] {
@@ -1176,9 +1227,10 @@ fn un_bac_sans_regle_ferme_le_depart_d_une_main_aux_chemins_proteges() {
     let profil = borne("sorte = claude\nproteges = Cargo.lock\n");
     let demande = profil.demande(Path::new("relatif"), None, false);
     assert!(demande.argv.is_empty() && demande.declaration.is_none());
-    // Sans chemin protégé, le bac n'est pas jugé ici : rien ne change.
+    // Les leçons sont toujours protégées : même sans la clé, un bac sans règle ne part pas ; un bac en règle, si.
     let libre = borne("sorte = claude\n");
-    assert!(!libre.demande(Path::new("relatif"), None, false).argv.is_empty());
+    assert!(libre.demande(Path::new("relatif"), None, false).argv.is_empty());
+    assert!(!libre.demande(&absolu("bac"), None, false).argv.is_empty());
 }
 
 #[test]
@@ -1339,7 +1391,7 @@ fn sous_le_mur_demande_la_preuve_pretee_sort_du_bac_a_sable() {
             bac = bac,
             git = git,
             pret = pret,
-            deny = deny_sans_declare(regle_k(), regle_depot()),
+            deny = deny_sans_declare(regle_k(), regle_depot(), regle_bac()),
         )
     };
     let verifier = Some("cargo test && findstr /x bonjour bonjour.txt");

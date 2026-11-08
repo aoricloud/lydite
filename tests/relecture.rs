@@ -100,7 +100,14 @@ const FAUSSE_WINDOWS: &[&str] = &[
     "shift",
     "shift",
     "set modele=%9",
-    r#"type "%ici%controle-%modele%.jsonl""#,
+    // La règle des leçons nomme le bac de la main : `@BAC@` y est remplacé par sa règle.
+    // PowerShell rend le dossier courant en nom long, la règle de Lydite le garde tel quel : `%CD%` aussi.
+    r#"set "bac_cd=%CD%""#,
+    concat!(
+        r#"powershell -NoProfile -Command "$p=$env:bac_cd; "#,
+        r#"$r='//'+$p.Substring(0,1).ToLower()+$p.Substring(2).Replace('\','/'); "#,
+        r#"[Console]::Out.Write((Get-Content -Raw '%ici%controle-%modele%.jsonl').Replace('@BAC@',$r))""#,
+    ),
     r#"findstr "^" > "%TEMP%\entree.jsonl""#,
     r#"findstr /l /c:"Corrige au plus petit" "%TEMP%\entree.jsonl" > nul"#,
     "if not errorlevel 1 goto correction",
@@ -141,7 +148,8 @@ const FAUSSE_UNIX: &[&str] = &[
     r#"bac=$(basename "$(pwd)")"#,
     "shift 14",
     r#"modele="$1""#,
-    r#"cat "$ici/controle-$modele.jsonl""#,
+    // La règle des leçons nomme le bac de la main : `@BAC@` y est remplacé par sa règle.
+    r#"sed "s|@BAC@|/$(pwd)|g" "$ici/controle-$modele.jsonl""#,
     r#"cat > "$TMPDIR/entree.jsonl""#,
     r#"if grep -q 'Corrige au plus petit' "$TMPDIR/entree.jsonl"; then"#,
     r#"cp "$TMPDIR/entree.jsonl" "$ici/correction.txt""#,
@@ -355,6 +363,8 @@ impl Essai {
             ["Bash(git commit:*)", "Bash(git commit *)", "PowerShell(git commit:*)", "PowerShell(git commit *)"]
                 .map(String::from),
         );
+        // Les leçons, protégées de toute main : la fausse claude met le bac de la main à la place de `@BAC@`.
+        deny.push("Edit(@BAC@/.agents/skills/**)".into());
         let vues: Vec<String> = [("allow", &allow), ("deny", &deny)]
             .iter()
             .flat_map(|(comportement, regles)| {
