@@ -393,6 +393,8 @@ fn controle(racine: &Path, dossier: &Path, depot: &Path, preuve: &str) -> String
         ["Bash(git commit:*)", "Bash(git commit *)", "PowerShell(git commit:*)", "PowerShell(git commit *)"]
             .map(String::from),
     );
+    // Les leçons, protégées de toute main : la fausse claude met le bac de la main à la place de `@BAC@`.
+    deny.push("Edit(@BAC@/.agents/skills/**)".into());
     let vues: Vec<String> = [("allow", &allow), ("deny", &deny)]
         .iter()
         .flat_map(|(comportement, regles)| {
@@ -429,7 +431,13 @@ fn une_main_qui_reecrit_le_git_de_son_bac_ne_detourne_aucun_geste_de_la_vague() 
     let (fausse, srt, lignes, faux_srt) = if cfg!(windows) {
         let lignes = vec![
             "@echo off".to_string(),
-            format!(r#"type "{}""#, controle_jsonl.display()),
+            // La règle des leçons nomme le bac de la main : `@BAC@` y est remplacé par sa règle.
+            format!(
+                "powershell -NoProfile -Command \"$p=(Get-Location).Path; $r='//'+$p.Substring(0,1).ToLower()\
+                 +$p.Substring(2).Replace('\\','/'); \
+                 [Console]::Out.Write((Get-Content -Raw '{}').Replace('@BAC@',$r))\"",
+                controle_jsonl.display()
+            ),
             r#"findstr "^" > nul"#.to_string(),
             // git pose le `.git` du bac caché sous Windows, et cmd ne réécrit pas un fichier caché.
             "attrib -h .git".to_string(),
@@ -443,7 +451,8 @@ fn une_main_qui_reecrit_le_git_de_son_bac_ne_detourne_aucun_geste_de_la_vague() 
     } else {
         let lignes = vec![
             "#!/bin/sh".to_string(),
-            format!("cat '{}'", controle_jsonl.display()),
+            // La règle des leçons nomme le bac de la main : `@BAC@` y est remplacé par sa règle.
+            format!(r#"sed "s|@BAC@|/$(pwd)|g" '{}'"#, controle_jsonl.display()),
             "cat > /dev/null".to_string(),
             format!("printf '%s\\n' '{gitdir}' > .git"),
             "echo a > a.txt".to_string(),
