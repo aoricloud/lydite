@@ -175,6 +175,7 @@ pub(crate) fn lancer_avec(
         fil,
         assemblage,
         juge: liens.juge,
+        corrige: liens.corrige.is_some(),
         preparation: liens.preparation,
         baux: Baux::new(),
         rangs: (0..).zip(&plan.taches).map(|(rang, tache)| (tache.id.as_str(), rang)).collect(),
@@ -278,6 +279,18 @@ fn dans_ses_fichiers(bac: &Path, depart: &str, tache: &Tache, proteges: &[String
     assemblage::fichiers_tenus(bac, depart, &tache.id, fichiers).map(|()| pris).map_err(|refus| en_erreur(&refus))
 }
 
+/// Une main de plan verte qui n'a changé aucun chemin depuis `depart` n'a rien fait : sa tentative est rouge, et son
+/// erreur le dit, que la relance reçoit. Un git qui ne dit pas ce qu'elle a changé ne la rougit pas ici : son refus
+/// 7009 reste celui d'aujourd'hui.
+fn main_qui_change(bac: &Path, depart: &str) -> Result<(), String> {
+    match assemblage::chemins_changes(bac, depart) {
+        Ok(chemins) if chemins.is_empty() => Err("the hand changed nothing".to_string()),
+        Ok(_) => Ok(()),
+        // Le refus 7009 vient plus loin, à l'assemblage : ici, la main n'est pas jugée sur ce que git ne dit pas.
+        Err(_) => Ok(()),
+    }
+}
+
 /// Chaque texte que le plan exige (`exact`) paraît, octet pour octet, dans son fichier du bac ; sinon la tentative est
 /// rouge, et son erreur nomme le fichier et le texte, que la relance reçoit. Un fichier absent, ou illisible, ne le
 /// contient pas.
@@ -328,6 +341,8 @@ struct Vague<'a> {
     assemblage: Option<Assemblage<'a>>,
     /// Le juge de ses mains, celui du découpeur ou du relecteur ([`Liens`]).
     juge: Option<Juge<'a>>,
+    /// Vrai pour la vague d'une correction, qui a son propre contrôle (7017).
+    corrige: bool,
     /// Ce qui se pose dans le bac de chaque main avant son premier départ ([`Preparation`]).
     preparation: Option<Preparation<'a>>,
     baux: Baux,
@@ -504,6 +519,8 @@ impl<'a> Vague<'a> {
         // raccourci : tué en pleine vérification, Kraken laisse le fichier ; monter avec le nœud, qui rangera.
         let journal = self.fil.dossier().join(format!("verif-{}-{k}-{tentative}.tmp", self.id));
         let juge = self.juge;
+        // Une tâche de plan sans juge : sa main doit avoir changé un chemin. Les mains qui jugent ont leur contrôle.
+        let plan_sans_juge = self.assemblage.is_some() && juge.is_none() && !self.corrige;
         s.spawn(move || {
             let rendu = en_message(|| {
                 let (constat, verif, verdict) = tenter(
@@ -521,6 +538,10 @@ impl<'a> Vague<'a> {
                     dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris).map_err(Echec::Erreur)
                 });
                 let verdict = verdict.and_then(|pris| textes_exacts(&bac, tache, pris).map_err(Echec::Erreur));
+                let verdict = match (plan_sans_juge, verdict) {
+                    (true, Ok(pris)) => main_qui_change(&bac, &depart).map(|()| pris).map_err(Echec::Erreur),
+                    (_, verdict) => verdict,
+                };
                 (constat, verif, verdict)
             });
             // La vague lit le canal jusqu'au dernier message qu'elle attend : celui-ci ne se perd pas.

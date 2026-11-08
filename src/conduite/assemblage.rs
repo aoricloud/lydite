@@ -471,7 +471,7 @@ fn claude_gele(bac: &Path, depart: &str, id: &str, gel: &str) -> Result<(), Refu
 ///
 /// Rien sous un dossier `.claude` (voir [`SOUS_CLAUDE`]). Un échec de git, qu'il ne parte pas ou qu'il refuse, est le
 /// refus 7009 : une liste vide ne vaut « rien changé » que si git a réussi.
-fn chemins_changes(bac: &Path, depart: &str) -> Result<Vec<String>, Refus> {
+pub(crate) fn chemins_changes(bac: &Path, depart: &str) -> Result<Vec<String>, Refus> {
     let statut = geste(bac, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--", "."]);
     let commites = geste(bac, &["diff", "--name-only", "-z", "--no-renames", depart, "HEAD", "--", "."]);
     let mut chemins = Vec::new();
