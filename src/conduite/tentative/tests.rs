@@ -139,79 +139,121 @@ fn tenter_ne_rend_de_constat_que_d_une_main_declaree() {
     // Une main Claude que `borner` n'a pas bornée ne part pas, et ne déclare rien : pas de constat, et rien n'est
     // créé à côté de son bac.
     let libre = crate::coeur::profil::lire("essai", "sorte = claude\n", None, None).unwrap();
-    let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, None, &journal, None);
+    let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, None, None, &journal, None);
     assert_eq!(constat, None);
     assert!(verdict.unwrap_err().starts_with("main : aucun programme à lancer"));
     assert!(!temporaire_de(&bac).unwrap().exists());
     // Une main brute ne déclare rien : l'erreur de son départ, sans constat.
     let brute = Profil::faux(vec!["lydite-main-introuvable".into()], DELAI);
-    let (constat, verif, verdict) = tenter(&brute, &bac, "objectif", Some("exit 0"), None, &journal, None);
+    let (constat, verif, verdict) = tenter(&brute, &bac, "objectif", None, Some("exit 0"), None, &journal, None);
     assert_eq!((constat, verif), (None, None));
     assert!(verdict.unwrap_err().starts_with("lancement impossible de lydite-main-introuvable"));
     // Une main Claude déclare : Kraken rend le constat de ce qu'il en a lu, ici rien, et l'erreur de son départ. Un
     // constat vide est un constat : la vague le note, car la main était déclarée.
     let claude = profil_borne("sorte = claude\nprogramme = lydite-claude-introuvable\n", &dir);
-    let (constat, verif, verdict) = tenter(&claude, &bac, "objectif", Some("exit 0"), Some("échec"), &journal, None);
+    let (constat, verif, verdict) =
+        tenter(&claude, &bac, "objectif", None, Some("exit 0"), Some("échec"), &journal, None);
     assert_eq!((constat, verif), (Some(Constat::default()), None));
     assert!(verdict.unwrap_err().starts_with("lancement impossible de lydite-claude-introuvable"));
     let _ = fs::remove_dir_all(&dir);
+}
+
+/// Les lignes fixes d'une main de tâche, après l'objectif (et l'erreur d'avant) et avant la preuve.
+const FIXE: &str = "\n\nIf the request and a test contradict each other, so that no honest code can pass the test, \
+do not bend the code to the test (no forced case, no branch for a test, no constant tuned to its seeds, no weakened \
+test): write `IMPOSSIBLE: <reason>` as the last line of your answer and stop. A reasoned refusal is a valid \
+result.\n\nChange only the files of your task; the other tasks do the rest.";
+
+#[test]
+fn la_consigne_nomme_les_fichiers_de_la_tache_a_la_suite_de_la_ligne_fixe() {
+    let fichiers = ["src/a.rs".to_string(), "docs/".to_string()];
+    let avec = consigne("Écrire a", Some(&fichiers), None, None, false);
+    assert!(avec.starts_with(&format!("Écrire a{FIXE} Your files: src/a.rs docs/\n\n")), "{avec}");
+    let sans = consigne("Écrire a", None, None, None, false);
+    assert!(sans.starts_with(&format!("Écrire a{FIXE}\n\n")) && !sans.contains("Your files"), "{sans}");
+}
+
+#[test]
+fn la_derniere_ligne_impossible_se_lit_avec_ses_blancs_et_son_deux_points() {
+    assert_eq!(declare_impossible("travail\nIMPOSSIBLE: le test se contredit\n\n"), Some("le test se contredit"));
+    assert_eq!(declare_impossible("IMPOSSIBLE : raison"), Some("raison"));
+    assert_eq!(declare_impossible("IMPOSSIBLE:"), Some(""));
+    assert_eq!(declare_impossible("IMPOSSIBLE: raison\nautre ligne"), None);
+    assert_eq!(declare_impossible("IMPOSSIBLE sans deux-points"), None);
+    assert_eq!(declare_impossible("IMPOSSIBLEMENT: non"), None);
+    assert_eq!(impossible_declaree(&format!("{IMPOSSIBLE}raison")), Some("raison"));
+    assert_eq!(impossible_declaree("pas de PREUVE"), None);
 }
 
 #[test]
 fn la_consigne_garde_ses_octets() {
     // Sans vérification, la main joue elle-même sa preuve et finit sur PREUVE.
     assert_eq!(
-        consigne("Écrire bonjour.txt", None, None, false),
-        "Écrire bonjour.txt\n\nQuand tu as fini, joue toi-même le test qui prouve ton travail. La dernière ligne \
-         de ta réponse est exactement PREUVE: vert si le test passe, sinon PREUVE: rouge."
+        consigne("Écrire bonjour.txt", None, None, None, false),
+        format!(
+            "Écrire bonjour.txt{FIXE}\n\nQuand tu as fini, joue toi-même le test qui prouve ton travail. La \
+             dernière ligne de ta réponse est exactement PREUVE: vert si le test passe, sinon PREUVE: rouge."
+        )
     );
     // Avec une vérification que la main ne peut pas jouer, Kraken la joue : la consigne la nomme.
     assert_eq!(
-        consigne("Écrire bonjour.txt", Some("cargo test"), None, false),
-        "Écrire bonjour.txt\n\nQuand tu auras fini, Lydite jouera dans ton dossier : cargo test. \
-         Ton travail est pris si elle réussit."
+        consigne("Écrire bonjour.txt", None, Some("cargo test"), None, false),
+        format!(
+            "Écrire bonjour.txt{FIXE}\n\nQuand tu auras fini, Lydite jouera dans ton dossier : cargo test. \
+             Ton travail est pris si elle réussit."
+        )
     );
     // À la relance, l'erreur de la tentative d'avant s'intercale avant la preuve.
     assert_eq!(
-        consigne("Écrire bonjour.txt", None, Some("pas de PREUVE\nen dernière ligne"), false),
-        "Écrire bonjour.txt\n\nTentative précédente échouée :\npas de PREUVE\nen dernière ligne\n\n\
-         Quand tu as fini, joue toi-même le test qui prouve ton travail. La dernière ligne \
-         de ta réponse est exactement PREUVE: vert si le test passe, sinon PREUVE: rouge."
+        consigne("Écrire bonjour.txt", None, None, Some("pas de PREUVE\nen dernière ligne"), false),
+        format!(
+            "Écrire bonjour.txt\n\nTentative précédente échouée :\npas de PREUVE\nen dernière ligne{FIXE}\n\n\
+             Quand tu as fini, joue toi-même le test qui prouve ton travail. La dernière ligne \
+             de ta réponse est exactement PREUVE: vert si le test passe, sinon PREUVE: rouge."
+        )
     );
     assert_eq!(
-        consigne("Écrire bonjour.txt", Some("cargo test"), Some("vérification rouge"), false),
-        "Écrire bonjour.txt\n\nTentative précédente échouée :\nvérification rouge\n\n\
-         Quand tu auras fini, Lydite jouera dans ton dossier : cargo test. \
-         Ton travail est pris si elle réussit."
+        consigne("Écrire bonjour.txt", None, Some("cargo test"), Some("vérification rouge"), false),
+        format!(
+            "Écrire bonjour.txt\n\nTentative précédente échouée :\nvérification rouge{FIXE}\n\n\
+             Quand tu auras fini, Lydite jouera dans ton dossier : cargo test. \
+             Ton travail est pris si elle réussit."
+        )
     );
     // Une vérification prêtée à la main : elle la joue elle-même, chaque morceau seul et tel quel, jusqu'à ce
     // qu'elle passe, puis Kraken la rejoue.
     assert_eq!(
-        consigne("Écrire bonjour.txt", Some("cargo test"), None, true),
-        "Écrire bonjour.txt\n\nQuand tu auras fini, joue toi-même dans ton dossier : cargo test. Lance chaque \
-         morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux que joint ` && ` ; une \
-         commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni `;`, ni `|`, ni \
-         redirection : c'est seul ainsi qu'un morceau t'est permis. Reprends ton \
-         travail jusqu'à ce qu'elle réussisse : Lydite la rejouera ensuite, et ton travail est pris si elle \
-         réussit."
+        consigne("Écrire bonjour.txt", None, Some("cargo test"), None, true),
+        format!(
+            "Écrire bonjour.txt{FIXE}\n\nQuand tu auras fini, joue toi-même dans ton dossier : cargo test. Lance \
+             chaque morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux que joint ` && ` ; \
+             une commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni `;`, ni `|`, ni \
+             redirection : c'est seul ainsi qu'un morceau t'est permis. Reprends ton \
+             travail jusqu'à ce qu'elle réussisse : Lydite la rejouera ensuite, et ton travail est pris si elle \
+             réussit."
+        )
     );
     assert_eq!(
-        consigne("Écrire bonjour.txt", Some("cargo test"), Some("vérification rouge"), true),
-        "Écrire bonjour.txt\n\nTentative précédente échouée :\nvérification rouge\n\n\
-         Quand tu auras fini, joue toi-même dans ton dossier : cargo test. Lance chaque \
-         morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux que joint ` && ` ; une \
-         commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni `;`, ni `|`, ni \
-         redirection : c'est seul ainsi qu'un morceau t'est permis. Reprends ton \
-         travail jusqu'à ce qu'elle réussisse : Lydite la rejouera ensuite, et ton travail est pris si elle \
-         réussit."
+        consigne("Écrire bonjour.txt", None, Some("cargo test"), Some("vérification rouge"), true),
+        format!(
+            "Écrire bonjour.txt\n\nTentative précédente échouée :\nvérification rouge{FIXE}\n\n\
+             Quand tu auras fini, joue toi-même dans ton dossier : cargo test. Lance chaque \
+             morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux que joint ` && ` ; une \
+             commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni `;`, ni `|`, ni \
+             redirection : c'est seul ainsi qu'un morceau t'est permis. Reprends ton \
+             travail jusqu'à ce qu'elle réussisse : Lydite la rejouera ensuite, et ton travail est pris si elle \
+             réussit."
+        )
     );
     // Une preuve à deux morceaux s'écrit entière, telle que l'humain l'a donnée, et la même phrase la suit.
     assert_eq!(
-        consigne("Écrire bonjour.txt", Some("cargo fmt --check && cargo test"), None, true),
-        "Écrire bonjour.txt\n\nQuand tu auras fini, joue toi-même dans ton dossier : cargo fmt --check && \
-         cargo test. Lance chaque morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux que \
-         joint ` && ` ; une commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni `;`, ni \
-         `|`, ni redirection : c'est seul ainsi qu'un morceau t'est permis. Reprends ton travail jusqu'à ce \
-         qu'elle réussisse : Lydite la rejouera ensuite, et ton travail est pris si elle réussit."
+        consigne("Écrire bonjour.txt", None, Some("cargo fmt --check && cargo test"), None, true),
+        format!(
+            "Écrire bonjour.txt{FIXE}\n\nQuand tu auras fini, joue toi-même dans ton dossier : cargo fmt --check \
+             && cargo test. Lance chaque morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux \
+             que joint ` && ` ; une commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni \
+             `;`, ni `|`, ni redirection : c'est seul ainsi qu'un morceau t'est permis. Reprends ton travail \
+             jusqu'à ce qu'elle réussisse : Lydite la rejouera ensuite, et ton travail est pris si elle réussit."
+        )
     );
 }

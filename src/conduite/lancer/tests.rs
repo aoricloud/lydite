@@ -633,6 +633,75 @@ fn le_fil_rejoue_main_par_main_ce_que_lancer_a_rendu() {
     let _ = fs::remove_dir_all(&racine);
 }
 
+/// Une fausse main qui écrit `travail.txt` dans son bac puis finit par `fin` ; elle note chaque départ dans `racine`.
+#[cfg(unix)]
+fn main_qui_finit_par(racine: &Path, fin: &str) -> Vec<String> {
+    let script = racine.join("finit.sh");
+    let departs = racine.join("departs");
+    let corps = format!("cat > /dev/null\necho x > travail.txt\necho depart >> '{}'\n{fin}\n", departs.display());
+    fs::write(&script, corps).unwrap();
+    vec!["sh".into(), script.to_string_lossy().into_owned()]
+}
+
+#[cfg(unix)]
+#[test]
+fn une_main_qui_declare_l_impossible_est_classee_sans_rejeu_ni_relance_ni_assemblage() {
+    for ecrit in ["IMPOSSIBLE: le test se contredit", "IMPOSSIBLE : le test se contredit"] {
+        let racine = racine("impossible");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let fin = format!("echo 'Je ne peux pas.'\necho '{ecrit}'");
+        let profil = Profil::faux(main_qui_finit_par(&racine, &fin), DELAI);
+        // La preuve de la tâche passerait : `exit 0` ; rien ne la rejoue pourtant.
+        let plan = plan(&["plan 1", "objectif : Écrire a", "preuve : exit 0", "tache a", "    Écrire a"]);
+        let (branche, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+        let erreur = issues[0].1.as_ref().unwrap_err();
+        assert_eq!(erreur, "impossible (déclarée) : le test se contredit");
+        // Une seule main est partie : pas de relance.
+        let departs = fs::read_to_string(racine.join("departs")).unwrap();
+        assert_eq!(departs.lines().count(), 1, "{departs}");
+        let evenements = fil(&kraken);
+        assert!(!evenements.iter().any(|e| matches!(e, Evenement::Fusion { .. } | Evenement::Refus { .. })));
+        let fins: Vec<_> = evenements
+            .iter()
+            .filter_map(|e| match e {
+                Evenement::Fin { couleur, foi, texte, verif, .. } => Some((*couleur, *foi, texte.as_str(), verif)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fins, [(Couleur::Rouge, Foi::Declare, "le test se contredit", &None)]);
+        assert!(
+            evenements.iter().any(|e| matches!(
+                e,
+                Evenement::Verdict { verdict: Verdict::Impossible, foi: Foi::Declare, main: 1, .. }
+            ))
+        );
+        // Rien de son bac n'est assemblé : la branche de la vague est à sa base.
+        let branche = branche.expect("la branche d'une vague à plan");
+        assert!(git(&depot, &["ls-tree", "-r", "--name-only", &branche]).is_empty());
+        // `lydite etat` dit la raison, déclarée ; le reçu compte la tâche impossible.
+        let notes = notes(&kraken);
+        let vagues = etat(&evenements);
+        let dit = crate::commande::etat::rendu_avec(&vagues, &notes, "2099-01-01T00:00:00.000Z");
+        assert!(dit.contains("impossible (déclarée) : le test se contredit"), "{dit}");
+        assert!(dit.contains("1 impossible"), "{dit}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn une_ligne_impossible_au_milieu_de_la_reponse_ne_compte_pas() {
+    let racine = racine("impossible-milieu");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let fin = "echo 'IMPOSSIBLE: pas vraiment'\necho 'PREUVE: vert'";
+    let profil = Profil::faux(main_qui_finit_par(&racine, fin), DELAI);
+    let plan = plan(&["plan 1", "objectif : Écrire a", "preuve : exit 0", "tache a", "    Écrire a"]);
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    assert!(issues[0].1.as_ref().is_ok_and(|pris| pris.prouve), "{issues:?}");
+    assert!(!fil(&kraken).iter().any(|e| matches!(e, Evenement::Verdict { verdict: Verdict::Impossible, .. })));
+    let _ = fs::remove_dir_all(&racine);
+}
+
 #[test]
 fn un_dossier_impossible_nomme_son_chemin() {
     let racine = racine("pose");

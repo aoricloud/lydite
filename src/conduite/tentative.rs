@@ -9,6 +9,32 @@ use crate::coeur::protocole::{Attendu, Constat};
 const PREUVE: &str = "\n\nQuand tu as fini, joue toi-même le test qui prouve ton travail. La dernière ligne \
 de ta réponse est exactement PREUVE: vert si le test passe, sinon PREUVE: rouge.";
 
+/// Les lignes fixes que la consigne d'une main de tâche porte après l'objectif : la sortie honnête, quand aucun code
+/// honnête ne passe le test, et le périmètre des fichiers.
+const HONNETETE: &str = "If the request and a test contradict each other, so that no honest code can pass the \
+test, do not bend the code to the test (no forced case, no branch for a test, no constant tuned to its seeds, no \
+weakened test): write `IMPOSSIBLE: <reason>` as the last line of your answer and stop. A reasoned refusal is a valid \
+result.";
+
+const PERIMETRE: &str = "Change only the files of your task; the other tasks do the rest.";
+
+/// Le début de l'erreur d'une main qui a déclaré la tâche impossible : Kraken l'écrit lui-même en tête, et la raison
+/// de la main suit. La vague le reconnaît à ce début ([`impossible_declaree`]) et ne relance pas.
+const IMPOSSIBLE: &str = "impossible (déclarée) : ";
+
+/// La raison d'une main qui a déclaré sa tâche impossible, si l'erreur `erreur` est celle que `tenter` écrit alors.
+pub(crate) fn impossible_declaree(erreur: &str) -> Option<&str> {
+    erreur.strip_prefix(IMPOSSIBLE)
+}
+
+/// La raison de la dernière ligne non vide du texte d'une main si elle commence par `IMPOSSIBLE`, suivi de blancs
+/// éventuels puis de `:`. Une ligne `IMPOSSIBLE` ailleurs ne compte pas.
+fn declare_impossible(texte: &str) -> Option<&str> {
+    let derniere = texte.lines().rev().find(|ligne| !ligne.trim().is_empty())?;
+    let reste = derniere.trim().strip_prefix("IMPOSSIBLE")?;
+    Some(reste.trim_start().strip_prefix(':')?.trim())
+}
+
 /// Un résultat pris ; `prouve` est faux quand aucune commande de vérification ne l'a rejoué.
 #[derive(Debug)]
 pub(crate) struct Pris {
@@ -27,7 +53,17 @@ pub(crate) type Juge<'a> = &'a (dyn Fn(&Path) -> Result<(), String> + Sync);
 /// jusqu'à ce qu'elle passe, avant que Kraken la rejoue. La main en lance chaque morceau seul et tel quel, car sous
 /// Windows, sans bac à sable, Claude Code ne laisse passer un morceau prêté que seul et tel quel (`excludedCommands`),
 /// et refuse une commande qui l'enrobe.
-fn consigne(objectif: &str, verifier: Option<&str>, precedente: Option<&str>, pretee: bool) -> String {
+fn consigne(
+    objectif: &str,
+    fichiers: Option<&[String]>,
+    verifier: Option<&str>,
+    precedente: Option<&str>,
+    pretee: bool,
+) -> String {
+    let perimetre = match fichiers {
+        Some(fichiers) => format!("{PERIMETRE} Your files: {}", fichiers.join(" ")),
+        None => PERIMETRE.to_string(),
+    };
     // Avec une commande, c'est Kraken qui la rejoue ; la main la joue d'abord si on la lui prête, car en `acceptEdits`
     // elle ne peut souvent pas la lancer sans ce prêt.
     let preuve = match (verifier, pretee) {
@@ -44,7 +80,7 @@ fn consigne(objectif: &str, verifier: Option<&str>, precedente: Option<&str>, pr
         ),
         (None, _) => PREUVE.into(),
     };
-    format!("{}{preuve}", avec_precedente(objectif, precedente))
+    format!("{}\n\n{HONNETETE}\n\n{perimetre}{preuve}", avec_precedente(objectif, precedente))
 }
 
 /// L'objectif, puis l'erreur de la tentative d'avant s'il y en a une. C'est toute la consigne d'une main jugée par
@@ -64,6 +100,10 @@ fn avec_precedente(objectif: &str, precedente: Option<&str>) -> String {
 /// verdict. `precedente` est l'erreur de la tentative d'avant, et ouvre la relance ; la sortie de la vérification passe
 /// par `journal`.
 ///
+/// Une main de tâche (sans `juge`) dont la dernière ligne non vide est `IMPOSSIBLE: <raison>` est déclarée impossible :
+/// sa preuve n'est pas rejouée, et son verdict est l'erreur que [`impossible_declaree`] reconnaît. `fichiers` est le
+/// périmètre de sa tâche, que sa consigne nomme.
+///
 /// Avec `juge`, la main est le découpeur ou le relecteur, dont la preuve prêtée, `verifier`, est une commande de
 /// Kraken : sa consigne est son objectif, qui dit déjà sa preuve, puis l'erreur d'avant ; le dossier de l'exécutable
 /// de Kraken passe en tête de son `PATH`, pour que la commande se trouve ; et son verdict est celui du juge, une prise
@@ -72,10 +112,12 @@ fn avec_precedente(objectif: &str, precedente: Option<&str>) -> String {
 /// Si le profil nomme un fournisseur ([`Profil::fournisseur`]), la main, le découpeur et le relecteur compris, reçoit
 /// l'URL de son API et sa clé, et perd la variable que `cle` nomme (voir `partir`) ; la preuve que Kraken rejoue ne
 /// reçoit rien du fournisseur ([`rejouer`]).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn tenter(
     profil: &Profil,
     bac: &Path,
     objectif: &str,
+    fichiers: Option<&[String]>,
     verifier: Option<&str>,
     precedente: Option<&str>,
     journal: &Path,
@@ -84,7 +126,7 @@ pub(crate) fn tenter(
     let mut verif = None;
     let consigne = match juge {
         Some(_) => avec_precedente(objectif, precedente),
-        None => consigne(objectif, verifier, precedente, profil.prete(verifier)),
+        None => consigne(objectif, fichiers, verifier, precedente, profil.prete(verifier)),
     };
     let Demande { argv, declaration } = profil.demande(bac, verifier, precedente.is_some());
     let attendu =
@@ -98,6 +140,10 @@ pub(crate) fn tenter(
         Ok(_) => jouer(&argv, bac, &consigne, profil.delai_main(), attendu.as_ref(), juge.is_some(), fournisseur),
     };
     let verdict = jeu.and_then(|sortie| match (juge, verifier) {
+        // Une main de tâche qui déclare l'impossible : rien n'est rejoué, et l'erreur le dit pour que la vague classe.
+        (None, _) if declare_impossible(&sortie).is_some() => {
+            Err(format!("{IMPOSSIBLE}{}", queue(declare_impossible(&sortie).unwrap_or_default())))
+        }
         (Some(juge), _) => juge(bac).map(|()| Pris { sortie, prouve: true }),
         (None, Some(commande)) => {
             let (fin, rejeu) = rejouer(profil, commande, bac, journal);

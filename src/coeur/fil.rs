@@ -108,16 +108,19 @@
 //!   `declare` : c'est ce que la main a compté, et ce que le profil prix. Elle porte l'origine de la séance.
 //! - `main.fin {vague, main, tentative, couleur, foi, texte, verif}` : la tentative finit `vert` ou `rouge`. Vert et
 //!   `constate`, la vérification que Kraken a jouée a réussi ; vert et `declare`, sans vérification, la main a fini sur
-//!   `PREUVE: vert` ; rouge, Kraken l'a vu, et écrit `constate`. `texte` est la sortie de la main (vert) ou l'erreur
+//!   `PREUVE: vert` ; rouge, Kraken l'a vu, et écrit `constate` ; rouge et `declare`, la main a fini sur
+//!   `IMPOSSIBLE: <raison>`, et `texte` est sa raison. `texte` est la sortie de la main (vert) ou l'erreur
 //!   (rouge). `verif` dit si la vérification a tourné :
 //!   - `null` : elle n'a pas tourné, faute de commande, après une main rouge, ou parce qu'elle n'a pas pu partir
 //!     (journal impossible à créer, coquille qui ne part pas). Dans ce dernier cas, la fin est rouge, et son texte le
 //!     dit ;
 //!   - une chaîne : elle a tourné, et c'est la fin de sa sortie, vide si elle n'a rien écrit. Un journal illisible y
 //!     met « journal illisible : <erreur> », jamais la chaîne vide.
-//! - `main.verdict {vague, main, verdict, foi}` : la main est `prise` ou `classee`. Prise `constate`, sa vérification a
-//!   réussi ; prise `declare`, elle ne tient qu'à la ligne `PREUVE: vert` de la main ; classée, Kraken l'a vu, et écrit
-//!   `constate`. Le texte de sa dernière fin est sa sortie si elle est prise, son erreur si elle est classée.
+//! - `main.verdict {vague, main, verdict, foi}` : la main est `prise`, `classee` ou `impossible`. Prise `constate`, sa
+//!   vérification a réussi ; prise `declare`, elle ne tient qu'à la ligne `PREUVE: vert` de la main ; classée, Kraken
+//!   l'a vu, et écrit `constate`. Impossible, la main de la tâche a fini sur `IMPOSSIBLE: <raison>` : le verdict est
+//!   toujours `declare`, rien n'a été rejoué ni relancé, et sa dernière fin est rouge et `declare`, son texte la
+//!   raison. Le texte de sa dernière fin est sa sortie si elle est prise, son erreur si elle est classée.
 //! - `vague.assemblage {vague, branche, base, preuve}` : la vague a un plan, et ses tâches s'assemblent dans la branche
 //!   `branche` (`lydite/vague-<vague>`). `base` est le sha complet du commit d'où elle part et où `preuve`, la commande
 //!   de la vague, a passé avant toute main. Une fois par vague, juste après `vague.ouverte` ; des copies n'en écrivent
@@ -502,15 +505,19 @@ impl Couleur {
 pub(crate) enum Verdict {
     Prise,
     Classee,
+    /// Une main de tâche a déclaré, par `IMPOSSIBLE: <raison>`, qu'aucun code honnête ne passe son test : la tâche est
+    /// classée sans relance. Toujours déclaré.
+    Impossible,
 }
 
 impl Verdict {
-    const TOUS: [Verdict; 2] = [Verdict::Prise, Verdict::Classee];
+    const TOUS: [Verdict; 3] = [Verdict::Prise, Verdict::Classee, Verdict::Impossible];
 
     fn mot(self) -> &'static str {
         match self {
             Verdict::Prise => "prise",
             Verdict::Classee => "classee",
+            Verdict::Impossible => "impossible",
         }
     }
 }
@@ -852,12 +859,14 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
             texte: texte("texte")?.into(),
             verif: texte_ou_nul("verif")?,
         },
-        "main.verdict" => Evenement::Verdict {
-            vague: texte("vague")?.into(),
-            main: nombre("main")?,
-            verdict: jeton(&Verdict::TOUS, Verdict::mot, "verdict", texte("verdict")?)?,
-            foi: jeton(&Foi::TOUTES, Foi::mot, "foi", texte("foi")?)?,
-        },
+        "main.verdict" => {
+            let verdict = jeton(&Verdict::TOUS, Verdict::mot, "verdict", texte("verdict")?)?;
+            let foi = jeton(&Foi::TOUTES, Foi::mot, "foi", texte("foi")?)?;
+            if verdict == Verdict::Impossible && foi != Foi::Declare {
+                return Err("un verdict « impossible » est toujours déclaré : « foi » vaut declare".into());
+            }
+            Evenement::Verdict { vague: texte("vague")?.into(), main: nombre("main")?, verdict, foi }
+        }
         "vague.assemblage" => Evenement::Assemblage {
             vague: texte("vague")?.into(),
             branche: texte("branche")?.into(),

@@ -227,6 +227,7 @@ fn etat_de(main: Option<&Main>, assemblees: Option<&std::collections::HashSet<&s
             let clair = fil::refus_en_clair(*code, regle, preuve, correction);
             clair.lines().next().unwrap_or_default().to_string()
         }
+        (_, Some((Verdict::Impossible, _))) => format!("impossible (déclarée) : {}", derniere_ligne(main.texte())),
         (_, Some((Verdict::Classee, foi))) => format!("classée{} : {}", declaree(foi), derniere_ligne(main.texte())),
         (_, Some((Verdict::Prise, foi))) => {
             let attente = if assemblees.is_some() { ", en attente d'assemblage" } else { "" };

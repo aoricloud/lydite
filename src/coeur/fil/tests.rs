@@ -180,7 +180,7 @@ fn rendu(vague: &Vague) -> Rendu<'_> {
     let rendu = vague.mains.iter().map(|(n, main)| {
         let issue = match main.verdict.expect("une main sans verdict") {
             (Verdict::Prise, foi) => Ok((main.texte(), foi == Foi::Constate)),
-            (Verdict::Classee, _) => Err(main.texte()),
+            (Verdict::Classee | Verdict::Impossible, _) => Err(main.texte()),
         };
         (format!("main-{}-{n}", vague.id), issue)
     });
