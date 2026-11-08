@@ -679,7 +679,8 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
                     sortie/a.txt, ligne 3 : Le test ne peut pas echouer. SECRET-DE-LA-RELECTURE\n    Ajouter une \
                     assertion.\n";
     let (socle, consigne) = consigne.split_once("\n\n").unwrap();
-    assert!(socle.starts_with("A refused action is not retried another way.\n"), "{socle}");
+    let debut_du_socle = "A refusal from the wall or from your profile is not worked around another way.\n";
+    assert!(socle.starts_with(debut_du_socle), "{socle}");
     assert!(consigne.starts_with(objectif), "{consigne}");
     assert!(!consigne.contains("Un nom peu clair"), "une remarque à noter n'est pas à corriger : {consigne}");
     // Le texte des remarques n'est ni dans le corps de la PR, ni dans un commit poussé : il n'y reste que les nombres.
