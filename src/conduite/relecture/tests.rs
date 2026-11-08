@@ -670,14 +670,24 @@ fn une_lecon_ecrite_par_une_main_n_atteint_ni_le_relecteur_ni_la_correction() {
         assert!(arbre.contains(".agents/skills/ecrite/SKILL.md"), "{arbre}");
     }
     // Ni l'un ni l'autre n'a reçu la moindre leçon, ni la fausse : rien du fil n'est un refus 6031.
-    assert!(!format!("{:?}", essai.fil()).contains("6031"), "la leçon fausse a été lue");
+    // On cherche le code dans les notes qui en portent un (refus, refus de forge, fin de tentative), non dans tout
+    // le texte du fil, où une empreinte ou un id peut porter ces chiffres par hasard.
+    let fil = essai.fil();
+    let porte_6031 = |evenement: &Evenement| match evenement {
+        Evenement::Refus { code, .. } | Evenement::RefusForge { code, .. } => *code == 6031,
+        Evenement::Fin { texte, .. } => texte.starts_with("6031 "),
+        _ => false,
+    };
+    let lues: Vec<&Evenement> = fil.iter().filter(|evenement| porte_6031(evenement)).collect();
+    assert!(lues.is_empty(), "la leçon fausse a été lue : {lues:?}");
     let consigne = essai.garde("consigne-relecteur-1.txt").expect("la consigne du relecteur");
     assert!(!consigne.contains("ecrite") && !consigne.contains("The lessons of this repository"), "{consigne}");
     let _ = fs::remove_dir_all(&essai.racine);
 }
 
 #[test]
-fn une_main_qui_change_une_lecon_est_rouge_puis_refusee_en_7018_au_gel() {
+fn une_main_qui_change_une_lecon_est_rouge_en_7018_et_sa_lecon_n_atteint_pas_la_vague() {
+    // Le refus au gel est montré dans `assemblage/tests.rs`.
     // Le profil de l'essai n'a pas de `proteges` : `.agents/skills/` est protégé quand même.
     let essai = Essai::nouveau("relecture-lecon-protegee");
     essai.marque("ecrire-lecon");
