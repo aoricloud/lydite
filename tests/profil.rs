@@ -1180,11 +1180,11 @@ fn le_fil_inscrit_le_lancement_et_le_constat_de_chaque_tentative() {
     assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
     let stderr = String::from_utf8_lossy(&sortie.stderr);
     assert!(stderr.contains(&format!("pris : main-{}-1", essai.vague())), "{}", dit(&sortie));
-    // Dans chaque tentative : le bail et le début, le lancement avant que la main parte, le constat à son retour, puis
-    // la fin.
+    // Dans chaque tentative : le bail et le début, le lancement et la consigne avant que la main parte, le constat à
+    // son retour, puis la fin.
     let fil = essai.fil();
     let genres: Vec<&str> = fil.lines().map(genre).collect();
-    let tentative = ["main.bail", "main.debut", "main.lancement", "main.constat", "main.fin"];
+    let tentative = ["main.bail", "main.debut", "main.lancement", "main.consigne", "main.constat", "main.fin"];
     // Puis le sceau de fin, sans PR à qui le citer.
     let attendu: Vec<&str> = ["vague.ouverte"]
         .into_iter()
@@ -1627,7 +1627,8 @@ fn la_main_d_un_fournisseur_recoit_son_url_et_sa_cle_et_sa_preuve_ne_les_recoit_
     // Au fil, dans chaque tentative, le fournisseur déclaré suit le lancement ; il porte l'origine de la séance, comme
     // lui.
     let genres: Vec<&str> = fil.lines().map(genre).collect();
-    let tentative = ["main.bail", "main.debut", "main.lancement", "main.fournisseur", "main.constat", "main.fin"];
+    let tentative =
+        ["main.bail", "main.debut", "main.lancement", "main.fournisseur", "main.consigne", "main.constat", "main.fin"];
     let attendu: Vec<&str> = ["vague.ouverte"]
         .into_iter()
         .chain(tentative)
@@ -1845,7 +1846,7 @@ fn le_profil_integre_part_sur_sonnet_et_s_inscrit_sans_etre_garde() {
     for ligne in lancements {
         assert!(ligne.contains(&integre), "{ligne}");
     }
-    assert_eq!(noms(&essai.dossier), ["bacs", "fil.jsonl"], "ni profil ni empreinte n'est écrit");
+    assert_eq!(noms(&essai.dossier), ["bacs", "consignes", "fil.jsonl"], "ni profil ni empreinte n'est écrit");
     essai.nettoyer();
 }
 

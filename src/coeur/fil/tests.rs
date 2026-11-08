@@ -874,7 +874,36 @@ fn chaque_type_fait_l_aller_retour() {
         micro_dollars,
         base,
     };
+    let consigne = |role, systeme: Option<&str>, lecons: &str, ecartees: &str| Evenement::Consigne {
+        vague: "v".into(),
+        main: 2,
+        tentative: 1,
+        role,
+        consigne: EMPREINTE.into(),
+        systeme: systeme.map(Into::into),
+        lecons: lecons.into(),
+        ecartees: ecartees.into(),
+        mesure: String::new(),
+    };
     let exemples = [
+        (
+            consigne(Role::Main, Some(EMPREINTE), &format!("a {EMPREINTE}\nb {EMPREINTE}"), "c"),
+            concat!(
+                r#""type":"main.consigne","vague":"v","main":2,"tentative":1,"role":"main","consigne":"e3b0c44"#,
+                r#"298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","systeme":"e3b0c44298fc1c149afb"#,
+                r#"f4c8996fb92427ae41e4649b934ca495991b7852b855","lecons":"a e3b0c44298fc1c149afbf4c8996fb924"#,
+                r#"27ae41e4649b934ca495991b7852b855\nb e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca49599"#,
+                r#"1b7852b855","ecartees":"c","mesure":"""#,
+            ),
+        ),
+        (
+            consigne(Role::Relance, None, "", ""),
+            concat!(
+                r#""type":"main.consigne","vague":"v","main":2,"tentative":1,"role":"relance","consigne":"e3b0c"#,
+                r#"44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","systeme":null,"lecons":"","e"#,
+                r#"cartees":"","mesure":"""#,
+            ),
+        ),
         (
             usage("claude-haiku-5-5", 2500, Base::Forfait),
             concat!(
@@ -3320,4 +3349,63 @@ fn des_lots_tires_a_la_chaine_different() {
     });
     assert_eq!(lots.iter().collect::<HashSet<_>>().len(), lots.len());
     assert!(lots.iter().all(|un| !un.contains('-')), "un lot ne porte pas de tiret");
+}
+
+#[test]
+fn une_consigne_fausse_est_mal_formee_et_le_systeme_peut_etre_nul() {
+    let juste = format!(
+        concat!(
+            r#""type":"main.consigne","vague":"v","main":1,"tentative":1,"role":"main","consigne":"{e}","#,
+            r#""systeme":"{e}","lecons":"a {e}","ecartees":"b","mesure":"""#,
+        ),
+        e = EMPREINTE
+    );
+    let hors_sha = "hors de son domaine : 64 hexadécimaux minuscules";
+    let roles = "hors de son domaine : main ou decoupeur ou relecteur ou correction ou relance";
+    let majuscules = EMPREINTE.to_uppercase();
+    let cas = [
+        (juste.replace(r#""role":"main""#, r#""role":"sceau""#), roles.to_string()),
+        (juste.replace(r#""role":"main""#, r#""role":"Main""#), roles.to_string()),
+        (juste.replace(r#""role":"main""#, r#""role":null"#), "« role » manque ou n'est pas une chaîne".to_string()),
+        (juste.replace(r#""consigne":"e3b0"#, r#""consigne":"e3b"#), hors_sha.to_string()),
+        (juste.replacen(EMPREINTE, &majuscules, 1), hors_sha.to_string()),
+        (juste.replacen(EMPREINTE, &EMPREINTE[1..], 1), hors_sha.to_string()),
+        (juste.replacen(&format!(r#""systeme":"{EMPREINTE}""#), r#""systeme":"abc""#, 1), hors_sha.to_string()),
+        (juste.replacen(&format!(r#""systeme":"{EMPREINTE}""#), r#""systeme":"""#, 1), hors_sha.to_string()),
+        (juste.replacen(&format!(r#""systeme":"{EMPREINTE}","#), "", 1), "« systeme » manque".to_string()),
+        (juste.replace(r#""lecons":"a "#, r#""lecons":1,"x":"a "#), "« lecons » manque".to_string()),
+        (juste.replace(r#""ecartees":"b""#, r#""ecartees":null"#), "« ecartees » manque".to_string()),
+        (juste.replace(r#","mesure":"""#, ""), "« mesure » manque".to_string()),
+        (juste.replace(r#""main":1"#, r#""main":0"#), "« main » vaut 0, hors de son domaine".to_string()),
+        (format!(r#"{juste},"essai":1"#), "champ en trop pour main.consigne : « essai »".to_string()),
+    ];
+    let dir = dossier("consigne-fausse");
+    let lignes: Vec<String> = cas.iter().enumerate().map(|(i, (corps, _))| ligne_s(i as u64 + 1, corps)).collect();
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(notes.is_empty(), "aucune ligne fausse ne se lit : {notes:?}");
+    assert_eq!(ecarts.len(), cas.len(), "{ecarts:?}");
+    assert!(ecarts.iter().all(|(_, refus)| refus.code == Code::EvenementMalForme), "{ecarts:?}");
+    for ((_, refus), (_, bout)) in ecarts.iter().zip(&cas) {
+        assert!(refus.preuve.contains(bout.as_str()), "la preuve devait dire « {bout} » : {refus}");
+    }
+    // Les lignes justes se lisent : un système nul, chacun des cinq rôles, et un texte de leçons sur plusieurs lignes.
+    let nul = juste.replacen(&format!(r#""systeme":"{EMPREINTE}""#), r#""systeme":null"#, 1);
+    let roles_justes = ["main", "decoupeur", "relecteur", "correction", "relance"];
+    let mut justes = vec![juste.clone(), nul];
+    justes.extend(roles_justes.iter().map(|role| juste.replace(r#""role":"main""#, &format!(r#""role":"{role}""#))));
+    let lignes: Vec<String> = justes.iter().enumerate().map(|(i, corps)| ligne_s(i as u64 + 1, corps)).collect();
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert_eq!((notes.len(), ecarts.len()), (justes.len(), 0), "{ecarts:?}");
+    let Evenement::Consigne { systeme, role, .. } = &notes[1].evenement else { panic!("{notes:?}") };
+    assert_eq!((systeme, *role), (&None, Role::Main));
+    let Evenement::Consigne { role, .. } = &notes[6].evenement else { panic!("{notes:?}") };
+    assert_eq!(*role, Role::Relance);
+    // Un fil sans cette note se lit encore, et le rejeu ne dit rien de plus d'une consigne.
+    let evenements: Vec<Evenement> = notes.into_iter().map(|note| note.evenement).collect();
+    let vagues = etat(&evenements);
+    assert_eq!(vagues.len(), 1);
+    assert!(vagues[0].mains.is_empty());
+    let _ = fs::remove_dir_all(&dir);
 }

@@ -115,8 +115,31 @@ fn avec_precedente(objectif: &str, precedente: Option<&str>) -> String {
     }
 }
 
+/// Le texte exact que reçoit la main d'une tentative, calculé une seule fois : la vague en garde les octets, en note
+/// l'empreinte (`main.consigne`) et les envoie à [`tenter`]. Le socle porte l'heure où la main s'arrête : son départ,
+/// pris ici, et son délai. Avec `juge`, la main est le découpeur ou le relecteur : son objectif, puis l'erreur
+/// d'avant ; sinon c'est une main de tâche, avec ses fichiers, ses textes exacts et sa preuve.
+pub(crate) fn consigne_de(
+    profil: &Profil,
+    objectif: &str,
+    fichiers: Option<&[String]>,
+    exacts: &[(String, String)],
+    verifier: Option<&str>,
+    precedente: Option<&str>,
+    juge: bool,
+) -> String {
+    let depart = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs();
+    let socle = socle(depart, profil.delai_main());
+    if juge {
+        format!("{socle}\n\n{}", avec_precedente(objectif, precedente))
+    } else {
+        consigne(objectif, fichiers, exacts, verifier, precedente, profil.prete(verifier), &socle)
+    }
+}
+
 /// Une tentative : joue la main une fois dans le bac, puis sa preuve, la vérification que Kraken rejoue ou, sans
-/// commande, la ligne `PREUVE: vert` de la main. La ligne de commande de la main et ce qu'elle déclare viennent du
+/// commande, la ligne `PREUVE: vert` de la main. `consigne` est le texte exact que la main reçoit ([`consigne_de`]).
+/// La ligne de commande de la main et ce qu'elle déclare viennent du
 /// profil (`Profil::demande`, pure : la vague en tire déjà le `main.lancement`) ; la main joue sous `delai_main`. Rend
 /// le constat de la main (`None` pour une main brute, qui ne déclare rien), le `verif` de la tentative, la fin de la
 /// sortie de la vérification (`None` sans commande, après une main rouge, ou si elle n'a pas pu partir), et le
@@ -142,9 +165,7 @@ fn avec_precedente(objectif: &str, precedente: Option<&str>) -> String {
 pub(crate) fn tenter(
     profil: &Profil,
     bac: &Path,
-    objectif: &str,
-    fichiers: Option<&[String]>,
-    exacts: &[(String, String)],
+    consigne: &str,
     verifier: Option<&str>,
     precedente: Option<&str>,
     journal: &Path,
@@ -152,13 +173,6 @@ pub(crate) fn tenter(
     lecons: Option<&Path>,
 ) -> (Option<Constat>, Option<String>, Result<Pris, Echec>) {
     let mut verif = None;
-    // Le socle porte l'heure où la main s'arrête : son départ, pris ici, et son délai.
-    let depart = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs();
-    let socle = socle(depart, profil.delai_main());
-    let consigne = match juge {
-        Some(_) => format!("{socle}\n\n{}", avec_precedente(objectif, precedente)),
-        None => consigne(objectif, fichiers, exacts, verifier, precedente, profil.prete(verifier), &socle),
-    };
     let Demande { argv, declaration } = profil.demande_avec(bac, verifier, precedente.is_some(), lecons);
     let attendu =
         declaration.as_ref().map(|d| Attendu { reglages: &d.reglages, modele: &d.modele, mcp: d.mcp.as_deref() });
@@ -168,7 +182,7 @@ pub(crate) fn tenter(
     // Sous un mur exigé seul, le dossier temporaire est recréé vide avant la main ([`temporaire`]).
     let (constat, jeu) = match profil.exige().then(|| temporaire(bac, true)).transpose() {
         Err(erreur) => (attendu.as_ref().map(|_| Constat::default()), Err(erreur)),
-        Ok(_) => jouer(&argv, bac, &consigne, profil.delai_main(), attendu.as_ref(), juge.is_some(), fournisseur),
+        Ok(_) => jouer(&argv, bac, consigne, profil.delai_main(), attendu.as_ref(), juge.is_some(), fournisseur),
     };
     let verdict = jeu.map_err(Echec::Erreur).and_then(|sortie| match (juge, verifier) {
         // Une main de tâche qui déclare l'impossible : rien n'est rejoué, et l'échec le dit pour que la vague classe.

@@ -32,7 +32,9 @@ proof. It is a small harness written in Rust, with no dependencies, for Linux an
   that was reviewed and replayed: a reviewed wave only pushes the head its review judged, or the correction of that
   review. Merging stays a human gesture.
 - **One thread of facts.** Everything that happens is appended to a journal outside the repository, and `lydite etat`
-  is read from it. A fact only declared by a hand is never shown as a fact Lydite observed.
+  is read from it. A fact only declared by a hand is never shown as a fact Lydite observed. Before a hand leaves, a
+  `main.consigne` line says what it received: its role, the SHA-256 of the exact text sent, the SHA-256 of its system
+  prompt file, and the lessons given and set aside. Both texts are kept in `consignes/<SHA-256>.txt`.
 - **A sealed thread.** Before it builds the body of its PR, and again when it ends (on every exit, published or not),
   a wave writes a `vague.sceau` line: the journal's length in bytes and the SHA-256 of those bytes. The PR receipt
   repeats the first one (`Fil sealed at <bytes> bytes: sha256 <hash>.`). `lydite etat` recomputes every seal, names

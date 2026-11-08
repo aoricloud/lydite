@@ -75,6 +75,43 @@ fn le_corps_ne_cite_pas_la_raison_d_une_main_impossible() {
 }
 
 #[test]
+fn le_recu_separe_les_mains_refusees() {
+    let v = "1761901500000_11_0";
+    let refus = |main| Evenement::Refus {
+        vague: v.into(),
+        main,
+        code: 7007,
+        regle: "règle".into(),
+        preuve: "preuve".into(),
+        correction: "correction".into(),
+        verif: None,
+    };
+    let recu = |evenements: &[Evenement]| {
+        let notes: Vec<fil::Note> = evenements
+            .iter()
+            .zip(1..)
+            .map(|(evenement, seq)| fil::Note {
+                seance: "s".into(),
+                seq,
+                instant: "2026-10-31T21:00:00.000Z".into(),
+                origine: "humain".into(),
+                origine_foi: Foi::Declare,
+                evenement: evenement.clone(),
+            })
+            .collect();
+        recu_de(&etat(evenements), &notes, v).mains()
+    };
+    let debut = |main| Evenement::Debut { vague: v.into(), main, tentative: 1 };
+    // Sans refus, la ligne ne change pas.
+    assert_eq!(recu(&[debut(1)]), "1 main, 0 relance, 0 classée");
+    // Une main refusée, puis deux.
+    assert_eq!(recu(&[debut(1), refus(1)]), "1 main, 0 relance, 0 classée, 1 refusée");
+    assert_eq!(recu(&[debut(1), debut(2), refus(1), refus(2)]), "2 mains, 0 relance, 0 classée, 2 refusées");
+    // Une main refusée sans tentative compte aussi : son refus est son issue.
+    assert_eq!(recu(&[refus(1)]), "0 main, 0 relance, 0 classée, 1 refusée");
+}
+
+#[test]
 fn le_corps_dit_le_plan_sans_sortie_de_main_ni_chemin() {
     let racine = racine("forge-corps");
     let plan = Plan::lire(
@@ -139,7 +176,7 @@ fn le_corps_dit_le_plan_sans_sortie_de_main_ni_chemin() {
             evenement: evenement.clone(),
         })
         .collect();
-    let recu = "Reçu\n- Coût : 0,84 $ estimé + inconnu\n- 3 mains, 1 relance, 1 classée";
+    let recu = "Reçu\n- Coût : 0,84 $ estimé + inconnu\n- 3 mains, 1 relance, 1 classée, 3 refusées";
     let attendu = format!(
         "{recu}\n- Réglages de la preuve changés : aucun\n\nCinq fichiers\n\nPreuve : cargo test → vert\n\na : Ecrire \
          a.txt,\n\nb : classée\nc : refusée (7011) : {}\nd : refusée (7007) : {}\ne : refusée (8999)\n",
