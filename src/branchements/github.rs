@@ -519,9 +519,10 @@ impl Forge<'_> {
     /// --dst-prefix=b/` : le dépôt visé peut être un sous-dossier du dépôt, et la configuration de l'humain ou du
     /// dépôt (`diff.relative`, `diff.submodule`, `diff.noprefix`, `diff.dstPrefix`) ne change ni ce qu'ils disent ni
     /// la forme de leurs noms. Elle lit aussi l'historique de la plage, commit par commit (`git log -p -m -U0`, mêmes
-    /// drapeaux) : les noms des fichiers que chaque commit change rejoignent ceux du diff net dans la recherche des
-    /// mots, et les lignes ajoutées de chaque commit (« les lignes ajoutées de <fichier> dans l'historique poussé »)
-    /// se cherchent après celles du diff net, si bien qu'un contenu ajouté puis retiré ne passe pas.
+    /// drapeaux ; celui des noms, `git log --name-only`, fixe aussi `--no-relative`) : les noms des fichiers que
+    /// chaque commit change rejoignent ceux du diff net dans la recherche des mots, et les lignes ajoutées de
+    /// chaque commit (« les lignes ajoutées de <fichier> dans l'historique poussé ») se cherchent après celles du
+    /// diff net, si bien qu'un contenu ajouté puis retiré ne passe pas.
     /// Un chemin sans nom, une racine, ne compte pas : il paraîtrait partout.
     // raccourci : un chemin écrit autrement (échappé en `\\`, en nom court 8.3, sous `~`) passe ; monter si une PR en
     // montre un
@@ -571,6 +572,7 @@ impl Forge<'_> {
             "log",
             "-m",
             "--name-only",
+            "--no-relative",
             "-z",
             "--no-renames",
             "--format=",
