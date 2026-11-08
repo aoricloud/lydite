@@ -44,7 +44,9 @@ def relus(corps):
 
 def gh(chemin, filtre):
     """Une lecture de l'API par `gh api`, filtrée par jq. Une erreur arrête le contrôle, qui rougit."""
-    fait = subprocess.run(["gh", "api", "--paginate", chemin, "--jq", filtre], capture_output=True, text=True)
+    fait = subprocess.run(
+        ["gh", "api", "--paginate", chemin, "--jq", filtre], check=False, capture_output=True, text=True
+    )
     if fait.returncode != 0:
         raise RuntimeError(f"gh api {chemin}: {fait.stderr.strip() or fait.returncode}")
     return fait.stdout
