@@ -570,8 +570,11 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
         Evenement::VerdictRelecture { vague: r.clone(), relue: v.clone(), sha: t.clone(), profil, empreinte, modele };
     assert_eq!(fil.get(rang + 1), Some(&verdict), "{fil:?}");
     // Son corps dit la relecture en nombres, jamais en texte.
+    let sceaux = crate::branchements::dossier::lire_sceaux(&essai.kraken);
+    let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
     let attendu = format!(
-        "Reçu\n- Coût : inconnu\n- 3 mains, 0 relance, 0 classée\n- Réglages de la preuve changés : aucun\n\n\
+        "Reçu\n- Coût : inconnu\n- 3 mains, 0 relance, 0 classée\n- Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
+         - Réglages de la preuve changés : aucun\n\n\
          Ecrire deux fichiers\n\nPreuve : exit 0 → vert\n\na : Ecrire le fichier critique\nb : Ecrire \
          l'autre fichier\n\nRelecture : 1 remarques, dont 0 bloquantes.\nReviewed and replayed on commit {t}.\n"
     );
@@ -933,6 +936,10 @@ fn sous_une_issue_une_vague_lancee_d_un_sous_dossier_pese_son_diff_depuis_la_rac
     let base = base_du_depot(&sous).unwrap();
     let code = mener_sur(&lieu, &plan, &base, Liens::default(), None, Origine::Issue).unwrap();
     assert_eq!(code, ExitCode::FAILURE);
+    // Une sortie qui ne publie rien scelle quand même le fil, une fois, à sa fin.
+    let sceaux = crate::branchements::dossier::lire_sceaux(&essai.kraken);
+    assert_eq!(sceaux.len(), 1, "{sceaux:?}");
+    assert_eq!(etat_dans(&essai.kraken), Ok(ExitCode::FAILURE), "le sceau tient");
     // Le diff coupé n'est pas allé au relecteur : 7016, et aucun relecteur n'est parti.
     assert!(essai.garde("relecture-1").is_none(), "aucun relecteur n'est parti");
     let fil = essai.fil();

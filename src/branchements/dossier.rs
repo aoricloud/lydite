@@ -11,7 +11,8 @@ use std::sync::{Mutex, PoisonError};
 
 use crate::coeur::erreur::{Code, Refus, nommee};
 use crate::coeur::fil::{
-    Base, Evenement, IssueVague, Lecture, ligne_d_issue, ligne_de_note, lire_octets, lot, origine_lue,
+    Base, Evenement, IssueVague, Lecture, SceauVague, ligne_d_issue, ligne_de_note, ligne_de_sceau, lire_octets, lot,
+    origine_lue, premier_sceau_rompu,
 };
 use crate::coeur::profil::{self, Profil, empreinte, integre};
 
@@ -113,6 +114,27 @@ impl Fil {
         self.ecrire(&mut seq, ligne)
     }
 
+    /// Scelle le fil pour la vague `vague` : lit le fil tel qu'il est, puis ajoute à son bout le `vague.sceau` de ses
+    /// octets et de leur empreinte. D'autres séances peuvent écrire entre la lecture et l'ajout : le sceau couvre ce
+    /// qui précède ses `octets`, non ce qui précède sa ligne. Un fil vide ne se scelle pas (`InvalidInput`).
+    pub(crate) fn sceller(&self, vague: &str) -> io::Result<SceauVague> {
+        let mut seq = self.seq.lock().unwrap_or_else(PoisonError::into_inner);
+        let chemin = self.dossier.join(FICHIER);
+        let octets = match fs::read(&chemin) {
+            Ok(octets) => octets,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return Err(nommee(e, format!("lecture du fil {}", chemin.display()))),
+        };
+        if octets.is_empty() {
+            let vide = io::Error::new(io::ErrorKind::InvalidInput, "le fil est vide, et rien ne s'y scelle");
+            return Err(nommee(vide, format!("sceau du fil {}", chemin.display())));
+        }
+        let sceau = SceauVague::sur(vague, &octets);
+        let ligne = ligne_de_sceau(&self.seance, *seq + 1, &self.origine, &sceau);
+        self.ecrire(&mut seq, ligne)?;
+        Ok(sceau)
+    }
+
     /// Écrit une ligne, son enveloppe puis son corps, sous le verrou du compteur `seq`, qui n'avance qu'après.
     fn ecrire(&self, seq: &mut u64, ligne: String) -> io::Result<()> {
         let chemin = self.dossier.join(FICHIER);
@@ -149,14 +171,30 @@ pub(crate) fn lire(kraken: &Path) -> Result<Lecture, Refus> {
 /// Le fil lu une fois : ce que [`lire`] en rend, et ses issues de vague, dans l'ordre du fil, lues comme ses notes :
 /// une ligne `vague.issue` mal formée n'en donne pas, et se dit dans les écarts.
 pub(crate) fn lire_tout(kraken: &Path) -> Result<(Lecture, Vec<IssueVague>), Refus> {
+    lire_scelle(kraken).map(|(lecture, issues, _)| (lecture, issues))
+}
+
+/// Le fil lu une fois, comme [`lire_tout`], avec de plus le premier de ses sceaux qui ne tient plus
+/// ([`premier_sceau_rompu`]), `None` si tous tiennent ou s'il n'y en a pas.
+pub(crate) fn lire_scelle(kraken: &Path) -> Result<(Lecture, Vec<IssueVague>, Option<SceauVague>), Refus> {
     let chemin = kraken.join(FICHIER);
     // `fs::read` ouvre en partage lecture, écriture et effacement : une note passe pendant la lecture.
     let octets = match fs::read(&chemin) {
         Ok(octets) => octets,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Lecture::default(), Vec::new())),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Lecture::default(), Vec::new(), None)),
         Err(e) => return Err(nommee(e, format!("lecture du fil {}", chemin.display())).into()),
     };
-    lire_octets(&chemin, &octets)
+    let (lecture, issues, sceaux) = lire_octets(&chemin, &octets)?;
+    let rompu = premier_sceau_rompu(&octets, &sceaux).cloned();
+    Ok((lecture, issues, rompu))
+}
+
+/// Les sceaux du fil de `kraken`, dans l'ordre du fil, pour les essais.
+#[cfg(test)]
+pub(crate) fn lire_sceaux(kraken: &Path) -> Vec<SceauVague> {
+    let chemin = kraken.join(FICHIER);
+    let octets = fs::read(&chemin).unwrap();
+    lire_octets(&chemin, &octets).unwrap().2.into_iter().map(|lu| lu.sceau).collect()
 }
 
 /// Le quota du jour du dossier de Kraken, en micro-dollars : le fichier `<dossier>/profils/quota`, que les réglages

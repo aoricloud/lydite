@@ -2889,9 +2889,15 @@ fn l_empreinte_du_plan_du_fil_est_celle_de_son_texte() {
 #[test]
 fn les_exemples_du_fil_se_relisent_sans_trou_ni_doublon() {
     // Les exemples vivent dans `exemples.jsonl`, à côté de ce fichier : on les lit là, une ligne de fil par ligne.
-    let lignes: Vec<&str> =
+    // Le sceau d'un exemple n'est pas une note : il a son propre essai.
+    let toutes: Vec<&str> =
         include_str!("exemples.jsonl").lines().filter(|ligne| ligne.starts_with(r#"{"v":2,"#)).collect();
+    let (sceaux, lignes): (Vec<&str>, Vec<&str>) =
+        toutes.iter().partition(|ligne| ligne.contains(r#""type":"vague.sceau""#));
     let dir = dossier("entete");
+    let octets = toutes.iter().map(|ligne| format!("{ligne}\n")).collect::<String>().into_bytes();
+    let (_, _, lus) = lire_octets(Path::new("exemples.jsonl"), &octets).unwrap();
+    assert_eq!(lus.len(), sceaux.len(), "chaque sceau d'exemple se lit : {sceaux:?}");
     poser(&dir, &lignes);
     let Lecture { notes, ecarts } = lire(&dir).unwrap();
     // Chaque ligne se lit, d'un type que Kraken connaît ; le lecteur ne relève que les trous des lignes omises.
@@ -3116,6 +3122,103 @@ fn un_substitut_seul_ou_65_niveaux_sont_illisibles_quel_que_soit_v() {
         }
     }
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn le_sceau_d_une_vague_s_ecrit_et_se_relit_a_l_identique() {
+    let dir = dossier("sceau-aller-retour");
+    let fil = Fil::seance(&dir, "humain");
+    // Un fil vide ne se scelle pas : `octets` est un entier positif.
+    assert_eq!(fil.sceller("v").unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+    assert!(!dir.join(FICHIER).exists(), "rien n'est écrit");
+    fil.noter(&Evenement::Correction { vague: "v".into(), corrige: "u".into() }).unwrap();
+    let premier = fil.sceller("v").unwrap();
+    fil.noter(&Evenement::Correction { vague: "v".into(), corrige: "t".into() }).unwrap();
+    let second = fil.sceller("w").unwrap();
+    let brut = fs::read(dir.join(FICHIER)).unwrap();
+    let lignes: Vec<&[u8]> = brut.split_inclusive(|&octet| octet == b'\n').collect();
+    // Le sceau couvre ce qui précède sa ligne, la sienne exclue.
+    assert_eq!(premier.octets as usize, lignes[0].len());
+    assert_eq!(premier.empreinte, hex(&sha256(lignes[0])));
+    assert_eq!(second.octets as usize, lignes[..3].iter().map(|l| l.len()).sum::<usize>());
+    assert_eq!(second.empreinte, hex(&sha256(&brut[..second.octets as usize])));
+    // Le corps, plat, dans l'ordre du contrat : la vague, les octets, l'empreinte, rien d'autre.
+    let ecrit = String::from_utf8(brut.clone()).unwrap();
+    let corps = format!(
+        r#""type":"vague.sceau","vague":"v","octets":{},"empreinte":"{}"}}"#,
+        premier.octets, premier.empreinte
+    );
+    assert!(ecrit.contains(&corps), "{ecrit}");
+    // Elle partage le compteur de la séance, et ne se lit pas comme une note.
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(ecarts.is_empty(), "{ecarts:?}");
+    assert_eq!(seqs(&notes), [1, 3]);
+    let (_, _, lus) = lire_octets(&dir.join(FICHIER), &brut).unwrap();
+    assert_eq!(lus.iter().map(|lu| lu.sceau.clone()).collect::<Vec<_>>(), [premier, second]);
+    // Chaque sceau lu sait où sa ligne commence.
+    let debuts = [lignes[0].len(), lignes[..3].iter().map(|l| l.len()).sum::<usize>()];
+    assert_eq!(lus.iter().map(|lu| lu.debut).collect::<Vec<_>>(), debuts);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_sceau_aux_champs_faux_est_mal_forme() {
+    let vide = "0".repeat(64);
+    let juste = format!(r#""type":"vague.sceau","vague":"v","octets":7,"empreinte":"{vide}""#);
+    let cas = vec![
+        (juste.replace(r#""octets":7"#, r#""octets":0"#), "« octets » vaut 0, hors de son domaine : un entier positif"),
+        (juste.replace(r#""octets":7"#, r#""octets":-7"#), "« octets » n'est pas une valeur plate"),
+        (juste.replace(r#""octets":7"#, r#""octets":1.5"#), "« octets » n'est pas une valeur plate"),
+        (juste.replace(r#""octets":7"#, r#""octets":"7""#), "« octets » manque ou n'est pas un entier positif"),
+        (juste.replace(r#""octets":7,"#, ""), "« octets » manque"),
+        (juste.replace(&vide, &"0".repeat(63)), "64 hexadécimaux minuscules"),
+        (juste.replace(&vide, &"0".repeat(65)), "64 hexadécimaux minuscules"),
+        (juste.replace(&vide, &"A".repeat(64)), "64 hexadécimaux minuscules"),
+        (juste.replace(&vide, &"g".repeat(64)), "64 hexadécimaux minuscules"),
+        (juste.replace(&format!(r#""empreinte":"{vide}""#), r#""empreinte":null"#), "« empreinte » manque"),
+        (juste.replace(&format!(r#","empreinte":"{vide}""#), ""), "« empreinte » manque"),
+        (juste.replace(r#""vague":"v","#, ""), "« vague » manque"),
+        (format!("{juste},\"titre\":\"x\""), "champ en trop pour vague.sceau : « titre »"),
+    ];
+    // Chaque ligne fausse est suivie d'une juste, de la même séance : aucun trou ne s'y voit.
+    let mut lignes = Vec::new();
+    for (i, (faux, _)) in cas.iter().enumerate() {
+        lignes.push(ligne_s(2 * i as u64 + 1, faux));
+        lignes.push(ligne_s(2 * i as u64 + 2, &juste));
+    }
+    let dir = dossier("sceau-faux");
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(notes.is_empty(), "un sceau n'est pas une note d'événement : {notes:?}");
+    assert_eq!(codes(&ecarts), (0..cas.len()).map(|i| (2 * i + 1, 1009)).collect::<Vec<_>>(), "et aucun 1010");
+    for ((_, refus), (_, bout)) in ecarts.iter().zip(&cas) {
+        assert!(refus.preuve.contains(bout), "la preuve devait dire « {bout} » : {refus}");
+    }
+    let brut = fs::read(dir.join(FICHIER)).unwrap();
+    let (_, _, lus) = lire_octets(&dir.join(FICHIER), &brut).unwrap();
+    assert_eq!(lus.len(), cas.len(), "les lignes justes se lisent");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_sceau_tient_tant_que_son_avant_ne_change_pas() {
+    let avant = b"une ligne\nune autre\n";
+    let sceau = SceauVague::sur("v", avant);
+    let lu = |debut| [SceauLu { sceau: sceau.clone(), debut }];
+    let fil = |suite: &[u8]| [&avant[..], suite].concat();
+    // Intact, un octet de plus après, ou un sceau qui suit : il tient.
+    assert_eq!(premier_sceau_rompu(&fil(b"suite\n"), &lu(avant.len())), None);
+    assert_eq!(premier_sceau_rompu(&fil(b"suite\n"), &lu(avant.len() + 3)), None);
+    // Ses octets dépassent le début de sa propre ligne : il ne correspond pas, même si le fil est assez long.
+    assert_eq!(premier_sceau_rompu(&fil(b"suite\n"), &lu(avant.len() - 1)), Some(&sceau));
+    // Un octet changé, une ligne retirée, un fil plus court que ses octets.
+    let mut change = fil(b"suite\n");
+    change[3] ^= 1;
+    assert_eq!(premier_sceau_rompu(&change, &lu(avant.len())), Some(&sceau));
+    assert_eq!(premier_sceau_rompu(&avant[10..], &lu(avant.len())), Some(&sceau));
+    // Les octets d'un sceau trop grands pour tenir en mémoire ne font pas paniquer.
+    let enorme = SceauVague { octets: u64::MAX, ..sceau.clone() };
+    assert_eq!(premier_sceau_rompu(avant, &[SceauLu { sceau: enorme.clone(), debut: usize::MAX }]), Some(&enorme));
 }
 
 #[test]

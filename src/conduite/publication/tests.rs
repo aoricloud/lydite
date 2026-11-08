@@ -517,8 +517,13 @@ fn une_pr_verte_part_de_la_base_distante_puis_range_ses_bacs() {
     attendus.extend(tour_de_ci(&tete));
     assert_eq!(lieu.gh.appels(), attendus);
     assert_eq!(lieu.appels_bien_partis(), 6);
+    // La séance de la forge a scellé le fil juste avant le corps, et le reçu cite ce sceau.
+    let sceaux = crate::branchements::dossier::lire_sceaux(&lieu.kraken);
+    assert_eq!(sceaux.len(), 1, "{sceaux:?}");
+    let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
     let corps = format!(
-        "Reçu\n- Coût : inconnu\n- 2 mains, 0 relance, 0 classée\n- Réglages de la preuve changés : aucun\n\n\
+        "Reçu\n- Coût : inconnu\n- 2 mains, 0 relance, 0 classée\n- Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
+         - Réglages de la preuve changés : aucun\n\n\
          Ecrire a et b\n\nPreuve : exit 0 → vert\n\na : Ecrire a\nb : Ecrire b\n\n\
          Replayed on commit {tete}, not reviewed: no task is critical.\n"
     );

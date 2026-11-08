@@ -27,7 +27,9 @@ use crate::branchements::dossier::{self, Fil};
 use crate::branchements::git::faire_borne;
 use crate::branchements::github::{Ci, Forge, GIT_FORGE, PrOuverte, a_pousser, distant, en_echec};
 use crate::coeur::erreur::{Code, Refus, queue};
-use crate::coeur::fil::{self, Base, Couleur, Evenement, Foi, Note, Vague, correction_de, etat, relecture_de};
+use crate::coeur::fil::{
+    self, Base, Couleur, Evenement, Foi, Note, SceauVague, Vague, correction_de, etat, relecture_de,
+};
 use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
 use crate::conduite::alarmes;
 use crate::conduite::lancer::Menee;
@@ -116,8 +118,8 @@ pub(crate) fn corps(
         }
         noms.join(", ")
     };
-    let [cout, mains] = recu.lignes_de_pr();
-    let recu = format!("Reçu\n{cout}\n{mains}\n- Réglages de la preuve changés : {changes}");
+    let lignes = recu.lignes_de_pr().join("\n");
+    let recu = format!("Reçu\n{lignes}\n- Réglages de la preuve changés : {changes}");
     let a_justifier = if points.is_empty() {
         String::new()
     } else {
@@ -453,7 +455,7 @@ impl Proposition<'_> {
             return Err(Arret::Net("la vague n'a pas d'assemblage, et rien ne se pousse".into()));
         };
         a_pousser(&self.base, tete).map_err(Arret::Refus)?;
-        let (vague, relecture, recu) = self.rejouee(menee, tete)?;
+        let (vague, relecture, mut recu) = self.rejouee(menee, tete)?;
         let reglages = self.reglages_changes(tete).map_err(Arret::Net)?;
         let mut caracteres = plan.objectif.char_indices();
         let titre = match (caracteres.nth(255), caracteres.next()) {
@@ -461,6 +463,10 @@ impl Proposition<'_> {
             _ => plan.objectif.clone(),
         };
         let points = self.points_a_justifier(tete).map_err(Arret::Net)?;
+        // Le sceau du fil, noté juste avant le corps : le reçu le reprend.
+        let sceau =
+            suite.fil.sceller(&menee.id).map_err(|e| Arret::Net(format!("le sceau du fil ne s'écrit pas : {e}")))?;
+        recu.sceau = Some(sceau);
         let corps = corps(plan, &vague, relecture.as_deref(), self.issue, &recu, &reglages, &points);
         let chemins: Vec<&Path> = personnel.into_iter().chain([self.forge.dossier, self.forge.depot]).collect();
         self.forge.publiable(&self.base, tete, branche, &titre, &corps, &chemins).map_err(Arret::Refus)?;
@@ -707,6 +713,8 @@ pub(crate) struct Recu {
     impossibles: usize,
     /// De la première note de la vague à la dernière de ses vagues liées, en millisecondes ; `None` sans instants.
     duree: Option<u128>,
+    /// Le sceau du fil noté juste avant le corps de la PR ; `None` hors d'une PR (`recu_de` n'en lit aucun).
+    sceau: Option<SceauVague>,
 }
 
 /// Le reçu de la vague `id` parmi `vagues` : elle, son découpage, ses relectures, ses corrections et ses relances, et
@@ -803,9 +811,13 @@ impl Recu {
         parties.join(" · ")
     }
 
-    /// Les lignes du bloc « Reçu » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la durée.
-    pub(crate) fn lignes_de_pr(&self) -> [String; 2] {
-        [format!("- Coût : {}", self.cout()), format!("- {}", self.mains())]
+    /// Les lignes du bloc « Reçu » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la durée ;
+    /// puis, si le reçu porte un sceau, `- Fil sealed at <octets> bytes: sha256 <empreinte>.`
+    pub(crate) fn lignes_de_pr(&self) -> Vec<String> {
+        let mut lignes = vec![format!("- Coût : {}", self.cout()), format!("- {}", self.mains())];
+        lignes
+            .extend(self.sceau.iter().map(|s| format!("- Fil sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)));
+        lignes
     }
 }
 

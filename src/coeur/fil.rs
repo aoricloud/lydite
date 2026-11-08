@@ -192,6 +192,16 @@
 //!   sans la borne de 10 000, comme le `numero` d'une PR. Le titre et le corps de l'issue n'entrent pas au fil, seul
 //!   son numéro. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`. Il s'écrit par `Fil::noter_issue`
 //!   et se relit par `lire_tout`, strictement comme les autres ; `lire` en dit les lignes mal formées.
+//! - `vague.sceau {vague, octets, empreinte}` : le sceau du fil. `octets` est la longueur du fil au moment du sceau,
+//!   un entier positif sans la borne de 10 000, comme le `numero` d'une PR ; `empreinte` est le SHA-256 de ses `octets`
+//!   premiers octets, en 64 hexadécimaux minuscules. Une note de Kraken, sans `foi`, type neuf qui ne change pas `v`.
+//!   Une vague le note juste avant de construire le corps de sa PR, puis à sa fin, sur chacune de ses sorties, qu'elle
+//!   publie ou non ; le reçu de la PR reprend le premier. Plusieurs séances écrivent le même fil : le sceau couvre ce
+//!   qui précède ses `octets`, même si d'autres lignes se glissent avant la sienne. `lydite etat` relit chaque sceau
+//!   et recalcule l'empreinte ; le premier qui ne correspond plus est nommé sur stderr (sa vague, ses octets), et la
+//!   sortie est 2. Un sceau dont les `octets` dépassent le début de sa propre ligne ne correspond pas.
+//!   Ce que le sceau montre : une ligne changée ou retirée avant lui. Ce qu'il ne montre pas : une ligne ajoutée après
+//!   lui, ni un fil réécrit avec des sceaux refaits (le reçu de la PR, hors de la machine, garde le sien).
 //!
 //! Au rejeu d'une vague à plan, `lydite etat` ne garde que ce qu'il dit, le reste vit au fil :
 //!
@@ -304,6 +314,7 @@ use std::str;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::json::{self, Valeur};
 
@@ -498,10 +509,60 @@ impl IssueVague {
     }
 }
 
-/// Ce qu'une ligne d'un type connu donne : une note d'[`Evenement`], ou l'issue d'une vague.
+/// `vague.sceau` : le fil, à la longueur `octets`, avait pour SHA-256 `empreinte` (64 hexadécimaux minuscules). Un
+/// événement plat comme [`IssueVague`], hors de l'énumération d'[`Evenement`] : écrit par `Fil::sceller`, relu par
+/// [`lire_octets`], vérifié par [`premier_sceau_rompu`].
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SceauVague {
+    pub(crate) vague: String,
+    pub(crate) octets: u64,
+    pub(crate) empreinte: String,
+}
+
+impl SceauVague {
+    /// Son nom, le `type` de sa ligne.
+    const GENRE: &'static str = "vague.sceau";
+
+    /// Le sceau de la vague `vague` sur les `octets` premiers octets du fil.
+    pub(crate) fn sur(vague: &str, fil: &[u8]) -> SceauVague {
+        SceauVague { vague: vague.into(), octets: fil.len() as u64, empreinte: hex(&sha256(fil)) }
+    }
+
+    /// Les champs de son corps, dans l'ordre de l'en-tête.
+    fn champs(&self) -> Vec<(&'static str, Valeur)> {
+        vec![
+            ("vague", Valeur::Texte(self.vague.clone())),
+            ("octets", Valeur::Entier(self.octets)),
+            ("empreinte", Valeur::Texte(self.empreinte.clone())),
+        ]
+    }
+
+    /// Le sceau tient-il encore sur `fil`, dont sa ligne commence à l'octet `debut` ? Ses `octets` ne dépassent pas
+    /// le début de sa ligne, et l'empreinte de ces octets est la sienne.
+    fn tient(&self, debut: usize, fil: &[u8]) -> bool {
+        let Ok(octets) = usize::try_from(self.octets) else { return false };
+        octets <= debut && fil.get(..octets).is_some_and(|avant| hex(&sha256(avant)) == self.empreinte)
+    }
+}
+
+/// Un sceau lu, avec l'octet où sa ligne commence.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SceauLu {
+    pub(crate) sceau: SceauVague,
+    pub(crate) debut: usize,
+}
+
+/// Le premier des `sceaux` lus dans `fil` qui ne tient plus : ses octets dépassent le début de sa ligne, ou leur
+/// empreinte a changé. Un octet changé après le dernier sceau, ou une ligne ajoutée après lui, ne se voit pas.
+pub(crate) fn premier_sceau_rompu<'a>(fil: &[u8], sceaux: &'a [SceauLu]) -> Option<&'a SceauVague> {
+    sceaux.iter().find(|lu| !lu.sceau.tient(lu.debut, fil)).map(|lu| &lu.sceau)
+}
+
+/// Ce qu'une ligne d'un type connu donne : une note d'[`Evenement`], l'issue d'une vague, ou son sceau.
 enum Lue {
     Note(Box<Note>),
     Issue(IssueVague),
+    Sceau(SceauVague),
 }
 
 /// Comment une tentative finit.
@@ -618,6 +679,11 @@ pub(crate) fn ligne_d_issue(seance: &str, seq: u64, origine: &str, issue: &Issue
     ligne(seance, seq, origine.into(), IssueVague::GENRE, issue.champs())
 }
 
+/// La ligne du sceau d'une vague, comme [`ligne_d_issue`] : à l'origine de la séance.
+pub(crate) fn ligne_de_sceau(seance: &str, seq: u64, origine: &str, sceau: &SceauVague) -> String {
+    ligne(seance, seq, origine.into(), SceauVague::GENRE, sceau.champs())
+}
+
 /// Une ligne, son enveloppe puis son corps.
 fn ligne(seance: &str, seq: u64, origine: String, genre: &str, corps: Vec<(&'static str, Valeur)>) -> String {
     debug_assert!(origine_lue(&origine), "une origine que le fil lit : {origine}");
@@ -638,15 +704,23 @@ fn ligne(seance: &str, seq: u64, origine: String, genre: &str, corps: Vec<(&'sta
 /// Les octets du fil `chemin`, lus selon la recette de l'en-tête : ses notes de Kraken et ses écarts, et ses issues de
 /// vague, dans l'ordre du fil. Chaque écart nomme `chemin` et sa ligne. Une ligne d'une autre version arrête la
 /// lecture : le refus 1002, qui nomme la ligne et les deux versions.
-pub(crate) fn lire_octets(chemin: &Path, octets: &[u8]) -> Result<(Lecture, Vec<IssueVague>), Refus> {
+pub(crate) fn lire_octets(chemin: &Path, octets: &[u8]) -> Result<Lu, Refus> {
     let mut issues = Vec::new();
+    let mut sceaux = Vec::new();
+    // L'octet où commence la ligne en cours.
+    let mut debut = 0usize;
     let mut lecture = Lecture::default();
     // Le dernier `seq` lu de chaque séance.
     let mut seances: BTreeMap<String, u64> = BTreeMap::new();
     let mut lignes = octets.split(|&octet| octet == b'\n');
     lignes.next_back(); // ce qui suit le dernier `\n` : rien, ou une ligne en cours d'écriture
     // Une ligne vide ne dit rien (voir l'écriture) : elle compte dans les numéros, sans être note ni écart.
-    for (i, ligne) in lignes.enumerate().filter(|(_, ligne)| !ligne.is_empty()) {
+    for (i, ligne) in lignes.enumerate() {
+        let ici = debut;
+        debut += ligne.len() + 1;
+        if ligne.is_empty() {
+            continue;
+        }
         let numero = i + 1;
         let ecart = |code, preuve: String| {
             let correction = match code {
@@ -699,12 +773,16 @@ pub(crate) fn lire_octets(chemin: &Path, octets: &[u8]) -> Result<(Lecture, Vec<
         match note(&objet) {
             Ok(Some(Lue::Note(note))) => lecture.notes.push(*note),
             Ok(Some(Lue::Issue(issue))) => issues.push(issue),
+            Ok(Some(Lue::Sceau(sceau))) => sceaux.push(SceauLu { sceau, debut: ici }),
             Ok(None) => {} // un type d'une autre pièce, ignoré au rejeu
             Err(raison) => lecture.ecarts.push(ecart(Code::EvenementMalForme, raison)),
         }
     }
-    Ok((lecture, issues))
+    Ok((lecture, issues, sceaux))
 }
+
+/// Ce que [`lire_octets`] rend : les notes et écarts, les issues de vague, et les sceaux, dans l'ordre du fil.
+pub(crate) type Lu = (Lecture, Vec<IssueVague>, Vec<SceauLu>);
 
 /// Une ligne v2 lue en objet : sa note ou son issue, `None` pour un type inconnu dont l'enveloppe se lit, ou ce qui la
 /// rend mal formée.
@@ -1028,6 +1106,21 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
             let issue = IssueVague { vague: texte("vague")?.into(), issue: numero_de_pr("issue")? };
             en_trop(&issue.champs())?;
             return Ok(Some(Lue::Issue(issue)));
+        }
+        SceauVague::GENRE => {
+            let empreinte = texte("empreinte")?;
+            if empreinte.len() != 64 || !empreinte.bytes().all(|octet| matches!(octet, b'0'..=b'9' | b'a'..=b'f')) {
+                return Err(format!(
+                    "« empreinte » vaut {empreinte:?}, hors de son domaine : 64 hexadécimaux minuscules"
+                ));
+            }
+            let sceau = SceauVague {
+                vague: texte("vague")?.into(),
+                octets: numero_de_pr("octets")?,
+                empreinte: empreinte.into(),
+            };
+            en_trop(&sceau.champs())?;
+            return Ok(Some(Lue::Sceau(sceau)));
         }
         _ => return Ok(None),
     };
