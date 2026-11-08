@@ -442,6 +442,10 @@ impl Essai {
         }
         let commun = git(&self.depot, &["rev-parse", "--path-format=absolute", "--git-common-dir"]);
         deny.push(format!("Edit({}/**)", regle_du_dossier(Path::new(&commun))));
+        deny.extend(
+            ["Bash(git commit:*)", "Bash(git commit *)", "PowerShell(git commit:*)", "PowerShell(git commit *)"]
+                .map(String::from),
+        );
         let vues: Vec<String> = [("allow", &allow), ("deny", &deny)]
             .iter()
             .flat_map(|(comportement, regles)| {

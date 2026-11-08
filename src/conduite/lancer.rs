@@ -270,10 +270,28 @@ pub(crate) fn en_erreur(refus: &Refus) -> String {
 /// Le travail pris d'une tâche qui a des `fichiers` n'est pris que si sa main n'a changé que ces chemins ; sinon sa
 /// tentative est rouge (7013), et son erreur dit les chemins en trop et la règle, que la relance reçoit. Un git qui ne
 /// dit pas ce que la main a changé la rougit de même (7009) : rien ne prouve alors qu'elle est restée dans ses
-/// fichiers. Une tâche sans `fichiers` n'est bornée par rien.
-fn dans_ses_fichiers(bac: &Path, depart: &str, tache: &Tache, pris: Pris) -> Result<Pris, String> {
+/// fichiers. Une tâche sans `fichiers` n'est bornée que par `proteges` : un chemin protégé changé, `fichiers` ou non,
+/// rougit la tentative (7018), avant le jugement des `fichiers`.
+fn dans_ses_fichiers(bac: &Path, depart: &str, tache: &Tache, proteges: &[String], pris: Pris) -> Result<Pris, String> {
+    assemblage::proteges_tenus(bac, depart, &tache.id, proteges).map_err(|refus| en_erreur(&refus))?;
     let Some(fichiers) = &tache.fichiers else { return Ok(pris) };
     assemblage::fichiers_tenus(bac, depart, &tache.id, fichiers).map(|()| pris).map_err(|refus| en_erreur(&refus))
+}
+
+/// Chaque texte que le plan exige (`exact`) paraît, octet pour octet, dans son fichier du bac ; sinon la tentative est
+/// rouge, et son erreur nomme le fichier et le texte, que la relance reçoit. Un fichier absent, ou illisible, ne le
+/// contient pas.
+fn textes_exacts(bac: &Path, tache: &Tache, pris: Pris) -> Result<Pris, String> {
+    for (fichier, texte) in &tache.exacts {
+        let present = std::fs::read(bac.join(fichier)).is_ok_and(|octets| {
+            let aiguille = texte.as_bytes();
+            octets.windows(aiguille.len().max(1)).any(|fenetre| fenetre == aiguille)
+        });
+        if !present {
+            return Err(format!("the text that the plan requires is missing from {fichier}: {texte}"));
+        }
+    }
+    Ok(pris)
 }
 
 /// Le seul message qu'une main envoie à la vague : sa tâche, la tentative de son bail (le jeton que son résultat
@@ -493,12 +511,14 @@ impl<'a> Vague<'a> {
                     &bac,
                     &tache.objectif,
                     tache.fichiers.as_deref(),
+                    &tache.exacts,
                     verifier,
                     precedente.as_deref(),
                     &journal,
                     juge,
                 );
-                let verdict = verdict.and_then(|pris| dans_ses_fichiers(&bac, &depart, tache, pris));
+                let verdict = verdict.and_then(|pris| dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris));
+                let verdict = verdict.and_then(|pris| textes_exacts(&bac, tache, pris));
                 (constat, verif, verdict)
             });
             // La vague lit le canal jusqu'au dernier message qu'elle attend : celui-ci ne se perd pas.

@@ -109,7 +109,7 @@ pub(crate) const FICHIERS_MAX: usize = 100;
 
 /// Les clés de l'en-tête, puis celles d'une tâche.
 const CLES_ENTETE: [&str; 2] = ["objectif", "preuve"];
-const CLES_TACHE: [&str; 6] = ["depend", "preuve", "modele", "relance", "fichiers", "critique"];
+const CLES_TACHE: [&str; 7] = ["depend", "preuve", "modele", "relance", "fichiers", "critique", "exact"];
 
 /// Les caractères d'une ligne qu'une preuve cite : au-delà, la citation est coupée.
 const CITE_MAX: usize = 200;
@@ -124,7 +124,14 @@ const REECRIRE: &str = concat!(
 const FORME: &str = concat!(
     "Une ligne de plan est vide, `tache <id>`, `<clé> : <valeur>`, ou indentée (l'objectif de la tâche qui la ",
     "précède). Avant la première tâche, les clés sont `objectif` et `preuve` ; sous `tache <id>`, `depend`, `preuve`, ",
-    "`modele`, `relance`, `fichiers` et `critique`, puis l'objectif en lignes indentées ; chaque clé une fois."
+    "`modele`, `relance`, `fichiers`, `critique` et `exact` (qui peut se répéter), puis l'objectif en lignes ",
+    "indentées ; chaque autre clé une fois."
+);
+
+/// La correction d'une ligne `exact` hors de sa forme.
+const EXACT: &str = concat!(
+    "Écris `exact : <fichier> : <texte>` : le fichier comme dans `fichiers` (un chemin relatif à la racine du dépôt, ",
+    "couvert par les `fichiers` de la tâche), puis ` : `, puis le texte, non vide, qui doit y paraître tel quel."
 );
 
 /// La correction d'un modèle hors de son domaine.
@@ -183,6 +190,8 @@ pub(crate) struct Tache {
     /// Les chemins qu'elle peut changer, tels que le plan les écrit, un dossier fini par `/` ; `None` : rien ne la
     /// borne.
     pub(crate) fichiers: Option<Vec<String>>,
+    /// Les textes que le plan exige dans ses fichiers, octet pour octet : un couple (fichier, texte) par ligne `exact`.
+    pub(crate) exacts: Vec<(String, String)>,
     /// Son travail va à la relecture.
     pub(crate) critique: bool,
 }
@@ -303,6 +312,8 @@ struct Brouillon<'a> {
     modele: Option<&'a str>,
     relance: Option<&'a str>,
     fichiers: Option<Vec<&'a str>>,
+    /// Ses lignes `exact`, chacune avec son fichier et son texte.
+    exacts: Vec<(Ligne<'a>, &'a str, &'a str)>,
     critique: bool,
     /// Ses lignes indentées, chacune avec le nombre de retours à la ligne qui la séparent de la précédente : 0 pour la
     /// première, puis 1 de plus par ligne vide entre elles.
@@ -319,6 +330,7 @@ impl Brouillon<'_> {
             "modele" => self.modele.is_some(),
             "relance" => self.relance.is_some(),
             "fichiers" => self.fichiers.is_some(),
+            "exact" => false,
             _ => self.critique,
         }
     }
@@ -407,6 +419,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             modele: None,
             relance: None,
             fichiers: None,
+            exacts: Vec::new(),
             critique: false,
             objectif: Vec::new(),
             vides: 0,
@@ -426,7 +439,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
         let (permises, lieu, liste): (&[&str], _, _) = if entete {
             (&CLES_ENTETE, "de l'en-tête", "`objectif` ou `preuve`")
         } else {
-            (&CLES_TACHE, "d'une tâche", "`depend`, `preuve`, `modele`, `relance`, `fichiers` ou `critique`")
+            (&CLES_TACHE, "d'une tâche", "`depend`, `preuve`, `modele`, `relance`, `fichiers`, `critique` ou `exact`")
         };
         if !permises.contains(&cle) {
             return Err(faute(format!("la clé {} n'est pas une clé {lieu} ({liste})", cite(cle))));
@@ -504,6 +517,18 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                 }
                 tache.fichiers = Some(chemins);
             }
+            "exact" => {
+                let Some((fichier, texte)) = valeur.split_once(" : ").filter(|(_, texte)| !texte.is_empty()) else {
+                    let quoi =
+                        format!("la valeur {} n'est pas `<fichier> : <texte>` d'un texte non vide", cite(valeur));
+                    return Err(refus(Code::PlanChemin, ligne, quoi, EXACT));
+                };
+                if let Some(faute) = hors_forme(fichier) {
+                    let quoi = format!("le chemin {} {faute}", cite(fichier));
+                    return Err(refus(Code::PlanChemin, ligne, quoi, CHEMIN));
+                }
+                tache.exacts.push((ligne, fichier, texte));
+            }
             _ if valeur != "oui" => {
                 let quoi = format!("la clé « critique » vaut {}, et sa seule valeur est `oui`", cite(valeur));
                 let correction =
@@ -551,6 +576,17 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                     format!("la tâche {} {absentes}, que tout plan découpé donne à chaque tâche", cite(brouillon.id));
                 return Err(refus(Code::PlanBorne, brouillon.ligne, quoi, DECOUPEE));
             }
+            if let Some(fichiers) = &brouillon.fichiers {
+                for &(ligne, fichier, _) in &brouillon.exacts {
+                    if !fichiers.iter().any(|entree| couvre(entree, fichier)) {
+                        let quoi = format!(
+                            "le fichier {} n'est couvert par aucun chemin de `fichiers` de la tâche",
+                            cite(fichier)
+                        );
+                        return Err(refus(Code::PlanChemin, ligne, quoi, EXACT));
+                    }
+                }
+            }
             let (mut depend, mut rangs) = (Vec::new(), Vec::new());
             if let Some((ligne, ids)) = &brouillon.depend {
                 for &id in ids {
@@ -579,6 +615,11 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                 modele: brouillon.modele.map(str::to_string),
                 relance: brouillon.relance.map(str::to_string),
                 fichiers: brouillon.fichiers.as_ref().map(|chemins| chemins.iter().map(|c| c.to_string()).collect()),
+                exacts: brouillon
+                    .exacts
+                    .iter()
+                    .map(|&(_, fichier, texte)| (fichier.to_string(), texte.to_string()))
+                    .collect(),
                 critique: brouillon.critique,
             });
         }
@@ -641,7 +682,7 @@ fn modele_permis(modele: &str) -> bool {
 /// Ce qui écarte un chemin de `fichiers` de la forme que git écrit, s'il y a quelque chose : `None` pour un chemin
 /// relatif à la racine du dépôt, en noms séparés par `/` (un `/` final pour un dossier), hors de `.git/` et de
 /// `.claude/`.
-fn hors_forme(chemin: &str) -> Option<&'static str> {
+pub(crate) fn hors_forme(chemin: &str) -> Option<&'static str> {
     if chemin.contains('\\') {
         return Some("s'écrit avec une barre inverse, et git sépare les noms par `/`");
     }

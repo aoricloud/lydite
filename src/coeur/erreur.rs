@@ -22,7 +22,7 @@
 //! donc pas.
 //!
 //! L'énumération ne tient que les codes que le programme construit : 1001, 1002, 1005, 1006, 1009 et 1010 du bloc
-//! 1000, 6001 à 6030 du bloc 6000, 7001 à 7017 du bloc 7000, 8001 à 8013 du bloc 8000. Les autres lignes du bloc 1000
+//! 1000, 6001 à 6030 du bloc 6000, 7001 à 7018 du bloc 7000, 8001 à 8013 du bloc 8000. Les autres lignes du bloc 1000
 //! de passerelle (1003, 1004, 1007, 1008 et 1011) n'y sont pas ; `tests::copie_du_bloc_1000` en garde la copie entière,
 //! sous `#[cfg(test)]` comme `Code::TOUS` : chaque code de 1000 à 5999 et de 9000 à 9999 en est une ligne, et ceux de
 //! ce dépôt vivent dans 6000 à 8999.
@@ -238,6 +238,8 @@ codes! {
         "Le travail d'une tâche critique ne se pousse qu'une fois relu ; une relecture classée, et rien ne se pousse.";
     BloquantesRestantes = 7017, "vague.bloquantes_restantes",
         "Des remarques bloquantes valent une seule correction ; non assemblée, rien ne se pousse.";
+    CheminProtege = 7018, "vague.chemin_protege",
+        "A hand changes no path that its profile protects (proteges), neither by an edit nor by a command.";
     // --- 8000 : forge ---
     DistantIllisible = 8001, "forge.distant_illisible",
         "Avec `--pr`, le dépôt visé a un distant `origin` dont l'URL nomme un hôte, un propriétaire et un dépôt.";

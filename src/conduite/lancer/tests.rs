@@ -2,7 +2,7 @@ use super::*;
 use crate::branchements::bac::temporaire_de;
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::fil::{Issue, Lecture, Mur, Note, etat};
-use crate::essais::{depot, fausse_main, git, main_de_vague, main_hors_fichiers, racine};
+use crate::essais::{depot, fausse_main, git, main_de_vague, main_hors_fichiers, main_texte_coupe, racine};
 use crate::essais::{ecrire, effacer, faux_srt, lancer, lancer_sur, pour_sh, script};
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
@@ -2279,6 +2279,83 @@ fn une_main_hors_de_ses_fichiers_est_rouge_se_corrige_a_la_relance_et_passe() {
     let _ = fs::remove_dir_all(&racine);
 }
 
+/// Le plan d'une tâche `a` qui peut changer `dedans.txt`, où le plan exige le texte `alpha beta`.
+fn plan_exact() -> Plan {
+    plan(&[
+        "plan 1",
+        "objectif : Écrire dedans.txt",
+        "preuve : exit 0",
+        "tache a",
+        "fichiers : dedans.txt",
+        "exact : dedans.txt : alpha beta",
+        "    Écrire a",
+    ])
+}
+
+#[test]
+fn une_main_qui_coupe_le_texte_exact_est_rouge_se_corrige_a_la_relance_et_passe() {
+    let racine = racine("exact-corrige");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(main_texte_coupe(&racine, true), DELAI);
+    let (branche, issues) = lancer(&depot, &kraken, &profil, &plan_exact(), BAIL).unwrap();
+    assert!(branche.is_some());
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Vert Constate",
+        "verdict Prise Constate",
+        "fusion",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    assert_eq!(issues.len(), 1);
+    let erreur = fin_de(&evenements, 1);
+    assert_eq!(erreur, "the text that the plan requires is missing from dedans.txt: alpha beta");
+    assert!(consigne_de(&racine, 2).contains(&format!("Tentative précédente échouée :\n{erreur}")));
+    assert!(consigne_de(&racine, 1).contains("dedans.txt: alpha beta\n"));
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn une_main_qui_coupe_encore_le_texte_exact_est_classee() {
+    let racine = racine("exact-obstinee");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(main_texte_coupe(&racine, false), DELAI);
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan_exact(), BAIL).unwrap();
+    let erreur = issues[0].1.as_ref().unwrap_err();
+    assert_eq!(erreur, "the text that the plan requires is missing from dedans.txt: alpha beta");
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Rouge Constate",
+        "verdict Classee Constate",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn une_main_qui_n_ecrit_pas_le_fichier_exact_est_rouge() {
+    let racine = racine("exact-absent");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(fausse_main(&racine), DELAI);
+    let plan =
+        plan(&["plan 1", "objectif : Écrire", "preuve : exit 0", "tache a", "exact : absent.txt : x", "    Écrire a"]);
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    let erreur = issues[0].1.as_ref().unwrap_err();
+    assert_eq!(erreur, "the text that the plan requires is missing from absent.txt: x");
+    let _ = fs::remove_dir_all(&racine);
+}
+
 #[test]
 fn une_main_qui_ne_se_corrige_pas_est_classee_et_son_bac_reste() {
     let racine = racine("hors-fichiers-obstinee");
@@ -2313,6 +2390,81 @@ fn une_main_qui_ne_se_corrige_pas_est_classee_et_son_bac_reste() {
     let bac = bac_de(&kraken, &vague_du_fil(&kraken), 1);
     assert!(bac.join("dedans.txt").is_file() && bac.join("dehors.txt").is_file(), "le bac est gardé");
     assert_eq!(git(&bac, &["rev-parse", "HEAD"]), base, "aucun commit dans le bac");
+    assert_eq!(git(&depot, &["rev-parse", &branche]), base, "la branche de la vague reste à sa base");
+    assert!(fusions(&evenements).is_empty(), "aucune fusion n'est notée");
+    worktree_a_la_tete(&depot, &kraken, &branche);
+    rien_derriere(&racine, &base);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn une_main_qui_change_un_chemin_protege_est_rouge_se_corrige_a_la_relance_et_passe() {
+    let racine = racine("protege-corrige");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    // `fichiers` couvre `dehors.txt`, que le profil protège : le protégé l'emporte, et la main le change par une
+    // commande de sa coquille.
+    let profil = Profil::faux(main_hors_fichiers(&racine, true), DELAI).avec_proteges(&["dehors.txt"]);
+    let plan = plan_de_a("dedans.txt dehors.txt");
+    let (branche, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    let branche = branche.expect("la branche d'une vague à plan");
+    assemblee(&issues[0].0, &issues[0].1);
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Vert Constate",
+        "verdict Prise Constate",
+        "fusion",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    // L'erreur de la première tentative est le refus 7018 en trois lignes, que la relance reçoit en contexte.
+    let erreur = fin_de(&evenements, 1);
+    let lignes: Vec<&str> = erreur.lines().collect();
+    let [code, preuve, correction] = lignes[..] else { panic!("trois lignes : {erreur}") };
+    assert_eq!(code, format!("7018 vague.chemin_protege : {}", Code::CheminProtege.regle()));
+    assert_eq!(preuve, r#"the hand of task a changed paths that its profile protects: "dehors.txt""#);
+    assert!(correction.starts_with("Restore these paths as in the base"), "{erreur}");
+    assert!(consigne_de(&racine, 2).contains(&format!("Tentative précédente échouée :\n{erreur}")));
+    // Seul son fichier est dans la branche de la vague.
+    assert_eq!(fichiers(&depot, &branche), ["dedans.txt"]);
+    worktree_a_la_tete(&depot, &kraken, &branche);
+    rien_derriere(&racine, &base);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn une_main_qui_recommence_sur_un_chemin_protege_est_classee_sans_fichiers_et_rien_n_est_fusionne() {
+    let racine = racine("protege-obstinee");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    // Une tâche sans `fichiers` reste bornée par `proteges`.
+    let profil = Profil::faux(main_hors_fichiers(&racine, false), DELAI).avec_proteges(&["dehors.txt"]);
+    let plan = plan(&["plan 1", "objectif : Écrire dedans.txt", "preuve : exit 0", "tache a", "    Écrire a"]);
+    let (branche, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    let branche = branche.expect("la branche d'une vague à plan");
+    // Classée, et non refusée : son erreur est le refus 7018 de sa seconde tentative.
+    let erreur = issues[0].1.as_ref().unwrap_err();
+    assert!(erreur.starts_with(&format!("7018 vague.chemin_protege : {}\n", Code::CheminProtege.regle())), "{erreur}");
+    assert!(erreur.contains(r#"changed paths that its profile protects: "dehors.txt""#), "{erreur}");
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Rouge Constate",
+        "verdict Classee Constate",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    assert!(consigne_de(&racine, 2).contains(&fin_de(&evenements, 1)));
+    // Rien n'est fusionné : la branche de la vague reste à sa base.
     assert_eq!(git(&depot, &["rev-parse", &branche]), base, "la branche de la vague reste à sa base");
     assert!(fusions(&evenements).is_empty(), "aucune fusion n'est notée");
     worktree_a_la_tete(&depot, &kraken, &branche);

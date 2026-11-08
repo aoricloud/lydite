@@ -358,7 +358,9 @@ fn regles(essai: &Essai, reseau: &[&str], outils: &[&str], pret: &[&str]) -> (Ve
     let fermes = FERMES.iter().filter(|ferme| !outils.contains(ferme)).map(|ferme| ferme.to_string());
     let commun = git(&essai.depot, &["rev-parse", "--path-format=absolute", "--git-common-dir"]);
     let commun = format!("Edit({}/**)", regle_du_dossier(Path::new(&commun)));
-    (allow, fermes.chain(gardes).chain(essai.connexion()).chain([commun]).collect())
+    let commits = ["Bash(git commit:*)", "Bash(git commit *)", "PowerShell(git commit:*)", "PowerShell(git commit *)"];
+    let commits = commits.map(String::from);
+    (allow, fermes.chain(gardes).chain(essai.connexion()).chain([commun]).chain(commits).collect())
 }
 
 /// Les quatre réponses de contrôle d'une main fidèle au `--settings` déclaré : au modèle `modele`, le mur exigé ou
@@ -1932,6 +1934,10 @@ fn le_fichier_de_connexion_de_claude_est_ferme_aux_outils_de_la_main() {
         format!("Read({claude}/.credentials.json)"),
         format!("Edit({claude}/.credentials.json)"),
         format!("Edit({}/**)", regle_du_dossier(Path::new(&commun))),
+        "Bash(git commit:*)".into(),
+        "Bash(git commit *)".into(),
+        "PowerShell(git commit:*)".into(),
+        "PowerShell(git commit *)".into(),
     ];
     let attendu = dans_une_chaine(&format!("{}}}", &tableau(&fin)[1..]));
     let fil = essai.fil();

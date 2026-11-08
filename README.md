@@ -71,6 +71,8 @@ delai_main = 3600
 delai_preuve = 300
 ```
 
+The optional `proteges` key lists repository paths (files, or folders ending in `/`) that no hand may change, whatever the `fichiers` of its task, and the hand never runs `git commit`: Lydite commits its work itself.
+
 ```bash
 lydite accepter <name>        # shows the profile and accepts its fingerprint; a changed profile must be accepted again
 ```
@@ -86,6 +88,10 @@ lydite etat                                                                     
 `lancer` exits 0 only if everything was taken and observed, 1 otherwise, and 2 for a refusal (nothing started). A
 refusal always says its code, its rule, what was seen and what to do. The full format of profiles, plans and the
 journal is at the top of `src/coeur/profil.rs`, `src/coeur/plan.rs` and `src/coeur/fil.rs`.
+
+In a plan, the repeatable task key `exact : <file> : <text>` makes Lydite check itself, byte for byte and without a
+model, that the text appears in that file of the task (the file must be covered by the task's `fichiers`); a hand that
+splits it or leaves it out gets a red attempt.
 
 **Windows.** The wall (the sandbox) is not held under Windows: a profile asks for it there, it does not require it.
 
