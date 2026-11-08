@@ -1379,7 +1379,7 @@ fn l_environnement_de_session_n_atteint_pas_la_main() {
         ("SSH_ASKPASS", "askpass-essai"),
         ("SSH_AUTH_SOCK", "agent-essai"),
     ];
-    let otees: Vec<&str> = ["CLAUDE_CODE_ESSAI"]
+    let otees: Vec<&str> = ["CLAUDE_CODE_ESSAI", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"]
         .into_iter()
         .chain(jetons)
         .chain(depot.iter().map(|(nom, _)| *nom))
@@ -1428,6 +1428,8 @@ fn l_environnement_de_session_n_atteint_pas_la_main() {
         .env("CLAUDECODE", "1")
         .env("CLAUDE_CODE_ESSAI", "session")
         .env("CLAUDE_EFFORT", "high")
+        // Kraken lancé avec la variable à `0` ne la donne ni à la main ni à sa preuve : comme toute `CLAUDE*`.
+        .env("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "0")
         .envs(jetons.map(|jeton| (jeton, "jeton")))
         .envs(depot)
         .envs(authentification)
@@ -1441,12 +1443,9 @@ fn l_environnement_de_session_n_atteint_pas_la_main() {
     // La main : aucune variable CLAUDE* sauf CLAUDE_CONFIG_DIR, aucun jeton, aucun moyen de s'authentifier ni variable
     // de git qui nomme un dépôt, et le reste. Sous Windows, les noms ne tiennent pas à la casse.
     let variables = variables_de_la_main(&essai);
-    // Seule `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, que Kraken pose lui-même à la main, fait exception.
-    let permises = ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"];
     let session: Vec<&String> =
-        variables.keys().filter(|nom| nom.starts_with("CLAUDE") && !permises.contains(&nom.as_str())).collect();
+        variables.keys().filter(|nom| nom.starts_with("CLAUDE") && *nom != "CLAUDE_CONFIG_DIR").collect();
     assert!(session.is_empty(), "des marques de session passent : {session:?}");
-    assert_eq!(variables["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"], "1");
     for nom in &otees {
         assert!(!variables.contains_key(*nom), "{nom} passe");
     }

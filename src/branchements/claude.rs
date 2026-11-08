@@ -80,11 +80,8 @@ struct Partie {
 /// et perd cette variable et un `ANTHROPIC_AUTH_TOKEN` hérité : le jeton de l'humain ne va pas chez un autre
 /// fournisseur, et la clé ne va qu'à la main. L'ordre compte : la variable est retirée avant que `ANTHROPIC_API_KEY` ne
 /// soit posée, car le profil peut nommer `ANTHROPIC_API_KEY` elle-même. Sans fournisseur, rien de cela ne change.
-/// Avec ou sans, elle reçoit `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, posée après tout retrait pour qu'aucun ne
-/// l'enlève : le bac à sable ne couvre ni la preuve prêtée sous un mur demandé (ses `excludedCommands` tournent hors
-/// de lui) ni une main sans bac à sable. Prix connu : Claude Code ignore alors `sandbox.filesystem.disabled`, de
-/// toute source, ce qui ne retire rien au mur, puisque Lydite ne l'écrit pas. Un argv vide est une erreur, pas une
-/// panique.
+/// Elle ne pose pas `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, car avec elle Claude Code ouvre la session en `default` au
+/// lieu de `acceptEdits` et la main ne peut plus éditer. Un argv vide est une erreur, pas une panique.
 #[expect(clippy::expect_used, reason = "tuyaux demandés au lancement de l'enfant")]
 fn partir(
     argv: &[String],
@@ -117,11 +114,10 @@ fn partir(
             commande.env(nom, &temporaire);
         }
     }
-    // Posée après `sans_session`, dont le retrait des variables `CLAUDE*` l'ôterait sinon : Claude Code retire alors
-    // les identifiants de l'environnement de toutes ses commandes, dans le bac à sable ou hors de lui, de ses
-    // crochets et de ses serveurs MCP stdio, et garde les siens pour son modèle.
+    // raccourci : hors du bac à sable (la preuve prêtée sous un mur demandé, une main sans bac à sable), les commandes
+    // voient encore la clé du fournisseur ; monter quand le mur sera exigé partout, ou quand la main passera en mode
+    // `default` avec des règles `allow`.
     let mut enfant = sans_session(&mut commande, retire_de_l_env)
-        .env("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "1")
         .spawn()
         .map_err(|e| format!("lancement impossible de {programme} : {e}"))?;
     let (envoi, lu) = mpsc::channel();

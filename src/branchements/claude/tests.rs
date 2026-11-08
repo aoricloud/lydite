@@ -639,7 +639,7 @@ fn les_reponses_s_apparient_par_leur_id_dans_n_importe_quel_ordre() {
 }
 
 #[test]
-fn la_main_recoit_l_epuration_de_l_environnement_des_commandes_avec_ou_sans_fournisseur() {
+fn la_main_ne_recoit_pas_l_epuration_de_l_environnement_des_commandes_avec_ou_sans_fournisseur() {
     let (dir, bac) = bac_jetable("epuration");
     let liste: Vec<String> =
         if cfg!(windows) { vec!["cmd".into(), "/C".into(), "set".into()] } else { vec!["env".into()] };
@@ -650,8 +650,7 @@ fn la_main_recoit_l_epuration_de_l_environnement_des_commandes_avec_ou_sans_four
             .filter_map(|ligne| ligne.split_once('='))
             .filter(|(nom, _)| nom.eq_ignore_ascii_case("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"))
             .collect();
-        assert_eq!(vues.len(), 1, "{fournisseur:?} : {sortie}");
-        assert_eq!(vues[0].1, "1");
+        assert!(vues.is_empty(), "{fournisseur:?} : {sortie}");
     }
     let _ = fs::remove_dir_all(&dir);
 }
