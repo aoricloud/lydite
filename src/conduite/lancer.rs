@@ -676,10 +676,17 @@ impl<'a> Vague<'a> {
             self.taches[k - 1] = Etat::Finie(Ok(pris));
             return;
         };
-        let (verif, issue) =
-            assemblage.fusionner(bac, depart, &tache.id, tache.fichiers.as_deref(), k, |sha, verif| {
+        let (verif, issue) = assemblage.fusionner_et_noter_le_gel(
+            bac,
+            depart,
+            &tache.id,
+            tache.fichiers.as_deref(),
+            k,
+            |sha| fil.noter(&Evenement::Gel { vague: vague.into(), main: k, sha: sha.into() }),
+            |sha, verif| {
                 fil.noter(&Evenement::Fusion { vague: vague.into(), main: k, sha: sha.into(), verif: verif.into() })
-            });
+            },
+        );
         match issue {
             Ok(_) => self.taches[k - 1] = Etat::Finie(Ok(pris)),
             Err(refus) if refus.code == Code::FilInjoignable => {

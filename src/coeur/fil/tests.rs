@@ -804,6 +804,7 @@ fn chaque_type_fait_l_aller_retour() {
         verif: verif.map(str::to_string),
     };
     let poussee = Evenement::Poussee { vague: "v".into(), branche: "kraken/vague-v".into(), sha: sha.into() };
+    let gel = Evenement::Gel { vague: "v".into(), main: 2, sha: sha.into() };
     let pr = |foi, numero: u64| Evenement::Pr {
         vague: "v".into(),
         branche: "kraken/vague-v".into(),
@@ -1048,6 +1049,13 @@ fn chaque_type_fait_l_aller_retour() {
                 r#""type":"vague.refus","vague":"v","main":2,"code":7008,"regle":"La preuve de la v"#,
                 r#"ague passe sur la tête après chaque fusion.","preuve":"vérification « cargo test"#,
                 r#" » rouge","correction":"Corrige la tâche, puis relance.","verif":null"#,
+            ),
+        ),
+        (
+            gel,
+            concat!(
+                r#""type":"main.gel","vague":"v","main":2,"sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a6"#,
+                r#"0d1c2b34""#,
             ),
         ),
         (
@@ -2239,6 +2247,8 @@ fn un_type_de_forge_aux_champs_faux_est_mal_forme() {
         r#""type":"forge.ci","vague":"v","numero":12,"sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a"#,
         r#"60d1c2b34","couleur":"rouge","texte":"test : FAILURE","foi":"constate""#,
     );
+    const GEL: &str =
+        concat!(r#""type":"main.gel","vague":"v","main":2,"sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a6"#, r#"0d1c2b34""#,);
     const REFUS: &str = r#""type":"forge.refus","vague":"v","code":8005,"regle":"r","preuve":"p","correction":"c""#;
     const RANGEMENT: &str = r#""type":"forge.rangement","vague":"v","retires":"a\nb""#;
     let en_trop = |corps: &str, cle: &str| format!(r#"{corps},"{cle}":1"#);
@@ -2264,6 +2274,16 @@ fn un_type_de_forge_aux_champs_faux_est_mal_forme() {
         ),
         (POUSSEE.replace(r#""vague":"v","#, ""), "« vague » manque".to_string()),
         (en_trop(POUSSEE, "essai"), "champ en trop pour forge.poussee : « essai »".to_string()),
+        // main.gel : une main et un sha de 40 hexadécimaux minuscules
+        (sans_sha(GEL), "« sha » manque".to_string()),
+        (avec_sha(GEL, "9f2c41a7"), format!("« sha » vaut \"9f2c41a7\", {hors_domaine}")),
+        (avec_sha(GEL, &sha_majuscule), hors_domaine.to_string()),
+        (avec_sha(GEL, &sha_en_trop), hors_domaine.to_string()),
+        (avec_sha(GEL, &sha_non_hexa), hors_domaine.to_string()),
+        (GEL.replace(r#","main":2"#, ""), "« main » manque".to_string()),
+        (GEL.replace(r#""main":2"#, r#""main":"2""#), "« main » manque ou n'est pas".into()),
+        (GEL.replace(r#""vague":"v","#, ""), "« vague » manque".to_string()),
+        (en_trop(GEL, "foi"), "champ en trop pour main.gel : « foi »".to_string()),
         // forge.pr : un numéro positif, une foi dans son domaine, tous ses champs
         (
             PR.replace(r#""numero":12"#, r#""numero":0"#),
@@ -2797,7 +2817,9 @@ fn les_exemples_du_fil_se_relisent_sans_trou_ni_doublon() {
     let tentative = ["main.bail", "main.debut", "main.lancement", "main.constat", "main.fin", "main.verdict"];
     let vague = ["vague.ouverte", "vague.assemblage", "vague.tache"];
     let forge = ["forge.poussee", "forge.pr", "forge.ci", "forge.poussee", "forge.pr", "forge.ci"];
-    let entieres: [(&str, Vec<&str>); 12] = [
+    let entieres: [(&str, Vec<&str>); 13] = [
+        // Le gel d'une main prise, dans une séance à lui.
+        ("1761902100000_14_1", vec!["main.gel"]),
         // Les copies : la première séance va jusqu'au verdict de sa main, la seconde jusqu'à sa fin déclarée, la
         // troisième jusqu'à l'usage de sa tentative, qui suit le constat et précède la fin.
         ("1761901200000_7_1", [&["vague.ouverte"][..], &tentative].concat()),

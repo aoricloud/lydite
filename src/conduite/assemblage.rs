@@ -268,6 +268,7 @@ impl Assemblage<'_> {
     /// refus.
     // raccourci : une tâche en conflit (7007) ou à preuve rouge (7008) est refusée sans relance ; monter vers une
     // relance sur la tête de la vague, l'erreur en contexte, si le besoin s'en montre
+    #[cfg(test)]
     pub(crate) fn fusionner(
         &mut self,
         bac: &Path,
@@ -275,6 +276,23 @@ impl Assemblage<'_> {
         id: &str,
         fichiers: Option<&[String]>,
         k: usize,
+        noter: impl FnOnce(&str, &str) -> io::Result<()>,
+    ) -> (Option<String>, Result<String, Refus>) {
+        self.fusionner_et_noter_le_gel(bac, depart, id, fichiers, k, |_| Ok(()), noter)
+    }
+
+    /// `fusionner`, avec `noter_gel(gel)` appelé juste après le gel du bac (étape 3), avant tout jugement du gel et
+    /// avant la fusion : le commit gelé est celui sur lequel porte le verdict de la main. Raté, 7012, comme la note
+    /// de la fusion.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn fusionner_et_noter_le_gel(
+        &mut self,
+        bac: &Path,
+        depart: &str,
+        id: &str,
+        fichiers: Option<&[String]>,
+        k: usize,
+        noter_gel: impl FnOnce(&str) -> io::Result<()>,
         noter: impl FnOnce(&str, &str) -> io::Result<()>,
     ) -> (Option<String>, Result<String, Refus>) {
         if let Some(fermeture) = &self.fermeture {
@@ -285,7 +303,7 @@ impl Assemblage<'_> {
         if let Err(refus) = sans_claude(bac, depart).and_then(|()| self.revenir(&format!("avant la fusion de {id}"))) {
             return (None, Err(refus));
         }
-        let (verif, issue) = self.assembler(bac, depart, id, fichiers, k, noter);
+        let (verif, issue) = self.assembler(bac, depart, id, fichiers, k, noter_gel, noter);
         let issue = match issue {
             Ok(sha) => {
                 self.tete.clone_from(&sha);
@@ -300,6 +318,7 @@ impl Assemblage<'_> {
     }
 
     /// Les étapes 3 à 8 de `fusionner`, depuis le worktree de la vague revenu à sa tête.
+    #[allow(clippy::too_many_arguments)]
     fn assembler(
         &self,
         bac: &Path,
@@ -307,6 +326,7 @@ impl Assemblage<'_> {
         id: &str,
         fichiers: Option<&[String]>,
         k: usize,
+        noter_gel: impl FnOnce(&str) -> io::Result<()>,
         noter: impl FnOnce(&str, &str) -> io::Result<()>,
     ) -> (Option<String>, Result<String, Refus>) {
         let rate = |vu: String| Refus::new(Code::GitImpossible, vu, RATE);
@@ -314,6 +334,12 @@ impl Assemblage<'_> {
             Ok(gel) => gel,
             Err(vu) => return (None, Err(rate(vu))),
         };
+        if let Err(erreur) = noter_gel(&gel) {
+            let preuve = format!("le gel de {id} ({gel}) n'est pas noté : {erreur}");
+            let correction = "Rien n'est fusionné et la vague s'arrête : rends le fil inscriptible, puis relance les \
+                              tâches non assemblées.";
+            return (None, Err(Refus::new(Code::FilInjoignable, preuve, correction)));
+        }
         // `sans_claude` a jugé le bac avant le gel : ce qu'un processus resté derrière la main y écrit ou y commite
         // après lui, sous un dossier `.claude`, entrerait dans la branche sans ce second jugement, que la tâche ait des
         // `fichiers` ou non (une vague sans plan reste ouverte à 7013).
