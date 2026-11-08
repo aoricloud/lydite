@@ -412,7 +412,14 @@ fn avec_pr_la_vague_d_un_plan_decoupe_va_jusqu_a_sa_pr() {
     assert_eq!(appels, attendus);
     let corps = fs::read_to_string(essai.racine.join("gh").join("corps.txt")).unwrap().replace("\r\n", "\n");
     // Le reçu en tête, puis l'objectif et la ligne de la preuve.
-    let recu = "Reçu\n- Coût : inconnu\n- 3 mains, 0 relance, 0 classée\n- Réglages de la preuve changés : aucun\n\n";
+    // Le sceau noté avant le corps est le premier du fil, et le reçu le cite ; un second le suit, à la fin de la vague.
+    let sceaux = crate::branchements::dossier::lire_sceaux(&essai.kraken);
+    assert_eq!(sceaux.len(), 2, "{sceaux:?}");
+    let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
+    let recu = format!(
+        "Reçu\n- Coût : inconnu\n- 3 mains, 0 relance, 0 classée\n- Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
+         - Réglages de la preuve changés : aucun\n\n"
+    );
     assert!(corps.starts_with(&format!("{recu}{OBJECTIF}\n\nPreuve : {VERIFIER} → vert\n")), "{corps}");
     assert!(!corps.contains("La fusion reste un geste humain"), "{corps}");
     // La branche de la vague est poussée sur sa tête, que la PR porte ; au fil, la PR et sa CI verte.
