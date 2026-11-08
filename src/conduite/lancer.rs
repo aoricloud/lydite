@@ -66,6 +66,9 @@ pub(crate) struct Liens<'a> {
     /// Le numéro de l'issue dont elle joue le plan : son `vague.issue` se note à son ouverture, après ses autres notes
     /// d'ouverture et avant tout départ.
     pub(crate) issue: Option<u64>,
+    /// Vrai pour la vague de relance de la CI, qui a son propre contrôle (« n'a rien changé à la tête poussée ») :
+    /// ses mains ne passent pas par `main_qui_change`.
+    pub(crate) relance_ci: bool,
 }
 
 /// Ce que rend une vague partie d'une base donnée ([`lancer_sur`]) : ce que rend [`lancer`], et de quoi la pousser.
@@ -175,7 +178,7 @@ pub(crate) fn lancer_avec(
         fil,
         assemblage,
         juge: liens.juge,
-        corrige: liens.corrige.is_some(),
+        corrige: liens.corrige.is_some() || liens.relance_ci,
         preparation: liens.preparation,
         baux: Baux::new(),
         rangs: (0..).zip(&plan.taches).map(|(rang, tache)| (tache.id.as_str(), rang)).collect(),
@@ -341,7 +344,7 @@ struct Vague<'a> {
     assemblage: Option<Assemblage<'a>>,
     /// Le juge de ses mains, celui du découpeur ou du relecteur ([`Liens`]).
     juge: Option<Juge<'a>>,
-    /// Vrai pour la vague d'une correction, qui a son propre contrôle (7017).
+    /// Vrai pour la vague d'une correction (7017) ou d'une relance de la CI, qui ont leur propre contrôle.
     corrige: bool,
     /// Ce qui se pose dans le bac de chaque main avant son premier départ ([`Preparation`]).
     preparation: Option<Preparation<'a>>,

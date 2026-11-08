@@ -61,7 +61,7 @@ fn chaque_faute_du_fichier_est_le_refus_7015_qui_nomme_sa_ligne() {
     let cas: Vec<(String, &str)> = vec![
         // La première ligne : `remarques 1`, seule.
         (String::new(), "ligne 1 «  » : la première ligne d'un fichier de remarques est `remarques 1`"),
-        ("remarques 2\n".into(), "ligne 1 « remarques 2 » : la première ligne"),
+        ("remarques 3\n".into(), "ligne 1 « remarques 3 » : la première ligne"),
         ("plan 1\n".into(), "ligne 1 « plan 1 » : la première ligne"),
         ("remarques 1 \n".into(), "ligne 1 « remarques 1  » : la première ligne"),
         ("\nremarques 1\n".into(), "ligne 1 «  » : la première ligne"),
@@ -152,6 +152,77 @@ fn chaque_faute_du_fichier_est_le_refus_7015_qui_nomme_sa_ligne() {
         (debut("remarque 1\nfichier : ./a\n"), "a un nom vide, `.` ou `..`"),
         (debut("remarque 1\nfichier : a\tb\n"), "le chemin « a\\tb » porte un caractère de contrôle"),
         (debut("remarque 1\nfichier : a\u{1b}[31m\n"), "le chemin « a\\u{1b}[31m » porte un caractère de contrôle"),
+    ];
+    for (brut, bout) in cas {
+        let refus = refuse(&brut);
+        assert!(refus.preuve.contains(bout), "« {bout} » dans la preuve de {brut:?} : {refus}");
+    }
+}
+
+#[test]
+fn la_forme_2_se_lit_avec_ses_deux_blocs_et_la_forme_1_se_lit_encore() {
+    let brut = texte(&[
+        "remarques 2",
+        "",
+        "remarque 1",
+        "fichier : src/a.rs",
+        "ligne : 3",
+        "bloquante : oui",
+        "    Le test ne peut pas echouer.",
+        "",
+        "rejoue",
+        "    cargo test vert sur la tête.",
+        "  Le test a est joué.",
+        "",
+        "non rejoue",
+        "\tLe réseau n'est pas joué.",
+    ]);
+    let lu = lire_fichier(brut.as_bytes()).unwrap();
+    assert_eq!(lu.forme, 2);
+    assert_eq!(lu.remarques, vec![remarque("src/a.rs", Some(3), true, "Le test ne peut pas echouer.")]);
+    assert_eq!(lu.rejoue, vec!["cargo test vert sur la tête.", "Le test a est joué."]);
+    assert_eq!(lu.non_rejoue, vec!["Le réseau n'est pas joué."]);
+    assert_eq!(lire_remarques(brut.as_bytes()).unwrap().len(), 1);
+    assert_eq!(lu.exiger_la_forme_2().map(|f| f.forme), Ok(2));
+    // Seuls, les deux blocs suffisent ; CRLF et BOM n'y changent rien.
+    let seuls = "remarques 2\n\nrejoue\n    a\nnon rejoue\n    b\n";
+    for brut in [seuls.to_string(), seuls.replace('\n', "\r\n"), format!("\u{feff}{seuls}")] {
+        let lu = lire_fichier(brut.as_bytes()).unwrap();
+        assert_eq!((lu.remarques.len(), lu.rejoue, lu.non_rejoue), (0, vec!["a".to_string()], vec!["b".to_string()]));
+    }
+    // La forme 1 se lit encore, sans bloc ; mais la forme 2 est exigée du relecteur.
+    let un = lire_fichier(b"remarques 1\n").unwrap();
+    assert_eq!((un.forme, un.rejoue.is_empty(), un.non_rejoue.is_empty()), (1, true, true));
+    let refus = un.exiger_la_forme_2().unwrap_err();
+    assert_eq!(refus.code, Code::RemarquesIllisibles);
+    assert!(refus.preuve.contains("ligne 1 « remarques 1 » : le relecteur écrit la forme 2"), "{refus}");
+}
+
+#[test]
+fn un_bloc_manquant_vide_hors_d_ordre_ou_double_est_refuse_en_7015_a_sa_ligne() {
+    let remarque_1 = "remarque 1\nfichier : a\nbloquante : non\n    x\n";
+    let cas: Vec<(String, &str)> = vec![
+        ("remarques 2\n".into(), "ligne 2 «  » : le fichier n'a pas de bloc `rejoue`"),
+        ("remarques 2\nrejoue\n    a\n".into(), "ligne 4 «  » : le fichier n'a pas de bloc `non rejoue`"),
+        ("remarques 2\nnon rejoue\n    a\n".into(), "ligne 2 « non rejoue » : le bloc `non rejoue` vient après"),
+        ("remarques 2\nrejoue\n    a\nrejoue\n    b\n".into(), "ligne 4 « rejoue » : le bloc `rejoue` est déjà donné"),
+        (
+            "remarques 2\nrejoue\n    a\nnon rejoue\n    b\nnon rejoue\n    c\n".into(),
+            "ligne 6 « non rejoue » : le bloc `non rejoue` est déjà donné",
+        ),
+        ("remarques 2\nrejoue\nnon rejoue\n    b\n".into(), "ligne 2 « rejoue » : le bloc `rejoue` n'a pas de ligne"),
+        ("remarques 2\nrejoue\n  \n\nnon rejoue\n    b\n".into(), "ligne 2 « rejoue » : le bloc `rejoue` n'a pas"),
+        ("remarques 2\nrejoue\n    a\nnon rejoue\n".into(), "ligne 4 « non rejoue » : le bloc `non rejoue` n'a pas"),
+        (
+            format!("remarques 2\nrejoue\n    a\nnon rejoue\n    b\n{remarque_1}"),
+            "ligne 6 « remarque 1 » : une remarque vient avant les blocs",
+        ),
+        (
+            "remarques 2\nrejoue\n    a\nfichier : a\n".into(),
+            "ligne 4 « fichier : a » : la clé « fichier » ne suit aucune ligne `remarque <n>`",
+        ),
+        // En forme 1, les blocs ne sont pas une forme : la ligne est hors de la forme.
+        ("remarques 1\nrejoue\n    a\n".into(), "ligne 2 « rejoue » : elle n'est ni vide"),
     ];
     for (brut, bout) in cas {
         let refus = refuse(&brut);

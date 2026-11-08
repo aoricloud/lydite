@@ -1,6 +1,7 @@
 use super::*;
 use crate::branchements::bac::bac;
 use crate::coeur::fil::{Couleur, Lecture, Verdict, etat};
+use crate::coeur::remarques::lire_remarques;
 use crate::commande::etat::{etat_dans, rendu};
 use crate::conduite::lancer::base_du_depot;
 use crate::conduite::mener::{Lieu, mener_sur};
@@ -235,7 +236,7 @@ fn bac_neuf(depot: &Path, kraken: &Path, id: &str) -> (PathBuf, String) {
 /// Des remarques justes, dont une bloquante : le texte que pose le relecteur de ces essais.
 fn remarques_justes() -> String {
     texte(&[
-        "remarques 1",
+        "remarques 2",
         "",
         "remarque 1",
         "fichier : sortie/a.txt",
@@ -248,8 +249,17 @@ fn remarques_justes() -> String {
         "fichier : sortie/a.txt",
         "bloquante : non",
         "    Un nom peu clair.",
+        "",
+        "rejoue",
+        "    La preuve de la vague est verte.",
+        "",
+        "non rejoue",
+        "    Le réseau n'est pas joué.",
     ])
 }
+
+/// Un fichier de remarques de la forme 2 sans remarque, ses deux blocs seuls.
+const SANS_REMARQUE: &str = "remarques 2\n\nrejoue\n    La preuve de la vague est verte.\n\nnon rejoue\n    Rien.\n";
 
 #[test]
 fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
@@ -291,6 +301,19 @@ fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
     ecrire(&bac_d, REMARQUES, "pas des remarques\n");
     let refus = juge(&bac_d, &depart).unwrap_err();
     assert_eq!(refus.code, Code::RemarquesIllisibles, "{refus}");
+    // La forme 1 se lit, mais le juge du relecteur exige la forme 2 : 7015, à la première ligne ; la forme 2 sans
+    // l'un de ses blocs est refusée de même.
+    for (nom, brut, bout) in [
+        ("forme-1", "remarques 1\n", "ligne 1 « remarques 1 » : le relecteur écrit la forme 2"),
+        ("sans-non-rejoue", "remarques 2\n\nrejoue\n    a\n", "le fichier n'a pas de bloc `non rejoue`"),
+    ] {
+        assert!(lire_remarques(b"remarques 1\n").is_ok());
+        let (bac_f, depart) = bac_neuf(&depot, &kraken, nom);
+        ecrire(&bac_f, REMARQUES, brut);
+        let refus = juge(&bac_f, &depart).unwrap_err();
+        assert_eq!(refus.code, Code::RemarquesIllisibles, "{refus}");
+        assert!(refus.preuve.contains(bout), "{refus}");
+    }
     // Un fichier que le dépôt ignore : 7014, bien qu'il soit seul et se lise.
     commiter(&depot, &[(".gitignore", "ignore/\nREMARQUES.lydite\n")]);
     let (bac_e, depart) = bac_neuf(&depot, &kraken, "ignore");
@@ -497,7 +520,7 @@ fn seules_les_taches_critiques_assemblees_se_relisent() {
     // a et c sont critiques ; c est classée (sa preuve est rouge) et reste dehors : la consigne, le diff et la
     // correction ne parlent que de a.
     let essai = Essai::nouveau("relecture-assemblees");
-    essai.remarques(1, "remarques 1\n");
+    essai.remarques(1, SANS_REMARQUE);
     let plan = "plan 1\nobjectif : Ecrire trois fichiers\npreuve : exit 0\n\n\
                 tache a\nfichiers : sortie/\ncritique : oui\n    Ecrire a, critique\n\n\
                 tache b\nfichiers : autre/\n    Ecrire b\n\n\
@@ -527,12 +550,19 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     distant_nu(&essai.racine, &essai.depot);
     let gh = gh_qui_suit(&essai.racine, &essai.depot);
     let brut = texte(&[
-        "remarques 1",
+        "remarques 2",
         "",
         "remarque 1",
         "fichier : sortie/a.txt",
         "bloquante : non",
         "    Un nom peu clair. SECRET-DE-LA-RELECTURE",
+        "",
+        "rejoue",
+        "    La preuve de la vague est verte.",
+        "",
+        "non rejoue",
+        "    Le réseau n'est pas joué.",
+        "    Windows n'est pas joué.",
     ]);
     essai.remarques(1, &brut);
     let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
@@ -576,7 +606,8 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
         "Reçu\n- Coût : inconnu\n- 3 mains, 0 relance, 0 classée\n- Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
          - Réglages de la preuve changés : aucun\n\n\
          Ecrire deux fichiers\n\nPreuve : exit 0 → vert\n\na : Ecrire le fichier critique\nb : Ecrire \
-         l'autre fichier\n\nRelecture : 1 remarques, dont 0 bloquantes.\nReviewed and replayed on commit {t}.\n"
+         l'autre fichier\n\nRelecture : 1 remarques, dont 0 bloquantes.\nReviewed and replayed on commit {t}.\n\
+         Not replayed (from the review):\n- `Le réseau n'est pas joué.`\n- `Windows n'est pas joué.`\n"
     );
     assert_eq!(essai.corps(), attendu);
     // Le relecteur a reçu sa consigne : l'objectif, la tâche critique seule avec ses fichiers, la preuve prêtée.
@@ -589,6 +620,10 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     let diff = essai.garde("diff-1.txt").expect("le relecteur a vu DIFF.lydite");
     assert!(diff.contains(&format!("diff --git a/sortie/main-{v}-1.txt b/sortie/main-{v}-1.txt")), "{diff}");
     assert!(!diff.contains("autre/"), "le travail de b n'est pas critique : {diff}");
+    let preuve = essai.garde("preuve-1.txt").expect("le relecteur a vu PREUVE.lydite");
+    let entete = format!("Proof command: exit 0\nReplayed green by Lydite on commit: {t}\n");
+    assert!(preuve.starts_with(&entete), "{preuve}");
+    assert!(consigne.contains("PREUVE.lydite holds the proof that Lydite replayed on this commit: judge the work"));
     let exe = env::current_exe().unwrap();
     let (separateur, ancien) = (if cfg!(windows) { ';' } else { ':' }, env::var("PATH").unwrap());
     let attendu = format!("{}{separateur}{ancien}", exe.parent().unwrap().display());
@@ -651,7 +686,7 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     let corps = essai.corps();
     let ligne = format!(
         "Relecture : 2 remarques, dont 1 bloquantes, corrigées.\nReviewed on commit {t}, corrected in {t2} without a \
-         second review, and replayed on commit {t2}.\n"
+         second review, and replayed on commit {t2}.\nNot replayed (from the review):\n- `Le réseau n'est pas joué.`\n"
     );
     assert!(corps.ends_with(&format!("\n\n{ligne}")), "{corps}");
     let messages = git(&essai.depot, &["log", "--format=%B", &format!("{base}..{t2}")]);
@@ -677,6 +712,98 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     assert!(dit.contains("Relecture : 2 remarques, dont 1 bloquantes") && dit.contains(&ligne), "{dit}");
     assert!(dit.ends_with(&format!("PR 12 · {PR} · CI verte (constatée)")), "{dit}");
     assert_eq!(etat_dans(&essai.kraken), Ok(ExitCode::SUCCESS));
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn le_relecteur_voit_la_preuve_rejouee_sur_sa_tete_avec_sa_sortie() {
+    let essai = Essai::nouveau("relecture-preuve-rejouee");
+    essai.remarques(1, SANS_REMARQUE);
+    let preuve = "echo PREUVE-REJOUEE-SUR-T";
+    let plan = Plan::lire(PLAN_DE_VAGUE.replace("preuve : exit 0", &format!("preuve : {preuve}")).as_bytes()).unwrap();
+    let _ = essai.mener(&plan, None);
+    let fil = essai.fil();
+    let ouvertes = ouvertes(&fil);
+    let [v, _] = &ouvertes[..] else { panic!("la vague, puis le relecteur : {ouvertes:?}") };
+    let t = tete_de(&fil, v);
+    // La sortie que le dernier `vague.fusion` qui porte `t` garde est celle de la preuve rejouée.
+    let verif = fil.iter().rev().find_map(|e| match e {
+        Evenement::Fusion { vague, sha, verif, .. } if vague == v && *sha == t => Some(verif.clone()),
+        _ => None,
+    });
+    let verif = verif.unwrap();
+    assert!(verif.contains("PREUVE-REJOUEE-SUR-T"), "{verif:?}");
+    let vu = essai.garde("preuve-1.txt").expect("le relecteur a vu PREUVE.lydite");
+    // `echo` imprime `\r\n` sous Windows : `garde` rend le fichier en `\n`, l'attendu se compare de même.
+    let attendu = texte_de_la_preuve(Some(preuve), &fil, v, &t).replace("\r\n", "\n");
+    assert_eq!(vu, attendu);
+    assert!(vu.starts_with(&format!("Proof command: {preuve}\nReplayed green by Lydite on commit: {t}\n")), "{vu}");
+    assert!(vu.contains(verif.replace("\r\n", "\n").trim_end()), "la sortie de la preuve rejouée : {vu}");
+    assert!(essai.garde("sans-preuve-1").is_none());
+    // Le fichier est du bac, retiré avec lui : le dépôt visé n'a rien vu.
+    assert_eq!(git(&essai.depot, &["status", "--porcelain", "--untracked-files=all"]), "");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn le_fichier_de_preuve_dit_en_une_ligne_ce_qui_manque_et_ne_garde_que_la_fin_de_la_sortie() {
+    let fusion = |vague: &str, sha: &str, verif: &str| Evenement::Fusion {
+        vague: vague.into(),
+        main: 1,
+        sha: sha.into(),
+        verif: verif.into(),
+    };
+    let fil = [fusion("v", "aaa", "premiere\n"), fusion("w", "bbb", "autre vague\n"), fusion("v", "aaa", "derniere\n")];
+    // Le dernier `vague.fusion` de la vague qui porte la tête.
+    assert_eq!(
+        texte_de_la_preuve(Some("cargo test"), &fil, "v", "aaa"),
+        "Proof command: cargo test\nReplayed green by Lydite on commit: aaa\nOutput (last 4000 characters), as Lydite \
+         kept it:\nderniere\n"
+    );
+    // Aucun `vague.fusion` ne porte la tête : une ligne, sans sortie.
+    let sans = texte_de_la_preuve(Some("cargo test"), &fil, "v", "ccc");
+    assert_eq!(sans.lines().count(), 1, "{sans}");
+    assert!(sans.contains("ccc") && !sans.contains("derniere"), "{sans}");
+    let autre_vague = texte_de_la_preuve(Some("cargo test"), &fil, "v", "bbb");
+    assert!(autre_vague.contains("bbb") && !autre_vague.contains("autre vague"), "{autre_vague}");
+    // Pas de commande de preuve : une ligne, sans sortie.
+    for preuve in [None, Some(""), Some("  ")] {
+        let sans = texte_de_la_preuve(preuve, &fil, "v", "aaa");
+        assert_eq!(sans, "This wave has no proof command: nothing was replayed.\n");
+    }
+    // Les 4000 derniers caractères de la sortie, comptés en caractères.
+    let longue = format!("{}{}", "début".repeat(1000), "é".repeat(SORTIE_MAX));
+    let fil = [fusion("v", "aaa", &longue)];
+    let texte = texte_de_la_preuve(Some("p"), &fil, "v", "aaa");
+    let (_, sortie) = texte.split_once("kept it:\n").unwrap();
+    assert_eq!(sortie, format!("{}\n", "é".repeat(SORTIE_MAX)));
+}
+
+#[cfg(unix)]
+#[test]
+fn une_reponse_qui_dit_rien_de_bloquant_ne_vaut_pas_moins_que_la_bloquante_du_fichier() {
+    // Le relecteur dit dans sa réponse qu'il n'y a rien de bloquant ; son fichier porte une remarque bloquante. Kraken
+    // compte le fichier, jamais la réponse : la bloquante compte, et la correction part.
+    let essai = Essai::nouveau("relecture-resume-sans-bloquante");
+    essai.remarques(1, &remarques_justes());
+    essai.marque("dit-rien-de-bloquant");
+    let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    let _ = essai.mener(&plan, None);
+    let fil = essai.fil();
+    let ouvertes = ouvertes(&fil);
+    let [v, r, c] = &ouvertes[..] else { panic!("la vague, le relecteur, la correction : {ouvertes:?}") };
+    assert!(fil.iter().any(
+        |e| matches!(e, Evenement::Relecture { vague, relue, n: 2, bloquantes: 1, .. } if vague == r && relue == v)
+    ));
+    assert!(fil.contains(&Evenement::Correction { vague: c.clone(), corrige: v.clone() }));
+    let consigne = essai.garde("consigne-correction.txt").unwrap();
+    assert!(consigne.contains("Le test ne peut pas echouer."), "{consigne}");
+    // La réponse gardée du relecteur porte bien la phrase qui dit qu'il n'y a rien de bloquant.
+    let fins = fins_de(&fil, r);
+    assert!(
+        fins.iter().any(|(_, texte)| texte.contains("There is nothing blocking in my review.")),
+        "la réponse du relecteur : {fins:?}"
+    );
     let _ = fs::remove_dir_all(&essai.racine);
 }
 
@@ -750,7 +877,7 @@ fn un_fichier_illisible_deux_fois_est_7015_puis_7016_et_rien_ne_se_pousse() {
     distant_nu(&essai.racine, &essai.depot);
     let gh = gh_qui_suit(&essai.racine, &essai.depot);
     essai.remarques(1, "pas des remarques\n");
-    essai.remarques(2, "remarques 2\n");
+    essai.remarques(2, "remarques 3\n");
     let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
     assert_eq!(essai.mener(&plan, Some(&gh)), ExitCode::FAILURE);
     let fil = essai.fil();
@@ -794,7 +921,7 @@ fn un_relecteur_qui_touche_un_fichier_est_7014_et_se_reprend_a_sa_relance() {
     let essai = Essai::nouveau("relecture-7014");
     let mut racines = vec![essai.racine.clone()];
     essai.remarques(1, &remarques_justes());
-    essai.remarques(2, "remarques 1\n");
+    essai.remarques(2, SANS_REMARQUE);
     essai.marque("toucher-1");
     let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
     assert_eq!(essai.mener(&plan, None), ExitCode::SUCCESS);
@@ -866,7 +993,7 @@ fn relire_sous(essai: &Essai, menee: &Menee, base: &str, origine: Origine) -> Re
 #[test]
 fn sous_une_issue_un_diff_de_plus_de_1_mo_est_7016_sans_relecteur() {
     let essai = Essai::nouveau("relecture-issue-trop");
-    essai.remarques(1, "remarques 1\n");
+    essai.remarques(1, SANS_REMARQUE);
     let (menee, base) = vague_qui_pese(&essai, TAILLE_MAX + 1);
     let Relue::Dehors(refus) = relire_sous(&essai, &menee, &base, Origine::Issue) else {
         panic!("un diff coupé ne se relit pas sous une issue")
@@ -886,7 +1013,7 @@ fn sous_une_issue_un_diff_de_plus_de_1_mo_est_7016_sans_relecteur() {
 #[test]
 fn sous_une_issue_un_diff_juste_sous_la_borne_se_relit_en_entier() {
     let essai = Essai::nouveau("relecture-issue-sous");
-    essai.remarques(1, "remarques 1\n");
+    essai.remarques(1, SANS_REMARQUE);
     let (menee, base) = vague_qui_pese(&essai, TAILLE_MAX - 1);
     let Relue::Prise(Prise { n: 0, bloquantes: 0, correction: None, .. }) =
         relire_sous(&essai, &menee, &base, Origine::Issue)
@@ -903,7 +1030,7 @@ fn sous_une_issue_un_diff_juste_sous_la_borne_se_relit_en_entier() {
 #[test]
 fn hors_issue_un_diff_de_plus_de_1_mo_se_relit_coupe_comme_avant() {
     let essai = Essai::nouveau("relecture-hors-issue");
-    essai.remarques(1, "remarques 1\n");
+    essai.remarques(1, SANS_REMARQUE);
     let (menee, base) = vague_qui_pese(&essai, TAILLE_MAX + 1);
     let Relue::Prise(Prise { n: 0, .. }) = relire_sous(&essai, &menee, &base, Origine::Plan) else {
         panic!("hors issue, un diff coupé se relit")
@@ -917,7 +1044,7 @@ fn hors_issue_un_diff_de_plus_de_1_mo_se_relit_coupe_comme_avant() {
 #[test]
 fn sous_une_issue_une_vague_lancee_d_un_sous_dossier_pese_son_diff_depuis_la_racine_7016() {
     let essai = Essai::nouveau("relecture-issue-sous-dossier");
-    essai.remarques(1, "remarques 1\n");
+    essai.remarques(1, SANS_REMARQUE);
     // La tâche critique écrit sous `sortie/` plus de 1 Mo ; Kraken part d'un sous-dossier du dépôt visé, comme
     // `lancer` sans `--depot`, d'où `sortie/` ne nommerait rien.
     fs::write(essai.faux.join("gros.txt"), format!("{}\n", "y".repeat(99)).repeat(TAILLE_MAX / 100 + 1)).unwrap();

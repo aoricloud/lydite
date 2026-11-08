@@ -31,6 +31,7 @@ use crate::coeur::fil::{
     self, Base, Couleur, Evenement, Foi, Note, SceauVague, Vague, correction_de, etat, relecture_de,
 };
 use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
+use crate::coeur::remarques::lire_fichier;
 use crate::conduite::alarmes;
 use crate::conduite::lancer::Menee;
 
@@ -186,6 +187,37 @@ fn ligne_de_relecture(vagues: &[Vague], id: &str) -> Option<String> {
     Some(format!("Relecture : {} remarques, dont {} bloquantes{corrigees}.", relecture.n, relecture.bloquantes))
 }
 
+/// Le nombre de lignes du bloc `non rejoue` que le corps de la PR montre, et leur longueur, en caractères.
+const NON_REJOUE_LIGNES: usize = 10;
+const NON_REJOUE_CARACTERES: usize = 200;
+
+/// Les lignes du corps de la PR qui disent ce que la relecture de la vague `id` donne pour non rejoué : « Not replayed
+/// (from the review): », puis les lignes du bloc `non rejoue` de sa dernière relecture que le fil note, dix au plus,
+/// chacune coupée à 200 caractères. Une main les a écrites : chacune est écrite en code, sans caractère de contrôle ni
+/// apostrophe inverse, pour qu'aucune mention ni aucun lien n'y ait d'effet. Vide sans relecture, ou si son texte ne se
+/// lit pas en forme 2.
+fn non_rejoue_de_la_relecture(evenements: &[Evenement], id: &str) -> Vec<String> {
+    let texte = evenements.iter().rev().find_map(|e| match e {
+        Evenement::Relecture { relue, remarques, .. } if relue == id => Some(remarques.as_str()),
+        _ => None,
+    });
+    let Some(Ok(fichier)) = texte.map(|texte| lire_fichier(texte.as_bytes())) else { return Vec::new() };
+    if fichier.non_rejoue.is_empty() {
+        return Vec::new();
+    }
+    let mut lignes = vec!["Not replayed (from the review):".to_string()];
+    for ligne in fichier.non_rejoue.iter().take(NON_REJOUE_LIGNES) {
+        let propre: String = ligne
+            .chars()
+            .filter(|c| !c.is_control())
+            .map(|c| if c == '`' { '\'' } else { c })
+            .take(NON_REJOUE_CARACTERES)
+            .collect();
+        lignes.push(format!("- `{propre}`"));
+    }
+    lignes
+}
+
 /// La correction du refus 7016 d'une tête qui n'est pas celle que la relecture a jugée.
 const SANS_TETE_JUGEE: &str = "Rien ne se pousse : seule se pousse la tête que la relecture a jugée, ou la correction \
                                qui vise cette relecture. Relance la vague, ou relis toi-même la tête avant de la \
@@ -215,8 +247,8 @@ fn derniere_tete(evenements: &[Evenement], id: &str) -> Option<String> {
 /// Ce que le fil dit de la relecture de la vague `id` face à `tete`, la tête que la forge va pousser au premier envoi,
 /// et, s'il la laisse partir, la ligne du corps de la PR qui nomme le commit relu et rejoué.
 ///
-/// - Sans relecture (aucune tâche critique), la tête part comme elle est : « Replayed on commit <tête>, not reviewed:
-///   no task is critical. »
+/// - Sans relecture (aucune tâche critique assemblée), la tête part comme elle est : « Replayed on commit <tête>, not
+///   reviewed: no critical task was assembled. »
 /// - Relue sans remarque bloquante, seule part la tête que le verdict (`vague.verdict`) dit relue : « Reviewed and
 ///   replayed on commit <sha>. »
 /// - Relue avec des bloquantes, seule part la tête de la correction qui vise cette relecture (le dernier
@@ -224,12 +256,14 @@ fn derniere_tete(evenements: &[Evenement], id: &str) -> Option<String> {
 ///   second review, and replayed on commit <tête>. »
 /// - Sinon, le refus 7016, dont la preuve nomme la tête à pousser et celle qu'il fallait.
 ///
+/// Une vague n'a qu'une relecture : la correction d'une relecture plus ancienne de la même vague ne s'y voit donc pas.
+///
 /// « replayed » ne s'écrit que si un `vague.fusion` de la vague ou de sa correction porte le commit.
 fn controler_la_tete(vagues: &[Vague], evenements: &[Evenement], id: &str, tete: &str) -> Result<String, Refus> {
     let refus = |preuve: String| Refus::new(Code::RelectureManquee, preuve, SANS_TETE_JUGEE);
     let Some(relecture) = relecture_de(vagues, id) else {
         let rejoue = rejoue(rejouee_sur(evenements, &[id], tete));
-        return Ok(format!("{} on commit {tete}, not reviewed: no task is critical.", capitaliser(rejoue)));
+        return Ok(format!("{} on commit {tete}, not reviewed: no critical task was assembled.", capitaliser(rejoue)));
     };
     // Le verdict est celui du relecteur qui a rendu la dernière relecture de la vague.
     let relecteur = vagues.iter().rev().find(|v| v.relecture.as_ref().is_some_and(|r| r.relue == id));
@@ -604,7 +638,9 @@ impl Proposition<'_> {
         let commit = controler_la_tete(&vagues, &evenements, &menee.id, tete).map_err(Arret::Refus)?;
         // Sous la ligne de la relecture, s'il y en a une, la ligne du commit relu et rejoué.
         let relecture = [ligne_de_relecture(&vagues, &menee.id), Some(commit)].into_iter().flatten();
-        let relecture = Some(relecture.collect::<Vec<_>>().join("\n"));
+        let mut relecture: Vec<String> = relecture.collect();
+        relecture.extend(non_rejoue_de_la_relecture(&evenements, &menee.id));
+        let relecture = Some(relecture.join("\n"));
         let recu = recu_de(&vagues, &lue.notes, &menee.id);
         let rang = vagues.iter().position(|vague| vague.id == menee.id);
         let rang = rang.ok_or_else(|| Arret::Net(format!("le fil ne rejoue pas la vague {}", menee.id)))?;
