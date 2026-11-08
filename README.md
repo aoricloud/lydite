@@ -110,7 +110,7 @@ account, their own API key or their provider's key, as they would without Lydite
   profile, its URL and key replace `ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY`, and `ANTHROPIC_AUTH_TOKEN` is
   dropped). Other `CLAUDE*` variables (a `CLAUDE_CODE_OAUTH_TOKEN`, say), GitHub tokens and SSH agents are not passed
   on: an agent is never lent a right to act as you. Sign in with `claude` itself, or use an API key. The agent keeps
-  the key to reach its model, but its commands, hooks and MCP servers do not see `ANTHROPIC_API_KEY` or
+  the key to reach its model, but the commands it runs in the sandbox do not see `ANTHROPIC_API_KEY` or
   `ANTHROPIC_AUTH_TOKEN`.
 - **Subscriptions.** Anthropic's advertised limits for the Pro, Max and Ultra plans assume ordinary, individual use of
   Claude Code, and a wave runs many sessions: for large waves, prefer an API key or a provider profile.
