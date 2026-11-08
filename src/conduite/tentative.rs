@@ -66,15 +66,22 @@ pub(crate) type Juge<'a> = &'a (dyn Fn(&Path) -> Result<(), String> + Sync);
 fn consigne(
     objectif: &str,
     fichiers: Option<&[String]>,
+    exacts: &[(String, String)],
     verifier: Option<&str>,
     precedente: Option<&str>,
     pretee: bool,
     socle: &str,
 ) -> String {
-    let perimetre = match fichiers {
+    let mut perimetre = match fichiers {
         Some(fichiers) => format!("{PERIMETRE} Your files: {}", fichiers.join(" ")),
         None => PERIMETRE.to_string(),
     };
+    if !exacts.is_empty() {
+        perimetre.push_str("\nThese texts must appear in your files byte for byte, as written here:");
+        for (fichier, texte) in exacts {
+            perimetre.push_str(&format!("\n{fichier}: {texte}"));
+        }
+    }
     let perimetre = format!("{perimetre}\n{COMMIT}");
     // Avec une commande, c'est Kraken qui la rejoue ; la main la joue d'abord si on la lui prête, car en `acceptEdits`
     // elle ne peut souvent pas la lancer sans ce prêt.
@@ -130,6 +137,7 @@ pub(crate) fn tenter(
     bac: &Path,
     objectif: &str,
     fichiers: Option<&[String]>,
+    exacts: &[(String, String)],
     verifier: Option<&str>,
     precedente: Option<&str>,
     journal: &Path,
@@ -141,7 +149,7 @@ pub(crate) fn tenter(
     let socle = socle(depart, profil.delai_main());
     let consigne = match juge {
         Some(_) => format!("{socle}\n\n{}", avec_precedente(objectif, precedente)),
-        None => consigne(objectif, fichiers, verifier, precedente, profil.prete(verifier), &socle),
+        None => consigne(objectif, fichiers, exacts, verifier, precedente, profil.prete(verifier), &socle),
     };
     let Demande { argv, declaration } = profil.demande(bac, verifier, precedente.is_some());
     let attendu =

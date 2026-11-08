@@ -151,6 +151,49 @@ pub(crate) fn main_hors_fichiers(dir: &Path, se_corrige: bool) -> Vec<String> {
     }
 }
 
+/// Une fausse main qui écrit `dedans.txt` : à sa première tentative, `alpha beta` coupé en deux lignes ; à la relance,
+/// `alpha beta` d'une ligne si elle `se_corrige`, coupé encore sinon. Elle garde sa consigne dans `entree-<n>.txt` de
+/// `dir`, comme [`main_hors_fichiers`], et finit sur `PREUVE: vert`. `dir` sert à une seule tâche.
+pub(crate) fn main_texte_coupe(dir: &Path, se_corrige: bool) -> Vec<String> {
+    let d = dir.to_string_lossy();
+    if cfg!(windows) {
+        let script = dir.join(if se_corrige { "coupe-corrige.bat" } else { "coupe-obstinee.bat" });
+        let relance = if se_corrige { "echo alpha beta> dedans.txt" } else { "(echo alpha& echo beta) > dedans.txt" };
+        fs::write(
+            &script,
+            format!(
+                "@echo off\r\n\
+                 set \"d={d}\"\r\n\
+                 set n=1\r\n\
+                 if exist \"%d%\\marque\" set n=2\r\n\
+                 findstr \"^\" > \"%d%\\entree-%n%.txt\"\r\n\
+                 if %n%==2 ({relance}) else ((echo alpha& echo beta) > dedans.txt)\r\n\
+                 type nul > \"%d%\\marque\"\r\n\
+                 echo PREUVE: vert\r\n"
+            ),
+        )
+        .unwrap();
+        vec![script.to_string_lossy().into_owned()]
+    } else {
+        let script = dir.join(if se_corrige { "coupe-corrige.sh" } else { "coupe-obstinee.sh" });
+        let relance = if se_corrige { "echo 'alpha beta'" } else { "printf 'alpha\\nbeta\\n'" };
+        fs::write(
+            &script,
+            format!(
+                "d='{d}'\n\
+                 n=1\n\
+                 if [ -f \"$d/marque\" ]; then n=2; fi\n\
+                 cat > \"$d/entree-$n.txt\"\n\
+                 if [ \"$n\" = 2 ]; then {relance}; else printf 'alpha\\nbeta\\n'; fi > dedans.txt\n\
+                 : > \"$d/marque\"\n\
+                 echo 'PREUVE: vert'\n"
+            ),
+        )
+        .unwrap();
+        vec!["sh".into(), script.to_string_lossy().into_owned()]
+    }
+}
+
 /// Une fausse main de relance qui touche `.github/` : comme [`main_de_vague`], elle écrit sa consigne dans `<bac>.txt`,
 /// puis `.github/ci.yml` dans son bac, ce qu'une PR de Kraken ne publie pas.
 pub(crate) fn main_qui_ecrit_la_ci(dir: &Path) -> Vec<String> {

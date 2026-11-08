@@ -139,20 +139,20 @@ fn tenter_ne_rend_de_constat_que_d_une_main_declaree() {
     // Une main Claude que `borner` n'a pas bornée ne part pas, et ne déclare rien : pas de constat, et rien n'est
     // créé à côté de son bac.
     let libre = crate::coeur::profil::lire("essai", "sorte = claude\n", None, None).unwrap();
-    let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, None, None, &journal, None);
+    let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, &[], None, None, &journal, None);
     assert_eq!(constat, None);
     assert!(verdict.unwrap_err().starts_with("main : aucun programme à lancer"));
     assert!(!temporaire_de(&bac).unwrap().exists());
     // Une main brute ne déclare rien : l'erreur de son départ, sans constat.
     let brute = Profil::faux(vec!["lydite-main-introuvable".into()], DELAI);
-    let (constat, verif, verdict) = tenter(&brute, &bac, "objectif", None, Some("exit 0"), None, &journal, None);
+    let (constat, verif, verdict) = tenter(&brute, &bac, "objectif", None, &[], Some("exit 0"), None, &journal, None);
     assert_eq!((constat, verif), (None, None));
     assert!(verdict.unwrap_err().starts_with("lancement impossible de lydite-main-introuvable"));
     // Une main Claude déclare : Kraken rend le constat de ce qu'il en a lu, ici rien, et l'erreur de son départ. Un
     // constat vide est un constat : la vague le note, car la main était déclarée.
     let claude = profil_borne("sorte = claude\nprogramme = lydite-claude-introuvable\n", &dir);
     let (constat, verif, verdict) =
-        tenter(&claude, &bac, "objectif", None, Some("exit 0"), Some("échec"), &journal, None);
+        tenter(&claude, &bac, "objectif", None, &[], Some("exit 0"), Some("échec"), &journal, None);
     assert_eq!((constat, verif), (Some(Constat::default()), None));
     assert!(verdict.unwrap_err().starts_with("lancement impossible de lydite-claude-introuvable"));
     let _ = fs::remove_dir_all(&dir);
@@ -170,10 +170,28 @@ const SUITE: &str = "\nLydite commits your work itself: do not run git commit.";
 #[test]
 fn la_consigne_nomme_les_fichiers_de_la_tache_a_la_suite_de_la_ligne_fixe() {
     let fichiers = ["src/a.rs".to_string(), "docs/".to_string()];
-    let avec = consigne("Écrire a", Some(&fichiers), None, None, false, "S");
+    let avec = consigne("Écrire a", Some(&fichiers), &[], None, None, false, "S");
     assert!(avec.starts_with(&format!("S\n\nÉcrire a{FIXE} Your files: src/a.rs docs/{SUITE}\n\n")), "{avec}");
-    let sans = consigne("Écrire a", None, None, None, false, "S");
+    let sans = consigne("Écrire a", None, &[], None, None, false, "S");
     assert!(sans.starts_with(&format!("S\n\nÉcrire a{FIXE}{SUITE}\n\n")) && !sans.contains("Your files"), "{sans}");
+}
+
+#[test]
+fn la_consigne_nomme_les_textes_exacts_juste_apres_la_ligne_des_fichiers() {
+    let fichiers = ["src/a.rs".to_string(), "docs/".to_string()];
+    let exacts = [
+        ("src/a.rs".to_string(), "fn a() -> u8 { 1 }".to_string()),
+        ("docs/x.md".to_string(), "clé : valeur  deux".to_string()),
+    ];
+    let avec = consigne("Écrire a", Some(&fichiers), &exacts, None, None, false, "S");
+    let titre = "These texts must appear in your files byte for byte, as written here:";
+    let attendu = format!(
+        "S\n\nÉcrire a{FIXE} Your files: src/a.rs docs/\n{titre}\nsrc/a.rs: fn a() -> u8 {{ 1 }}\n\
+         docs/x.md: clé : valeur  deux{SUITE}\n\n"
+    );
+    assert!(avec.starts_with(&attendu), "{avec}");
+    let sans = consigne("Écrire a", Some(&fichiers), &[], None, None, false, "S");
+    assert!(!sans.contains("These texts"), "{sans}");
 }
 
 #[test]
@@ -192,7 +210,7 @@ fn la_derniere_ligne_impossible_se_lit_avec_ses_blancs_et_son_deux_points() {
 fn la_consigne_garde_ses_octets() {
     // Sans vérification, la main joue elle-même sa preuve et finit sur PREUVE.
     assert_eq!(
-        consigne("Écrire bonjour.txt", None, None, None, false, "S"),
+        consigne("Écrire bonjour.txt", None, &[], None, None, false, "S"),
         format!(
             "S\n\nÉcrire bonjour.txt{FIXE}{SUITE}\n\n\
              Quand tu as fini, joue toi-même le test qui prouve ton travail. La \
@@ -201,7 +219,7 @@ fn la_consigne_garde_ses_octets() {
     );
     // Avec une vérification que la main ne peut pas jouer, Kraken la joue : la consigne la nomme.
     assert_eq!(
-        consigne("Écrire bonjour.txt", None, Some("cargo test"), None, false, "S"),
+        consigne("Écrire bonjour.txt", None, &[], Some("cargo test"), None, false, "S"),
         format!(
             "S\n\nÉcrire bonjour.txt{FIXE}{SUITE}\n\nQuand tu auras fini, Lydite jouera dans ton dossier : cargo test. \
              Ton travail est pris si elle réussit."
@@ -209,7 +227,7 @@ fn la_consigne_garde_ses_octets() {
     );
     // À la relance, l'erreur de la tentative d'avant s'intercale avant la preuve.
     assert_eq!(
-        consigne("Écrire bonjour.txt", None, None, Some("pas de PREUVE\nen dernière ligne"), false, "S"),
+        consigne("Écrire bonjour.txt", None, &[], None, Some("pas de PREUVE\nen dernière ligne"), false, "S"),
         format!(
             "S\n\nÉcrire bonjour.txt\n\nTentative précédente échouée :\npas de PREUVE\nen dernière ligne\
              {FIXE}{SUITE}\n\n\
@@ -218,7 +236,7 @@ fn la_consigne_garde_ses_octets() {
         )
     );
     assert_eq!(
-        consigne("Écrire bonjour.txt", None, Some("cargo test"), Some("vérification rouge"), false, "S"),
+        consigne("Écrire bonjour.txt", None, &[], Some("cargo test"), Some("vérification rouge"), false, "S"),
         format!(
             "S\n\nÉcrire bonjour.txt\n\nTentative précédente échouée :\nvérification rouge{FIXE}{SUITE}\n\n\
              Quand tu auras fini, Lydite jouera dans ton dossier : cargo test. \
@@ -228,7 +246,7 @@ fn la_consigne_garde_ses_octets() {
     // Une vérification prêtée à la main : elle la joue elle-même, chaque morceau seul et tel quel, jusqu'à ce
     // qu'elle passe, puis Kraken la rejoue.
     assert_eq!(
-        consigne("Écrire bonjour.txt", None, Some("cargo test"), None, true, "S"),
+        consigne("Écrire bonjour.txt", None, &[], Some("cargo test"), None, true, "S"),
         format!(
             "S\n\nÉcrire bonjour.txt{FIXE}{SUITE}\n\n\
              Quand tu auras fini, joue toi-même dans ton dossier : cargo test. Lance \
@@ -240,7 +258,7 @@ fn la_consigne_garde_ses_octets() {
         )
     );
     assert_eq!(
-        consigne("Écrire bonjour.txt", None, Some("cargo test"), Some("vérification rouge"), true, "S"),
+        consigne("Écrire bonjour.txt", None, &[], Some("cargo test"), Some("vérification rouge"), true, "S"),
         format!(
             "S\n\nÉcrire bonjour.txt\n\nTentative précédente échouée :\nvérification rouge{FIXE}{SUITE}\n\n\
              Quand tu auras fini, joue toi-même dans ton dossier : cargo test. Lance chaque \
@@ -253,7 +271,7 @@ fn la_consigne_garde_ses_octets() {
     );
     // Une preuve à deux morceaux s'écrit entière, telle que l'humain l'a donnée, et la même phrase la suit.
     assert_eq!(
-        consigne("Écrire bonjour.txt", None, Some("cargo fmt --check && cargo test"), None, true, "S"),
+        consigne("Écrire bonjour.txt", None, &[], Some("cargo fmt --check && cargo test"), None, true, "S"),
         format!(
             "S\n\nÉcrire bonjour.txt{FIXE}{SUITE}\n\n\
              Quand tu auras fini, joue toi-même dans ton dossier : cargo fmt --check \
@@ -276,12 +294,12 @@ fn la_main_de_tache_et_la_main_jugee_recoivent_le_socle_en_tete() {
     let (dir, bac) = bac_jetable("socle");
     let journal = dir.join("journal.tmp");
     let main = Profil::faux(crate::essais::fausse_main(&dir), DELAI);
-    let _ = tenter(&main, &bac, "Écrire a", None, None, None, &journal, None);
+    let _ = tenter(&main, &bac, "Écrire a", None, &[], None, None, &journal, None);
     let tache = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(tache.starts_with(TETE_DU_SOCLE), "{tache}");
     assert!(tache.contains(" UTC, in 60 minutes: keep the last minutes to say what is done and what is not.\n\n"));
     let juge = |_: &Path| Ok(());
-    let _ = tenter(&main, &bac, "Juger", None, Some("exit 0"), Some("avant"), &journal, Some(&juge));
+    let _ = tenter(&main, &bac, "Juger", None, &[], Some("exit 0"), Some("avant"), &journal, Some(&juge));
     let jugee = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(jugee.starts_with(TETE_DU_SOCLE), "{jugee}");
     assert!(jugee.trim_end().ends_with("\n\nJuger\n\nTentative précédente échouée :\navant"), "{jugee}");
@@ -292,7 +310,7 @@ fn la_main_de_tache_et_la_main_jugee_recoivent_le_socle_en_tete() {
 #[test]
 fn la_couche_fixe_de_la_main_de_tache_tient_sous_son_plafond_et_ne_cite_que_des_codes_connus() {
     for (verifier, pretee) in [(None, false), (Some(""), false), (Some(""), true)] {
-        let fixe = consigne("", Some(&[]), verifier, None, pretee, "");
+        let fixe = consigne("", Some(&[]), &[], verifier, None, pretee, "");
         assert!(fixe.chars().count() <= PLAFOND, "{verifier:?} {pretee} : {} > {PLAFOND}", fixe.chars().count());
         assert_eq!(crate::essais::codes_inconnus(&fixe), Vec::<String>::new());
     }
@@ -301,7 +319,7 @@ fn la_couche_fixe_de_la_main_de_tache_tient_sous_son_plafond_et_ne_cite_que_des_
 #[test]
 fn les_memes_pieces_donnent_la_meme_consigne_et_le_socle_est_en_tete() {
     let fichiers = ["a.rs".to_string()];
-    let une = || consigne("Écrire a", Some(&fichiers), Some("cargo test"), Some("avant"), true, "SOCLE");
+    let une = || consigne("Écrire a", Some(&fichiers), &[], Some("cargo test"), Some("avant"), true, "SOCLE");
     assert_eq!(une().as_bytes(), une().as_bytes());
     assert!(une().starts_with("SOCLE\n\nÉcrire a\n\nTentative précédente échouée :\navant"));
 }
