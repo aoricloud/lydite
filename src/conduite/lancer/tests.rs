@@ -2335,6 +2335,62 @@ fn une_main_hors_de_ses_fichiers_est_rouge_se_corrige_a_la_relance_et_passe() {
     let _ = fs::remove_dir_all(&racine);
 }
 
+/// Une fausse main qui ne change aucun fichier du bac : elle garde sa consigne dans `consigne-<n>.txt` de `dir`, `n`
+/// étant 1 à sa première tentative et 2 ensuite, puis finit sur `PREUVE: vert`.
+fn main_qui_ne_change_rien(dir: &Path) -> Vec<String> {
+    let d = dir.to_string_lossy();
+    if cfg!(windows) {
+        let script = dir.join("rien.bat");
+        let corps = format!(
+            "@echo off\r\nset \"d={d}\"\r\nset n=1\r\nif exist \"%d%\\marque\" set n=2\r\n\
+             findstr \"^\" > \"%d%\\consigne-%n%.txt\"\r\ntype nul > \"%d%\\marque\"\r\necho PREUVE: vert\r\n"
+        );
+        fs::write(&script, corps).unwrap();
+        vec![script.to_string_lossy().into_owned()]
+    } else {
+        let script = dir.join("rien.sh");
+        let corps = format!(
+            "d='{d}'\nn=1\nif [ -f \"$d/marque\" ]; then n=2; fi\ncat > \"$d/consigne-$n.txt\"\n: > \"$d/marque\"\n\
+             echo 'PREUVE: vert'\n"
+        );
+        fs::write(&script, corps).unwrap();
+        vec!["sh".into(), script.to_string_lossy().into_owned()]
+    }
+}
+
+#[test]
+fn une_main_qui_ne_change_rien_est_rouge_relancee_puis_classee_et_rien_n_est_assemble() {
+    let racine = racine("main-vide");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    let profil = Profil::faux(main_qui_ne_change_rien(&racine), DELAI);
+    let plan = plan(&["plan 1", "objectif : Rien", "preuve : exit 0", "tache a", "    Ne rien écrire"]);
+    let (branche, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    let branche = branche.expect("la branche d'une vague à plan");
+    assert_eq!(issues[0].1.as_ref().unwrap_err(), "the hand changed nothing");
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Rouge Constate",
+        "verdict Classee Constate",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    let lire = |n: usize| {
+        let octets = fs::read(racine.join(format!("consigne-{n}.txt"))).unwrap();
+        String::from_utf8_lossy(&octets).replace("\r\n", "\n")
+    };
+    assert!(!lire(1).contains("Tentative pr"));
+    assert!(lire(2).contains("Tentative précédente échouée :\nthe hand changed nothing"));
+    assert!(fusions(&evenements).is_empty(), "rien n'est assemblé");
+    assert_eq!(git(&depot, &["rev-parse", &branche]), base);
+    let _ = fs::remove_dir_all(&racine);
+}
+
 /// Le plan d'une tâche `a` qui peut changer `dedans.txt`, où le plan exige le texte `alpha beta`.
 fn plan_exact() -> Plan {
     plan(&[
@@ -2977,6 +3033,7 @@ mod quota {
             fil: Fil::seance(&kraken, "humain"),
             assemblage: None,
             juge: None,
+            corrige: false,
             preparation: None,
             baux: Baux::new(),
             rangs: HashMap::new(),
