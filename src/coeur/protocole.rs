@@ -15,7 +15,9 @@
 //! 3. [`juger_reponses`] les juge contre le JSON de `--settings` que Kraken a passé : `get_settings` sans erreur, avec
 //!    la source `flagSettings`, les réglages effectifs qui gardent la main (crochets et mémoire automatique coupés, le
 //!    mur tel que déclaré, ses `excludedCommands` compris : absents au déclaré, ils le sont à l'effectif, et une autre
-//!    source qui en ajoute est un écart ; `sandbox.credentials.envVars` de même) et le modèle déclaré ;
+//!    source qui en ajoute est un écart ; `sandbox.credentials.envVars` à part : Claude Code en concatène les
+//!    sources, une entrée déclarée doit y paraître et un refus de plus d'une autre source n'est pas un écart, un
+//!    refus de plus fermant le mur là où une commande exclue de plus l'ouvre) et le modèle déclaré ;
 //!    `list_permission_rules` avec chaque règle déclarée, à la source `flagSettings` ;
 //!    `get_hooks_listing` avec tous les crochets coupés ; `get_sandbox_dialog`, interne à Claude Code,
 //!    qui dit le mur actif ou non, et dont le silence n'est pas un écart, sauf un mur exigé qu'il dit inactif.
@@ -43,17 +45,21 @@ pub(crate) const DEMANDES: [&str; 4] =
 
 /// Les réglages du mur, que `get_settings` rend effectifs tels que déclarés, `excludedCommands` compris : les commandes
 /// qui sortent du bac à sable, que Kraken ne déclare que pour la preuve prêtée sous un mur demandé. Absentes au
-/// déclaré, elles le sont à l'effectif : une autre source qui en ajoute est un écart. `sandbox.credentials.envVars`
-/// y est aussi : les deux règles `deny` qui cachent la clé du fournisseur aux commandes ; un effectif qui les perd ou
-/// en change tue la main sans sa consigne.
-const MUR: [&str; 6] = [
+/// déclaré, elles le sont à l'effectif : une autre source qui en ajoute est un écart, car une commande exclue de plus
+/// ouvre le mur. `sandbox.credentials.envVars` n'y est pas : Claude Code concatène ce tableau d'une source à l'autre,
+/// et un refus de plus le ferme au lieu de l'ouvrir. Il se juge à part ([`VARIABLES`]) : chaque entrée déclarée y
+/// paraît, et aucune entrée qui nomme une variable déclarée n'a un autre mode que `deny` ; les entrées d'autres
+/// sources, pour d'autres variables ou en double, ne sont pas un écart.
+const MUR: [&str; 5] = [
     "sandbox.enabled",
     "sandbox.failIfUnavailable",
     "sandbox.allowUnsandboxedCommands",
     "sandbox.excludedCommands",
     "sandbox.network.strictAllowlist",
-    "sandbox.credentials.envVars",
 ];
+
+/// Les règles `deny` qui cachent la clé du fournisseur aux commandes, jugées par [`variables_gardees`].
+const VARIABLES: &str = "sandbox.credentials.envVars";
 
 /// Le début de l'erreur d'une main tuée sur un écart, avant sa consigne ou à son ouverture.
 const NON_PRIS: &str = "main : réglages non pris : ";
@@ -422,6 +428,11 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str) -> Vec<String> {
     for chemin in MUR {
         egal(chemin, champ(declare, chemin));
     }
+    let effectif = vu(&format!("effective.{VARIABLES}"));
+    let declarees = champ(declare, VARIABLES);
+    if !variables_gardees(effectif, declarees) {
+        ecarts.push(format!("effective.{VARIABLES} {}, déclaré {}", montre(effectif), montre(declarees)));
+    }
     let applique = vu("applied.model");
     let pris =
         matches!(applique, Some(Json::Texte(nom)) if nom == modele || nom.starts_with(&format!("claude-{modele}-")));
@@ -429,6 +440,19 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str) -> Vec<String> {
         ecarts.push(format!("applied.model {}, déclaré {modele:?}", montre(applique)));
     }
     ecarts
+}
+
+/// Vrai si l'effectif garde les règles d'identifiants déclarées : chaque entrée déclarée y paraît, à l'égalité du JSON,
+/// et aucune entrée qui nomme une variable déclarée n'a un autre mode que `deny`. Sans entrée déclarée, rien n'est
+/// exigé. Un effectif absent, ou qui n'est pas une liste, ne les garde pas.
+fn variables_gardees(effectif: Option<&Json>, declarees: Option<&Json>) -> bool {
+    let Some(Json::Liste(declarees)) = declarees else { return true };
+    let Some(Json::Liste(effectif)) = effectif else { return false };
+    let noms: Vec<&str> = declarees.iter().filter_map(|entree| texte_de(entree, "name")).collect();
+    declarees.iter().all(|entree| effectif.contains(entree))
+        && effectif.iter().all(|entree| {
+            texte_de(entree, "name").is_none_or(|nom| !noms.contains(&nom) || texte_de(entree, "mode") == Some("deny"))
+        })
 }
 
 /// Les écarts de `list_permission_rules` : chaque règle déclarée, d'`allow` puis de `deny`, y est sous la même chaîne,
