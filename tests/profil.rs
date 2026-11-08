@@ -1387,7 +1387,8 @@ fn l_environnement_de_session_n_atteint_pas_la_main() {
         .collect();
     // La connexion de la main à Claude, son dossier de réglages et ANTHROPIC_*, passe à elle seule, pas à sa preuve.
     // Les fichiers de configuration de git de l'humain, vides ici, et MCP_* passent à l'une comme à l'autre.
-    let connexion = ["CLAUDE_CONFIG_DIR", "ANTHROPIC_ESSAI"];
+    // La variable que Kraken pose à la main (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`) passe à elle seule, pas à sa preuve.
+    let connexion = ["CLAUDE_CONFIG_DIR", "ANTHROPIC_ESSAI", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"];
     let (global, systeme) = (essai.racine.join("gitconfig-global"), essai.racine.join("gitconfig-systeme"));
     for fichier in [&global, &systeme] {
         fs::write(fichier, "").unwrap();
@@ -1428,6 +1429,8 @@ fn l_environnement_de_session_n_atteint_pas_la_main() {
         .env("CLAUDECODE", "1")
         .env("CLAUDE_CODE_ESSAI", "session")
         .env("CLAUDE_EFFORT", "high")
+        // Kraken lancé avec la variable à `0` la donne quand même à `1` à la main : la pose vient après les retraits.
+        .env("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", "0")
         .envs(jetons.map(|jeton| (jeton, "jeton")))
         .envs(depot)
         .envs(authentification)
