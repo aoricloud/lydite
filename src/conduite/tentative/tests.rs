@@ -141,20 +141,20 @@ fn tenter_ne_rend_de_constat_que_d_une_main_declaree() {
     let libre = crate::coeur::profil::lire("essai", "sorte = claude\n", None, None).unwrap();
     let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, &[], None, None, &journal, None);
     assert_eq!(constat, None);
-    assert!(verdict.unwrap_err().starts_with("main : aucun programme à lancer"));
+    assert!(erreur(verdict).starts_with("main : aucun programme à lancer"));
     assert!(!temporaire_de(&bac).unwrap().exists());
     // Une main brute ne déclare rien : l'erreur de son départ, sans constat.
     let brute = Profil::faux(vec!["lydite-main-introuvable".into()], DELAI);
     let (constat, verif, verdict) = tenter(&brute, &bac, "objectif", None, &[], Some("exit 0"), None, &journal, None);
     assert_eq!((constat, verif), (None, None));
-    assert!(verdict.unwrap_err().starts_with("lancement impossible de lydite-main-introuvable"));
+    assert!(erreur(verdict).starts_with("lancement impossible de lydite-main-introuvable"));
     // Une main Claude déclare : Kraken rend le constat de ce qu'il en a lu, ici rien, et l'erreur de son départ. Un
     // constat vide est un constat : la vague le note, car la main était déclarée.
     let claude = profil_borne("sorte = claude\nprogramme = lydite-claude-introuvable\n", &dir);
     let (constat, verif, verdict) =
         tenter(&claude, &bac, "objectif", None, &[], Some("exit 0"), Some("échec"), &journal, None);
     assert_eq!((constat, verif), (Some(Constat::default()), None));
-    assert!(verdict.unwrap_err().starts_with("lancement impossible de lydite-claude-introuvable"));
+    assert!(erreur(verdict).starts_with("lancement impossible de lydite-claude-introuvable"));
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -202,8 +202,14 @@ fn la_derniere_ligne_impossible_se_lit_avec_ses_blancs_et_son_deux_points() {
     assert_eq!(declare_impossible("IMPOSSIBLE: raison\nautre ligne"), None);
     assert_eq!(declare_impossible("IMPOSSIBLE sans deux-points"), None);
     assert_eq!(declare_impossible("IMPOSSIBLEMENT: non"), None);
-    assert_eq!(impossible_declaree(&format!("{IMPOSSIBLE}raison")), Some("raison"));
-    assert_eq!(impossible_declaree("pas de PREUVE"), None);
+}
+
+/// Le texte d'une erreur ordinaire ; un échec déclaré impossible fait échouer le test.
+fn erreur(verdict: Result<Pris, Echec>) -> String {
+    match verdict {
+        Err(Echec::Erreur(texte)) => texte,
+        autre => panic!("une erreur ordinaire attendue : {autre:?}"),
+    }
 }
 
 #[test]
