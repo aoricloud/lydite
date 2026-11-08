@@ -19,6 +19,8 @@ MOT = "Brindefer"
 MOT_ACCENTUE = "Zébrelune"
 # Un BOM, un commentaire, une ligne vide : MOT est à la ligne 4, MOT_ACCENTUE à la ligne 5.
 LISTE = chr(0xFEFF) + f"# essai\n\nzinzolin\n{MOT}\n  {MOT_ACCENTUE}  \r\n"
+# Une ligne de plusieurs mots, à la ligne 1.
+PLUSIEURS = "essai-un essai-deux\n"
 
 RESEAU = "192." + "168.1.20"
 RESEAU_V6 = "fd" + "7a:115c:a1e0::1"
@@ -246,6 +248,34 @@ class Garde(unittest.TestCase):
         fichiers.append(ICI.parent / "CLAUDE.md")
         diff = "".join(bloc(f.name, *f.read_text(encoding="utf-8").splitlines()) for f in fichiers)
         code, sortie = jouer(diff, LISTE="fork")
+        self.assertEqual(code, 0, sortie)
+
+    # Le jeu d'essais commun avec `publiable` de Lydite (src/branchements/github/tests.rs), dans le même ordre : une
+    # ligne de plusieurs mots se trouve aussi repliée, un mot seul reste comparé à la lettre.
+    def test_une_ligne_de_plusieurs_mots_coupee_sur_deux_lignes_rougit(self):
+        code, sortie = jouer(bloc("src/a.rs", "// essai-un", "// essai-deux"), liste=PLUSIEURS)
+        self.assertEqual(code, 1, sortie)
+        self.assertIn("Line 1 of the guard list appears in the added lines of src/a.rs.", sortie)
+        self.sans_rien_de_trouve(sortie, "essai-un", "essai-deux")
+
+    def test_une_ligne_de_plusieurs_mots_separee_par_d_autres_blancs_rougit(self):
+        code, sortie = jouer(bloc("src/a.rs", "essai-un  essai-deux"), liste=PLUSIEURS)
+        self.assertEqual(code, 1, sortie)
+        self.assertIn("Line 1 of the guard list appears in the added lines of src/a.rs.", sortie)
+        self.sans_rien_de_trouve(sortie, "essai-un", "essai-deux")
+
+    def test_une_ligne_de_plusieurs_mots_ecrite_telle_quelle_rougit(self):
+        code, sortie = jouer(bloc("src/a.rs", "essai-un essai-deux"), liste=PLUSIEURS)
+        self.assertEqual(code, 1, sortie)
+        self.assertIn("Line 1 of the guard list appears in the added lines of src/a.rs.", sortie)
+        self.sans_rien_de_trouve(sortie, "essai-un", "essai-deux")
+
+    def test_une_partie_d_une_ligne_de_plusieurs_mots_passe(self):
+        code, sortie = jouer(bloc("src/a.rs", "essai-un"), liste=PLUSIEURS)
+        self.assertEqual(code, 0, sortie)
+
+    def test_un_mot_seul_reste_compare_a_la_lettre(self):
+        code, sortie = jouer(bloc("src/a.rs", "essai un"), liste="essai-un\n")
         self.assertEqual(code, 0, sortie)
 
 
