@@ -518,7 +518,11 @@ impl Forge<'_> {
     /// dans le corps. Les deux `git diff` fixent `--no-relative`, `--submodule=short` et `--src-prefix=a/
     /// --dst-prefix=b/` : le dépôt visé peut être un sous-dossier du dépôt, et la configuration de l'humain ou du
     /// dépôt (`diff.relative`, `diff.submodule`, `diff.noprefix`, `diff.dstPrefix`) ne change ni ce qu'ils disent ni
-    /// la forme de leurs noms. Un chemin sans nom, une racine, ne compte pas : il paraîtrait partout.
+    /// la forme de leurs noms. Elle lit aussi l'historique de la plage, commit par commit (`git log -p -m -U0`, mêmes
+    /// drapeaux) : les noms des fichiers que chaque commit change rejoignent ceux du diff net dans la recherche des
+    /// mots, et les lignes ajoutées de chaque commit (« les lignes ajoutées de <fichier> dans l'historique poussé »)
+    /// se cherchent après celles du diff net, si bien qu'un contenu ajouté puis retiré ne passe pas.
+    /// Un chemin sans nom, une racine, ne compte pas : il paraîtrait partout.
     // raccourci : un chemin écrit autrement (échappé en `\\`, en nom court 8.3, sous `~`) passe ; monter si une PR en
     // montre un
     ///
@@ -561,7 +565,19 @@ impl Forge<'_> {
         let noms = lire(&["diff", "--name-only", "--no-relative", "-z", "--no-renames", base, tete, "--"])?;
         // Les noms des fichiers changés d'abord, pour tous les mots et avant tout autre refus : un lieu, ou le refus de
         // `.github/`, nomme son fichier, qui ne doit porter aucun mot de la garde.
-        let noms_bas: Vec<String> = noms.split('\0').map(minuscules).collect();
+        let plage = format!("{base}..{tete}");
+        let noms_historique = lire(&[
+            "log",
+            "-m",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--format=",
+            "--no-show-signature",
+            &plage,
+            "--",
+        ])?;
+        let noms_bas: Vec<String> = noms.split('\0').chain(noms_historique.split('\0')).map(minuscules).collect();
         for (numero, mot) in &garde.mots {
             let cherche = minuscules(mot);
             if noms_bas.iter().any(|nom| nom.contains(&cherche)) {
@@ -593,7 +609,24 @@ impl Forge<'_> {
             tete,
             "--",
         ])?;
-        let plage = format!("{base}..{tete}");
+        let historique = lire(&[
+            "log",
+            "-p",
+            "-m",
+            "-U0",
+            "--format=",
+            "--no-relative",
+            "--submodule=short",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "--text",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--no-show-signature",
+            &plage,
+            "--",
+        ])?;
         let messages = lire(&["log", "--format=%B", "--no-show-signature", &plage, "--"])?;
         let auteurs = lire(&["log", "--format=%H%x00%an <%ae>%x00%cn <%ce>", "--no-show-signature", &plage, "--"])?;
         if let Some((sha, auteur, committer)) = commit_etranger(&auteurs) {
@@ -611,6 +644,9 @@ impl Forge<'_> {
         }
         let casse = |texte: &str| if cfg!(windows) { texte.to_lowercase() } else { texte.to_string() };
         let mut lieux = ajoutees(&diff);
+        lieux.extend(
+            ajoutees(&historique).into_iter().map(|(lieu, texte)| (format!("{lieu} dans l'historique poussé"), texte)),
+        );
         lieux.push(("les messages des commits poussés".into(), messages));
         lieux.push(("le titre".into(), titre.into()));
         lieux.push(("le corps".into(), corps.into()));
