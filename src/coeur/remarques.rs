@@ -26,7 +26,7 @@
 //! deux blocs obligatoires dans cet ordre, `rejoue` puis `non rejoue` (en colonne 0, seuls sur leur ligne), chacun
 //! suivi d'au moins une ligne indentée : le premier dit ce que montre la preuve rejouée ; le second, ce que le travail
 //! affirme ou demande et que rien de rejoué ici ne montre (une autre plateforme, le réseau, un chemin qu'aucun test
-//! ne joue). Un bloc manquant, vide, hors d'ordre ou en double est refusé. [`lire_remarques`] lit les deux formes,
+//! ne joue). Un bloc manquant, vide, hors d'ordre ou en double est refusé. [`lire_fichier`] lit les deux formes,
 //! avec les mêmes bornes et les mêmes refus ; [`Fichier::exiger_la_forme_2`] écarte la forme 1.
 //!
 //! Toute faute est le refus 7015, qui nomme la ligne qu'il vise. Aucune entrée ne fait paniquer la lecture : un fichier
@@ -139,7 +139,7 @@ pub(crate) fn lire_remarques(octets: &[u8]) -> Result<Vec<Remarque>, Refus> {
 }
 
 /// Lit un fichier de remarques, de la forme 1 ou 2 : ses remarques, et, en forme 2, ses deux blocs. Mêmes bornes et
-/// mêmes refus que [`lire_remarques`].
+/// mêmes refus que la lecture de ses seules remarques.
 pub(crate) fn lire_fichier(octets: &[u8]) -> Result<Fichier, Refus> {
     if octets.len() > TAILLE_MAX {
         let preuve = format!("le fichier de remarques dépasse 1 Mo : plus de {TAILLE_MAX} octets");

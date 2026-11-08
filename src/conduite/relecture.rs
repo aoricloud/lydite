@@ -16,8 +16,9 @@
 //!    l'exécutable de Kraken en tête de son `PATH` (`tentative::Juge`) ;
 //! 3. Kraken rejoue la preuve lui-même ([`juger`]) : [`REMARQUES`] est un fichier ordinaire que le dépôt visé n'ignore
 //!    pas, les seuls changements du bac sont lui et [`DIFF`] (sinon 7014, `assemblage::seul_change`), et il se lit
-//!    ([`lire_remarques`], sinon 7015). Rouge, le relecteur a une relance, le refus en contexte ; rouge encore, la
-//!    relecture est classée : le travail critique n'a pas été relu, rien ne se pousse, et c'est le refus 7016 ;
+//!    ([`lire_fichier`] puis [`crate::coeur::remarques::Fichier::exiger_la_forme_2`], sinon 7015). Rouge, le
+//!    relecteur a une relance, le refus en contexte ; rouge encore, la relecture est classée : le travail critique
+//!    n'a pas été relu, rien ne se pousse, et c'est le refus 7016 ;
 //! 4. prise, la relecture se note au fil avec le nombre de remarques et leur texte (le fil reste local), puis son
 //!    verdict (`vague.verdict` : la tête `t` relue, et le profil, l'empreinte et le modèle du lancement du relecteur,
 //!    `null` pour une main nue), avant la correction et la forge ; puis le bac du relecteur se retire. Sans remarque
