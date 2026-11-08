@@ -12,8 +12,15 @@ FICHIER = DOSSIER / "skills" / "driving-lydite" / "SKILL.md"
 CHAMPS_COMMUNS = {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
 # Ce que Hermes signale, dans un texte de skill, comme une possible injection de consignes.
 MOTIFS_SUSPECTS = (
-    "ignore previous instructions", "ignore all previous", "you are now", "disregard your", "forget your instructions",
-    "new instructions:", "system prompt:", "<system>", "]]>",
+    "ignore previous instructions",
+    "ignore all previous",
+    "you are now",
+    "disregard your",
+    "forget your instructions",
+    "new instructions:",
+    "system prompt:",
+    "<system>",
+    "]]>",
 )
 
 
