@@ -623,6 +623,8 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     let objectif = "Corrige au plus petit les remarques bloquantes de la relecture, et rien d'autre\n\
                     sortie/a.txt, ligne 3 : Le test ne peut pas echouer. SECRET-DE-LA-RELECTURE\n    Ajouter une \
                     assertion.\n";
+    let (socle, consigne) = consigne.split_once("\n\n").unwrap();
+    assert!(socle.starts_with("A refused action is not retried another way.\n"), "{socle}");
     assert!(consigne.starts_with(objectif), "{consigne}");
     assert!(!consigne.contains("Un nom peu clair"), "une remarque à noter n'est pas à corriger : {consigne}");
     // Le texte des remarques n'est ni dans le corps de la PR, ni dans un commit poussé : il n'y reste que les nombres.
@@ -919,6 +921,14 @@ fn sous_une_issue_une_vague_lancee_d_un_sous_dossier_pese_son_diff_depuis_la_rac
     assert_eq!(refus.iter().map(|(code, _)| *code).collect::<Vec<_>>(), [7016], "{refus:?}");
     assert!(refus[0].1.contains("plus que 1 Mo"), "{refus:?}");
     let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn la_couche_fixe_du_relecteur_tient_sous_son_plafond_sans_la_sortie_honnete_ni_le_perimetre() {
+    let fixe = consigne("", &[]);
+    assert!(fixe.chars().count() <= PLAFOND, "{} > {PLAFOND}", fixe.chars().count());
+    assert_eq!(crate::essais::codes_inconnus(&fixe), Vec::<String>::new());
+    assert!(!fixe.contains("IMPOSSIBLE") && !fixe.contains("Your files") && !fixe.contains("Change only"), "{fixe}");
 }
 
 // (la suite des essais)
