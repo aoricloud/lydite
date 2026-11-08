@@ -31,6 +31,7 @@ mod conduite {
     pub(crate) mod mener;
     pub(crate) mod publication;
     pub(crate) mod relecture;
+    pub(crate) mod socle;
     pub(crate) mod tentative;
 }
 #[cfg(test)]

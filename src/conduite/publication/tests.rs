@@ -644,6 +644,8 @@ fn une_ci_rouge_vaut_une_relance_qui_avance_la_branche_de_la_pr() {
     git(&lieu.nu, &["merge-base", "--is-ancestor", &tete, &t2]);
     assert_eq!((lieu.distante(&branche), git(&lieu.depot, &["rev-parse", &branche])), (t2.clone(), t2.clone()));
     let consigne = git(&lieu.nu, &["show", &format!("{t2}:main-{relance}-1.txt")]).replace("\r\n", "\n");
+    let (socle, consigne) = consigne.split_once("\n\n").unwrap();
+    assert!(socle.starts_with("A refused action is not retried another way.\n"), "{socle}");
     assert!(consigne.starts_with(CORRIGER) && consigne.contains(CONTEXTE), "{consigne}");
     // Le faux gh : la CI rouge et son journal, puis la CI de la relance, sur la même PR, lue aux mêmes appels.
     let appels = lieu.gh.appels();

@@ -69,6 +69,11 @@ const GRAMMAIRE: &str = concat!(
     "    <objectif de la tâche, en lignes indentées>",
 );
 
+/// Le plafond, en caractères, de la couche fixe du découpeur (sa consigne sans objectif ni preuve) : sa taille
+/// d'aujourd'hui arrondie au 500 supérieur.
+#[cfg(test)]
+const PLAFOND: usize = 3000;
+
 /// La correction d'un découpage pris dont la note ne s'écrit pas (7012).
 const NON_NOTE: &str = "Le découpage n'est pas au fil : aucune vague ne part, et le bac du découpeur demeure, avec son \
                         plan. Rends le fil inscriptible, puis relance.";

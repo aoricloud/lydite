@@ -93,6 +93,11 @@ fn juger(bac: &Path, depart: &str) -> Result<(Vec<Remarque>, String), Refus> {
     Ok((remarques, String::from_utf8_lossy(&octets).into_owned()))
 }
 
+/// Le plafond, en caractères, de la couche fixe du relecteur (sa consigne sans objectif ni tâche) : sa taille
+/// d'aujourd'hui arrondie au 500 supérieur.
+#[cfg(test)]
+const PLAFOND: usize = 2000;
+
 /// La consigne du relecteur : un texte fixe de Kraken, où n'entrent que l'objectif de la vague, puis l'id, les
 /// fichiers et l'objectif de chaque tâche critique.
 fn consigne(objectif: &str, critiques: &[&Tache]) -> String {
