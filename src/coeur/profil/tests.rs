@@ -886,7 +886,9 @@ fn les_reglages_disent_le_mur_du_profil() {
             r#""filesystem":{{"denyRead":["~/",{dossier_json}],"#,
             r#""allowRead":[{bac_json},{git_json},{lecture_json},"~/.cargo"]}},"#,
             r#""network":{{"allowedDomains":["docs.exemple.test","paquets.exemple.test"],"#,
-            r#""strictAllowlist":true}}}},"#,
+            r#""strictAllowlist":true}},"#,
+            r#""credentials":{{"envVars":[{{"name":"ANTHROPIC_API_KEY","mode":"deny"}},"#,
+            r#"{{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}}]}}}},"#,
             r#""permissions":{{"allow":["Skill","Workflow","ExitPlanMode","#,
             r#""WebFetch(domain:docs.exemple.test)","WebFetch(domain:paquets.exemple.test)"],{deny}}},"#,
             r#""disableAllHooks":true,"autoMemoryEnabled":false}}"#,
@@ -1306,7 +1308,9 @@ fn sous_le_mur_demande_la_preuve_pretee_sort_du_bac_a_sable() {
             concat!(
                 r#"{{"sandbox":{{"enabled":true,"failIfUnavailable":{mur_exige},"allowUnsandboxedCommands":false,"#,
                 r#"{exclues}"filesystem":{{"denyRead":["~/",{dossier}],"allowRead":[{bac},{git}]}},"#,
-                r#""network":{{"allowedDomains":[],"strictAllowlist":true}}}},"#,
+                r#""network":{{"allowedDomains":[],"strictAllowlist":true}},"#,
+                r#""credentials":{{"envVars":[{{"name":"ANTHROPIC_API_KEY","mode":"deny"}},"#,
+                r#"{{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}}]}}}},"#,
                 r#""permissions":{{"allow":["Skill","Workflow","ExitPlanMode"{pret}],{deny}}},"#,
                 r#""disableAllHooks":true,"autoMemoryEnabled":false}}"#,
             ),
@@ -1608,4 +1612,23 @@ fn faux_ne_prete_ni_ne_declare_rien() {
     }
     assert_eq!(faux.garder(), Ok(()));
     assert_eq!((faux.delai_main(), faux.delai_preuve()), (Duration::from_secs(3600), Duration::from_secs(7)));
+}
+
+#[test]
+fn toute_main_ferme_la_cle_du_fournisseur_et_le_jeton_herite_aux_commandes() {
+    // Les deux règles `deny` de `sandbox.credentials.envVars`, juste après `network`, sous un mur exigé comme sous un
+    // mur demandé, avec ou sans fournisseur.
+    let regles = concat!(
+        r#""strictAllowlist":true},"credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
+        r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}},"permissions""#,
+    );
+    for mur in ["", "mur = exige\n"] {
+        let sans = borne(&format!("sorte = claude\n{mur}"));
+        let avec = fourni(&format!("{FOURNISSEUR}{mur}"), LEURRE);
+        for profil in [sans, avec] {
+            let reglages = reglages(&profil, None);
+            assert!(reglages.contains(regles), "{mur:?} : {reglages}");
+            assert!(!reglages.contains(LEURRE), "{reglages}");
+        }
+    }
 }

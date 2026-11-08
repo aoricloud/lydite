@@ -569,3 +569,26 @@ fn un_usage_est_vide_sans_jeton_ni_depense_ni_modele() {
     assert!(!Usage { micro_dollars: 1, ..Usage::default() }.est_vide());
     assert!(!Usage { modeles: vec![UsageModele::default()], ..Usage::default() }.est_vide());
 }
+
+#[test]
+fn les_regles_des_identifiants_se_jugent_telles_que_declarees() {
+    let regles = concat!(
+        r#","credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
+        r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}"#,
+    );
+    let apres = format!(r#""strictAllowlist":true}}{regles}"#);
+    let declare = REGLAGES.replace(r#""strictAllowlist":true}"#, &apres);
+    let settings = GET_SETTINGS.replace(r#""strictAllowlist":true}"#, &apres);
+    assert!(declare != REGLAGES && settings != GET_SETTINGS);
+    assert_eq!(juger_reponses(&attendu(&declare), &avec(&settings)), (Some(false), Ok(())));
+    // Absentes de l'effectif, ou autres : un écart, et la main meurt sans sa consigne.
+    let autres = settings.replace(r#""name":"ANTHROPIC_AUTH_TOKEN""#, r#""name":"AUTRE""#);
+    for effectif in [GET_SETTINGS.to_string(), autres] {
+        let (_, jugement) = juger_reponses(&attendu(&declare), &avec(&effectif));
+        let ecart = jugement.unwrap_err();
+        assert!(
+            ecart.starts_with("main : réglages non pris : get_settings : effective.sandbox.credentials.envVars "),
+            "{ecart}"
+        );
+    }
+}

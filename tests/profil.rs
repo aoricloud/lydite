@@ -90,7 +90,9 @@ const GET_SETTINGS: &str = concat!(
     r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_settings","response":{"applied":"#,
     r#"{"model":"<modele>"},"effective":{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox":{"enabled":true,"#,
     r#""failIfUnavailable":<exige>,"allowUnsandboxedCommands":false,<exclues>"network":{"allowedDomains":["exemple.t"#,
-    r#"est"],"strictAllowlist":true}}},"sources":[{"source":"userSettings","settings":{}},{"source":"flagSettings",""#,
+    r#"est"],"strictAllowlist":true},"credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
+    r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}}},"#,
+    r#""sources":[{"source":"userSettings","settings":{}},{"source":"flagSettings",""#,
     r#"settings":{}}]}}}"#,
 );
 /// Le `get_settings` du `--settings` tombé du 1/11 : une valeur mal typée le fait ignorer, sans `flagSettings` parmi
@@ -708,7 +710,9 @@ impl Essai {
             concat!(
                 r#"{{"sandbox":{{"enabled":true,"failIfUnavailable":{exige},"allowUnsandboxedCommands":false,"#,
                 r#"{exclues}"filesystem":{{"denyRead":{fermes},"allowRead":{lus}}},"#,
-                r#""network":{{"allowedDomains":{domaines},"strictAllowlist":true}}}},"#,
+                r#""network":{{"allowedDomains":{domaines},"strictAllowlist":true}},"#,
+                r#""credentials":{{"envVars":[{{"name":"ANTHROPIC_API_KEY","mode":"deny"}},"#,
+                r#"{{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}}]}}}},"#,
                 r#""permissions":{{"allow":{allow},"deny":{deny}}},"disableAllHooks":true,"autoMemoryEnabled":false}}"#,
             ),
             exige = exige,
@@ -1437,9 +1441,12 @@ fn l_environnement_de_session_n_atteint_pas_la_main() {
     // La main : aucune variable CLAUDE* sauf CLAUDE_CONFIG_DIR, aucun jeton, aucun moyen de s'authentifier ni variable
     // de git qui nomme un dépôt, et le reste. Sous Windows, les noms ne tiennent pas à la casse.
     let variables = variables_de_la_main(&essai);
+    // Seule `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, que Kraken pose lui-même à la main, fait exception.
+    let permises = ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"];
     let session: Vec<&String> =
-        variables.keys().filter(|nom| nom.starts_with("CLAUDE") && *nom != "CLAUDE_CONFIG_DIR").collect();
+        variables.keys().filter(|nom| nom.starts_with("CLAUDE") && !permises.contains(&nom.as_str())).collect();
     assert!(session.is_empty(), "des marques de session passent : {session:?}");
+    assert_eq!(variables["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"], "1");
     for nom in &otees {
         assert!(!variables.contains_key(*nom), "{nom} passe");
     }
