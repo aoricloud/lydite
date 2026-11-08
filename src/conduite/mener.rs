@@ -118,6 +118,11 @@ fn ouvertes_au_fil(dossier: &Path) -> Vec<String> {
         .collect()
 }
 
+/// Les liens de la vague qui relance une CI rouge : aucun lien, sinon son drapeau `relance_ci`.
+fn liens_de_la_relance() -> Liens<'static> {
+    Liens { relance_ci: true, ..Liens::default() }
+}
+
 /// La vague du plan, partie de `base` avec ses liens de découpage, de relecture et de correction, dite comme toute
 /// vague (`dire`) ; puis la relecture du travail de ses tâches critiques (`relecture::relire`), dite sur stderr : une
 /// relecture classée (7016) ou une correction qui ne s'assemble pas (7017) s'écrit comme refus, rien ne se pousse, et
@@ -147,6 +152,9 @@ pub(crate) fn mener_sur(
         Ok(menee) => menee,
         Err(refus) => {
             // Un refus qui vient après l'ouverture de la vague au fil la laisse ouverte : elle se scelle aussi.
+            // raccourci : la vague à sceller se trouve par différence des `vague.ouverte` du fil, donc un autre
+            // lancement dans le même dossier pourrait être scellé à sa place ; monter avec le verrou à bail du
+            // dossier d'état.
             let neuve = ouvertes_au_fil(lieu.dossier).into_iter().find(|id| !connues.contains(id));
             if let Some(Err(e)) = neuve.map(|id| dossier::Fil::seance(lieu.dossier, "humain").sceller(&id)) {
                 eprintln!("le sceau de fin du fil ne s'écrit pas : {e}");
@@ -187,8 +195,7 @@ pub(crate) fn mener_sur(
         let code = if toutes_constatees(&menee.issues) { ExitCode::SUCCESS } else { ExitCode::FAILURE };
         return Ok(finir(code));
     };
-    let relancer =
-        |plan: &Plan, base: &str| lancer_la_vague(plan, base, Liens { relance_ci: true, ..Liens::default() });
+    let relancer = |plan: &Plan, base: &str| lancer_la_vague(plan, base, liens_de_la_relance());
     let code = proposition.apres_la_vague(plan, &menee, corrigee.as_ref(), &relancer, lieu.personnel, lieu.ci);
     Ok(finir(code))
 }
