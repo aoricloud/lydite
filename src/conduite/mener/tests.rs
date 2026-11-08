@@ -120,6 +120,66 @@ fn lancer_ne_rend_0_que_si_chaque_prise_est_constatee() {
 }
 
 #[test]
+fn une_vague_ouverte_puis_refusee_finit_par_un_sceau() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Instant;
+    let racine = racine("sceau-refus");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(crate::essais::main_de_vague(&racine), Duration::from_secs(60));
+    // Un objectif lourd fait une ouverture longue à écrire : le guetteur voit le fil grandir et le ferme en écriture
+    // (l'écriture en cours finit, elle a son descripteur) ; la note suivante, `vague.assemblage`, ne s'écrit pas. Il le
+    // rouvre dès que le refus a retiré le worktree de la vague, avant le sceau.
+    let mut plan = Plan::lire("plan 1\nobjectif : o\npreuve : exit 0\ntache a\n    Écrire a".as_bytes()).unwrap();
+    plan.objectif = "o".repeat(16 << 20);
+    let fil = kraken.join("fil.jsonl");
+    let fini = AtomicBool::new(false);
+    let lieu = Lieu {
+        profil: &profil,
+        depot: &depot,
+        dossier: &kraken,
+        gh: OsStr::new("gh-absent"),
+        personnel: Some(&racine),
+        ci: (Duration::from_millis(10), Duration::from_secs(60)),
+    };
+    let base = base_du_depot(&depot).unwrap();
+    let issue = std::thread::scope(|s| {
+        let guetteur = s.spawn(|| {
+            let limite = Instant::now() + Duration::from_secs(60);
+            let droits = |mode| fs::set_permissions(&fil, fs::Permissions::from_mode(mode));
+            let worktree_la = || {
+                fs::read_dir(kraken.join("bacs"))
+                    .map(|dir| dir.flatten().any(|e| e.file_name().to_string_lossy().starts_with("vague-")))
+                    .unwrap_or(false)
+            };
+            let en_cours = || !fini.load(Ordering::SeqCst) && Instant::now() < limite;
+            while en_cours() {
+                if fs::metadata(&fil).is_ok_and(|m| m.len() > 0) && droits(0o444).is_ok() {
+                    while worktree_la() && en_cours() {}
+                    let _ = droits(0o644);
+                    return;
+                }
+            }
+        });
+        let issue = mener_sur(&lieu, &plan, &base, Liens::default(), None, Origine::Plan);
+        fini.store(true, Ordering::SeqCst);
+        guetteur.join().unwrap();
+        issue
+    });
+    let refus = issue.expect_err("la note de l'assemblage ne s'écrit pas");
+    assert_eq!(refus.code, Code::EntreeSortie, "{refus}");
+    assert!(refus.preuve.contains("note au fil"), "le refus remonte tel quel : {}", refus.preuve);
+    let texte = fs::read_to_string(&fil).unwrap();
+    let lignes: Vec<&str> = texte.lines().collect();
+    assert_eq!(lignes.len(), 2, "l'ouverture puis le sceau");
+    assert!(lignes[0].contains(r#""type":"vague.ouverte""#));
+    let id = lignes[0].split(r#""vague":""#).nth(1).and_then(|reste| reste.split('"').next()).unwrap();
+    assert!(lignes[1].contains(r#""type":"vague.sceau""#), "le fil finit par un sceau");
+    assert!(lignes[1].contains(&format!(r#""vague":"{id}""#)), "le sceau est celui de la vague ouverte");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
 fn chaque_copie_se_dit_prise_refusee_ou_classee() {
     let pris = |prouve| -> Result<Pris, String> { Ok(Pris { sortie: "fait".into(), prouve }) };
     assert_eq!(annonce("main-v-1", &pris(true)), "pris : main-v-1");
