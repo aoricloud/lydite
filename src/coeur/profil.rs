@@ -54,7 +54,9 @@
 //!     `plan::hors_forme` : ni absolu, ni `..`, ni sous `.git/` ou `.claude/`), sans `( ) * ? [ ] { }` ni guillemet
 //!     (un joker est refusé). Un chemin protégé l'emporte sur les `fichiers` d'une tâche : le réglage de la main
 //!     refuse son édition, et un changement par une commande rougit la tentative puis refuse la tâche au gel (7018).
-//!     Sans la clé, rien ne change. La main ne commite pas : son réglage refuse `git commit`, que Lydite fait au gel ;
+//!     Sans la clé, rien ne change, sauf que `.agents/skills/` (les leçons) est toujours protégé, clé ou non : une
+//!     main ne change jamais une leçon, seul l'humain le fait. La main ne commite pas : son réglage refuse `git
+//!     commit`, que Lydite fait au gel ;
 //!   - `delai_main` (3600 par défaut) et `delai_preuve` (300), en secondes, des entiers positifs : au premier, Kraken
 //!     tue la main ; au second, la preuve qu'il rejoue.
 //! - L'empreinte d'un profil est le SHA-256 des octets de son fichier. `lydite accepter <nom>` l'écrit dans
@@ -172,9 +174,13 @@ pub(crate) struct Profil {
     sorte: Sorte,
     delai_main: Duration,
     delai_preuve: Duration,
-    /// Les chemins que nulle main ne change (`proteges`), de la forme des `fichiers` d'une tâche.
+    /// Les chemins que nulle main ne change : [`LECONS`] d'abord, toujours, puis ceux de `proteges`, de la forme des
+    /// `fichiers` d'une tâche.
     proteges: Vec<String>,
 }
+
+/// Le dossier des leçons du dépôt visé : protégé de toute main, que le profil le nomme ou non.
+pub(crate) const LECONS: &str = ".agents/skills/";
 
 #[derive(Clone)]
 enum Sorte {
@@ -381,16 +387,17 @@ impl Profil {
         claude.fournisseur.as_ref().map(|fournisseur| fournisseur.cle.as_str())
     }
 
-    /// Les chemins que le profil protège (`proteges`) : aucune main ne les change. Vide sans la clé, et pour une main
-    /// brute.
+    /// Les chemins qu'aucune main ne change : [`LECONS`], toujours (sans la clé `proteges`, et pour une main brute
+    /// aussi), puis les `proteges` du profil.
     pub(crate) fn proteges(&self) -> &[String] {
         &self.proteges
     }
 
-    /// Un profil de test aux chemins protégés qu'on lui donne, comme le ferait la clé `proteges`.
+    /// Un profil de test aux chemins protégés qu'on lui donne, comme le ferait la clé `proteges` : les leçons
+    /// restent protégées.
     #[cfg(test)]
     pub(crate) fn avec_proteges(mut self, proteges: &[&str]) -> Profil {
-        self.proteges = proteges.iter().map(|chemin| chemin.to_string()).collect();
+        self.proteges = [LECONS].iter().chain(proteges).map(|chemin| chemin.to_string()).collect();
         self
     }
 
@@ -404,7 +411,7 @@ impl Profil {
     /// Un profil de test : la commande et le délai qu'on lui donne.
     #[cfg(test)]
     pub(crate) fn faux(main: Vec<String>, delai_preuve: Duration) -> Profil {
-        Profil { sorte: Sorte::Brute(main), delai_main: DELAI_MAIN, delai_preuve, proteges: Vec::new() }
+        Profil { sorte: Sorte::Brute(main), delai_main: DELAI_MAIN, delai_preuve, proteges: vec![LECONS.to_string()] }
     }
 
     /// Le profil a l'empreinte que l'humain a acceptée : celle de `<nom>.empreinte`, à côté de son fichier, que `lire`
@@ -870,7 +877,7 @@ pub(crate) fn lire(
     // `api` (sa ligne, sa valeur, son hôte) et `cle` (sa ligne, sa valeur), réunies après la lecture.
     let (mut api, mut variable) = (None, None);
     let mut ligne_prix = 0;
-    let mut proteges = Vec::new();
+    let mut proteges = vec![LECONS.to_string()];
     for (i, ligne) in texte.strip_prefix('\u{feff}').unwrap_or(texte).split('\n').enumerate() {
         let (n, ligne) = (i + 1, ligne.strip_suffix('\r').unwrap_or(ligne));
         let refus = |regle: &str| Err(refusee(n, ligne, regle));
@@ -980,7 +987,7 @@ pub(crate) fn lire(
                         ));
                     }
                 }
-                proteges = liste();
+                proteges = std::iter::once(LECONS.to_string()).chain(liste()).collect();
             }
             _ => {
                 // `delai_main` ou `delai_preuve` : des chiffres seuls, sans signe, et plus que zéro.

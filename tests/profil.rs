@@ -145,7 +145,12 @@ const FAUSSE_WINDOWS: &[&str] = &[
     r#"if exist "%ici%marque" (set n=2) else (set n=1)"#,
     r#"if %n%==1 type nul>"%ici%marque""#,
     r#"type nul>>"%ici%entree.jsonl""#,
-    r#"type "%ici%controle-%n%.jsonl""#,
+    // La règle des leçons nomme le bac de la main : `@BAC@` y est remplacé par sa règle.
+    concat!(
+        r#"powershell -NoProfile -Command "$p=(Get-Location).Path; "#,
+        r#"$r='//'+$p.Substring(0,1).ToLower()+$p.Substring(2).Replace('\','/'); "#,
+        r#"[Console]::Out.Write((Get-Content -Raw '%ici%controle-%n%.jsonl').Replace('@BAC@',$r))""#,
+    ),
     // L'entrée se recopie ligne à ligne, chaque ligne écrite aussitôt : `findstr` garde sa sortie jusqu'à sa fin et la
     // perd si l'arbre de la main est tué, on ne verrait alors rien de ce qu'elle a lu. `set /p` rend en morceaux une
     // ligne qui déborde ce qu'une lecture du tuyau a apporté (un Ko au plus) : `recoller` les recolle.
@@ -174,7 +179,8 @@ const FAUSSE_UNIX: &[&str] = &[
     r#"if [ -e "$ici/marque" ]; then n=2; else n=1; fi"#,
     r#"if [ "$n" = 1 ]; then : > "$ici/marque"; fi"#,
     r#": >> "$ici/entree.jsonl""#,
-    r#"cat "$ici/controle-$n.jsonl""#,
+    // La règle des leçons nomme le bac de la main : `@BAC@` y est remplacé par sa règle.
+    r#"sed "s|@BAC@|/$(pwd)|g" "$ici/controle-$n.jsonl""#,
     r#"cat >> "$ici/entree.jsonl""#,
     r#"cat "$ici/fin-$n.jsonl""#,
     "exit 0",
@@ -362,7 +368,9 @@ fn regles(essai: &Essai, reseau: &[&str], outils: &[&str], pret: &[&str]) -> (Ve
     let commun = format!("Edit({}/**)", regle_du_dossier(Path::new(&commun)));
     let commits = ["Bash(git commit:*)", "Bash(git commit *)", "PowerShell(git commit:*)", "PowerShell(git commit *)"];
     let commits = commits.map(String::from);
-    (allow, fermes.chain(gardes).chain(essai.connexion()).chain([commun]).chain(commits).collect())
+    // Les leçons, protégées de toute main : la fausse claude met le bac de la main à la place de `@BAC@`.
+    let lecons = "Edit(@BAC@/.agents/skills/**)".to_string();
+    (allow, fermes.chain(gardes).chain(essai.connexion()).chain([commun]).chain(commits).chain([lecons]).collect())
 }
 
 /// Les quatre réponses de contrôle d'une main fidèle au `--settings` déclaré : au modèle `modele`, le mur exigé ou
@@ -706,6 +714,9 @@ impl Essai {
         let lus = [self.bac().to_string_lossy().into_owned(), commun];
         let fermes = ["~/".to_string(), self.dossier.to_string_lossy().into_owned()];
         let domaines: Vec<String> = reseau.iter().map(|domaine| domaine.to_string()).collect();
+        // La règle des leçons nomme le bac de la main : `@BAC@` y est sa règle.
+        let bac = regle_du_dossier(&self.bac());
+        let deny: Vec<String> = deny.iter().map(|regle| regle.replace("@BAC@", &bac)).collect();
         format!(
             concat!(
                 r#"{{"sandbox":{{"enabled":true,"failIfUnavailable":{exige},"allowUnsandboxedCommands":false,"#,
@@ -721,7 +732,7 @@ impl Essai {
             lus = tableau(&lus),
             domaines = tableau(&domaines),
             allow = tableau(allow),
-            deny = tableau(deny),
+            deny = tableau(&deny),
         )
     }
 
@@ -1955,6 +1966,8 @@ fn le_fichier_de_connexion_de_claude_est_ferme_aux_outils_de_la_main() {
         "Bash(git commit *)".into(),
         "PowerShell(git commit:*)".into(),
         "PowerShell(git commit *)".into(),
+        // Les leçons, protégées de toute main, au bout de deny : dans le bac de la main, le même à ses deux tentatives.
+        format!("Edit({}/.agents/skills/**)", regle_du_dossier(&essai.bac())),
     ];
     let attendu = dans_une_chaine(&format!("{}}}", &tableau(&fin)[1..]));
     let fil = essai.fil();

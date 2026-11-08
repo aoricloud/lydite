@@ -865,7 +865,7 @@ fn une_main_lancee_par_une_vague_porte_le_fichier_des_lecons_dans_son_argv() {
 }
 
 #[test]
-fn des_leçons_donnees_a_la_vague_ne_se_relisent_pas_au_commit_de_depart_de_sa_suite() {
+fn des_lecons_donnees_a_la_vague_ne_se_relisent_pas_au_commit_de_depart_de_sa_suite() {
     let racine = racine("lecons-suite");
     let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     commiter_les_lecons(&depot, &[("a", texte_de_lecon("a", &[]))]);
@@ -2329,7 +2329,12 @@ fn un_bac_dont_git_ne_repond_plus_est_refuse_en_7009() {
     assert!(refus.contains("git diff --name-only"), "le refus nomme la commande de git qui a raté : {refus}");
     refusee(ids[1], &issues[1].1, 7011);
     let evenements = fil(&kraken);
-    assert_eq!(histoire_de(&evenements, 1), prise_refusee_avant_le_gel("a", "refus 7009"));
+    // Les leçons sont toujours protégées : git est interrogé dès la fin de la tentative, qui est rouge (7009) et sans
+    // relance (un seul bail), avant tout gel.
+    assert_eq!(
+        histoire_de(&evenements, 1),
+        ["tâche a", "bail 1", "début 1", "fin 1 Rouge Constate", "refus 7009"].map(String::from)
+    );
     assert!(fusions(&evenements).is_empty(), "aucune fusion n'est notée");
     assert_eq!(git(&depot, &["rev-parse", &branche]), base);
     worktree_a_la_tete(&depot, &kraken, &branche);
