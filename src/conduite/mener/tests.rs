@@ -113,6 +113,7 @@ fn la_relance_de_la_ci_porte_son_drapeau_et_aucun_autre_lien() {
     let liens = liens_de_la_relance();
     assert!(liens.relance_ci);
     assert!(liens.decoupage.is_none() && liens.issue.is_none() && liens.corrige.is_none());
+    assert!(liens.juge.is_none() && liens.relit.is_none() && liens.preparation.is_none());
 }
 
 #[test]
@@ -126,7 +127,7 @@ fn lancer_ne_rend_0_que_si_chaque_prise_est_constatee() {
     assert!(!toutes_constatees(&[pris("main-v-1", true), ("main-v-2".into(), Err("classée".into()))]));
 }
 
-// Le guetteur ferme le fil par ses droits Unix (`0o444`) : le test n'a de sens que là, comme ses voisins.
+// Le guetteur ferme le fil par ses droits Unix (`0o444`) : le test n'a de sens que là.
 #[cfg(unix)]
 #[test]
 fn une_vague_ouverte_puis_refusee_finit_par_un_sceau() {
