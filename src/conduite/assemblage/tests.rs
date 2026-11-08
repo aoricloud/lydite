@@ -762,3 +762,56 @@ fn git_qui_ne_dit_pas_ce_que_la_main_a_change_est_le_refus_7009() {
     assert_eq!(fichiers_tenus(&bac, &base, "t", &chemins(&["src/"])), Ok(()));
     let _ = fs::remove_dir_all(&racine);
 }
+
+/// Pose une butée du mur : un fichier vide en lecture seule.
+fn butee(bac: &Path, chemin: &str) {
+    ecrire(bac, chemin, "");
+    let fichier = bac.join(chemin);
+    let mut droits = fs::metadata(&fichier).unwrap().permissions();
+    droits.set_readonly(true);
+    fs::set_permissions(&fichier, droits).unwrap();
+}
+
+#[test]
+fn le_gel_epargne_les_butees_du_mur() {
+    let (racine, depot, kraken, base) = vise("gel-butees");
+    let profil = profil();
+    let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+    let bac = prise(&depot, &kraken, "t", &base, &[("travail.txt", "fait")]);
+    for nom in ["settings.json", "settings.local.json", "skills", "loop.md"] {
+        butee(&bac, &format!(".claude/{nom}"));
+    }
+    assert_eq!(sans_claude(&bac, &base), Ok(()));
+    let (_, issue) = assemblage.fusionner(&bac, &base, "t", None, 1, |_, _| Ok(()));
+    issue.unwrap();
+    // Le commit du gel ne porte que le vrai changement.
+    assert_eq!(git(&bac, &["diff", "--name-only", &base, "HEAD"]), "travail.txt");
+    assert_ne!(assemblage.tete(), base.as_str());
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn le_gel_refuse_un_fichier_non_vide_ou_inscriptible_sous_claude() {
+    for (nom, contenu, lecture_seule) in [("non-vide", "x", true), ("inscriptible", "", false)] {
+        let (racine, depot, kraken, base) = vise(&format!("gel-pas-butee-{nom}"));
+        let profil = profil();
+        let assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+        let bac = prise(&depot, &kraken, "t", &base, &[("travail.txt", "fait")]);
+        butee(&bac, ".claude/loop.md");
+        assert_eq!(sans_claude(&bac, &base), Ok(()));
+        let fichier = bac.join(".claude/loop.md");
+        let mut droits = fs::metadata(&fichier).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        droits.set_readonly(false);
+        fs::set_permissions(&fichier, droits.clone()).unwrap();
+        fs::write(&fichier, contenu).unwrap();
+        droits.set_readonly(lecture_seule);
+        fs::set_permissions(&fichier, droits).unwrap();
+        let (verif, issue) =
+            assemblage.assembler(&bac, &base, "t", None, 1, |_, _| panic!("un .claude au gel ne se note pas"));
+        let refus = issue.unwrap_err();
+        assert_eq!((refus.code, verif), (Code::ClaudeTouche, None), "{nom}");
+        assert!(refus.preuve.ends_with(r#" : ".claude/loop.md""#), "{refus}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+}
