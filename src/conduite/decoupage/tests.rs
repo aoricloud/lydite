@@ -245,6 +245,10 @@ fn un_objectif_decoupe_se_construit_et_s_assemble() {
     for attendu in attendus {
         assert!(consigne.contains(&attendu), "« {attendu} » : {consigne}");
     }
+    // Les lignes fixes d'une main de tâche n'y sont pas : le découpeur n'écrit pas de tâche.
+    for fixe in ["IMPOSSIBLE: <reason>", "Change only the files of your task"] {
+        assert!(!consigne.contains(fixe), "« {fixe} » : {consigne}");
+    }
     // Le PATH : le dossier de l'exécutable de Kraken en tête de celui du découpeur, et non de celui des tâches, qui
     // ont celui de Kraken tel quel.
     let exe = env::current_exe().unwrap();

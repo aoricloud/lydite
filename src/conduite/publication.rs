@@ -569,6 +569,8 @@ pub(crate) struct Recu {
     mains: usize,
     relances: usize,
     classees: usize,
+    /// Les mains qui ont déclaré leur tâche impossible (`IMPOSSIBLE: <raison>`), comptées à part des classées.
+    impossibles: usize,
     /// De la première note de la vague à la dernière de ses vagues liées, en millisecondes ; `None` sans instants.
     duree: Option<u128>,
 }
@@ -600,7 +602,8 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
         let mains = vague.mains.values();
         recu.mains += mains.clone().map(|main| main.tentatives.len()).sum::<usize>();
         recu.relances += mains.clone().flat_map(|main| main.tentatives.keys()).filter(|n| **n >= 2).count();
-        recu.classees += mains.filter(|main| matches!(main.verdict, Some((fil::Verdict::Classee, _)))).count();
+        recu.classees += mains.clone().filter(|main| matches!(main.verdict, Some((fil::Verdict::Classee, _)))).count();
+        recu.impossibles += mains.filter(|main| matches!(main.verdict, Some((fil::Verdict::Impossible, _)))).count();
     }
     let (mut debut, mut fin): (Option<u128>, Option<u128>) = (None, None);
     for note in notes.iter().filter(|note| est_liee(note.evenement.vague())) {
@@ -641,7 +644,11 @@ impl Recu {
     pub(crate) fn mains(&self) -> String {
         let pluriel = |n: usize, mot: &str| format!("{n} {mot}{}", if n > 1 { "s" } else { "" });
         let (m, r, c) = (self.mains, self.relances, self.classees);
-        format!("{}, {}, {}", pluriel(m, "main"), pluriel(r, "relance"), pluriel(c, "classée"))
+        let base = format!("{}, {}, {}", pluriel(m, "main"), pluriel(r, "relance"), pluriel(c, "classée"));
+        match self.impossibles {
+            0 => base,
+            i => format!("{base}, {}", pluriel(i, "impossible")),
+        }
     }
 
     /// `41 min` ; `None` sans instants.

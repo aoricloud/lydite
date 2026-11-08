@@ -20,6 +20,12 @@ example).
 - **The proof is replayed by Lydite.** A hand runs your proof when it thinks it is done; Lydite runs it again, in a
   fresh box. Green: the work is taken and merged into the wave's branch, and the proof is replayed after every merge,
   so the branch only advances on green. Red: one retry with the error in context, then the task is set aside.
+- **An honest way out.** A hand is told not to bend the code to a test that no honest code can pass (no forced case,
+  no branch for a test, no weakened test). It says so instead, with `IMPOSSIBLE: <reason>` as the last line of its
+  answer. Lydite then sets the task aside without replaying the proof or retrying (a retry would push the hand to
+  bend), merges nothing from its box, and records the reason as declared, never observed. `lydite etat` shows it
+  (`impossible (déclarée)`), the receipt counts such tasks next to the set-aside ones, and the public pull request
+  body never quotes the hand's words.
 - **A pull request, never a merge.** Lydite pushes the wave's branch, opens the pull request, reads its CI and, if it
   is red, reruns it once. The pull request body states the proof result and the review outcome. Merging stays a human
   gesture.

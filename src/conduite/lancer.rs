@@ -39,7 +39,7 @@ use crate::coeur::plan::{Plan, Tache};
 use crate::coeur::profil::{Prix, Profil};
 use crate::coeur::protocole::{Constat, Jetons, Usage, UsageModele};
 use crate::conduite::assemblage::{self, Assemblage};
-use crate::conduite::tentative::{Juge, Pris, tenter};
+use crate::conduite::tentative::{Juge, Pris, impossible_declaree, tenter};
 
 /// Ce que devient chaque tâche d'une vague, dans l'ordre du plan : l'id de sa main, `main-<vague>-<k>`, qui nomme aussi
 /// son bac, et son issue.
@@ -488,8 +488,16 @@ impl<'a> Vague<'a> {
         let juge = self.juge;
         s.spawn(move || {
             let rendu = en_message(|| {
-                let (constat, verif, verdict) =
-                    tenter(&profil, &bac, &tache.objectif, verifier, precedente.as_deref(), &journal, juge);
+                let (constat, verif, verdict) = tenter(
+                    &profil,
+                    &bac,
+                    &tache.objectif,
+                    tache.fichiers.as_deref(),
+                    verifier,
+                    precedente.as_deref(),
+                    &journal,
+                    juge,
+                );
                 let verdict = verdict.and_then(|pris| dans_ses_fichiers(&bac, &depart, tache, pris));
                 (constat, verif, verdict)
             });
@@ -510,7 +518,11 @@ impl<'a> Vague<'a> {
         let (couleur, foi, texte) = match &verdict {
             Ok(Pris { sortie, prouve: true }) => (Couleur::Vert, Foi::Constate, sortie.clone()),
             Ok(Pris { sortie, prouve: false }) => (Couleur::Vert, Foi::Declare, sortie.clone()),
-            Err(erreur) => (Couleur::Rouge, Foi::Constate, erreur.clone()),
+            // La raison d'une main qui déclare l'impossible : rouge, et déclarée, car Kraken n'a rien vu.
+            Err(erreur) => match impossible_declaree(erreur) {
+                Some(raison) => (Couleur::Rouge, Foi::Declare, raison.to_string()),
+                None => (Couleur::Rouge, Foi::Constate, erreur.clone()),
+            },
         };
         let vague = self.id.clone();
         // Le jeton : seul se prend un résultat qui porte la tentative du bail ouvert de sa tâche. Un résultat périmé
@@ -553,6 +565,13 @@ impl<'a> Vague<'a> {
         }
         let bac = (bac.as_path(), depart.as_str());
         match verdict {
+            // Impossible, déclarée : classée sans relance (l'erreur en contexte la pousserait à plier), rien ne
+            // s'assemble.
+            Err(erreur) if impossible_declaree(&erreur).is_some() => {
+                let impossible = Evenement::Verdict { vague, main: k, verdict: Verdict::Impossible, foi: Foi::Declare };
+                let issue = if self.noter(&impossible) { erreur } else { self.hors_du_fil(&erreur) };
+                self.taches[k - 1] = Etat::Finie(Err(issue));
+            }
             Err(erreur) if tentative == 1 => self.relancer(s, envoi, k, bac, erreur),
             Err(erreur) => {
                 let classee = Evenement::Verdict { vague, main: k, verdict: Verdict::Classee, foi: Foi::Constate };

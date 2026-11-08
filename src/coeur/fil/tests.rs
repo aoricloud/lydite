@@ -180,7 +180,7 @@ fn rendu(vague: &Vague) -> Rendu<'_> {
     let rendu = vague.mains.iter().map(|(n, main)| {
         let issue = match main.verdict.expect("une main sans verdict") {
             (Verdict::Prise, foi) => Ok((main.texte(), foi == Foi::Constate)),
-            (Verdict::Classee, _) => Err(main.texte()),
+            (Verdict::Classee | Verdict::Impossible, _) => Err(main.texte()),
         };
         (format!("main-{}-{n}", vague.id), issue)
     });
@@ -2799,7 +2799,7 @@ fn les_exemples_du_fil_se_relisent_sans_trou_ni_doublon() {
         // Les copies : la première séance va jusqu'au verdict de sa main, la seconde jusqu'à sa fin déclarée, la
         // troisième jusqu'à l'usage de sa tentative, qui suit le constat et précède la fin.
         ("1761901200000_7_1", [&["vague.ouverte"][..], &tentative].concat()),
-        ("1761901200500_8_1", [&["vague.ouverte"][..], &tentative[..5]].concat()),
+        ("1761901200500_8_1", [&["vague.ouverte"][..], &tentative[..5], &["main.fin", "main.verdict"]].concat()),
         ("1761901300000_10_1", [&["vague.ouverte"][..], &tentative[..4], &["main.usage"]].concat()),
         // La vague à plan : deux tâches ; la première s'assemble, la seconde expire à son lancement, et son résultat
         // tardif est périmé.
