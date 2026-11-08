@@ -193,9 +193,10 @@
 //!   `relecteur`, `correction` ou `relance` (la relance de la CI). `consigne` est le SHA-256 du texte exact envoyé à
 //!   la main, heure d'arrêt comprise, et `systeme` celui du fichier de son prompt système, ou `null` : les deux
 //!   textes sont gardés dans `<dossier>/consignes/<SHA-256>.txt` (un dossier qui ne peut pas les garder arrête la
-//!   vague, 7012). `lecons` dit les leçons données, une par ligne, `<nom> <SHA-256 de son SKILL.md>` (la chaîne vide
-//!   sans leçon), `ecartees` le nom des autres leçons du commit de base, une par ligne ; `mesure` est la chaîne vide
-//!   pour l'instant. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`.
+//!   vague, 7012). `lecons` dit les leçons données, une par ligne, `<nom> <SHA-256 de son texte>` : le texte
+//!   donné à la main, ses `\r\n` ramenés à `\n`, et non les octets du SKILL.md au commit de base s'il est en `\r\n`
+//!   (la chaîne vide sans leçon), `ecartees` le nom des autres leçons du commit de base, une par ligne ; `mesure`
+//!   est la chaîne vide pour l'instant. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`.
 //! - `vague.issue {vague, issue}` : la vague `vague` a son issue sur la forge, de numéro `issue`, un entier positif
 //!   sans la borne de 10 000, comme le `numero` d'une PR. Le titre et le corps de l'issue n'entrent pas au fil, seul
 //!   son numéro. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`. Il s'écrit par `Fil::noter_issue`

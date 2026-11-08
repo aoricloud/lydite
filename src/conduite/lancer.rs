@@ -827,6 +827,8 @@ impl<'a> Vague<'a> {
         };
         let ecartees: Vec<&str> =
             triees.iter().filter(|lecon| !donnees.contains(lecon)).map(|lecon| lecon.nom.as_str()).collect();
+        // L'empreinte notée est celle du texte donné à la main (`\r\n` ramenés à `\n` à la lecture), non celle des
+        // octets du SKILL.md au commit de base quand il est en `\r\n`.
         let donnees_dites: Vec<String> =
             donnees.iter().map(|lecon| format!("{} {}", lecon.nom, empreinte(&lecon.texte))).collect();
         let texte = if profil.nue() {
