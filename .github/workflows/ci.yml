@@ -36,7 +36,8 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
-  # Les essais de la garde : un nom à eux, pour ne pas se confondre avec le workflow garde dans les contrôles d'une PR.
+  # Les essais de la garde et du contrôle de fusion : un nom à eux, pour ne pas se confondre avec les workflows garde et
+  # tete dans les contrôles d'une PR.
   essais-garde:
     runs-on: ubuntu-latest
     steps:
@@ -44,6 +45,7 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -I .github/garde_test.py
+      - run: python3 -I .github/tete_test.py
   # ruff relit le Python du dépôt (le plugin hermes/ et la garde de .github/) et vérifie sa mise en forme, à une version
   # épinglée ; rien ne s'installe ailleurs que sur le runner.
   ruff:

@@ -1,0 +1,37 @@
+name: tete
+
+# Le contrôle de fusion d'une PR de Lydite (une branche `lydite/…`) : sa tête doit avoir exactement l'arbre du commit
+# que son corps dit relu et rejoué, ou celui d'un commit qu'une PR de correction, fusionnée dans sa branche (ou dans la
+# branche d'une telle PR), dit relu et rejoué. Une autre PR passe sans contrôle (.github/tete.py).
+#
+# pull_request_target : le workflow et son script viennent de la branche de base, qu'une PR ne peut pas changer pour
+# elle-même. Le code de la PR n'est jamais extrait ni lancé ; la PR ne se lit que par l'API, comme du texte. `edited`
+# rejoue le contrôle quand le corps change, `synchronize` quand une correction est fusionnée dans la branche.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  tete:
+    runs-on: ubuntu-latest
+    steps:
+      # github.sha : la tête de la branche de base sous pull_request_target. Jamais la PR.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check that the head is the commit reviewed and replayed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPOT: ${{ github.repository }}
+          NUMERO: ${{ github.event.pull_request.number }}
+        run: python3 -I .github/tete.py
