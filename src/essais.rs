@@ -302,7 +302,9 @@ pub(crate) fn faux_decoupeur(dir: &Path) -> Vec<String> {
 ///   l'`autre.txt` d'une tentative d'avant, en écrit un dans son bac si `toucher-<n>` est dans `dir`, et dit dans sa
 ///   réponse qu'il n'y a rien de bloquant si `dit-rien-de-bloquant` y est ;
 /// - sinon, il est la main d'une tâche : il garde sa consigne dans `sortie/<bac>.txt` de son bac si elle dit « critique
-///   », dans `autre/<bac>.txt` sinon, et y copie de même `gros.txt` de `dir`, s'il est là, en `gros-<bac>.txt`.
+///   », dans `autre/<bac>.txt` sinon, et y copie de même `gros.txt` de `dir`, s'il est là, en `gros-<bac>.txt` ;
+///   si `ecrire-lecon` est dans `dir`, celle qui écrit sous `sortie/` écrit aussi une leçon fausse,
+///   `.agents/skills/ecrite/SKILL.md`.
 ///
 /// Il finit sur `PREUVE: vert`, qui ne compte pas pour le relecteur. `dir` est un dossier à lui, que le test garnit.
 pub(crate) fn faux_relecteur(dir: &Path) -> Vec<String> {
@@ -325,6 +327,8 @@ pub(crate) fn faux_relecteur(dir: &Path) -> Vec<String> {
              if not exist %dossier% mkdir %dossier%\r\n\
              copy /y \"%TEMP%\\consigne.txt\" \"%dossier%\\%bac%.txt\" > nul\r\n\
              if exist \"%d%\\gros.txt\" copy /y \"%d%\\gros.txt\" \"%dossier%\\gros-%bac%.txt\" > nul\r\n\
+             if \"%dossier%\"==\"sortie\" if exist \"%d%\\ecrire-lecon\" \
+             (mkdir .agents\\skills\\ecrite & echo pas une lecon> .agents\\skills\\ecrite\\SKILL.md)\r\n\
              goto fin\r\n\
              :correction\r\n\
              copy /y \"%TEMP%\\consigne.txt\" \"%d%\\consigne-correction.txt\" > nul\r\n\
@@ -380,6 +384,8 @@ pub(crate) fn faux_relecteur(dir: &Path) -> Vec<String> {
              mkdir -p \"$dossier\"\n\
              cp \"$TMPDIR/consigne.txt\" \"$dossier/$bac.txt\"\n\
              if [ -f \"$d/gros.txt\" ]; then cp \"$d/gros.txt\" \"$dossier/gros-$bac.txt\"; fi\n\
+             if [ -f \"$d/ecrire-lecon\" ] && [ \"$dossier\" = sortie ]; then mkdir -p .agents/skills/ecrite; \
+             echo 'pas une lecon' > .agents/skills/ecrite/SKILL.md; fi\n\
              fi\n\
              echo 'PREUVE: vert'\n"
         );

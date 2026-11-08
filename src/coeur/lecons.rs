@@ -62,7 +62,7 @@ pub(crate) struct Lecon {
     pub(crate) regle: String,
     /// Les chemins qu'elle vise ; aucun, elle est générale.
     pub(crate) fichiers: Vec<String>,
-    /// Son texte : tout ce qui suit l'en-tête.
+    /// Son texte : le fichier entier, en-tête (`name`, `description`) comprise, les `\r\n` ramenés à `\n`.
     pub(crate) texte: String,
 }
 
@@ -174,7 +174,7 @@ pub(crate) fn lire(dossier: &str, octets: &[u8]) -> Result<Lecon, Refus> {
         let preuve = format!("il manque `## {}`", SECTIONS[lues]);
         return Err(refus(lignes.len().max(1), preuve, CORRECTION_SECTIONS));
     }
-    let texte = lignes[4..].join("\n").trim().to_string();
+    let texte = texte.replace("\r\n", "\n");
     Ok(Lecon { nom: nom.to_string(), regle: regle.to_string(), fichiers, texte })
 }
 
