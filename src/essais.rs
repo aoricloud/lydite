@@ -844,3 +844,21 @@ pub(crate) mod mains;
 
 // Les aides des tests de `github` et de `publication`, à part : leur `PR` n'est pas celui de `gh_qui_suit`.
 pub(crate) mod forge;
+
+/// Les codes de refus (suites d'exactement quatre chiffres) que cite ce texte que lit une main, et que la table des
+/// codes ne connaît pas.
+pub(crate) fn codes_inconnus(texte: &str) -> Vec<String> {
+    let mut inconnus = Vec::new();
+    let mut chiffres = String::new();
+    for c in texte.chars().chain(std::iter::once(' ')) {
+        if c.is_ascii_digit() {
+            chiffres.push(c);
+            continue;
+        }
+        if chiffres.len() == 4 && chiffres.parse().ok().and_then(crate::coeur::erreur::Code::de_numero).is_none() {
+            inconnus.push(chiffres.clone());
+        }
+        chiffres.clear();
+    }
+    inconnus
+}

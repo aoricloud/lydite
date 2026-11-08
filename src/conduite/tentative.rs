@@ -1,13 +1,20 @@
 use std::path::Path;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::branchements::claude::{jouer, temporaire};
 use crate::branchements::srt::rejouer;
 use crate::coeur::erreur::queue;
 use crate::coeur::profil::{Demande, Profil};
 use crate::coeur::protocole::{Attendu, Constat};
+use crate::conduite::socle::socle;
 
 const PREUVE: &str = "\n\nQuand tu as fini, joue toi-même le test qui prouve ton travail. La dernière ligne \
 de ta réponse est exactement PREUVE: vert si le test passe, sinon PREUVE: rouge.";
+
+/// Le plafond, en caractères, de la couche fixe d'une main de tâche, mesurée sur [`consigne`] aux pièces vides, pour
+/// chaque variante de la preuve : la plus grande, arrondie au 500 supérieur.
+#[cfg(test)]
+pub(crate) const PLAFOND: usize = 1000;
 
 /// Les lignes fixes que la consigne d'une main de tâche porte après l'objectif : la sortie honnête, quand aucun code
 /// honnête ne passe le test, et le périmètre des fichiers.
@@ -59,6 +66,7 @@ fn consigne(
     verifier: Option<&str>,
     precedente: Option<&str>,
     pretee: bool,
+    socle: &str,
 ) -> String {
     let perimetre = match fichiers {
         Some(fichiers) => format!("{PERIMETRE} Your files: {}", fichiers.join(" ")),
@@ -80,7 +88,7 @@ fn consigne(
         ),
         (None, _) => PREUVE.into(),
     };
-    format!("{}\n\n{HONNETETE}\n\n{perimetre}{preuve}", avec_precedente(objectif, precedente))
+    format!("{socle}\n\n{}\n\n{HONNETETE}\n\n{perimetre}{preuve}", avec_precedente(objectif, precedente))
 }
 
 /// L'objectif, puis l'erreur de la tentative d'avant s'il y en a une. C'est toute la consigne d'une main jugée par
@@ -124,9 +132,12 @@ pub(crate) fn tenter(
     juge: Option<Juge<'_>>,
 ) -> (Option<Constat>, Option<String>, Result<Pris, String>) {
     let mut verif = None;
+    // Le socle porte l'heure où la main s'arrête : son départ, pris ici, et son délai.
+    let depart = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs();
+    let socle = socle(depart, profil.delai_main());
     let consigne = match juge {
-        Some(_) => avec_precedente(objectif, precedente),
-        None => consigne(objectif, fichiers, verifier, precedente, profil.prete(verifier)),
+        Some(_) => format!("{socle}\n\n{}", avec_precedente(objectif, precedente)),
+        None => consigne(objectif, fichiers, verifier, precedente, profil.prete(verifier), &socle),
     };
     let Demande { argv, declaration } = profil.demande(bac, verifier, precedente.is_some());
     let attendu =

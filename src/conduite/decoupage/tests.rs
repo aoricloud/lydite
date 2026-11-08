@@ -696,3 +696,11 @@ fn une_issue_decoupee_demande_issue_n_et_toutes_ses_taches_sont_critiques() {
     assert_eq!(juger(&bac, &base, &demande).unwrap_err().code, Code::PlanEntete);
     let _ = fs::remove_dir_all(&essai.racine);
 }
+
+#[test]
+fn la_couche_fixe_du_decoupeur_tient_sous_son_plafond_sans_la_sortie_honnete_ni_le_perimetre() {
+    let fixe = consigne(&Source::Objectif(""), "");
+    assert!(fixe.chars().count() <= PLAFOND, "{} > {PLAFOND}", fixe.chars().count());
+    assert_eq!(crate::essais::codes_inconnus(&fixe), Vec::<String>::new());
+    assert!(!fixe.contains("IMPOSSIBLE") && !fixe.contains("Your files") && !fixe.contains("Change only"), "{fixe}");
+}
