@@ -11,17 +11,10 @@ use crate::conduite::socle::socle;
 const PREUVE: &str = "\n\nQuand tu as fini, joue toi-même le test qui prouve ton travail. La dernière ligne \
 de ta réponse est exactement PREUVE: vert si le test passe, sinon PREUVE: rouge.";
 
-/// Le plafond, en caractères, de la couche fixe d'une main de tâche ([`fixe`]) : sa taille d'aujourd'hui arrondie au
-/// 500 supérieur.
+/// Le plafond, en caractères, de la couche fixe d'une main de tâche, mesurée sur [`consigne`] aux pièces vides, pour
+/// chaque variante de la preuve : la plus grande, arrondie au 500 supérieur.
 #[cfg(test)]
 pub(crate) const PLAFOND: usize = 1000;
-
-/// La couche fixe d'une main de tâche : la sortie honnête, le périmètre et sa ligne de fichiers, puis la preuve que la
-/// main se donne sans commande.
-#[cfg(test)]
-pub(crate) fn fixe() -> String {
-    format!("{HONNETETE}\n\n{PERIMETRE} Your files: {PREUVE}")
-}
 
 /// Les lignes fixes que la consigne d'une main de tâche porte après l'objectif : la sortie honnête, quand aucun code
 /// honnête ne passe le test, et le périmètre des fichiers.

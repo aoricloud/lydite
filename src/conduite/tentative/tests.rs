@@ -284,9 +284,11 @@ fn la_main_de_tache_et_la_main_jugee_recoivent_le_socle_en_tete() {
 
 #[test]
 fn la_couche_fixe_de_la_main_de_tache_tient_sous_son_plafond_et_ne_cite_que_des_codes_connus() {
-    let fixe = fixe();
-    assert!(fixe.chars().count() <= PLAFOND, "{} > {PLAFOND}", fixe.chars().count());
-    assert_eq!(crate::essais::codes_inconnus(&fixe), Vec::<String>::new());
+    for (verifier, pretee) in [(None, false), (Some(""), false), (Some(""), true)] {
+        let fixe = consigne("", Some(&[]), verifier, None, pretee, "");
+        assert!(fixe.chars().count() <= PLAFOND, "{verifier:?} {pretee} : {} > {PLAFOND}", fixe.chars().count());
+        assert_eq!(crate::essais::codes_inconnus(&fixe), Vec::<String>::new());
+    }
 }
 
 #[test]
