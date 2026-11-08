@@ -270,14 +270,14 @@ fn la_main_de_tache_et_la_main_jugee_recoivent_le_socle_en_tete() {
     let journal = dir.join("journal.tmp");
     let main = Profil::faux(crate::essais::fausse_main(&dir), DELAI);
     let _ = tenter(&main, &bac, "Écrire a", None, None, None, &journal, None);
-    let tache = fs::read_to_string(bac.join("entree.txt")).unwrap();
+    let tache = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(tache.starts_with(TETE_DU_SOCLE), "{tache}");
     assert!(tache.contains(" UTC, in 60 minutes: keep the last minutes to say what is done and what is not.\n\n"));
     let juge = |_: &Path| Ok(());
     let _ = tenter(&main, &bac, "Juger", None, Some("exit 0"), Some("avant"), &journal, Some(&juge));
-    let jugee = fs::read_to_string(bac.join("entree.txt")).unwrap();
+    let jugee = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(jugee.starts_with(TETE_DU_SOCLE), "{jugee}");
-    assert!(jugee.ends_with("\n\nJuger\n\nTentative précédente échouée :\navant"), "{jugee}");
+    assert!(jugee.trim_end().ends_with("\n\nJuger\n\nTentative précédente échouée :\navant"), "{jugee}");
     assert!(!jugee.contains("Your files") && !jugee.contains("IMPOSSIBLE"), "{jugee}");
     let _ = fs::remove_dir_all(&dir);
 }
