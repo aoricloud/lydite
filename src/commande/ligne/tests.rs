@@ -181,6 +181,27 @@ fn options_remarques_seul() {
 }
 
 #[test]
+fn options_lecons_seul() {
+    let lu = |dossier: &str| Ok(Commande::LireLecons { dossier: dossier.into() });
+    assert_eq!(options(&args(&["lecons", "depot"])), lu("depot"));
+    let mauvais = non_utf8();
+    let complete = [args(&["lecons"]), vec![mauvais.clone()]].concat();
+    assert_eq!(options(&complete), Ok(Commande::LireLecons { dossier: PathBuf::from(mauvais) }));
+    for (mots, vu) in [
+        ("lecons", "`lecons` : il manque le dossier du dépôt"),
+        ("lecons --n 1", "« --n » est un drapeau"),
+        ("lecons -", "« - » est un drapeau"),
+        ("lecons p q", "`lecons` ne prend que `<dossier>`, et « q » le suit"),
+    ] {
+        let refus = options(&ligne(mots)).unwrap_err();
+        assert_eq!(refus.code, Code::CommandeMalFormee, "{mots}");
+        assert!(refus.preuve.contains(vu), "la preuve dit ce qui a été vu ({vu}) : {refus}");
+        assert!(refus.correction.contains(USAGE), "la correction donne l'usage : {refus}");
+    }
+    assert!(USAGE.contains("lydite lecons <dossier>"), "{USAGE}");
+}
+
+#[test]
 fn options_etat_seul() {
     assert_eq!(options(&args(&["etat"])), Ok(Commande::Etat));
     // Ce qui valait None est le refus 1006 ; l'absence de commande aussi.

@@ -607,3 +607,38 @@ fn kraken_plan_ne_lit_pas_au_dela_de_1_mo() {
     assert_eq!(refus.code, "lydite : 6025 lancer.plan_borne");
     assert_eq!(refus.preuve, "le plan dépasse 1 Mo : plus de 1000000 octets");
 }
+
+/// Une leçon juste, nommée `nom`.
+fn lecon_juste(nom: &str) -> String {
+    format!(
+        "---\nname: {nom}\ndescription: Une règle.\n---\n\n## What happened\nA.\n\n## Why\nB.\n\n\
+         ## How it is checked\nC.\n\n## Pitfall\nD.\n\n## Files\n\n## Falls when\nE.\n"
+    )
+}
+
+#[test]
+fn kraken_lecons_sort_en_0_sans_rien_dire_ou_en_2_sur_le_refus_de_la_premiere_fausse() {
+    let depot = neuf("lecons");
+    let sans_rien_dire = |depot: &Path| {
+        let sortie = kraken().arg("lecons").arg(depot).output().unwrap();
+        assert_eq!(sortie.status.code(), Some(0), "{}", String::from_utf8_lossy(&sortie.stderr));
+        assert!(sortie.stdout.is_empty() && sortie.stderr.is_empty(), "{sortie:?}");
+    };
+    // Sans `.agents/skills`, aucune leçon.
+    sans_rien_dire(&depot);
+    let skills = depot.join(".agents").join("skills");
+    for nom in ["juste", "fausse"] {
+        fs::create_dir_all(skills.join(nom)).unwrap();
+    }
+    fs::write(skills.join("juste").join("SKILL.md"), lecon_juste("juste")).unwrap();
+    sans_rien_dire(&depot);
+    // Une juste et une fausse (sans `## Why`) : le refus 6031, avec le fichier et la ligne.
+    let sans_why = lecon_juste("fausse").replace("## Why\nB.\n\n", "");
+    fs::write(skills.join("fausse").join("SKILL.md"), sans_why).unwrap();
+    let refus = lire_refus(kraken().arg("lecons").arg(&depot));
+    assert_eq!(refus.code, "lydite : 6031 lancer.lecon_mal_formee");
+    let fichier = skills.join("fausse").join("SKILL.md");
+    assert!(refus.preuve.starts_with(&format!("{} : ligne 9 : ", fichier.display())), "{}", refus.preuve);
+    assert!(refus.preuve.contains("il manque `## Why`"), "{}", refus.preuve);
+    let _ = fs::remove_dir_all(&depot);
+}
