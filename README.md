@@ -112,9 +112,21 @@ Lydite runs; see Anthropic's [legal and compliance page](https://code.claude.com
 
 ## From Hermes
 
-[`hermes/`](hermes/README.md) is a [Hermes Agent](https://hermes-agent.nousresearch.com) plugin: from the chat, hand an
-issue and its proof to Lydite; Hermes asks for your approval first. The workers are Lydite's Claude Code sessions, never
-Hermes agents.
+[`hermes/`](hermes/README.md) is a [Hermes Agent](https://hermes-agent.nousresearch.com) plugin. You talk to Hermes,
+Hermes hands the job to Lydite, and Lydite does what it does anywhere else: its own Claude Code workers behind the wall,
+your proof replayed by Lydite itself, a pull request with its receipt. The plugin adds two tools and one skill:
+
+- `lydite_lancer` starts a wave from an issue, an objective or a plan file, with your proof command. Hermes shows you
+  the repository, the work, the proof and the profile, and waits for your approval before anything starts.
+- `lydite_etat` reads back what Lydite recorded: tasks, proofs, pull request, CI, and the receipt (cost, hands,
+  retries). A fact a worker only declared is shown as declared.
+- The skill `lydite:driving-lydite` tells the model when to hand a job to Lydite, how to read what `lydite_etat`
+  returns, and to quote a refusal and stop instead of redoing the work itself. It is in the open `SKILL.md` format, so
+  Claude Code can read it too.
+
+It needs Linux (the wall is held there only), the `lydite` binary already installed, and a profile that a human accepted
+with `lydite accepter`. The plugin never accepts one and never merges. The workers are Lydite's Claude Code sessions,
+never Hermes agents. Install and settings: [`hermes/README.md`](hermes/README.md).
 
 ## Develop
 
