@@ -535,6 +535,11 @@ impl Forge<'_> {
     /// fait d'hexadécimaux, il n'y est pas confronté, si bien qu'un mot court des lettres a à f (« cafe ») peut s'y
     /// lire par hasard ; et un mot court peut se lire dans le texte fixe, comme « dan » dans « dans ». Un fichier qui
     /// ne se lit pas est le refus 6006, qui garde son chemin, avant toute lecture du diff.
+    ///
+    /// Une ligne de la garde qui porte au moins deux mots séparés par des blancs se compare aussi sous une forme
+    /// repliée, des deux côtés : en minuscules, toute suite de caractères ni lettres ni chiffres réduite à un seul
+    /// blanc, sans blanc aux bords. Un nom en deux mots coupé en fin de ligne, ou séparé par un préfixe de commentaire,
+    /// est donc trouvé ; un mot seul reste comparé à la lettre.
     // raccourci : ß et la normalisation NFC ne sont pas repliés, et le sigma final se compare comme un sigma ; monter
     // si un cas les montre
     pub(crate) fn publiable(
@@ -549,16 +554,12 @@ impl Forge<'_> {
         let garde = lire_la_garde(self.dossier)?;
         let refus = |preuve: String| Refus::new(Code::PublicationRefusee, preuve, PUBLIER);
         let lire = |args: &[&str]| {
-            let vu = |vu: String| {
-                let bas = minuscules(&vu);
-                let porte = garde.mots.iter().find(|(_, mot)| bas.contains(&minuscules(mot)));
-                match porte {
-                    Some((numero, _)) => {
-                        let dit = "ce que Lydite publierait ne se lit pas";
-                        refus(format!("{dit} : la ligne {numero} de la garde paraît dans l'erreur de git"))
-                    }
-                    None => refus(format!("ce que Lydite publierait ne se lit pas : {vu}")),
+            let vu = |vu: String| match garde.trouve(&Texte::new(&vu)) {
+                Some(numero) => {
+                    let dit = "ce que Lydite publierait ne se lit pas";
+                    refus(format!("{dit} : la ligne {numero} de la garde paraît dans l'erreur de git"))
                 }
+                None => refus(format!("ce que Lydite publierait ne se lit pas : {vu}")),
             };
             self.faire(self.git(args), None).map_err(vu)
         };
@@ -577,10 +578,10 @@ impl Forge<'_> {
             &plage,
             "--",
         ])?;
-        let noms_bas: Vec<String> = noms.split('\0').chain(noms_historique.split('\0')).map(minuscules).collect();
-        for (numero, mot) in &garde.mots {
-            let cherche = minuscules(mot);
-            if noms_bas.iter().any(|nom| nom.contains(&cherche)) {
+        let noms_bas: Vec<Texte> = noms.split('\0').chain(noms_historique.split('\0')).map(Texte::new).collect();
+        for ligne in &garde.lignes {
+            let numero = ligne.numero;
+            if noms_bas.iter().any(|nom| ligne.dans(nom)) {
                 return Err(refus(format!("la ligne {numero} de la garde paraît dans le nom d'un fichier changé")));
             }
         }
@@ -630,10 +631,7 @@ impl Forge<'_> {
         let messages = lire(&["log", "--format=%B", "--no-show-signature", &plage, "--"])?;
         let auteurs = lire(&["log", "--format=%H%x00%an <%ae>%x00%cn <%ce>", "--no-show-signature", &plage, "--"])?;
         if let Some((sha, auteur, committer)) = commit_etranger(&auteurs) {
-            let porte = |texte: &str| {
-                let texte = minuscules(texte);
-                garde.mots.iter().any(|(_, mot)| texte.contains(&minuscules(mot)))
-            };
+            let porte = |texte: &str| garde.trouve(&Texte::new(texte)).is_some();
             let qui = if porte(&auteur) || porte(&committer) {
                 String::new()
             } else {
@@ -651,9 +649,10 @@ impl Forge<'_> {
         lieux.push(("le titre".into(), titre.into()));
         lieux.push(("le corps".into(), corps.into()));
         lieux.push(("le nom de la branche".into(), branche.into()));
-        for (numero, mot) in &garde.mots {
-            let cherche = minuscules(mot);
-            if let Some((lieu, _)) = lieux.iter().find(|(_, texte)| minuscules(texte).contains(&cherche)) {
+        let formes: Vec<Texte> = lieux.iter().map(|(_, texte)| Texte::new(texte)).collect();
+        for ligne in &garde.lignes {
+            if let Some(i) = formes.iter().position(|forme| ligne.dans(forme)) {
+                let (numero, lieu) = (ligne.numero, &lieux[i].0);
                 return Err(refus(format!("la ligne {numero} de la garde paraît dans {lieu}")));
             }
         }
@@ -1070,9 +1069,59 @@ fn minuscules(texte: &str) -> String {
     texte.chars().flat_map(char::to_lowercase).collect()
 }
 
-/// La garde de l'utilisateur : ses mots avec le numéro de leur ligne.
+/// Un texte tel que la garde le compare : en minuscules, et sous sa forme repliée ([`replie`]), calculées une fois.
+struct Texte {
+    bas: String,
+    replie: String,
+}
+
+impl Texte {
+    fn new(texte: &str) -> Texte {
+        let bas = minuscules(texte);
+        let replie = replie(&bas);
+        Texte { bas, replie }
+    }
+}
+
+/// `bas` (déjà en minuscules) où toute suite de caractères ni lettres ni chiffres est un blanc, sans blanc de bord.
+fn replie(bas: &str) -> String {
+    bas.split(|c: char| !c.is_alphanumeric()).filter(|mot| !mot.is_empty()).collect::<Vec<_>>().join(" ")
+}
+
+/// Une ligne de la garde : sa forme littérale en minuscules, et sa forme repliée si la ligne porte au moins deux mots
+/// séparés par des blancs et que la forme repliée en garde deux.
+struct Ligne {
+    numero: usize,
+    litterale: String,
+    repliee: Option<String>,
+}
+
+impl Ligne {
+    fn new(numero: usize, ligne: &str) -> Ligne {
+        let litterale = minuscules(ligne);
+        let repliee = Some(replie(&litterale))
+            .filter(|forme| ligne.split_whitespace().count() >= 2 && forme.split(' ').count() >= 2);
+        Ligne { numero, litterale, repliee }
+    }
+
+    /// La seule comparaison de la garde : la forme littérale paraît dans le texte en minuscules, ou la forme repliée
+    /// dans le texte replié.
+    fn dans(&self, texte: &Texte) -> bool {
+        let replie = self.repliee.as_ref().is_some_and(|forme| texte.replie.contains(forme));
+        texte.bas.contains(&self.litterale) || replie
+    }
+}
+
+/// La garde de l'utilisateur : ses lignes avec leur numéro.
 struct Garde {
-    mots: Vec<(usize, String)>,
+    lignes: Vec<Ligne>,
+}
+
+impl Garde {
+    /// Le numéro de la première ligne de la garde que `texte` porte.
+    fn trouve(&self, texte: &Texte) -> Option<usize> {
+        self.lignes.iter().find(|ligne| ligne.dans(texte)).map(|ligne| ligne.numero)
+    }
 }
 
 /// Le fichier `garde` de `dossier` : absent, la garde est vide ; qui ne se lit pas, ou pas en UTF-8, est le refus 6006
@@ -1090,13 +1139,13 @@ fn lire_la_garde(dossier: &Path) -> Result<Garde, Refus> {
     };
     // Un BOM UTF-8 en tête (PowerShell 5.1 en écrit un) n'est pas un mot de la ligne 1.
     let texte = texte.strip_prefix('\u{feff}').unwrap_or(&texte);
-    let mots = (1..)
+    let lignes = (1..)
         .zip(texte.lines())
         .map(|(numero, ligne)| (numero, ligne.trim()))
         .filter(|(_, ligne)| !ligne.is_empty() && !ligne.starts_with('#'))
-        .map(|(numero, ligne)| (numero, ligne.to_string()))
+        .map(|(numero, ligne)| Ligne::new(numero, ligne))
         .collect();
-    Ok(Garde { mots })
+    Ok(Garde { lignes })
 }
 
 /// Les lignes qu'ajoute un diff de git (`-U0`), fichier par fichier : `les lignes ajoutées de <fichier>`, et leur

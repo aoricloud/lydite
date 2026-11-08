@@ -349,6 +349,54 @@ fn un_mot_de_la_garde_ne_se_publie_pas_8005() {
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
+/// Publie un fichier `notes.txt` qui porte `contenu` avec la garde `garde` : `Ok` s'il passe, sinon la preuve du
+/// refus 8005.
+fn garde_sur_un_contenu(nom: &str, garde: &str, contenu: &str) -> Result<(), String> {
+    let lieu = lieu(nom);
+    let forge = lieu.forge();
+    let base = lieu.base();
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    fs::write(lieu.kraken.join("garde"), garde).unwrap();
+    let tete = sur(&lieu.depot, &base, &[("notes.txt", contenu)], "notes");
+    let chemins = [lieu.depot.as_path()];
+    let res = forge.publiable(&base, &tete, "b", "t", "c", &chemins).map_err(|refus| {
+        assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+        refus.preuve
+    });
+    let _ = fs::remove_dir_all(&lieu.racine);
+    res
+}
+
+#[test]
+fn deux_mots_coupes_par_un_prefixe_de_commentaire_ne_se_publient_pas_8005() {
+    let res = garde_sur_un_contenu("forge-garde-replie-1", "essai-un essai-deux\n", "// essai-un\n// essai-deux\n");
+    assert_eq!(res.unwrap_err(), "la ligne 1 de la garde paraît dans les lignes ajoutées de b/notes.txt");
+}
+
+#[test]
+fn deux_mots_separes_par_deux_espaces_ne_se_publient_pas_8005() {
+    let res = garde_sur_un_contenu("forge-garde-replie-2", "essai-un essai-deux\n", "essai-un  essai-deux\n");
+    assert_eq!(res.unwrap_err(), "la ligne 1 de la garde paraît dans les lignes ajoutées de b/notes.txt");
+}
+
+#[test]
+fn la_forme_sur_une_ligne_de_la_garde_reste_refusee_8005() {
+    let res = garde_sur_un_contenu("forge-garde-replie-3", "essai-un essai-deux\n", "essai-un essai-deux\n");
+    assert_eq!(res.unwrap_err(), "la ligne 1 de la garde paraît dans les lignes ajoutées de b/notes.txt");
+}
+
+#[test]
+fn un_seul_des_deux_mots_de_la_garde_passe_8005() {
+    let res = garde_sur_un_contenu("forge-garde-replie-4", "essai-un essai-deux\n", "// essai-un\n");
+    assert_eq!(res, Ok(()));
+}
+
+#[test]
+fn un_mot_seul_de_la_garde_reste_compare_a_la_lettre_8005() {
+    let res = garde_sur_un_contenu("forge-garde-replie-5", "essai-un\n", "essai un\n");
+    assert_eq!(res, Ok(()));
+}
+
 #[test]
 fn un_contenu_ajoute_puis_retire_ne_se_publie_pas_8005() {
     let lieu = lieu("forge-historique");
