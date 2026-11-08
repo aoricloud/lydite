@@ -9,9 +9,10 @@ a trouvé : les noms passent d'abord, et un fichier n'est nommé que si aucun no
 La PR d'un fork ne lit pas la liste (`LISTE=fork`) : sa sortie est publique, et rougir sur un mot deviné le
 confirmerait. Ailleurs, une liste vide ou absente est une faute : la garde ne passe pas sans elle.
 
-Entrées : en argument, le dossier que l'étape d'avant remplit par l'API (`diff`, `commits.jsonl`, et `erreur` quand une
-lecture a échoué) ; dans l'environnement, `GARDE`, `LISTE`, `TITRE`, `CORPS` et `BRANCHE` (les trois derniers vides
-sur un push). Sortie : une annotation par trouvaille, en anglais ; code 1 s'il y en a une, 0 sinon.
+Entrées : en argument, le dossier que l'étape d'avant remplit par l'API (`diff`, `commits.jsonl`, `pr.json` avec le
+titre, le corps et la branche d'une PR, et `erreur` quand une lecture a échoué) ; dans l'environnement, `GARDE` et
+`LISTE`. Le texte de la PR ne passe jamais par l'environnement, que le journal d'Actions affiche.
+Sortie : une annotation par trouvaille, en anglais ; code 1 s'il y en a une, 0 sinon.
 """
 
 import json
@@ -203,8 +204,9 @@ def garder(dossier, environ):
         message, personnes = trouvailles(commit.get("m") or "", mots), trouvailles(identites(commit), mots)
         fautes += [f"{t} appears in the message of commit {court}." for t in message]
         fautes += [f"{t} appears in the author or committer of commit {court}." for t in personnes]
-    for variable, lieu in (("BRANCHE", "the branch name"), ("TITRE", "the title"), ("CORPS", "the body")):
-        fautes += [f"{t} appears in {lieu}." for t in trouvailles(environ.get(variable) or "", mots)]
+    pr = json.loads((dossier / "pr.json").read_text(encoding="utf-8")) if (dossier / "pr.json").exists() else {}
+    for cle, lieu in (("branche", "the branch name"), ("titre", "the title"), ("corps", "the body")):
+        fautes += [f"{t} appears in {lieu}." for t in trouvailles(pr.get(cle) or "", mots)]
     return mots, list(dict.fromkeys(fautes)), avis
 
 
