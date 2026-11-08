@@ -673,9 +673,12 @@ fn une_lecon_ecrite_par_une_main_n_atteint_ni_le_relecteur_ni_la_correction() {
     // On cherche le code dans les notes qui en portent un (refus, refus de forge, fin de tentative), non dans tout
     // le texte du fil, où une empreinte ou un id peut porter ces chiffres par hasard.
     let fil = essai.fil();
+    let chaine = Code::LeconMalFormee.to_string();
     let porte_6031 = |evenement: &Evenement| match evenement {
-        Evenement::Refus { code, .. } | Evenement::RefusForge { code, .. } => *code == 6031,
-        Evenement::Fin { texte, .. } => texte.starts_with("6031 "),
+        Evenement::Refus { code, preuve, .. } | Evenement::RefusForge { code, preuve, .. } => {
+            *code == 6031 || preuve.contains(&chaine)
+        }
+        Evenement::Fin { texte, .. } => texte.starts_with("6031 ") || texte.contains(&chaine),
         _ => false,
     };
     let lues: Vec<&Evenement> = fil.iter().filter(|evenement| porte_6031(evenement)).collect();
