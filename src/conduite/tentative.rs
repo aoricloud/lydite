@@ -132,6 +132,9 @@ fn avec_precedente(objectif: &str, precedente: Option<&str>) -> String {
 /// de Kraken passe en tête de son `PATH`, pour que la commande se trouve ; et son verdict est celui du juge, une prise
 /// constatée, sans coquille ni `verif`. Sans juge, la main a le `PATH` de Kraken tel quel.
 ///
+/// `lecons` est le fichier des leçons que la main reçoit en prompt système (`--append-system-prompt-file`), s'il y en
+/// a ; une main brute n'en reçoit pas.
+///
 /// Si le profil nomme un fournisseur ([`Profil::fournisseur`]), la main, le découpeur et le relecteur compris, reçoit
 /// l'URL de son API et sa clé, et perd la variable que `cle` nomme (voir `partir`) ; la preuve que Kraken rejoue ne
 /// reçoit rien du fournisseur ([`rejouer`]).
@@ -146,6 +149,7 @@ pub(crate) fn tenter(
     precedente: Option<&str>,
     journal: &Path,
     juge: Option<Juge<'_>>,
+    lecons: Option<&Path>,
 ) -> (Option<Constat>, Option<String>, Result<Pris, Echec>) {
     let mut verif = None;
     // Le socle porte l'heure où la main s'arrête : son départ, pris ici, et son délai.
@@ -155,7 +159,7 @@ pub(crate) fn tenter(
         Some(_) => format!("{socle}\n\n{}", avec_precedente(objectif, precedente)),
         None => consigne(objectif, fichiers, exacts, verifier, precedente, profil.prete(verifier), &socle),
     };
-    let Demande { argv, declaration } = profil.demande(bac, verifier, precedente.is_some());
+    let Demande { argv, declaration } = profil.demande_avec(bac, verifier, precedente.is_some(), lecons);
     let attendu =
         declaration.as_ref().map(|d| Attendu { reglages: &d.reglages, modele: &d.modele, mcp: d.mcp.as_deref() });
     // raccourci : ce que la main écrit entre au fil tel quel, et une main qui y recopierait sa clé l'y écrirait ;
