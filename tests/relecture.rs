@@ -101,8 +101,10 @@ const FAUSSE_WINDOWS: &[&str] = &[
     "shift",
     "set modele=%9",
     // La règle des leçons nomme le bac de la main : `@BAC@` y est remplacé par sa règle.
+    // PowerShell rend le dossier courant en nom long, la règle de Lydite le garde tel quel : `%CD%` aussi.
+    r#"set "bac_cd=%CD%""#,
     concat!(
-        r#"powershell -NoProfile -Command "$p=(Get-Location).Path; "#,
+        r#"powershell -NoProfile -Command "$p=$env:bac_cd; "#,
         r#"$r='//'+$p.Substring(0,1).ToLower()+$p.Substring(2).Replace('\','/'); "#,
         r#"[Console]::Out.Write((Get-Content -Raw '%ici%controle-%modele%.jsonl').Replace('@BAC@',$r))""#,
     ),

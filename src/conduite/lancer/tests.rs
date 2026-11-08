@@ -998,7 +998,16 @@ fn une_lecon_en_crlf_au_commit_de_base_est_notee_avec_l_empreinte_de_son_texte_e
     let racine = racine("lecons-crlf");
     let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     let en_lf = texte_de_lecon("g", &[]);
+    // Sans conversion de fin de ligne à `git add` (sous Windows `core.autocrlf` vaut souvent `true`).
+    git(&depot, &["config", "core.autocrlf", "false"]);
     commiter_les_lecons(&depot, &[("g", en_lf.replace('\n', "\r\n"))]);
+    let blob = Command::new("git")
+        .arg("-C")
+        .arg(&depot)
+        .args(["cat-file", "blob", "HEAD:.agents/skills/g/SKILL.md"])
+        .output()
+        .unwrap();
+    assert!(blob.stdout.contains(&b'\r'), "le blob du commit de base doit porter un CR");
     let profil = profil_declare("sorte = claude\nprogramme = lydite-claude-introuvable\n", &kraken, &depot);
     lancer(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL).unwrap();
     let notees = consignes_notees(&kraken);
