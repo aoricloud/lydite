@@ -1,12 +1,13 @@
 # Lydite
 
-Lydite is a touchstone for AI coding agents. You give it an issue (or an objective) and **the command that proves the
-work done**; it launches agents on the work, **replays your proof itself** on what they bring back, and keeps only what
-passes. The agents' word is never the proof.
+Lydite is the foreman that proves: it hands coding work to cheap agents, each in its own sandbox behind the same wall,
+replays your proof itself, and only returns verified pull requests, with their receipt. Today its workers run in Claude
+Code, on any model that speaks Anthropic's API format (Claude, DeepSeek…), with no Claude account needed for another
+provider. You launch it from Claude Code or from Hermes, whatever model your Hermes runs.
 
-It is a small harness written in Rust, with no dependencies, for Linux and Windows. It drives Claude Code sessions
-("hands"), on Anthropic's models or on any provider that speaks Anthropic's API format (a DeepSeek endpoint, for
-example).
+You give it an issue (or an objective) and **the command that proves the work done**: the agents' word is never the
+proof. It is a small harness written in Rust, with no dependencies, for Linux and Windows; its workers are called
+*hands*. On Windows the wall is asked for, not held (see **Windows** below).
 
 > **Status: early.** Lydite builds itself, and runs on a public test bench, [Mycelium Lab](https://github.com/aoricloud/mycelium-lab)
 > (a simulator whose code its hands write from reviewed issues). The interface is French (commands, messages, docs)
