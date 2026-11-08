@@ -57,6 +57,10 @@
 //!     Sans la clé, rien ne change, sauf que `.agents/skills/` (les leçons) est toujours protégé, clé ou non : une
 //!     main ne change jamais une leçon, seul l'humain le fait. La main ne commite pas : son réglage refuse `git
 //!     commit`, que Lydite fait au gel ;
+//!   - `mesure` : un ou deux réglages d'un banc de mesure, jamais d'une vraie vague, parmi `sans-lecture` (le prompt
+//!     système garde le bloc des leçons, mais pas la consigne de lecture) et `sans-a1` (la consigne d'une main de
+//!     tâche perd ses deux phrases fixes d'honnêteté et de périmètre). Une autre valeur, ou un réglage redit, est un
+//!     refus de profil. Le fil les note (`main.consigne.mesure`) et le reçu les dit : « Measurement: <réglages>. » ;
 //!   - `delai_main` (3600 par défaut) et `delai_preuve` (300), en secondes, des entiers positifs : au premier, Kraken
 //!     tue la main ; au second, la preuve qu'il rejoue.
 //! - L'empreinte d'un profil est le SHA-256 des octets de son fichier. `lydite accepter <nom>` l'écrit dans
@@ -96,7 +100,7 @@ const INTEGRE: &str =
     "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = demande\ndelai_main = 3600\ndelai_preuve = 300\n";
 
 /// Les clés d'un profil, et aucune autre.
-const CLES: [&str; 17] = [
+const CLES: [&str; 18] = [
     "sorte",
     "programme",
     "modele",
@@ -114,10 +118,49 @@ const CLES: [&str; 17] = [
     "proteges",
     "delai_main",
     "delai_preuve",
+    "mesure",
 ];
 
 /// Les clés dont la valeur est une liste à virgules.
-const LISTES: [&str; 5] = ["prix", "outils", "reseau", "lecture", "proteges"];
+const LISTES: [&str; 6] = ["prix", "outils", "reseau", "lecture", "proteges", "mesure"];
+
+/// Les réglages de `mesure`, et aucun autre.
+pub(crate) const SANS_LECTURE: &str = "sans-lecture";
+pub(crate) const SANS_A1: &str = "sans-a1";
+
+/// Les réglages d'un banc de mesure (clé `mesure`) : ce qu'une main ne reçoit pas. Jamais posés dans une vraie vague.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Mesure {
+    /// Le prompt système garde le bloc des leçons, mais pas la consigne de lecture.
+    pub(crate) sans_lecture: bool,
+    /// La consigne d'une main de tâche perd `HONNETETE` et `PERIMETRE`.
+    pub(crate) sans_a1: bool,
+}
+
+impl Mesure {
+    /// Les réglages actifs, un par ligne (`main.consigne.mesure`), dans l'ordre `sans-lecture`, `sans-a1` ; vide si
+    /// aucun n'est posé.
+    pub(crate) fn texte(&self) -> String {
+        let actifs = [(self.sans_lecture, SANS_LECTURE), (self.sans_a1, SANS_A1)];
+        actifs.iter().filter(|(actif, _)| *actif).map(|(_, nom)| *nom).collect::<Vec<_>>().join("\n")
+    }
+
+    /// Les réglages d'une valeur de `mesure` (un ou deux, sans répétition), `None` si l'un est inconnu ou redit.
+    fn lire(elements: &[&str]) -> Option<Mesure> {
+        let mut mesure = Mesure::default();
+        for element in elements {
+            let pose = match *element {
+                SANS_LECTURE => &mut mesure.sans_lecture,
+                SANS_A1 => &mut mesure.sans_a1,
+                _ => return None,
+            };
+            if std::mem::replace(pose, true) {
+                return None;
+            }
+        }
+        Some(mesure)
+    }
+}
 
 /// Ce que la main ne lance jamais : `git commit`, que Lydite fait lui-même au gel. Les deux formes de préfixe des
 /// règles de Claude Code, pour `Bash` comme pour `PowerShell`.
@@ -177,6 +220,8 @@ pub(crate) struct Profil {
     /// Les chemins que nulle main ne change : [`LECONS`] d'abord, toujours, puis ceux de `proteges`, de la forme des
     /// `fichiers` d'une tâche.
     proteges: Vec<String>,
+    /// Les réglages de la clé `mesure`, aucun par défaut.
+    mesure: Mesure,
 }
 
 /// Le dossier des leçons du dépôt visé : protégé de toute main, que le profil le nomme ou non.
@@ -326,6 +371,18 @@ impl Profil {
         self.delai_main
     }
 
+    /// Les réglages de mesure du profil (clé `mesure`) ; aucun pour une main brute.
+    pub(crate) fn mesure(&self) -> Mesure {
+        self.mesure
+    }
+
+    /// Un profil de test aux réglages de mesure qu'on lui donne, comme le ferait la clé `mesure`.
+    #[cfg(test)]
+    pub(crate) fn avec_mesure(mut self, mesure: Mesure) -> Profil {
+        self.mesure = mesure;
+        self
+    }
+
     /// Une copie de ce profil aux modèles d'une tâche : `modele` pour sa première tentative, `relance` pour la
     /// seconde, chacun à défaut celui du profil. Tout le reste est celui du profil (empreinte, bornes, mur, délais) :
     /// la copie se lance, se déclare et se constate comme lui, sous le modèle de la tâche, et le profil lui-même ne
@@ -411,7 +468,13 @@ impl Profil {
     /// Un profil de test : la commande et le délai qu'on lui donne.
     #[cfg(test)]
     pub(crate) fn faux(main: Vec<String>, delai_preuve: Duration) -> Profil {
-        Profil { sorte: Sorte::Brute(main), delai_main: DELAI_MAIN, delai_preuve, proteges: vec![LECONS.to_string()] }
+        Profil {
+            sorte: Sorte::Brute(main),
+            delai_main: DELAI_MAIN,
+            delai_preuve,
+            proteges: vec![LECONS.to_string()],
+            mesure: Mesure::default(),
+        }
     }
 
     /// Le profil a l'empreinte que l'humain a acceptée : celle de `<nom>.empreinte`, à côté de son fichier, que `lire`
@@ -878,6 +941,7 @@ pub(crate) fn lire(
     let (mut api, mut variable) = (None, None);
     let mut ligne_prix = 0;
     let mut proteges = vec![LECONS.to_string()];
+    let mut mesure = Mesure::default();
     for (i, ligne) in texte.strip_prefix('\u{feff}').unwrap_or(texte).split('\n').enumerate() {
         let (n, ligne) = (i + 1, ligne.strip_suffix('\r').unwrap_or(ligne));
         let refus = |regle: &str| Err(refusee(n, ligne, regle));
@@ -974,6 +1038,15 @@ pub(crate) fn lire(
                 (claude.lecture, claude.ligne_lecture) = (liste(), (n, ligne.to_string()));
             }
             "lecture" => return refus("une lecture est un chemin absolu ou en ~/…, sans .. ni joker (* ? [ ] { })"),
+            "mesure" => match Mesure::lire(&elements) {
+                Some(lue) => mesure = lue,
+                None => {
+                    return refus(
+                        "mesure liste un ou deux réglages, chacun une fois : sans-lecture, sans-a1 (pour un banc de \
+                         mesure seulement)",
+                    );
+                }
+            },
             "proteges" => {
                 for chemin in &elements {
                     let faute = hors_forme(chemin).map(String::from).or_else(|| {
@@ -1040,7 +1113,7 @@ pub(crate) fn lire(
             format!("Ajoute la ligne « sorte = claude » à {lieu}, puis accepte le profil : lydite accepter {nom}."),
         ));
     }
-    Ok(Profil { sorte: Sorte::Claude(Box::new(claude)), delai_main, delai_preuve, proteges })
+    Ok(Profil { sorte: Sorte::Claude(Box::new(claude)), delai_main, delai_preuve, proteges, mesure })
 }
 
 /// Le chemin absolu en forme POSIX d'une règle de permission de Claude Code : `//` puis le chemin, `C:\x` donnant

@@ -67,6 +67,10 @@ pub(crate) type Juge<'a> = &'a (dyn Fn(&Path) -> Result<(), String> + Sync);
 /// jusqu'à ce qu'elle passe, avant que Kraken la rejoue. La main en lance chaque morceau seul et tel quel, car sous
 /// Windows, sans bac à sable, Claude Code ne laisse passer un morceau prêté que seul et tel quel (`excludedCommands`),
 /// et refuse une commande qui l'enrobe.
+///
+/// `sans_a1` (le réglage `sans-a1` de la clé `mesure`, d'un banc de mesure) retire `HONNETETE` et `PERIMETRE`, et rien
+/// d'autre : la liste des fichiers, les textes exacts, `COMMIT` et la preuve restent.
+#[allow(clippy::too_many_arguments)]
 fn consigne(
     objectif: &str,
     fichiers: Option<&[String]>,
@@ -75,18 +79,25 @@ fn consigne(
     precedente: Option<&str>,
     pretee: bool,
     socle: &str,
+    sans_a1: bool,
 ) -> String {
-    let mut perimetre = match fichiers {
-        Some(fichiers) => format!("{PERIMETRE} Your files: {}", fichiers.join(" ")),
-        None => PERIMETRE.to_string(),
+    let debut = match (sans_a1, fichiers) {
+        (false, Some(fichiers)) => format!("{PERIMETRE} Your files: {}", fichiers.join(" ")),
+        (false, None) => PERIMETRE.to_string(),
+        (true, Some(fichiers)) => format!("Your files: {}", fichiers.join(" ")),
+        (true, None) => String::new(),
     };
-    if !exacts.is_empty() {
-        perimetre.push_str("\nThese texts must appear in your files byte for byte, as written here:");
-        for (fichier, texte) in exacts {
-            perimetre.push_str(&format!("\n{fichier}: {texte}"));
-        }
+    let mut lignes = Vec::new();
+    if !debut.is_empty() {
+        lignes.push(debut);
     }
-    let perimetre = format!("{perimetre}\n{COMMIT}");
+    if !exacts.is_empty() {
+        lignes.push("These texts must appear in your files byte for byte, as written here:".to_string());
+        lignes.extend(exacts.iter().map(|(fichier, texte)| format!("{fichier}: {texte}")));
+    }
+    lignes.push(COMMIT.to_string());
+    let perimetre = lignes.join("\n");
+    let honnetete = if sans_a1 { String::new() } else { format!("{HONNETETE}\n\n") };
     // Avec une commande, c'est Kraken qui la rejoue ; la main la joue d'abord si on la lui prête, car en `acceptEdits`
     // elle ne peut souvent pas la lancer sans ce prêt.
     let preuve = match (verifier, pretee) {
@@ -103,7 +114,7 @@ fn consigne(
         ),
         (None, _) => PREUVE.into(),
     };
-    format!("{socle}\n\n{}\n\n{HONNETETE}\n\n{perimetre}{preuve}", avec_precedente(objectif, precedente))
+    format!("{socle}\n\n{}\n\n{honnetete}{perimetre}{preuve}", avec_precedente(objectif, precedente))
 }
 
 /// L'objectif, puis l'erreur de la tentative d'avant s'il y en a une. C'est toute la consigne d'une main jugée par
@@ -133,7 +144,8 @@ pub(crate) fn consigne_de(
     if juge {
         format!("{socle}\n\n{}", avec_precedente(objectif, precedente))
     } else {
-        consigne(objectif, fichiers, exacts, verifier, precedente, profil.prete(verifier), &socle)
+        let sans_a1 = profil.mesure().sans_a1;
+        consigne(objectif, fichiers, exacts, verifier, precedente, profil.prete(verifier), &socle, sans_a1)
     }
 }
 

@@ -75,6 +75,48 @@ fn le_corps_ne_cite_pas_la_raison_d_une_main_impossible() {
 }
 
 #[test]
+fn le_corps_de_la_pr_dit_la_mesure_sur_une_ligne_a_part_quand_un_reglage_est_pose() {
+    let plan = Plan::lire(b"plan 1\nobjectif : Un test\npreuve : cargo test\n\ntache a\n    Ecrire a.txt\n").unwrap();
+    let v = "1761901500000_11_0";
+    let corps_de = |mesure: &str| {
+        let evenements = [
+            Evenement::Vague { vague: v.into(), n: 1, depot: "d".into(), verifier: None, objectif: "Un test".into() },
+            Evenement::Consigne {
+                vague: v.into(),
+                main: 1,
+                tentative: 1,
+                role: fil::Role::Main,
+                consigne: "c".into(),
+                systeme: None,
+                lecons: String::new(),
+                ecartees: String::new(),
+                mesure: mesure.into(),
+            },
+        ];
+        let notes: Vec<fil::Note> = evenements
+            .iter()
+            .zip(1..)
+            .map(|(evenement, seq)| fil::Note {
+                seance: "s".into(),
+                seq,
+                instant: "2026-10-31T21:00:00.000Z".into(),
+                origine: "humain".into(),
+                origine_foi: Foi::Declare,
+                evenement: evenement.clone(),
+            })
+            .collect();
+        corps_sans_reglage(&plan, &etat(&evenements), v, None, None, &notes)
+    };
+    assert!(!corps_de("").contains("Measurement"), "une vraie vague ne dit rien");
+    let texte = corps_de("sans-lecture");
+    assert!(texte.lines().any(|ligne| ligne == "- Measurement: sans-lecture."), "{texte}");
+    let texte = corps_de("sans-lecture\nsans-a1");
+    assert!(texte.lines().any(|ligne| ligne == "- Measurement: sans-lecture, sans-a1."), "{texte}");
+    // La ligne est dans le bloc « Reçu », avant l'objectif du plan.
+    assert!(texte.find("Measurement").unwrap() < texte.find("Un test").unwrap(), "{texte}");
+}
+
+#[test]
 fn le_recu_separe_les_mains_refusees() {
     let v = "1761901500000_11_0";
     let refus = |main| Evenement::Refus {

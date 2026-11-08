@@ -151,7 +151,9 @@ fn bloc(vague: &Vague, vagues: &[Vague], notes: &[Note], maintenant: &str) -> St
 /// corrections et ses relances, de proche en proche, même quand une vague liée est montrée à part. Sans usage au fil,
 /// le coût y est « inconnu ».
 fn ligne_du_recu(vagues: &[Vague], notes: &[Note], id: &str) -> String {
-    recu_de(vagues, notes, id).ligne()
+    let recu = recu_de(vagues, notes, id);
+    // Les réglages de mesure, quand il y en a, se disent sur une ligne à part sous le coût.
+    std::iter::once(recu.ligne()).chain(recu.ligne_de_mesure()).collect::<Vec<_>>().join("\n")
 }
 
 /// La ligne d'un relecteur que le fil lie à une vague, sans relecture prise : `Relecture : main-<id>-1 · classée (7016)

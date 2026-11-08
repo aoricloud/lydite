@@ -992,6 +992,47 @@ fn une_vague_note_la_consigne_gardee_que_sa_main_a_recue() {
 }
 
 #[test]
+fn la_cle_mesure_retire_son_texte_a_la_main_et_le_fil_la_note() {
+    let cas = [
+        ("", "", false, false),
+        ("mesure = sans-lecture\n", "sans-lecture", true, false),
+        ("mesure = sans-a1\n", "sans-a1", false, true),
+        ("mesure = sans-a1, sans-lecture\n", "sans-lecture\nsans-a1", true, true),
+    ];
+    for (n, (ligne, dit, sans_lecture, sans_a1)) in cas.into_iter().enumerate() {
+        let racine = racine(&format!("mesure-{n}"));
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let texte = texte_de_lecon("g", &[]);
+        commiter_les_lecons(&depot, &[("g", texte.clone())]);
+        let profil =
+            profil_declare(&format!("sorte = claude\nprogramme = lydite-claude-introuvable\n{ligne}"), &kraken, &depot);
+        lancer(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL).unwrap();
+        // Le fichier des leçons garde son bloc, et ne perd que la consigne de lecture.
+        let bloc = format!("LESSONS BEGIN\n{texte}\nLESSONS END\n");
+        let attendu = if sans_lecture { bloc } else { format!("{}\n{bloc}", lecons::CONSIGNE_DE_LECTURE) };
+        let vu = consignes(&kraken);
+        assert_eq!(vu.values().collect::<Vec<_>>(), [&attendu], "{ligne}");
+        // La consigne de la main ne perd que les deux phrases de A1.
+        let mains: Vec<String> = toutes_les_consignes(&kraken)
+            .into_values()
+            .filter(|texte| texte.starts_with("A refusal from the wall"))
+            .collect();
+        assert!(!mains.is_empty());
+        for consigne in &mains {
+            assert_eq!(consigne.contains("no honest code can pass the test"), !sans_a1, "{ligne} : {consigne}");
+            assert_eq!(consigne.contains("Change only the files of your task"), !sans_a1, "{ligne} : {consigne}");
+            assert!(consigne.contains("Lydite commits your work itself"), "{consigne}");
+        }
+        for note in consignes_notees(&kraken) {
+            let Evenement::Consigne { mesure, systeme, .. } = note else { unreachable!() };
+            assert_eq!(mesure, dit, "{ligne}");
+            assert_eq!(systeme, Some(crate::coeur::profil::empreinte(&attendu)), "{ligne}");
+        }
+        let _ = fs::remove_dir_all(&racine);
+    }
+}
+
+#[test]
 fn la_consigne_d_une_main_declaree_dit_ses_lecons_donnees_ecartees_et_son_systeme() {
     let racine = racine("consigne-lecons");
     let (depot, kraken) = (depot(&racine), racine.join("lydite"));

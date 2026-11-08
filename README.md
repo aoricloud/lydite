@@ -86,6 +86,8 @@ delai_preuve = 300
 
 The optional `proteges` key lists repository paths (files, or folders ending in `/`) that no hand may change, whatever the `fichiers` of its task, and the hand never runs `git commit`: Lydite commits its work itself. The lessons folder `.agents/skills/` is always protected, with or without the key: a hand never changes a lesson (a change there turns its attempt red, and at the freeze the task is refused with 7018), only the human does. A neighbouring path such as `.agents/other` stays free.
 
+The optional `mesure` key is made for a measurement bench only, never for a real wave. It lists one or two settings, `sans-lecture` and `sans-a1`, to measure the effect of a lesson: `sans-lecture` keeps the lessons block in the system prompt but drops the reading instruction; `sans-a1` drops the two fixed sentences (honesty and perimeter) from a task hand's instruction, and keeps its list of files and everything else. Any other value is refused like any unknown profile value. The thread notes the active settings in `main.consigne.mesure`, and the receipt (the PR body and `lydite etat`) says so on a line of its own, `Measurement: <settings>.`, so a real wave is never weakened without saying it.
+
 ```bash
 lydite accepter <name>        # shows the profile and accepts its fingerprint; a changed profile must be accepted again
 ```

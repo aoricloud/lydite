@@ -568,7 +568,7 @@ impl<'a> Vague<'a> {
             systeme: gardees.systeme.clone(),
             lecons: gardees.donnees.clone(),
             ecartees: gardees.ecartees.clone(),
-            mesure: String::new(),
+            mesure: profil.mesure().texte(),
         };
         if !(self.noter(&bail)
             && self.noter(&debut)
@@ -834,7 +834,12 @@ impl<'a> Vague<'a> {
         } else if self.juge.is_some() {
             lecons::texte_liste(&self.lecons)
         } else {
-            lecons::texte_donne(&donnees)
+            let texte = lecons::texte_donne(&donnees);
+            // Le réglage `sans-lecture` (clé `mesure`) retire la consigne de lecture, et garde le bloc des leçons.
+            match texte.strip_prefix(&format!("{}\n", lecons::CONSIGNE_DE_LECTURE)) {
+                Some(bloc) if profil.mesure().sans_lecture => bloc.to_string(),
+                _ => texte,
+            }
         };
         let (fichier, systeme) = if texte.is_empty() {
             (None, None)
