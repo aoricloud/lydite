@@ -33,10 +33,25 @@ from .nom import ETAT, LANCER, PREFIXE, SECRET_ENV
 # programmes et ses dossiers, jamais une clé. `GH_CONFIG_DIR` et `CLAUDE_CONFIG_DIR` nomment un dossier de connexion,
 # elles n'en portent pas le contenu.
 ENV_CONSERVE = (
-    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TERM", "TMPDIR",
-    "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
-    "LYDITE_DOSSIER", "LYDITE_CLAUDE", "LYDITE_GH", "LYDITE_SRT",
-    "GH_CONFIG_DIR", "CLAUDE_CONFIG_DIR",
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "LC_ALL",
+    "TERM",
+    "TMPDIR",
+    "XDG_STATE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    "LYDITE_DOSSIER",
+    "LYDITE_CLAUDE",
+    "LYDITE_GH",
+    "LYDITE_SRT",
+    "GH_CONFIG_DIR",
+    "CLAUDE_CONFIG_DIR",
 )
 
 # Combien de secondes `lancer` attend pour voir si Lydite refuse aussitôt (un refus sort en 2, sans rien lancer).
@@ -260,8 +275,17 @@ class Outils:
     def _commande(binaire: str, demande: dict) -> list:
         """La ligne de commande de Lydite : une liste d'arguments, qu'aucun shell ne relit."""
         if demande["plan"]:
-            return [binaire, "lancer", demande["profil"], "--plan", demande["plan_copie"],
-                    "--depot", demande["depot"], "--pr", demande["pr"]]
+            return [
+                binaire,
+                "lancer",
+                demande["profil"],
+                "--plan",
+                demande["plan_copie"],
+                "--depot",
+                demande["depot"],
+                "--pr",
+                demande["pr"],
+            ]
         quoi = ["--issue", str(demande["issue"])] if demande["issue"] else [demande["objectif"]]
         argv = [binaire, "lancer", demande["profil"], *quoi, "--decouper", "--verifier", demande["preuve"]]
         argv += ["--depot", demande["depot"], "--pr", demande["pr"]]
@@ -336,8 +360,14 @@ class Outils:
             with open(journal, "wb") as sortie:
                 os.fchmod(sortie.fileno(), 0o600)  # le journal garde ce que Lydite écrit : lui seul le lit
                 enfant = subprocess.Popen(
-                    argv, cwd=demande["depot"], env=env, stdin=subprocess.DEVNULL, stdout=sortie,
-                    stderr=subprocess.STDOUT, start_new_session=True, close_fds=True,
+                    argv,
+                    cwd=demande["depot"],
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=sortie,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    close_fds=True,
                 )
         except OSError as exc:
             raise Refus(f"could not start Lydite: {exc}") from exc
@@ -351,18 +381,36 @@ class Outils:
             objet = f"plan {Path(demande['plan']).name}"
         else:
             objet = f"issue #{demande['issue']}" if demande["issue"] else demande["objectif"]
-        self._noter({
-            "id": identifiant, "pid": enfant.pid, "debut": _maintenant(), "depot": demande["depot"],
-            "profil": demande["profil"], "objet": objet, "observer": demande["observer"],
-            "dossier": dossier, "journal": str(journal), "plan_copie": demande["plan_copie"], "sortie": code,
-        })
+        self._noter(
+            {
+                "id": identifiant,
+                "pid": enfant.pid,
+                "debut": _maintenant(),
+                "depot": demande["depot"],
+                "profil": demande["profil"],
+                "objet": objet,
+                "observer": demande["observer"],
+                "dossier": dossier,
+                "journal": str(journal),
+                "plan_copie": demande["plan_copie"],
+                "sortie": code,
+            }
+        )
         if code is not None:
             return {
-                "lance": False, "id": identifiant, "sortie": code, "signification": SORTIES.get(code, "unknown code"),
-                "journal": str(journal), "fin_du_journal": _fin_du_journal(str(journal)),
+                "lance": False,
+                "id": identifiant,
+                "sortie": code,
+                "signification": SORTIES.get(code, "unknown code"),
+                "journal": str(journal),
+                "fin_du_journal": _fin_du_journal(str(journal)),
             }
         return {
-            "lance": True, "id": identifiant, "pid": enfant.pid, "journal": str(journal), "profil": demande["profil"],
+            "lance": True,
+            "id": identifiant,
+            "pid": enfant.pid,
+            "journal": str(journal),
+            "profil": demande["profil"],
             "suite": f"running in the background; follow it with {ETAT} (id {identifiant})",
         }
 
@@ -390,8 +438,15 @@ class Outils:
         rendu: dict = {}
         try:
             fin = subprocess.run(
-                [self._binaire(), "etat"], check=False, env=self._env(avec_cle=False), stdin=subprocess.DEVNULL,
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+                [self._binaire(), "etat"],
+                check=False,
+                env=self._env(avec_cle=False),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
             )
             rendu["etat"] = fin.stdout.strip()
             rendu["code"] = fin.returncode
@@ -407,8 +462,12 @@ class Outils:
         demande = args.get("id")
         rendu["lancements"] = [
             {
-                "id": lancement["id"], "debut": lancement["debut"], "objet": lancement["objet"],
-                "depot": lancement["depot"], "profil": lancement["profil"], "en_cours": self._en_cours_de(lancement),
+                "id": lancement["id"],
+                "debut": lancement["debut"],
+                "objet": lancement["objet"],
+                "depot": lancement["depot"],
+                "profil": lancement["profil"],
+                "en_cours": self._en_cours_de(lancement),
             }
             for lancement in tous[:5]
         ]

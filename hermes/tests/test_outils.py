@@ -35,9 +35,12 @@ class AvecOutils(AvecDossier):
         self.depot = self.dossier / "depot"
         (self.depot / ".git").mkdir(parents=True)
         self.environ = {
-            "PATH": "/usr/bin:/bin", "HOME": str(self.dossier), "LANG": "C.UTF-8",
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(self.dossier),
+            "LANG": "C.UTF-8",
             "LYDITE_DOSSIER": str(self.dossier / "dossier-lydite"),
-            "OPENAI_API_KEY": "sk-une-autre-cle", "HERMES_YOLO_MODE": "1",
+            "OPENAI_API_KEY": "sk-une-autre-cle",
+            "HERMES_YOLO_MODE": "1",
         }
         self.reglages = {}
         self.addCleanup(self.tuer)
@@ -235,8 +238,20 @@ class Commande(AvecOutils):
     def test_une_issue(self):
         self.assertEqual(
             self.commande(profil="nautile"),
-            ["/k/lydite", "lancer", "nautile", "--issue", "15", "--decouper", "--verifier", PREUVE,
-             "--depot", str(self.depot), "--pr", "main"],
+            [
+                "/k/lydite",
+                "lancer",
+                "nautile",
+                "--issue",
+                "15",
+                "--decouper",
+                "--verifier",
+                PREUVE,
+                "--depot",
+                str(self.depot),
+                "--pr",
+                "main",
+            ],
         )
 
     def test_un_objectif_et_le_mode_observer(self):
@@ -250,8 +265,17 @@ class Commande(AvecOutils):
         demande["plan_copie"] = "/donnees/20261107.plan"
         self.assertEqual(
             outils._commande("/k/lydite", demande),
-            ["/k/lydite", "lancer", "nautile", "--plan", "/donnees/20261107.plan",
-             "--depot", str(self.depot), "--pr", "main"],
+            [
+                "/k/lydite",
+                "lancer",
+                "nautile",
+                "--plan",
+                "/donnees/20261107.plan",
+                "--depot",
+                str(self.depot),
+                "--pr",
+                "main",
+            ],
         )
 
     def test_la_preuve_reste_un_seul_argument(self):
@@ -270,7 +294,8 @@ class Lancement(AvecOutils):
         self.assertTrue(rendu["lance"], rendu)
         self.assertTrue(rendu["id"] and rendu["pid"])
         self.assertEqual(
-            self.lu("argv").split("\n")[:5], ["lancer", "claude", "--issue", "15", "--decouper"],
+            self.lu("argv").split("\n")[:5],
+            ["lancer", "claude", "--issue", "15", "--decouper"],
         )
         self.assertTrue(os.path.exists(rendu["journal"]))
 
@@ -403,11 +428,22 @@ class Lancement(AvecOutils):
         journaux = outils._dossier_des_journaux()
         copie = journaux / "0.plan"
         copie.write_text("plan 1", encoding="utf-8")
-        outils._noter({"id": "id000", "debut": "2026-11-07T00:00:00Z", "journal": str(journaux / "0.log"),
-                       "plan_copie": str(copie)})
+        outils._noter(
+            {
+                "id": "id000",
+                "debut": "2026-11-07T00:00:00Z",
+                "journal": str(journaux / "0.log"),
+                "plan_copie": str(copie),
+            }
+        )
         for rang in range(1, sous_module("outils").LANCEMENTS_GARDES + 1):
-            outils._noter({"id": f"id{rang:03}", "debut": f"2026-11-07T00:00:{rang:02}Z",
-                           "journal": str(journaux / f"{rang}.log")})
+            outils._noter(
+                {
+                    "id": f"id{rang:03}",
+                    "debut": f"2026-11-07T00:00:{rang:02}Z",
+                    "journal": str(journaux / f"{rang}.log"),
+                }
+            )
         self.assertFalse(copie.exists())
 
     def test_des_appels_en_parallele_ne_demarrent_qu_une_vague(self):

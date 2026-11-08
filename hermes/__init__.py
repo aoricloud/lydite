@@ -14,11 +14,21 @@ def register(ctx):
     """Enregistre exactement ce que `plugin.yaml` déclare : deux outils et un crochet `pre_tool_call`."""
     outils = Outils(ctx)
     ctx.register_tool(
-        name=LANCER, toolset=PREFIXE, schema=SCHEMA_LANCER, handler=outils.lancer,
-        check_fn=outils.disponible, description="Start a Lydite wave from an issue and its proof", emoji="🐙",
+        name=LANCER,
+        toolset=PREFIXE,
+        schema=SCHEMA_LANCER,
+        handler=outils.lancer,
+        check_fn=outils.disponible,
+        description="Start a Lydite wave from an issue and its proof",
+        emoji="🐙",
     )
     ctx.register_tool(
-        name=ETAT, toolset=PREFIXE, schema=SCHEMA_ETAT, handler=outils.etat,
-        check_fn=outils.disponible, description="Where Lydite stands", emoji="🐙",
+        name=ETAT,
+        toolset=PREFIXE,
+        schema=SCHEMA_ETAT,
+        handler=outils.etat,
+        check_fn=outils.disponible,
+        description="Where Lydite stands",
+        emoji="🐙",
     )
     ctx.register_hook("pre_tool_call", outils.verrou)
