@@ -40,7 +40,11 @@ proof. It is a small harness written in Rust, with no dependencies, for Linux an
   removed before it. It does not show a line appended after it, nor a journal rewritten with its seals redone (the
   receipt in the PR, off the machine, keeps its own).
 - **Plans, reviews.** An objective (or an issue) is split into tasks by a hand, and Lydite reads the plan itself;
-  critical tasks are reviewed by another hand, and its blocking remarks trigger a correction.
+  critical tasks are reviewed by another hand, and its blocking remarks trigger a correction. The reviewer gets, next
+  to the diff, `PREUVE.lydite`: the wave's proof command, the commit where Lydite replayed it green, and its output
+  as the journal keeps it. Its file (`remarques 2`) ends with two mandatory blocks, `rejoue` (what the replayed proof
+  shows) and `non rejoue` (what the work claims and nothing replayed here shows: another platform, the network, a path
+  no test plays); the pull request body repeats the lines of the second under `Not replayed (from the review):`.
 
 A human decides in five cases only: merging into `main`, putting something on a real system, spending beyond a quota,
 giving root, and publishing.

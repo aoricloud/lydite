@@ -11,7 +11,7 @@
 //!   le code dans `code-<n>.txt` ;
 //! - si sa consigne nomme `REMARQUES.lydite`, elle est le relecteur : elle pose la marque `relecteur`, garde le
 //!   `DIFF.lydite` de son bac dans `diff.txt`, et copie en `REMARQUES.lydite` le `remarques.lydite` que l'essai a posé
-//!   à côté d'elle (`remarques 1`, aucune remarque) ;
+//!   à côté d'elle (`remarques 2`, aucune remarque, ses deux blocs) ;
 //! - sinon, elle est la main d'une tâche : elle garde son `PATH` dans `path-<bac>.txt`, et écrit sa consigne dans
 //!   `sortie/<bac>.txt` de son bac, que `fichiers : sortie/` couvre.
 //!
@@ -400,7 +400,8 @@ impl Essai {
         } else {
             ("fausse-claude.sh", FAUSSE_UNIX, "\n")
         };
-        fs::write(self.main.join("remarques.lydite"), "remarques 1\n").unwrap();
+        let sans_remarque = "remarques 2\n\nrejoue\n    Rien de rejoué.\n\nnon rejoue\n    Rien.\n";
+        fs::write(self.main.join("remarques.lydite"), sans_remarque).unwrap();
         let script = self.main.join(nom);
         fs::write(&script, lignes.iter().map(|ligne| format!("{ligne}{fin}")).collect::<String>()).unwrap();
         #[cfg(unix)]

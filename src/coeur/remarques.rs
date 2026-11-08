@@ -12,7 +12,8 @@
 //!
 //! - 1 Mo au plus ([`TAILLE_MAX`] octets), pesé avant d'être lu ; de l'UTF-8, un BOM de tête toléré ; les lignes se
 //!   coupent sur `\n`, un `\r` final ôté ;
-//! - la première ligne est `remarques 1`, seule : un fichier qui ne porte qu'elle dit qu'il n'y a aucune remarque ;
+//! - la première ligne est `remarques 1` ou `remarques 2`, seule : en forme 1, un fichier qui ne porte qu'elle dit
+//!   qu'il n'y a aucune remarque ;
 //! - ensuite, en colonne 0, une ligne est vide (ou faite de blancs), `remarque <n>`, ou `<clé> : <valeur>`, les blancs
 //!   ôtés autour du `:` ; une ligne indentée (espaces ou tabulations) est le texte de la remarque en cours ;
 //! - les remarques sont numérotées 1, 2, 3… dans l'ordre, au plus [`NOMBRE_MAX`] (la borne des remarques d'une
@@ -20,6 +21,13 @@
 //!   racine du dépôt, écrit avec `/`, sans `..` ; `ligne`, facultative, un entier positif ; `bloquante`, `oui` ou
 //!   `non` ; puis son texte, au moins une ligne indentée, dont l'indentation commune est ôtée et les lignes vides du
 //!   milieu gardées.
+//!
+//! La forme 2, que le relecteur écrit, est la forme 1 sous `remarques 2`, puis, après la dernière remarque ou seuls,
+//! deux blocs obligatoires dans cet ordre, `rejoue` puis `non rejoue` (en colonne 0, seuls sur leur ligne), chacun
+//! suivi d'au moins une ligne indentée : le premier dit ce que montre la preuve rejouée ; le second, ce que le travail
+//! affirme ou demande et que rien de rejoué ici ne montre (une autre plateforme, le réseau, un chemin qu'aucun test
+//! ne joue). Un bloc manquant, vide, hors d'ordre ou en double est refusé. [`lire_remarques`] lit les deux formes,
+//! avec les mêmes bornes et les mêmes refus ; [`Fichier::exiger_la_forme_2`] écarte la forme 1.
 //!
 //! Toute faute est le refus 7015, qui nomme la ligne qu'il vise. Aucune entrée ne fait paniquer la lecture : un fichier
 //! de main est une frontière de confiance, et le lire strictement est ce qui la garde.
@@ -34,13 +42,19 @@ use crate::coeur::plan::TAILLE_MAX;
 
 /// La forme d'une remarque, que la consigne du relecteur porte, telle que l'en-tête de ce module la donne.
 pub(crate) const FORME: &str = concat!(
-    "remarques 1\n",
+    "remarques 2\n",
     "\n",
     "remarque 1\n",
     "fichier : <chemin>\n",
     "ligne : <entier>\n",
     "bloquante : oui\n",
-    "    <le constat puis la correction, en lignes indentées>",
+    "    <le constat puis la correction, en lignes indentées>\n",
+    "\n",
+    "rejoue\n",
+    "    <ce que montre la preuve rejouée par Lydite>\n",
+    "\n",
+    "non rejoue\n",
+    "    <ce que le travail affirme ou demande et que rien de rejoué ici ne montre>",
 );
 
 /// Les clés d'une remarque, dans l'ordre où elles s'écrivent.
@@ -51,10 +65,53 @@ const CITE_MAX: usize = 200;
 
 /// La correction d'un fichier de remarques hors de sa forme.
 const A_ECRIRE: &str = concat!(
-    "Un fichier de remarques commence par `remarques 1`, puis chaque remarque s'écrit `remarque <n>` (1, 2, 3… dans ",
-    "l'ordre), `fichier : <chemin>`, `ligne : <entier>` (facultative), `bloquante : oui` ou `non`, puis son constat ",
-    "et sa correction en lignes indentées ; sans remarque, `remarques 1` seul."
+    "Un fichier de remarques commence par `remarques 2` (ou `remarques 1`), puis chaque remarque s'écrit ",
+    "`remarque <n>` (1, 2, 3… dans l'ordre), `fichier : <chemin>`, `ligne : <entier>` (facultative), ",
+    "`bloquante : oui` ou `non`, puis son constat et sa correction en lignes indentées ; sous `remarques 2`, les ",
+    "blocs `rejoue` puis `non rejoue` suivent, chacun d'au moins une ligne indentée."
 );
+
+/// Les deux blocs de la forme 2, dans l'ordre où ils s'écrivent.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Bloc {
+    Rejoue,
+    NonRejoue,
+}
+
+impl Bloc {
+    fn nom(self) -> &'static str {
+        match self {
+            Bloc::Rejoue => "rejoue",
+            Bloc::NonRejoue => "non rejoue",
+        }
+    }
+}
+
+/// Un fichier de remarques lu, dans l'une ou l'autre forme.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Fichier {
+    /// 1 ou 2.
+    pub(crate) forme: u8,
+    pub(crate) remarques: Vec<Remarque>,
+    /// Les lignes du bloc `rejoue`, sans leur indentation ; vide en forme 1.
+    pub(crate) rejoue: Vec<String>,
+    /// Les lignes du bloc `non rejoue`, sans leur indentation ; vide en forme 1.
+    pub(crate) non_rejoue: Vec<String>,
+}
+
+impl Fichier {
+    /// Le fichier s'il est en forme 2, sinon le refus 7015 de sa première ligne.
+    pub(crate) fn exiger_la_forme_2(self) -> Result<Self, Refus> {
+        if self.forme == 2 {
+            return Ok(self);
+        }
+        let premiere = Ligne { numero: 1, texte: "remarques 1" };
+        let quoi = "le relecteur écrit la forme 2, `remarques 2`, avec ses blocs `rejoue` et `non rejoue`";
+        let correction = "Écris `remarques 2` en première ligne, puis tes remarques, puis les blocs `rejoue` et `non \
+                          rejoue`, chacun d'au moins une ligne indentée.";
+        Err(refus(premiere, quoi, correction))
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Remarque {
@@ -68,7 +125,7 @@ pub(crate) struct Remarque {
 }
 
 /// Une ligne du fichier : son numéro, à partir de 1, et son texte sans le `\r` final.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct Ligne<'a> {
     numero: usize,
     texte: &'a str,
@@ -77,6 +134,12 @@ struct Ligne<'a> {
 /// Lit un fichier de remarques dans ses octets : ses remarques dans l'ordre, ou le refus 7015 de la première faute
 /// (voir l'en-tête du module pour la forme). Aucune entrée ne fait paniquer la lecture.
 pub(crate) fn lire_remarques(octets: &[u8]) -> Result<Vec<Remarque>, Refus> {
+    lire_fichier(octets).map(|fichier| fichier.remarques)
+}
+
+/// Lit un fichier de remarques, de la forme 1 ou 2 : ses remarques, et, en forme 2, ses deux blocs. Mêmes bornes et
+/// mêmes refus que [`lire_remarques`].
+pub(crate) fn lire_fichier(octets: &[u8]) -> Result<Fichier, Refus> {
     if octets.len() > TAILLE_MAX {
         let preuve = format!("le fichier de remarques dépasse 1 Mo : plus de {TAILLE_MAX} octets");
         let correction = "Allège le fichier sous 1 Mo : garde les remarques qui comptent, chacune en peu de lignes.";
@@ -86,13 +149,19 @@ pub(crate) fn lire_remarques(octets: &[u8]) -> Result<Vec<Remarque>, Refus> {
     let coupees = texte.split('\n').map(|ligne| ligne.strip_suffix('\r').unwrap_or(ligne));
     let mut lignes = (1..).zip(coupees).map(|(numero, texte)| Ligne { numero, texte });
     let premiere = lignes.next().unwrap_or(Ligne { numero: 1, texte: "" });
-    if premiere.texte != "remarques 1" {
-        let correction =
-            "Écris `remarques 1` seul en première ligne : Lydite ne lit que cette forme, avant tout le reste.";
-        return Err(refus(premiere, "la première ligne d'un fichier de remarques est `remarques 1`", correction));
-    }
-    let mut lecteur = Lecteur::default();
+    let forme = match premiere.texte {
+        "remarques 1" => 1,
+        "remarques 2" => 2,
+        _ => {
+            let correction = "Écris `remarques 2` seul en première ligne (ou `remarques 1`) : Lydite ne lit que ces \
+                              formes, avant tout le reste.";
+            let quoi = "la première ligne d'un fichier de remarques est `remarques 1` ou `remarques 2`";
+            return Err(refus(premiere, quoi, correction));
+        }
+    };
+    let mut lecteur = Lecteur { forme, derniere: premiere, ..Lecteur::default() };
     for ligne in lignes {
+        lecteur.derniere = ligne;
         lecteur.lire(ligne)?;
     }
     lecteur.finir()
@@ -100,8 +169,15 @@ pub(crate) fn lire_remarques(octets: &[u8]) -> Result<Vec<Remarque>, Refus> {
 
 #[derive(Default)]
 struct Lecteur<'a> {
+    forme: u8,
+    /// La dernière ligne du fichier, que nomme un bloc qui manque.
+    derniere: Ligne<'a>,
     finies: Vec<Remarque>,
     courante: Option<Brouillon<'a>>,
+    /// Le bloc en cours (forme 2) : sa ligne d'en-tête, son nom, ses lignes.
+    bloc: Option<(Ligne<'a>, Bloc, Vec<String>)>,
+    rejoue: Option<Vec<String>>,
+    non_rejoue: Option<Vec<String>>,
 }
 
 /// Une remarque en cours de lecture : ses clés, à mesure qu'elles paraissent, puis son texte.
@@ -130,7 +206,18 @@ impl<'a> Lecteur<'a> {
             return Ok(());
         }
         if texte.starts_with([' ', '\t']) {
+            if let Some((_, _, lignes)) = self.bloc.as_mut() {
+                lignes.push(texte.trim().to_string());
+                return Ok(());
+            }
             return self.indentee(ligne);
+        }
+        if self.forme == 2 {
+            match texte.trim_end() {
+                "rejoue" => return self.ouvrir(ligne, Bloc::Rejoue),
+                "non rejoue" => return self.ouvrir(ligne, Bloc::NonRejoue),
+                _ => {}
+            }
         }
         match texte.strip_prefix("remarque").filter(|numero| numero.is_empty() || numero.starts_with([' ', '\t'])) {
             Some(numero) => self.remarque(ligne, numero.trim()),
@@ -157,6 +244,9 @@ impl<'a> Lecteur<'a> {
 
     /// Une ligne `remarque <numero>` : la remarque en cours se ferme, et une autre s'ouvre, de numéro le suivant.
     fn remarque(&mut self, ligne: Ligne<'a>, numero: &str) -> Result<(), Refus> {
+        if self.bloc.is_some() || self.rejoue.is_some() {
+            return Err(refus(ligne, "une remarque vient avant les blocs `rejoue` et `non rejoue`", A_ECRIRE));
+        }
         self.fermer()?;
         let attendu = self.finies.len() + 1;
         if attendu > NOMBRE_MAX {
@@ -267,9 +357,54 @@ impl<'a> Lecteur<'a> {
         Ok(())
     }
 
-    fn finir(mut self) -> Result<Vec<Remarque>, Refus> {
+    /// Ouvre le bloc `qui` à la ligne `ligne` : la remarque et le bloc en cours se ferment. `rejoue` vient d'abord,
+    /// `non rejoue` ensuite, chacun une fois.
+    fn ouvrir(&mut self, ligne: Ligne<'a>, qui: Bloc) -> Result<(), Refus> {
         self.fermer()?;
-        Ok(self.finies)
+        self.fermer_le_bloc()?;
+        let nom = qui.nom();
+        let deja = match qui {
+            Bloc::Rejoue => self.rejoue.is_some(),
+            Bloc::NonRejoue => self.non_rejoue.is_some(),
+        };
+        if deja {
+            return Err(refus(ligne, format!("le bloc `{nom}` est déjà donné"), A_ECRIRE));
+        }
+        if qui == Bloc::NonRejoue && self.rejoue.is_none() {
+            return Err(refus(ligne, "le bloc `non rejoue` vient après le bloc `rejoue`", A_ECRIRE));
+        }
+        self.bloc = Some((ligne, qui, Vec::new()));
+        Ok(())
+    }
+
+    /// Ferme le bloc en cours, s'il y en a un : il porte au moins une ligne indentée.
+    fn fermer_le_bloc(&mut self) -> Result<(), Refus> {
+        let Some((entete, qui, lignes)) = self.bloc.take() else { return Ok(()) };
+        if lignes.is_empty() {
+            let quoi = format!("le bloc `{}` n'a pas de ligne indentée", qui.nom());
+            return Err(refus(entete, quoi, A_ECRIRE));
+        }
+        match qui {
+            Bloc::Rejoue => self.rejoue = Some(lignes),
+            Bloc::NonRejoue => self.non_rejoue = Some(lignes),
+        }
+        Ok(())
+    }
+
+    fn finir(mut self) -> Result<Fichier, Refus> {
+        self.fermer()?;
+        self.fermer_le_bloc()?;
+        if self.forme == 2 {
+            for (bloc, present) in [(Bloc::Rejoue, self.rejoue.is_some()), (Bloc::NonRejoue, self.non_rejoue.is_some())]
+            {
+                if !present {
+                    let quoi = format!("le fichier n'a pas de bloc `{}`, que la forme 2 exige", bloc.nom());
+                    return Err(refus(self.derniere, quoi, A_ECRIRE));
+                }
+            }
+        }
+        let (rejoue, non_rejoue) = (self.rejoue.unwrap_or_default(), self.non_rejoue.unwrap_or_default());
+        Ok(Fichier { forme: self.forme, remarques: self.finies, rejoue, non_rejoue })
     }
 }
 

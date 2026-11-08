@@ -7,9 +7,13 @@
 //! 2. sinon le relecteur part : une vague de copies d'une main, dans un bac posé sur `t`, la tête de l'assemblage.
 //!    Son modèle est la clé `relecteur` du profil, pour ses deux tentatives. Avant qu'il parte, Kraken écrit dans son
 //!    bac [`DIFF`], le diff de la base à `t` limité aux `fichiers` des tâches critiques assemblées, 1 Mo au plus :
-//!    sous Windows, la main ne peut lancer que sa preuve, et ne peut donc pas le lire de git. Sa consigne est un
-//!    texte fixe de Kraken ([`consigne`]), dont la preuve prêtée est [`PREUVE`], avec le dossier de l'exécutable de
-//!    Kraken en tête de son `PATH` (`tentative::Juge`) ;
+//!    sous Windows, la main ne peut lancer que sa preuve, et ne peut donc pas le lire de git. À côté, Kraken écrit
+//!    [`FICHIER_PREUVE`] : la commande de preuve de la vague, le commit `t` où Lydite l'a rejouée verte, et sa sortie
+//!    telle que le dernier `vague.fusion` de la vague la garde (4000 derniers caractères) ([`texte_de_la_preuve`]) ;
+//!    sans `vague.fusion` qui porte `t`, ou sans commande de preuve, le fichier le dit en une ligne. Le fichier du
+//!    relecteur est en forme 2 (`remarques 2`, avec ses blocs `rejoue` et `non rejoue`), que le juge exige. Sa
+//!    consigne est un texte fixe de Kraken ([`consigne`]), dont la preuve prêtée est [`PREUVE`], avec le dossier de
+//!    l'exécutable de Kraken en tête de son `PATH` (`tentative::Juge`) ;
 //! 3. Kraken rejoue la preuve lui-même ([`juger`]) : [`REMARQUES`] est un fichier ordinaire que le dépôt visé n'ignore
 //!    pas, les seuls changements du bac sont lui et [`DIFF`] (sinon 7014, `assemblage::seul_change`), et il se lit
 //!    ([`lire_remarques`], sinon 7015). Rouge, le relecteur a une relance, le refus en contexte ; rouge encore, la
@@ -30,7 +34,9 @@
 //! se pousse, et aucun relecteur ne part.
 //!
 //! Le texte des remarques n'est jamais publié : il vit au fil, et la correction le reçoit comme objectif, que le corps
-//! de la PR ne reprend pas (`publication::corps` n'en garde que les nombres). Les refus 7016 et 7017 se notent au fil
+//! de la PR ne reprend pas (`publication::corps` n'en garde que les nombres), à une exception : les lignes du bloc
+//! `non rejoue`, dix au plus et coupées à 200 caractères, sous « Not replayed (from the review): ».
+//! Les refus 7016 et 7017 se notent au fil
 //! par un `forge.refus` de la vague relue.
 
 use std::fs;
@@ -45,7 +51,7 @@ use crate::coeur::erreur::{Code, Refus, nommee, queue};
 use crate::coeur::fil::Evenement;
 use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
 use crate::coeur::profil::Profil;
-use crate::coeur::remarques::{FORME, Remarque, lire_remarques};
+use crate::coeur::remarques::{FORME, Remarque, lire_fichier};
 use crate::conduite::alarmes;
 use crate::conduite::assemblage::seul_change;
 use crate::conduite::decoupage::retirer_le_bac;
@@ -56,6 +62,13 @@ pub(crate) const REMARQUES: &str = "REMARQUES.lydite";
 
 /// Le diff que Kraken écrit dans le bac du relecteur avant qu'il parte : le travail à relire.
 pub(crate) const DIFF: &str = "DIFF.lydite";
+
+/// Le fichier que Kraken écrit dans le bac du relecteur, à côté de [`DIFF`] : la preuve que Lydite a rejouée sur la
+/// tête relue ([`texte_de_la_preuve`]).
+pub(crate) const FICHIER_PREUVE: &str = "PREUVE.lydite";
+
+/// Les derniers caractères de la sortie de la preuve que [`FICHIER_PREUVE`] garde, telle que `vague.fusion` la garde.
+const SORTIE_MAX: usize = 4000;
 
 /// La preuve que Kraken prête au relecteur, seule et telle quelle : `lydite remarques` lit son fichier comme Kraken le
 /// lira. Kraken ne la rejoue pas : son verdict est celui de [`juger`].
@@ -89,17 +102,42 @@ pub(crate) fn lire_borne(fichier: &Path) -> io::Result<Vec<u8>> {
 /// pas, et le seul changement du bac avec [`DIFF`], que Kraken y a écrit (7014, ou 7009 si git ne le dit pas) ; puis il
 /// se lit (7015 ; une lecture ratée, 6006). Rend les remarques et leur texte, ou le refus.
 fn juger(bac: &Path, depart: &str) -> Result<(Vec<Remarque>, String), Refus> {
-    seul_change(bac, depart, REMARQUES, &[DIFF])?;
+    seul_change(bac, depart, REMARQUES, &[DIFF, FICHIER_PREUVE])?;
     let chemin = bac.join(REMARQUES);
     let octets = lire_borne(&chemin).map_err(|e| Refus::from(nommee(e, format!("lecture de {}", chemin.display()))))?;
-    let remarques = lire_remarques(&octets)?;
-    Ok((remarques, String::from_utf8_lossy(&octets).into_owned()))
+    let fichier = lire_fichier(&octets)?.exiger_la_forme_2()?;
+    Ok((fichier.remarques, String::from_utf8_lossy(&octets).into_owned()))
+}
+
+/// Le texte de [`FICHIER_PREUVE`] : la commande de preuve de la vague `id` (`preuve`), le commit `tete` où Lydite l'a
+/// rejouée verte, et la sortie telle que le dernier `vague.fusion` de la vague qui porte `tete` la garde (`verif`),
+/// ses [`SORTIE_MAX`] derniers caractères. Sans commande de preuve, ou sans `vague.fusion` qui porte `tete`, le texte
+/// le dit en une ligne, sans sortie.
+fn texte_de_la_preuve(preuve: Option<&str>, evenements: &[Evenement], id: &str, tete: &str) -> String {
+    let Some(preuve) = preuve.map(str::trim).filter(|preuve| !preuve.is_empty()) else {
+        return "This wave has no proof command: nothing was replayed.\n".to_string();
+    };
+    let sortie = evenements.iter().rev().find_map(|evenement| match evenement {
+        Evenement::Fusion { vague, sha, verif, .. } if vague == id && sha == tete => Some(verif.as_str()),
+        _ => None,
+    });
+    let Some(verif) = sortie else {
+        return format!("No vague.fusion of this wave carries commit {tete}: the proof was not replayed on it.\n");
+    };
+    let sauter = verif.chars().count().saturating_sub(SORTIE_MAX);
+    let fin: String = verif.chars().skip(sauter).collect();
+    let nl = if fin.ends_with('\n') || fin.is_empty() { "" } else { "\n" };
+    format!(
+        "Proof command: {preuve}\nReplayed green by Lydite on commit: {tete}\nOutput (last {SORTIE_MAX} characters), \
+         as Lydite kept it:\n{fin}{nl}"
+    )
 }
 
 /// Le plafond, en caractères, de la couche fixe du relecteur (sa consigne sans objectif ni tâche, avec la phrase des
-/// points à justifier et un point) : sa taille d'aujourd'hui (1960) arrondie au 500 supérieur.
+/// points à justifier et un point) : sa taille d'aujourd'hui (2569, avec la phrase de la preuve et les blocs de la
+/// forme 2) arrondie au 500 supérieur.
 #[cfg(test)]
-const PLAFOND: usize = 2000;
+const PLAFOND: usize = 3000;
 
 /// Le nombre de points à justifier ([`alarmes::points`]) que la consigne nomme.
 const POINTS_NOMMES: usize = 20;
@@ -137,6 +175,8 @@ fn consigne(objectif: &str, critiques: &[&Tache], points: &[String]) -> String {
          Le travail à relire est dans le fichier {DIFF}, à la racine de ton dossier : le diff entre la base de la \
          vague et son travail, limité aux fichiers de ces tâches. Ton \
          dossier porte le dépôt tel que ce travail le laisse : lis-y ce que le diff ne montre pas.\n\n\
+         {FICHIER_PREUVE} holds the proof that Lydite replayed on this commit: judge the work on it and on the code, \
+         never on what a hand says it ran.\n\n\
          Une remarque est bloquante (`bloquante : oui`) si le travail manque son objectif, perd des données, publie \
          ce qu'il ne doit pas, affaiblit un contrôle, ou laisse un test qui ne peut pas échouer. Toute autre remarque \
          est à noter (`bloquante : non`).\n\n\
@@ -145,8 +185,11 @@ fn consigne(objectif: &str, critiques: &[&Tache], points: &[String]) -> String {
          {FORME}\n\n\
          Les remarques sont numérotées 1, 2, 3… dans l'ordre. `fichier` est un chemin relatif à la racine du dépôt, \
          écrit avec `/`. `ligne` est facultative : le numéro de la ligne du fichier, tel que le travail le laisse. \
-         `bloquante` vaut `oui` ou `non`. Le texte dit le constat, puis la correction, en lignes indentées. Sans \
-         remarque, le fichier ne porte que `remarques 1`.\n\n\
+         `bloquante` vaut `oui` ou `non`. Le texte dit le constat, puis la correction, en lignes indentées. Après la \
+         dernière remarque, ou seuls s'il n'y en a pas, les blocs `rejoue` puis `non rejoue` sont obligatoires, dans \
+         cet ordre, chacun suivi d'au moins une ligne indentée : `rejoue` dit ce que montre la preuve rejouée ; \
+         `non rejoue`, ce que le travail affirme ou demande et que rien de rejoué ici ne montre (une autre \
+         plateforme, le réseau, un chemin qu'aucun test ne joue).\n\n\
          Quand tu as fini, joue toi-même dans ton dossier, seule et telle qu'elle est écrite, sans rien y ajouter : \
          {PREUVE}. Elle lit ton fichier comme Lydite le lira, et dit ce qui ne va pas : corrige-le jusqu'à ce qu'elle \
          passe. Lydite relira ensuite {REMARQUES} lui-même. La dernière ligne de ta réponse est exactement PREUVE: \
@@ -363,7 +406,8 @@ impl Relecture<'_> {
                 format!("le verdict de la relecture {main} de la vague {} n'est pas noté : {erreur}", self.menee.id);
             return Err(Refus::new(Code::FilInjoignable, preuve, SANS_NOTE));
         }
-        retirer_le_bac(self.depot, self.dossier, "le bac du relecteur", &main, self.tete, &[REMARQUES, DIFF]);
+        let ecrits = [REMARQUES, DIFF, FICHIER_PREUVE];
+        retirer_le_bac(self.depot, self.dossier, "le bac du relecteur", &main, self.tete, &ecrits);
         let correction = if bloquantes == 0 { None } else { Some(self.corriger(&remarques)?) };
         Ok(Prise { main, n, bloquantes, correction })
     }
@@ -384,6 +428,16 @@ impl Relecture<'_> {
             Some((profil, empreinte, modele)) => (Some(profil), Some(empreinte), Some(modele)),
             None => (None, None, None),
         })
+    }
+
+    /// Écrit [`FICHIER_PREUVE`] dans le bac du relecteur, d'après le fil ([`texte_de_la_preuve`]). Un fil qui ne se
+    /// relit pas, ou une écriture ratée (6006), est le refus.
+    fn ecrire_la_preuve(&self, bac: &Path) -> Result<(), Refus> {
+        let lu = lire(self.dossier)?;
+        let evenements: Vec<Evenement> = lu.notes.into_iter().map(|note| note.evenement).collect();
+        let texte = texte_de_la_preuve(self.plan.preuve.as_deref(), &evenements, &self.menee.id, self.tete);
+        let chemin = bac.join(FICHIER_PREUVE);
+        fs::write(&chemin, texte).map_err(|e| Refus::from(nommee(e, format!("écriture de {}", chemin.display()))))
     }
 
     /// Le relecteur : sa vague de copies, son juge, son diff. Rend ce qu'il a rendu, ou le refus 7016. Sous une
@@ -425,7 +479,10 @@ impl Relecture<'_> {
             *lu.lock().unwrap_or_else(PoisonError::into_inner) = Some(pris);
             Ok(())
         };
-        let preparer = |bac: &Path| ecrire_le_diff(bac, base, tete, fichiers.as_deref());
+        let preparer = |bac: &Path| {
+            ecrire_le_diff(bac, base, tete, fichiers.as_deref())?;
+            self.ecrire_la_preuve(bac)
+        };
         let liens = Liens { juge: Some(&juge), relit: Some(id), preparation: Some(&preparer), ..Liens::default() };
         let rendue = lancer_avec(self.depot, self.dossier, self.profil, &relecteur, self.bail, tete, liens)
             .map_err(|echec| classee(format!("sa vague ne s'ouvre pas, {} : {}", echec.code, echec.preuve)))?;
