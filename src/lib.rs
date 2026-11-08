@@ -25,6 +25,7 @@ mod coeur {
 
 mod commande;
 mod conduite {
+    pub(crate) mod alarmes;
     pub(crate) mod assemblage;
     pub(crate) mod decoupage;
     pub(crate) mod lancer;

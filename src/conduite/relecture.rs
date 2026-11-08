@@ -44,6 +44,7 @@ use crate::coeur::fil::Evenement;
 use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
 use crate::coeur::profil::Profil;
 use crate::coeur::remarques::{FORME, Remarque, lire_remarques};
+use crate::conduite::alarmes;
 use crate::conduite::assemblage::seul_change;
 use crate::conduite::decoupage::retirer_le_bac;
 use crate::conduite::lancer::{Liens, Menee, en_erreur, lancer_avec};
@@ -93,14 +94,28 @@ fn juger(bac: &Path, depart: &str) -> Result<(Vec<Remarque>, String), Refus> {
     Ok((remarques, String::from_utf8_lossy(&octets).into_owned()))
 }
 
-/// Le plafond, en caractères, de la couche fixe du relecteur (sa consigne sans objectif ni tâche) : sa taille
-/// d'aujourd'hui arrondie au 500 supérieur.
+/// Le plafond, en caractères, de la couche fixe du relecteur (sa consigne sans objectif ni tâche, avec la phrase des
+/// points à justifier et un point) : sa taille d'aujourd'hui (1960) arrondie au 500 supérieur.
 #[cfg(test)]
 const PLAFOND: usize = 2000;
 
+/// Le nombre de points à justifier ([`alarmes::points`]) que la consigne nomme.
+const POINTS_NOMMES: usize = 20;
+
 /// La consigne du relecteur : un texte fixe de Kraken, où n'entrent que l'objectif de la vague, puis l'id, les
-/// fichiers et l'objectif de chaque tâche critique.
-fn consigne(objectif: &str, critiques: &[&Tache]) -> String {
+/// fichiers et l'objectif de chaque tâche critique, puis, s'il y en a, les `points` à justifier (20 au plus).
+fn consigne(objectif: &str, critiques: &[&Tache], points: &[String]) -> String {
+    let mut a_justifier = String::new();
+    if !points.is_empty() {
+        a_justifier.push_str(
+            "Lydite found these points without a model, in the diff you review. For each one, say in a remark \
+             whether it is justified:\n\n",
+        );
+        for point in points.iter().take(POINTS_NOMMES) {
+            a_justifier.push_str(&format!("- {point}\n"));
+        }
+        a_justifier.push('\n');
+    }
     let mut taches = String::new();
     for tache in critiques {
         let id = &tache.id;
@@ -116,6 +131,7 @@ fn consigne(objectif: &str, critiques: &[&Tache]) -> String {
          Objectif de la vague : {objectif}\n\n\
          Les tâches critiques, dont le travail est assemblé :\n\n\
          {taches}\n\
+         {a_justifier}\
          Le travail à relire est dans le fichier {DIFF}, à la racine de ton dossier : le diff entre la base de la \
          vague et son travail, limité aux fichiers de ces tâches. Ton \
          dossier porte le dépôt tel que ce travail le laisse : lis-y ce que le diff ne montre pas.\n\n\
@@ -334,8 +350,15 @@ impl Relecture<'_> {
     /// issue, un diff qui serait coupé est le refus 7016, sans que le relecteur parte.
     fn relecteur(&self) -> Result<Lue, Refus> {
         let (id, tete, base) = (&self.menee.id, self.tete, self.base);
-        let relecteur = plan_du_relecteur(self.profil, self.plan, &self.critiques);
         let fichiers = fichiers_de(&self.critiques);
+        // Un git qui ne lit pas le diff est dit par `ecrire_le_diff` (7009) : sans lui, pas de point. Un échec de
+        // lecture a deux effets : la publication s'arrête (`points_a_justifier`, comme `reglages_changes`), et le
+        // relecteur ne reçoit aucun point (`unwrap_or_default`).
+        let points = racines(self.depot)
+            .ok()
+            .and_then(|(racine, _)| alarmes::lire(&racine, base, tete, fichiers.as_deref()).ok())
+            .unwrap_or_default();
+        let relecteur = plan_du_relecteur(self.profil, self.plan, &self.critiques, &points);
         let classee = |pourquoi: String| {
             let preuve = format!("la relecture de la vague {id} est classée : {pourquoi}");
             Refus::new(Code::RelectureManquee, preuve, SANS_RELECTURE)
@@ -420,12 +443,12 @@ impl Relecture<'_> {
 
 /// Le plan du relecteur : une vague de copies d'une seule tâche, `relecteur`, sans preuve de vague, de consigne
 /// [`consigne`], de preuve prêtée [`PREUVE`], et de modèle la clé `relecteur` du profil à ses deux tentatives.
-fn plan_du_relecteur(profil: &Profil, plan: &Plan, critiques: &[&Tache]) -> Plan {
+fn plan_du_relecteur(profil: &Profil, plan: &Plan, critiques: &[&Tache], points: &[String]) -> Plan {
     let modele = profil.relecteur().map(str::to_string);
     let tache = Tache {
         id: "relecteur".into(),
         preuve: Some(PREUVE.into()),
-        objectif: consigne(&plan.objectif, critiques),
+        objectif: consigne(&plan.objectif, critiques, points),
         modele: modele.clone(),
         relance: modele,
         ..Tache::default()

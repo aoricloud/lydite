@@ -662,10 +662,67 @@ fn une_cle_de_m5_hors_de_son_domaine_blanche_ou_redite_est_refusee() {
         assert!(!refus.correction.trim().is_empty(), "{refus}");
         assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
     }
-    // Une clé inconnue d'une tâche nomme les six qu'une tâche connaît, et la correction aussi.
+    // Une clé inconnue d'une tâche nomme les sept qu'une tâche connaît, et la correction aussi.
     let refus = refuse_en(lire_en(&[&ENTETE[..], &["tache a", "role : critique", "    x"]].concat(), Mode::Main));
-    assert!(refus.preuve.ends_with("(`depend`, `preuve`, `modele`, `relance`, `fichiers` ou `critique`)"), "{refus}");
-    assert!(refus.correction.contains("`modele`, `relance`, `fichiers` et `critique`"), "{refus}");
+    assert!(
+        refus.preuve.ends_with("(`depend`, `preuve`, `modele`, `relance`, `fichiers`, `critique` ou `exact`)"),
+        "{refus}"
+    );
+    assert!(refus.correction.contains("`modele`, `relance`, `fichiers`, `critique` et `exact`"), "{refus}");
+}
+
+#[test]
+fn la_cle_exact_se_lit_avec_son_texte_tel_quel_et_se_repete() {
+    let (plan, _) = lire_en(
+        &[
+            &ENTETE[..],
+            &[
+                "tache a",
+                "fichiers : src/ README.md",
+                "exact : src/a.rs : fn a() { let x = 1 : 2;   }",
+                "exact : README.md : deux  blancs : ici",
+                "exact : README.md : encore",
+                "    x",
+            ],
+        ]
+        .concat(),
+        Mode::Main,
+    )
+    .unwrap();
+    let exacts: Vec<(&str, &str)> = plan.taches[0].exacts.iter().map(|(f, t)| (f.as_str(), t.as_str())).collect();
+    let attendu =
+        [("src/a.rs", "fn a() { let x = 1 : 2;   }"), ("README.md", "deux  blancs : ici"), ("README.md", "encore")];
+    assert_eq!(exacts, attendu);
+}
+
+#[test]
+fn la_cle_exact_hors_de_forme_hors_des_fichiers_ou_vide_est_refusee() {
+    let cas: [(&[&str], &str); 7] = [
+        (&["tache a", "exact : a.rs : x", "    x"], ""),
+        (&["tache a", "fichiers : src/", "exact : a.rs : x", "    x"], "n'est couvert par aucun chemin"),
+        (&["tache a", "exact : a.rs : x", "fichiers : src/", "    x"], "n'est couvert par aucun chemin"),
+        (&["tache a", "fichiers : src/", "exact : src/a.rs :", "    x"], "d'un texte non vide"),
+        (&["tache a", "fichiers : src/", "exact : src/a.rs : ", "    x"], "d'un texte non vide"),
+        (&["tache a", "fichiers : src/", "exact : src/a.rs", "    x"], "d'un texte non vide"),
+        (&["tache a", "fichiers : src/", "exact : /src/a.rs : x", "    x"], "est absolu"),
+    ];
+    for (suite, bout) in cas {
+        let lecture = lire_en(&[&ENTETE[..], suite].concat(), Mode::Main);
+        if bout.is_empty() {
+            // Sans `fichiers`, rien ne borne la tâche : le fichier n'a pas à être couvert.
+            assert!(lecture.is_ok(), "{suite:?}");
+            continue;
+        }
+        let refus = refuse_en(lecture);
+        assert_eq!(refus.code, Code::PlanChemin, "{suite:?}");
+        assert!(refus.preuve.contains(bout), "{suite:?} devait dire « {bout} » : {refus}");
+    }
+    let refus = refuse_en(lire_en(
+        &[&ENTETE[..], &["tache a", "fichiers : src/", "exact : .git/config : x", "    x"]].concat(),
+        Mode::Main,
+    ));
+    assert_eq!(refus.code, Code::PlanChemin);
+    assert!(refus.preuve.contains("est sous `.git/`"), "{refus}");
 }
 
 #[test]

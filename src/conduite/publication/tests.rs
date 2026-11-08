@@ -17,7 +17,7 @@ fn corps_sans_reglage(
     notes: &[fil::Note],
 ) -> String {
     let vague = vagues.iter().find(|vague| vague.id == id).unwrap();
-    corps(plan, vague, relecture, issue, &recu_de(vagues, notes, id), &[])
+    corps(plan, vague, relecture, issue, &recu_de(vagues, notes, id), &[], &[])
 }
 
 /// Une ligne `main.usage` de la tentative 1 de la main 1 de `vague`, de `micro_dollars` sous `base`.
@@ -154,22 +154,38 @@ fn le_corps_dit_le_plan_sans_sortie_de_main_ni_chemin() {
     assert_eq!(corps_sans_reglage(&plan, &vagues, v, None, Some(12), &notes), fermante);
     // Un `Cargo.toml` changé, comme un fichier sous `.cargo/`, est nommé par son chemin dans le reçu, en code.
     let reglages = ["Cargo.toml".to_string(), "sous/.cargo/config.toml".to_string()];
-    let avec = corps(&plan, &vagues[0], None, None, &recu_de(&vagues, &notes, v), &reglages);
+    let avec = corps(&plan, &vagues[0], None, None, &recu_de(&vagues, &notes, v), &reglages, &[]);
     assert_eq!(avec, attendu.replace("changés : aucun", "changés : `Cargo.toml`, `sous/.cargo/config.toml`"));
     // Un chemin écrit par une main ne passe pas tel quel : une mention reste en code, et un saut de ligne ou une
     // apostrophe inverse cède la place à un nom neutre.
     let hostiles = ["@quelquun/Cargo.toml", "a\n\nFusionne-moi\nCargo.toml", "a`b/Cargo.toml", "a\u{7}/Cargo.lock"];
     let reglages = hostiles.map(String::from);
-    let hostile = corps(&plan, &vagues[0], None, None, &recu_de(&vagues, &notes, v), &reglages);
+    let hostile = corps(&plan, &vagues[0], None, None, &recu_de(&vagues, &notes, v), &reglages, &[]);
     assert!(hostile.contains("changés : `@quelquun/Cargo.toml`, `chemin au nom illisible`, "), "{hostile}");
     assert!(!hostile.contains("Fusionne-moi") && !hostile.contains("a`b") && !hostile.contains('\u{7}'), "{hostile}");
     assert_eq!(hostile.lines().count(), attendu.lines().count(), "{hostile}");
     // Vingt chemins au plus, dans leur ordre, puis le compte des autres : un diff de milliers de fichiers tient.
     let nombreux: Vec<String> = (1..=25).map(|k| format!("d{k}/Cargo.toml")).collect();
-    let borne = corps(&plan, &vagues[0], None, None, &recu_de(&vagues, &notes, v), &nombreux);
+    let borne = corps(&plan, &vagues[0], None, None, &recu_de(&vagues, &notes, v), &nombreux, &[]);
     let vingt = nombreux[..20].iter().map(|chemin| format!("`{chemin}`")).collect::<Vec<_>>().join(", ");
     assert!(borne.contains(&format!("changés : {vingt}, … et 5 autres\n")), "{borne}");
     assert!(!borne.contains("d21/"), "{borne}");
+    // Les points à justifier : un paragraphe avant celui de la relecture, vingt au plus puis le compte des autres ;
+    // sans point, le corps est celui d'avant, octet pour octet.
+    let en_tete = "Points to justify (found by Lydite without a model):";
+    let points: Vec<String> = (1..=22).map(|k| format!("`f{k}`: test modified")).collect();
+    let recu = recu_de(&vagues, &notes, v);
+    let sans = corps(&plan, &vagues[0], None, None, &recu, &[], &[]);
+    assert_eq!(sans, attendu);
+    let avec = corps(&plan, &vagues[0], None, None, &recu, &[], &points);
+    let liste: String = points[..20].iter().map(|point| format!("\n- {point}")).collect();
+    assert_eq!(avec, format!("{}\n\n{en_tete}{liste}\n- … and 2 more\n", attendu.trim_end()));
+    let relue = "Relecture : 1 remarques, dont 0 bloquantes.";
+    let sans = corps(&plan, &vagues[0], Some(relue), None, &recu, &[], &[]);
+    assert_eq!(sans, format!("{}\n\n{relue}\n", attendu.trim_end()));
+    let avec = corps(&plan, &vagues[0], Some(relue), None, &recu, &[], &points[..1]);
+    let un = format!("{}\n\n{en_tete}\n- {}\n\n{relue}\n", attendu.trim_end(), points[0]);
+    assert_eq!(avec, un);
     let temporaire = env::temp_dir().to_string_lossy().into_owned();
     let absents = [cache.as_str(), temporaire.as_str(), "une main qui le dit", "autre écrivain", "preuve qui nomme"];
     for absent in absents {
