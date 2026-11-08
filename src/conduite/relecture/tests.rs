@@ -734,9 +734,11 @@ fn le_relecteur_voit_la_preuve_rejouee_sur_sa_tete_avec_sa_sortie() {
     let verif = verif.unwrap();
     assert!(verif.contains("PREUVE-REJOUEE-SUR-T"), "{verif:?}");
     let vu = essai.garde("preuve-1.txt").expect("le relecteur a vu PREUVE.lydite");
-    assert_eq!(vu, texte_de_la_preuve(Some(preuve), &fil, v, &t));
+    // `echo` imprime `\r\n` sous Windows : `garde` rend le fichier en `\n`, l'attendu se compare de même.
+    let attendu = texte_de_la_preuve(Some(preuve), &fil, v, &t).replace("\r\n", "\n");
+    assert_eq!(vu, attendu);
     assert!(vu.starts_with(&format!("Proof command: {preuve}\nReplayed green by Lydite on commit: {t}\n")), "{vu}");
-    assert!(vu.contains(verif.trim_end()), "la sortie de la preuve rejouée : {vu}");
+    assert!(vu.contains(verif.replace("\r\n", "\n").trim_end()), "la sortie de la preuve rejouée : {vu}");
     assert!(essai.garde("sans-preuve-1").is_none());
     // Le fichier est du bac, retiré avec lui : le dépôt visé n'a rien vu.
     assert_eq!(git(&essai.depot, &["status", "--porcelain", "--untracked-files=all"]), "");
@@ -796,6 +798,12 @@ fn une_reponse_qui_dit_rien_de_bloquant_ne_vaut_pas_moins_que_la_bloquante_du_fi
     assert!(fil.contains(&Evenement::Correction { vague: c.clone(), corrige: v.clone() }));
     let consigne = essai.garde("consigne-correction.txt").unwrap();
     assert!(consigne.contains("Le test ne peut pas echouer."), "{consigne}");
+    // La réponse gardée du relecteur porte bien la phrase qui dit qu'il n'y a rien de bloquant.
+    let fins = fins_de(&fil, r);
+    assert!(
+        fins.iter().any(|(_, texte)| texte.contains("There is nothing blocking in my review.")),
+        "la réponse du relecteur : {fins:?}"
+    );
     let _ = fs::remove_dir_all(&essai.racine);
 }
 

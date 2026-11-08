@@ -434,7 +434,8 @@ fn remarques_sur_disque(nom: &str, octets: &[u8]) -> (PathBuf, PathBuf) {
 
 #[test]
 fn kraken_remarques_sort_en_0_sur_un_fichier_juste_et_ne_fait_rien_d_autre() {
-    for (nom, octets) in [("juste", remarques_justes().into_bytes()), ("vide", b"remarques 1\n".to_vec())] {
+    let sans_remarque = b"remarques 2\n\nrejoue\n    Rien de rejoue.\n\nnon rejoue\n    Rien.\n".to_vec();
+    for (nom, octets) in [("juste", remarques_justes().into_bytes()), ("vide", sans_remarque.clone())] {
         let (dir, fichier) = remarques_sur_disque(&format!("remarques-{nom}"), &octets);
         let sortie = Command::new(env!("CARGO_BIN_EXE_lydite")).arg("remarques").arg(&fichier).output().unwrap();
         assert_eq!(sortie.status.code(), Some(0), "{nom} : {}", dit(&sortie));
@@ -445,7 +446,7 @@ fn kraken_remarques_sort_en_0_sur_un_fichier_juste_et_ne_fait_rien_d_autre() {
         let _ = fs::remove_dir_all(&dir);
     }
     // Un chemin relatif part du dossier courant.
-    let (dir, _) = remarques_sur_disque("remarques-relatif", b"remarques 1\n");
+    let (dir, _) = remarques_sur_disque("remarques-relatif", &sans_remarque);
     let sortie = Command::new(env!("CARGO_BIN_EXE_lydite"))
         .current_dir(&dir)
         .args(["remarques", "REMARQUES.lydite"])
@@ -461,6 +462,7 @@ fn kraken_remarques_sort_en_2_sur_un_refus_de_quatre_lignes_sans_panique() {
     let cas: Vec<(&str, Vec<u8>, &str)> = vec![
         ("vide", Vec::new(), "7015 vague.remarques_illisibles"),
         ("plan", b"plan 1\n".to_vec(), "7015 vague.remarques_illisibles"),
+        ("forme-1", b"remarques 1\n".to_vec(), "7015 vague.remarques_illisibles"),
         ("sans-texte", b"remarques 1\nremarque 1\nfichier : a\nbloquante : oui\n".to_vec(), "7015"),
         ("hors-numero", juste.replace("remarque 2", "remarque 3").into_bytes(), "7015"),
         ("hors-ordre", juste.replace("ligne : 3\nbloquante : oui", "bloquante : oui\nligne : 3").into_bytes(), "7015"),

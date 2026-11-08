@@ -108,7 +108,7 @@ fn plan_cmd(fichier: &Path, decoupe: bool) -> Result<ExitCode, Refus> {
 }
 
 /// `lydite remarques <fichier>` : lit le fichier comme Kraken lira celui du relecteur
-/// (`remarques::lire_remarques`), et ne fait rien d'autre : rien sur stdout.
+/// (`remarques::lire_fichier`, puis la forme 2 que le juge exige), et ne fait rien d'autre : rien sur stdout.
 fn remarques_cmd(fichier: &Path) -> Result<ExitCode, Refus> {
     let octets = relecture::lire_borne(fichier).map_err(|e| {
         let preuve = format!("lecture des remarques {} : {e}", fichier.display());
@@ -116,7 +116,7 @@ fn remarques_cmd(fichier: &Path) -> Result<ExitCode, Refus> {
                           part du dossier courant), puis relance.";
         Refus::new(Code::EntreeSortie, preuve, correction)
     })?;
-    remarques::lire_remarques(&octets).map(|_| ExitCode::SUCCESS)
+    remarques::lire_fichier(&octets)?.exiger_la_forme_2().map(|_| ExitCode::SUCCESS)
 }
 
 /// `lydite accepter <nom>` : lit et valide le profil du dossier de Kraken, écrit l'empreinte qu'il accepte, puis dit à
