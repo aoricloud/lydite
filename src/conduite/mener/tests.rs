@@ -110,8 +110,9 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
 
 #[test]
 fn la_relance_de_la_ci_porte_son_drapeau_et_aucun_autre_lien() {
-    let liens = liens_de_la_relance();
+    let liens = liens_de_la_relance(&[]);
     assert!(liens.relance_ci);
+    assert_eq!(liens.lecons, Some(&[][..]));
     assert!(liens.decoupage.is_none() && liens.issue.is_none() && liens.corrige.is_none());
     assert!(liens.juge.is_none() && liens.relit.is_none() && liens.preparation.is_none());
 }
@@ -127,65 +128,31 @@ fn lancer_ne_rend_0_que_si_chaque_prise_est_constatee() {
     assert!(!toutes_constatees(&[pris("main-v-1", true), ("main-v-2".into(), Err("classée".into()))]));
 }
 
-// Le guetteur ferme le fil par ses droits Unix (`0o444`) : le test n'a de sens que là.
-#[cfg(unix)]
 #[test]
-fn une_vague_ouverte_puis_refusee_finit_par_un_sceau() {
-    use std::os::unix::fs::PermissionsExt;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::time::Instant;
+fn le_refus_apres_l_ouverture_scelle_la_vague_ouverte_pendant_l_appel_et_elle_seule() {
     let racine = racine("sceau-refus");
-    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
-    let profil = Profil::faux(crate::essais::main_de_vague(&racine), Duration::from_secs(60));
-    // Un objectif lourd fait une ouverture longue à écrire : le guetteur voit le fil grandir et le ferme en écriture
-    // (l'écriture en cours finit, elle a son descripteur) ; la note suivante, `vague.assemblage`, ne s'écrit pas. Il le
-    // rouvre dès que le refus a retiré le worktree de la vague, avant le sceau.
-    let mut plan = Plan::lire("plan 1\nobjectif : o\npreuve : exit 0\ntache a\n    Écrire a".as_bytes()).unwrap();
-    plan.objectif = "o".repeat(16 << 20);
-    let fil = kraken.join("fil.jsonl");
-    let fini = AtomicBool::new(false);
-    let lieu = Lieu {
-        profil: &profil,
-        depot: &depot,
-        dossier: &kraken,
-        gh: OsStr::new("gh-absent"),
-        personnel: Some(&racine),
-        ci: (Duration::from_millis(10), Duration::from_secs(60)),
+    let kraken = racine.join("lydite");
+    fs::create_dir_all(&kraken).unwrap();
+    let ouvrir = |id: &str| {
+        let ouverte =
+            Evenement::Vague { vague: id.into(), n: 1, depot: "d".into(), verifier: None, objectif: "o".into() };
+        dossier::Fil::seance(&kraken, "humain").noter(&ouverte).unwrap();
     };
-    let base = base_du_depot(&depot).unwrap();
-    let issue = std::thread::scope(|s| {
-        let guetteur = s.spawn(|| {
-            let limite = Instant::now() + Duration::from_secs(60);
-            let droits = |mode| fs::set_permissions(&fil, fs::Permissions::from_mode(mode));
-            let worktree_la = || {
-                fs::read_dir(kraken.join("bacs"))
-                    .map(|dir| dir.flatten().any(|e| e.file_name().to_string_lossy().starts_with("vague-")))
-                    .unwrap_or(false)
-            };
-            let en_cours = || !fini.load(Ordering::SeqCst) && Instant::now() < limite;
-            while en_cours() {
-                if fs::metadata(&fil).is_ok_and(|m| m.len() > 0) && droits(0o444).is_ok() {
-                    while worktree_la() && en_cours() {}
-                    let _ = droits(0o644);
-                    return;
-                }
-            }
-        });
-        let issue = mener_sur(&lieu, &plan, &base, Liens::default(), None, Origine::Plan);
-        fini.store(true, Ordering::SeqCst);
-        guetteur.join().unwrap();
-        issue
-    });
-    let refus = issue.expect_err("la note de l'assemblage ne s'écrit pas");
-    assert_eq!(refus.code, Code::EntreeSortie, "{refus}");
-    assert!(refus.preuve.contains("note au fil"), "le refus remonte tel quel : {}", refus.preuve);
-    let texte = fs::read_to_string(&fil).unwrap();
-    let lignes: Vec<&str> = texte.lines().collect();
-    assert_eq!(lignes.len(), 2, "l'ouverture puis le sceau");
-    assert!(lignes[0].contains(r#""type":"vague.ouverte""#));
-    let id = lignes[0].split(r#""vague":""#).nth(1).and_then(|reste| reste.split('"').next()).unwrap();
-    assert!(lignes[1].contains(r#""type":"vague.sceau""#), "le fil finit par un sceau");
-    assert!(lignes[1].contains(&format!(r#""vague":"{id}""#)), "le sceau est celui de la vague ouverte");
+    let scellees = || -> Vec<String> { dossier::lire_sceaux(&kraken).into_iter().map(|s| s.vague).collect() };
+    // Aucune vague ouverte : aucun sceau.
+    assert!(sceller_la_neuve(&kraken, &[]).is_none());
+    assert!(!kraken.join("fil.jsonl").exists(), "et rien n'est écrit");
+    // Une vague ouverte avant l'appel n'est pas scellée à la place d'une autre.
+    ouvrir("avant");
+    let connues = ouvertes_au_fil(&kraken);
+    assert_eq!(connues, ["avant"]);
+    assert!(sceller_la_neuve(&kraken, &connues).is_none());
+    assert!(scellees().is_empty());
+    // Une vague ouverte pendant l'appel est scellée, elle seule.
+    ouvrir("pendant");
+    let sceau = sceller_la_neuve(&kraken, &connues).expect("une vague neuve").expect("le sceau s'écrit");
+    assert_eq!(sceau.vague, "pendant");
+    assert_eq!(scellees(), ["pendant"]);
     let _ = fs::remove_dir_all(&racine);
 }
 

@@ -885,6 +885,36 @@ fn un_chemin_protege_change_est_le_refus_7018_a_la_fin_de_la_tentative() {
 }
 
 #[test]
+fn les_lecons_sont_protegees_meme_pour_un_profil_sans_proteges() {
+    let (racine, depot, kraken, base) = vise_avec_fichiers("protege-lecons");
+    let profil = profil();
+    assert_eq!(profil.proteges(), [".agents/skills/"]);
+    // À la fin de la tentative : une leçon changée est le refus 7018 ; un fichier voisin est libre.
+    let lecon = prise(&depot, &kraken, "lecon", &base, &[(".agents/skills/x/SKILL.md", "pas une lecon\n")]);
+    let refus = proteges_tenus(&lecon, &base, "t", profil.proteges()).unwrap_err();
+    assert_eq!(refus.code, Code::CheminProtege);
+    assert!(refus.preuve.ends_with(r#": ".agents/skills/x/SKILL.md""#), "{refus}");
+    let voisin = prise(&depot, &kraken, "voisin", &base, &[(".agents/autre", "libre\n"), (".agents/skillset/y", "1")]);
+    assert_eq!(proteges_tenus(&voisin, &base, "t", profil.proteges()), Ok(()));
+    // Au gel : la tâche est refusée, rien n'est fusionné ; le voisin s'assemble.
+    let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+    let (verif, issue) = assemblage.assembler(
+        &lecon,
+        &base,
+        "lecon",
+        None,
+        1,
+        |_| Ok(()),
+        |_, _| panic!("une leçon changée ne se note pas"),
+    );
+    assert_eq!((issue.unwrap_err().code, verif), (Code::CheminProtege, None));
+    assert_eq!(assemblage.tete(), base);
+    let sha = assemblage.fusionner(&voisin, &base, "voisin", None, 2, |_, _| Ok(())).1.unwrap();
+    assert!(fichiers(&depot, &sha).contains(&".agents/autre".to_string()));
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
 fn un_chemin_protege_au_gel_refuse_la_tache_et_rien_n_est_fusionne() {
     let (racine, depot, kraken, base) = vise_avec_fichiers("protege-gel");
     let profil = Profil::faux(vec!["lydite-main-inutile".into()], DELAI).avec_proteges(&["src/b.txt", "doc/"]);

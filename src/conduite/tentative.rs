@@ -67,6 +67,10 @@ pub(crate) type Juge<'a> = &'a (dyn Fn(&Path) -> Result<(), String> + Sync);
 /// jusqu'à ce qu'elle passe, avant que Kraken la rejoue. La main en lance chaque morceau seul et tel quel, car sous
 /// Windows, sans bac à sable, Claude Code ne laisse passer un morceau prêté que seul et tel quel (`excludedCommands`),
 /// et refuse une commande qui l'enrobe.
+///
+/// `sans_a1` (le réglage `sans-a1` de la clé `mesure`, d'un banc de mesure) retire `HONNETETE` et `PERIMETRE`, et rien
+/// d'autre : la liste des fichiers, les textes exacts, `COMMIT` et la preuve restent.
+#[allow(clippy::too_many_arguments)]
 fn consigne(
     objectif: &str,
     fichiers: Option<&[String]>,
@@ -75,18 +79,25 @@ fn consigne(
     precedente: Option<&str>,
     pretee: bool,
     socle: &str,
+    sans_a1: bool,
 ) -> String {
-    let mut perimetre = match fichiers {
-        Some(fichiers) => format!("{PERIMETRE} Your files: {}", fichiers.join(" ")),
-        None => PERIMETRE.to_string(),
+    let debut = match (sans_a1, fichiers) {
+        (false, Some(fichiers)) => format!("{PERIMETRE} Your files: {}", fichiers.join(" ")),
+        (false, None) => PERIMETRE.to_string(),
+        (true, Some(fichiers)) => format!("Your files: {}", fichiers.join(" ")),
+        (true, None) => String::new(),
     };
-    if !exacts.is_empty() {
-        perimetre.push_str("\nThese texts must appear in your files byte for byte, as written here:");
-        for (fichier, texte) in exacts {
-            perimetre.push_str(&format!("\n{fichier}: {texte}"));
-        }
+    let mut lignes = Vec::new();
+    if !debut.is_empty() {
+        lignes.push(debut);
     }
-    let perimetre = format!("{perimetre}\n{COMMIT}");
+    if !exacts.is_empty() {
+        lignes.push("These texts must appear in your files byte for byte, as written here:".to_string());
+        lignes.extend(exacts.iter().map(|(fichier, texte)| format!("{fichier}: {texte}")));
+    }
+    lignes.push(COMMIT.to_string());
+    let perimetre = lignes.join("\n");
+    let honnetete = if sans_a1 { String::new() } else { format!("{HONNETETE}\n\n") };
     // Avec une commande, c'est Kraken qui la rejoue ; la main la joue d'abord si on la lui prête, car en `acceptEdits`
     // elle ne peut souvent pas la lancer sans ce prêt.
     let preuve = match (verifier, pretee) {
@@ -103,7 +114,7 @@ fn consigne(
         ),
         (None, _) => PREUVE.into(),
     };
-    format!("{socle}\n\n{}\n\n{HONNETETE}\n\n{perimetre}{preuve}", avec_precedente(objectif, precedente))
+    format!("{socle}\n\n{}\n\n{honnetete}{perimetre}{preuve}", avec_precedente(objectif, precedente))
 }
 
 /// L'objectif, puis l'erreur de la tentative d'avant s'il y en a une. C'est toute la consigne d'une main jugée par
@@ -115,8 +126,32 @@ fn avec_precedente(objectif: &str, precedente: Option<&str>) -> String {
     }
 }
 
+/// Le texte exact que reçoit la main d'une tentative, calculé une seule fois : la vague en garde les octets, en note
+/// l'empreinte (`main.consigne`) et les envoie à [`tenter`]. Le socle porte l'heure où la main s'arrête : son départ,
+/// pris ici, et son délai. Avec `juge`, la main est le découpeur ou le relecteur : son objectif, puis l'erreur
+/// d'avant ; sinon c'est une main de tâche, avec ses fichiers, ses textes exacts et sa preuve.
+pub(crate) fn consigne_de(
+    profil: &Profil,
+    objectif: &str,
+    fichiers: Option<&[String]>,
+    exacts: &[(String, String)],
+    verifier: Option<&str>,
+    precedente: Option<&str>,
+    juge: bool,
+) -> String {
+    let depart = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs();
+    let socle = socle(depart, profil.delai_main());
+    if juge {
+        format!("{socle}\n\n{}", avec_precedente(objectif, precedente))
+    } else {
+        let sans_a1 = profil.mesure().sans_a1;
+        consigne(objectif, fichiers, exacts, verifier, precedente, profil.prete(verifier), &socle, sans_a1)
+    }
+}
+
 /// Une tentative : joue la main une fois dans le bac, puis sa preuve, la vérification que Kraken rejoue ou, sans
-/// commande, la ligne `PREUVE: vert` de la main. La ligne de commande de la main et ce qu'elle déclare viennent du
+/// commande, la ligne `PREUVE: vert` de la main. `consigne` est le texte exact que la main reçoit ([`consigne_de`]).
+/// La ligne de commande de la main et ce qu'elle déclare viennent du
 /// profil (`Profil::demande`, pure : la vague en tire déjà le `main.lancement`) ; la main joue sous `delai_main`. Rend
 /// le constat de la main (`None` pour une main brute, qui ne déclare rien), le `verif` de la tentative, la fin de la
 /// sortie de la vérification (`None` sans commande, après une main rouge, ou si elle n'a pas pu partir), et le
@@ -142,9 +177,7 @@ fn avec_precedente(objectif: &str, precedente: Option<&str>) -> String {
 pub(crate) fn tenter(
     profil: &Profil,
     bac: &Path,
-    objectif: &str,
-    fichiers: Option<&[String]>,
-    exacts: &[(String, String)],
+    consigne: &str,
     verifier: Option<&str>,
     precedente: Option<&str>,
     journal: &Path,
@@ -152,13 +185,6 @@ pub(crate) fn tenter(
     lecons: Option<&Path>,
 ) -> (Option<Constat>, Option<String>, Result<Pris, Echec>) {
     let mut verif = None;
-    // Le socle porte l'heure où la main s'arrête : son départ, pris ici, et son délai.
-    let depart = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs();
-    let socle = socle(depart, profil.delai_main());
-    let consigne = match juge {
-        Some(_) => format!("{socle}\n\n{}", avec_precedente(objectif, precedente)),
-        None => consigne(objectif, fichiers, exacts, verifier, precedente, profil.prete(verifier), &socle),
-    };
     let Demande { argv, declaration } = profil.demande_avec(bac, verifier, precedente.is_some(), lecons);
     let attendu =
         declaration.as_ref().map(|d| Attendu { reglages: &d.reglages, modele: &d.modele, mcp: d.mcp.as_deref() });
@@ -168,7 +194,7 @@ pub(crate) fn tenter(
     // Sous un mur exigé seul, le dossier temporaire est recréé vide avant la main ([`temporaire`]).
     let (constat, jeu) = match profil.exige().then(|| temporaire(bac, true)).transpose() {
         Err(erreur) => (attendu.as_ref().map(|_| Constat::default()), Err(erreur)),
-        Ok(_) => jouer(&argv, bac, &consigne, profil.delai_main(), attendu.as_ref(), juge.is_some(), fournisseur),
+        Ok(_) => jouer(&argv, bac, consigne, profil.delai_main(), attendu.as_ref(), juge.is_some(), fournisseur),
     };
     let verdict = jeu.map_err(Echec::Erreur).and_then(|sortie| match (juge, verifier) {
         // Une main de tâche qui déclare l'impossible : rien n'est rejoué, et l'échec le dit pour que la vague classe.

@@ -11,7 +11,8 @@ use crate::branchements::git;
 use crate::branchements::github;
 use crate::branchements::srt;
 use crate::coeur::erreur::{Code, Refus, nommee};
-use crate::coeur::fil::Evenement;
+use crate::coeur::fil::{Evenement, SceauVague};
+use crate::coeur::lecons::Lecon;
 use crate::coeur::plan;
 use crate::coeur::plan::Plan;
 use crate::coeur::profil::Profil;
@@ -118,9 +119,18 @@ fn ouvertes_au_fil(dossier: &Path) -> Vec<String> {
         .collect()
 }
 
-/// Les liens de la vague qui relance une CI rouge : aucun lien, sinon son drapeau `relance_ci`.
-fn liens_de_la_relance() -> Liens<'static> {
-    Liens { relance_ci: true, ..Liens::default() }
+/// Scelle la vague ouverte au fil depuis l'appel de `lancer_avec` (absente de `connues`, les ouvertes d'avant) : un
+/// refus qui vient après son ouverture la laisse ouverte. Aucune vague neuve, aucun sceau (`None`).
+// raccourci : la vague à sceller se trouve par différence des `vague.ouverte` du fil, donc un autre lancement dans
+// le même dossier pourrait être scellé à sa place ; monter avec le verrou à bail du dossier d'état.
+fn sceller_la_neuve(dossier: &Path, connues: &[String]) -> Option<std::io::Result<SceauVague>> {
+    let neuve = ouvertes_au_fil(dossier).into_iter().find(|id| !connues.contains(id))?;
+    Some(dossier::Fil::seance(dossier, "humain").sceller(&neuve))
+}
+
+/// Les liens de la vague qui relance une CI rouge : son drapeau `relance_ci`, et les leçons de la vague première.
+fn liens_de_la_relance(lecons: &[Lecon]) -> Liens<'_> {
+    Liens { relance_ci: true, lecons: Some(lecons), ..Liens::default() }
 }
 
 /// La vague du plan, partie de `base` avec ses liens de découpage, de relecture et de correction, dite comme toute
@@ -151,12 +161,7 @@ pub(crate) fn mener_sur(
     let mut menee = match lancer_la_vague(plan, base, liens) {
         Ok(menee) => menee,
         Err(refus) => {
-            // Un refus qui vient après l'ouverture de la vague au fil la laisse ouverte : elle se scelle aussi.
-            // raccourci : la vague à sceller se trouve par différence des `vague.ouverte` du fil, donc un autre
-            // lancement dans le même dossier pourrait être scellé à sa place ; monter avec le verrou à bail du
-            // dossier d'état.
-            let neuve = ouvertes_au_fil(lieu.dossier).into_iter().find(|id| !connues.contains(id));
-            if let Some(Err(e)) = neuve.map(|id| dossier::Fil::seance(lieu.dossier, "humain").sceller(&id)) {
+            if let Some(Err(e)) = sceller_la_neuve(lieu.dossier, &connues) {
                 eprintln!("le sceau de fin du fil ne s'écrit pas : {e}");
             }
             return Err(refus);
@@ -195,7 +200,8 @@ pub(crate) fn mener_sur(
         let code = if toutes_constatees(&menee.issues) { ExitCode::SUCCESS } else { ExitCode::FAILURE };
         return Ok(finir(code));
     };
-    let relancer = |plan: &Plan, base: &str| lancer_la_vague(plan, base, liens_de_la_relance());
+    let lecons = menee.lecons.clone();
+    let relancer = |plan: &Plan, base: &str| lancer_la_vague(plan, base, liens_de_la_relance(&lecons));
     let code = proposition.apres_la_vague(plan, &menee, corrigee.as_ref(), &relancer, lieu.personnel, lieu.ci);
     Ok(finir(code))
 }

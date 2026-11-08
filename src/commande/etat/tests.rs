@@ -221,7 +221,7 @@ fn kraken_etat_affiche_une_vague_a_plan() {
         format!("main-{V2}-8 h : en attente de c"),
         format!("main-{V2}-9 i : en attente"),
         format!("main-{V2}-10 j : en attente de f, e"),
-        "Coût : inconnu · 8 mains, 2 relances, 1 classée".to_string(),
+        "Coût : inconnu · 8 mains, 2 relances, 1 classée, 2 refusées".to_string(),
     ];
     assert_eq!(rendu(&etat(&evenements), MAINTENANT), attendu.join("\n"));
     // Une même tâche remplit parfois plusieurs états à la fois : le premier de la liste l'emporte, et de la
@@ -351,7 +351,7 @@ fn des_copies_refusees_ou_sans_nouvelles_le_disent() {
         format!("main-{V1}-4 : prise"),
         format!("main-{V1}-5 : prise"),
         format!("main-{V1}-6 : en attente"),
-        "Coût : inconnu · 5 mains, 0 relance, 1 classée".to_string(),
+        "Coût : inconnu · 5 mains, 0 relance, 1 classée, 1 refusée".to_string(),
     ];
     assert_eq!(rendu(&etat(&evenements), MAINTENANT), attendu.join("\n"));
     // Leur code reste celui des prises constatées : deux copies prises donnent 0, une copie refusée donne 1.
@@ -1315,4 +1315,36 @@ fn le_recu_de_kraken_etat_somme_les_usages_meles_la_vague_et_ses_vagues_liees() 
     let notes = notes_de(&sans, "2026-10-31T21:00:00.000Z", "2026-10-31T21:00:30.000Z");
     let texte = rendu_avec(&etat(&sans), &notes, MAINTENANT);
     assert_eq!(texte.lines().last().unwrap(), "Coût : inconnu · 1 main, 0 relance, 0 classée · 30 s", "{texte}");
+}
+
+#[test]
+fn le_recu_de_kraken_etat_dit_la_mesure_sur_une_ligne_a_part_quand_un_reglage_est_pose() {
+    let consigne = |vague: &str, mesure: &str| Evenement::Consigne {
+        vague: vague.into(),
+        main: 1,
+        tentative: 1,
+        role: fil::Role::Main,
+        consigne: "c".into(),
+        systeme: None,
+        lecons: String::new(),
+        ecartees: String::new(),
+        mesure: mesure.into(),
+    };
+    let rendu_de = |mesure: &str| {
+        let evenements = [ouverture(V2, 1, "Une main"), debut(V2, 1, 1), consigne(V2, mesure)];
+        let notes = notes_de(&evenements, "2026-10-31T21:00:00.000Z", "2026-10-31T21:00:30.000Z");
+        rendu_avec(&etat(&evenements), &notes, MAINTENANT)
+    };
+    let cout = "Coût : inconnu · 1 main, 0 relance, 0 classée · 30 s";
+    // Une vraie vague ne porte aucune ligne de mesure.
+    let vraie = rendu_de("");
+    assert!(!vraie.contains("Measurement") && vraie.lines().last() == Some(cout), "{vraie}");
+    // Un réglage posé, ou deux : une ligne à part, en anglais, sous le coût.
+    let un = rendu_de("sans-a1");
+    assert!(un.ends_with(&format!("\n{cout}\nMeasurement: sans-a1.")), "{un}");
+    let deux = rendu_de("sans-lecture\nsans-a1");
+    assert!(deux.ends_with(&format!("\n{cout}\nMeasurement: sans-lecture, sans-a1.")), "{deux}");
+    // Un texte qui n'est pas un réglage du fil n'entre pas dans le reçu.
+    let hostile = rendu_de("sans-lecture\n@quelqu'un a dit");
+    assert!(hostile.ends_with("\nMeasurement: sans-lecture."), "{hostile}");
 }
