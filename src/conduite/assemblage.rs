@@ -34,7 +34,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::branchements::bac::{CLAUDE, exclusions_de_l_etat, poser, sans_claude, temporaire_de};
+use crate::branchements::bac::{CLAUDE, butees_du_bac, exclusions_de_l_etat, poser, sans_claude, temporaire_de};
 use crate::branchements::git::{faire, geste};
 use crate::branchements::srt::rejouer;
 use crate::coeur::erreur::{Code, Refus, nommee};
@@ -392,6 +392,8 @@ impl Assemblage<'_> {
 fn geler(bac: &Path, titre: &str) -> Result<String, String> {
     let mut ajout = geste(bac, &["add", "-A", "--", "."]);
     ajout.args(exclusions_de_l_etat());
+    // Les butées du mur que la main a laissées derrière elle : ni écrites par elle, ni à commiter.
+    ajout.args(butees_du_bac(bac).into_iter().map(|chemin| format!(":(exclude,literal){chemin}")));
     faire(ajout)?;
     if !faire(geste(bac, &["diff", "--cached", "--name-only"]))?.trim().is_empty() {
         faire(geste(bac, &["commit", "-q", "-m", titre]))?;

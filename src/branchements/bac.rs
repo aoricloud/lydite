@@ -168,6 +168,19 @@ fn est_une_butee(bac: &Path, nom: &str) -> bool {
         .is_ok_and(|meta| meta.file_type().is_file() && meta.len() == 0 && meta.permissions().readonly())
 }
 
+/// Les butées du mur du bac : les entrées directes de `.claude/` à sa racine qui sont des butées ([`est_une_butee`]),
+/// en chemins relatifs au bac. Vide si `.claude/` n'y est pas, ou ne se lit pas.
+pub(crate) fn butees_du_bac(bac: &Path) -> Vec<String> {
+    let Ok(entrees) = fs::read_dir(bac.join(".claude")) else { return Vec::new() };
+    let mut noms: Vec<String> = entrees
+        .filter_map(|entree| entree.ok()?.file_name().into_string().ok())
+        .map(|nom| format!(".claude/{nom}"))
+        .filter(|chemin| est_une_butee(bac, chemin))
+        .collect();
+    noms.sort();
+    noms
+}
+
 /// Le dossier temporaire d'un bac ou d'un worktree : son voisin dans son dossier parent (`bacs/`), nommé des 12
 /// premiers chiffres hexadécimaux de l'[`empreinte`] de son nom, suivis de `.tmp`. Le nom est court et stable, fait
 /// constaté : Claude Code met ses sockets de pont dans le `TMPDIR` de son processus, le dossier temporaire même
