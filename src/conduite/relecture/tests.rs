@@ -30,7 +30,7 @@ fn la_consigne_dit_l_objectif_les_taches_critiques_la_regle_le_format_et_la_preu
     let plan = Plan::lire(PLAN.as_bytes()).unwrap();
     let critiques: Vec<&Tache> = plan.taches.iter().filter(|tache| tache.critique).collect();
     assert_eq!(critiques.len(), 2);
-    let consigne = consigne(&plan.objectif, &critiques);
+    let consigne = consigne(&plan.objectif, &critiques, &[]);
     for bout in [
         "Objectif de la vague : Ecrire deux fichiers\n",
         "- tâche a, fichiers : sortie/\n    Ecrire le fichier critique\n    en deux lignes\n",
@@ -50,7 +50,7 @@ fn la_consigne_dit_l_objectif_les_taches_critiques_la_regle_le_format_et_la_preu
     // La tâche qui n'est pas critique n'y est pas ; une tâche critique sans `fichiers` le dit.
     assert!(!consigne.contains("autre/") && !consigne.contains("l'autre fichier"), "{consigne}");
     let libre = Tache { id: "d".into(), objectif: "Libre".into(), critique: true, ..Tache::default() };
-    assert!(super::consigne("o", &[&libre]).contains("- tâche d, fichiers : tous, rien ne la borne\n    Libre\n"));
+    assert!(super::consigne("o", &[&libre], &[]).contains("- tâche d, fichiers : tous, rien ne la borne\n    Libre\n"));
     // Le format de la consigne est celui que lit `lire_remarques` : l'exemple qu'elle donne se lit, et sa clé est
     // juste.
     let exemple = FORME.replace("<chemin>", "a.txt").replace("<entier>", "3").replace("<le constat", "Le constat");
@@ -75,19 +75,19 @@ fn le_relecteur_et_la_correction_partent_sur_leurs_cles_du_profil() {
                     sortie/c.txt : Perdu.";
     // Sans clé écrite : opus au relecteur, sonnet à la correction ; deux fois, aux deux tentatives.
     let defaut = claude("sorte = claude\n");
-    let relecteur = plan_du_relecteur(&defaut, &plan, &critiques);
+    let relecteur = plan_du_relecteur(&defaut, &plan, &critiques, &[]);
     assert_eq!((relecteur.objectif.as_str(), relecteur.preuve.as_deref()), ("Relire : Ecrire deux fichiers", None));
     let [tache] = &relecteur.taches[..] else { panic!("{relecteur:?}") };
     assert_eq!((tache.id.as_str(), tache.preuve.as_deref()), ("relecteur", Some(PREUVE)));
     assert_eq!((tache.modele.as_deref(), tache.relance.as_deref()), (Some("opus"), Some("opus")));
     assert!(tache.depend.is_empty() && tache.fichiers.is_none() && !tache.critique);
-    assert_eq!(tache.objectif, consigne(&plan.objectif, &critiques));
+    assert_eq!(tache.objectif, consigne(&plan.objectif, &critiques, &[]));
     let correction = plan_de_la_correction(&defaut, &plan, &critiques, &remarques);
     let [tache] = &correction.taches[..] else { panic!("{correction:?}") };
     assert_eq!((tache.modele.as_deref(), tache.relance.as_deref()), (Some("sonnet"), Some("sonnet")));
     // Les clés du profil : `relecteur` au relecteur, `relance` à la correction, et `modele` à aucun des deux.
     let profil = claude("sorte = claude\nmodele = haiku\nrelance = claude-sonnet-5-5\nrelecteur = claude-opus-5-5\n");
-    let relecteur = plan_du_relecteur(&profil, &plan, &critiques);
+    let relecteur = plan_du_relecteur(&profil, &plan, &critiques, &[]);
     let modeles = |plan: &Plan| (plan.taches[0].modele.clone(), plan.taches[0].relance.clone());
     let pair = |modele: &str| (Some(modele.to_string()), Some(modele.to_string()));
     assert_eq!(modeles(&relecteur), pair("claude-opus-5-5"));
@@ -102,7 +102,7 @@ fn le_relecteur_et_la_correction_partent_sur_leurs_cles_du_profil() {
     assert!(tache.depend.is_empty() && !tache.critique);
     // Une main brute n'a pas de modèle ; une tâche critique sans `fichiers` ne borne ni le diff ni la correction.
     let brute = Profil::faux(vec!["x".into()], Duration::from_secs(1));
-    assert_eq!(modeles(&plan_du_relecteur(&brute, &plan, &critiques)), (None, None));
+    assert_eq!(modeles(&plan_du_relecteur(&brute, &plan, &critiques, &[])), (None, None));
     assert_eq!(modeles(&plan_de_la_correction(&brute, &plan, &critiques, &remarques)), (None, None));
     let libre = Tache { fichiers: None, ..critiques[0].clone() };
     assert_eq!(fichiers_de(&[&libre, critiques[1]]), None);
@@ -924,8 +924,25 @@ fn sous_une_issue_une_vague_lancee_d_un_sous_dossier_pese_son_diff_depuis_la_rac
 }
 
 #[test]
+fn la_consigne_porte_les_points_a_justifier_apres_les_taches_critiques_vingt_au_plus() {
+    let libre = Tache { id: "d".into(), objectif: "Libre".into(), critique: true, ..Tache::default() };
+    let sans = consigne("o", &[&libre], &[]);
+    let phrase = "Lydite found these points without a model, in the diff you review. For each one, say in a remark \
+                  whether it is justified:\n\n";
+    assert!(!sans.contains("Lydite found"), "{sans}");
+    let points: Vec<String> = (1..=22).map(|k| format!("`f{k}`: test modified")).collect();
+    let avec = consigne("o", &[&libre], &points);
+    let liste: String = points[..20].iter().map(|point| format!("- {point}\n")).collect();
+    // Octet pour octet : la consigne sans point, avec la phrase et les points avant « Le travail à relire ».
+    let (avant, apres) = sans.split_once("    Libre\n\nLe travail").unwrap();
+    assert_eq!(avec, format!("{avant}    Libre\n\n{phrase}{liste}\nLe travail{apres}"));
+    assert!(!avec.contains("f21") && !avec.contains("f22"), "{avec}");
+}
+
+#[test]
 fn la_couche_fixe_du_relecteur_tient_sous_son_plafond_sans_la_sortie_honnete_ni_le_perimetre() {
-    let fixe = consigne("", &[]);
+    // Mesurée avec la phrase des points à justifier, qui n'entre qu'avec un point.
+    let fixe = consigne("", &[], &["p".to_string()]);
     assert!(fixe.chars().count() <= PLAFOND, "{} > {PLAFOND}", fixe.chars().count());
     assert_eq!(crate::essais::codes_inconnus(&fixe), Vec::<String>::new());
     assert!(!fixe.contains("IMPOSSIBLE") && !fixe.contains("Your files") && !fixe.contains("Change only"), "{fixe}");
