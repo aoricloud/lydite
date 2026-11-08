@@ -58,6 +58,7 @@ fn histoire(evenements: &[Evenement]) -> Vec<String> {
         Evenement::Fin { tentative, couleur, foi, .. } => format!("fin {tentative} {couleur:?} {foi:?}"),
         Evenement::Perimee { tentative, couleur, foi, .. } => format!("périmée {tentative} {couleur:?} {foi:?}"),
         Evenement::Verdict { verdict, foi, .. } => format!("verdict {verdict:?} {foi:?}"),
+        Evenement::Gel { .. } => "gel".into(),
         Evenement::Fusion { .. } => "fusion".into(),
         Evenement::Refus { code, .. } => format!("refus {code}"),
         Evenement::Poussee { .. } => "poussée".into(),
@@ -251,6 +252,7 @@ fn main_de(evenement: &Evenement) -> Option<usize> {
         | Evenement::Fin { main, .. }
         | Evenement::Perimee { main, .. }
         | Evenement::Verdict { main, .. }
+        | Evenement::Gel { main, .. }
         | Evenement::Fusion { main, .. }
         | Evenement::Refus { main, .. } => Some(*main),
     }
@@ -266,7 +268,15 @@ fn histoire_de(evenements: &[Evenement], k: usize) -> Vec<String> {
 /// de prise, puis `suite` (`fusion`, ou le refus qui la suit).
 fn prise_du_premier_coup(id: &str, suite: &str) -> Vec<String> {
     let mut histoire = vec![format!("tâche {id}")];
-    histoire.extend(["bail 1", "début 1", "fin 1 Vert Constate", "verdict Prise Constate", suite].map(String::from));
+    histoire
+        .extend(["bail 1", "début 1", "fin 1 Vert Constate", "verdict Prise Constate", "gel", suite].map(String::from));
+    histoire
+}
+
+/// La même, refusée avant le gel du bac (`sans_claude` ou le retour du worktree) : sans `gel`.
+fn prise_refusee_avant_le_gel(id: &str, refus: &str) -> Vec<String> {
+    let mut histoire = prise_du_premier_coup(id, refus);
+    histoire.retain(|mot| mot != "gel");
     histoire
 }
 
@@ -1158,6 +1168,50 @@ fn les_dependantes_d_une_classee_sont_sautees() {
 }
 
 #[test]
+fn une_main_prise_note_son_gel_avant_sa_fusion_et_une_classee_n_en_note_pas() {
+    let racine = racine("gel");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(main_de_vague(&racine), DELAI);
+    // a joue une preuve rouge : classée après sa relance ; b est prise et assemblée.
+    let plan = plan(&[
+        "plan 1",
+        "objectif : Un gel",
+        "preuve : exit 0",
+        "tache a",
+        "preuve : exit 3",
+        "    Échouer",
+        "tache b",
+        "    Écrire b",
+    ]);
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    assert!(issues[0].1.is_err(), "a est classée : {issues:?}");
+    assemblee(&issues[1].0, &issues[1].1);
+    let evenements = fil(&kraken);
+    let gels: Vec<(usize, &str)> = evenements
+        .iter()
+        .filter_map(|e| match e {
+            Evenement::Gel { main, sha, .. } => Some((*main, sha.as_str())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(gels.len(), 1, "seule la main prise note son gel : {gels:?}");
+    let (main, gel) = gels[0];
+    assert_eq!(main, 2);
+    // Le gel est le commit du bac, noté après le verdict et avant la fusion, dont il est le second parent.
+    let rang = |cherche: &dyn Fn(&Evenement) -> bool| evenements.iter().position(cherche).unwrap();
+    let verdict = rang(&|e| matches!(e, Evenement::Verdict { main: 2, verdict: Verdict::Prise, .. }));
+    let note = rang(&|e| matches!(e, Evenement::Gel { .. }));
+    let fusion = rang(&|e| matches!(e, Evenement::Fusion { main: 2, .. }));
+    assert!(verdict < note && note < fusion, "verdict {verdict}, gel {note}, fusion {fusion}");
+    let fusions = fusions(&evenements);
+    assert_eq!(fusions.len(), 1);
+    assert_eq!(git(&depot, &["rev-parse", &format!("{}^2", fusions[0].1)]), gel);
+    let bac = bac_de(&kraken, &vague_du_fil(&kraken), 2);
+    assert_eq!(git(&bac, &["rev-parse", "HEAD"]), gel, "le gel est le HEAD du bac");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
 fn une_base_rouge_ne_lance_rien() {
     let racine = racine("base-rouge");
     let (depot, kraken) = (depot(&racine), racine.join("lydite"));
@@ -1581,6 +1635,7 @@ fn une_preuve_de_vague_rouge_laisse_la_branche_a_sa_base() {
         "début 1",
         "fin 1 Vert Constate",
         "verdict Prise Constate",
+        "gel",
         "refus 7008",
         "refus 7011",
     ];
@@ -1634,6 +1689,7 @@ fn une_relance_reste_seule_et_porte_un_jeton_neuf() {
         "début 2",
         "fin 2 Vert Constate",
         "verdict Prise Constate",
+        "gel",
         "fusion",
     ];
     assert_eq!(histoire_de(&evenements, 1), relance);
@@ -1778,7 +1834,7 @@ fn un_plan_dont_une_main_touche_claude() {
     let evenements = fil(&kraken);
     let a = ["tâche a", "bail 1", "début 1", "fin 1 Rouge Constate", "refus 7006"];
     assert_eq!(histoire_de(&evenements, 1), a);
-    assert_eq!(histoire_de(&evenements, 2), prise_du_premier_coup("b", "refus 7006"));
+    assert_eq!(histoire_de(&evenements, 2), prise_refusee_avant_le_gel("b", "refus 7006"));
     assert_eq!(histoire_de(&evenements, 3), prise_du_premier_coup("c", "fusion"));
     assert_eq!(histoire_de(&evenements, 4), ["tâche d", "refus 7011"]);
     assert!(!kraken.join("bacs").join(ids[3]).exists(), "d n'a pas de bac");
@@ -1832,7 +1888,7 @@ fn une_competence_imbriquee_fait_refuser_sa_tache() {
     assert!(!kraken.join("bacs").join(ids[1]).exists(), "b n'a pas de bac");
     // a était verte, mais son bac n'est ni figé ni assemblé, et la branche est restée à sa base.
     let evenements = fil(&kraken);
-    assert_eq!(histoire_de(&evenements, 1), prise_du_premier_coup("a", "refus 7006"));
+    assert_eq!(histoire_de(&evenements, 1), prise_refusee_avant_le_gel("a", "refus 7006"));
     let bac = bac_de(&kraken, &vague_du_fil(&kraken), 1);
     assert_eq!(git(&bac, &["rev-parse", "HEAD"]), base, "aucun commit dans le bac");
     assert_eq!(git(&bac, &["diff", "--cached", "--name-only"]), "", "rien d'ajouté à son index");
@@ -2052,7 +2108,7 @@ fn un_bac_dont_git_ne_repond_plus_est_refuse_en_7009() {
     assert!(refus.contains("git diff --name-only"), "le refus nomme la commande de git qui a raté : {refus}");
     refusee(ids[1], &issues[1].1, 7011);
     let evenements = fil(&kraken);
-    assert_eq!(histoire_de(&evenements, 1), prise_du_premier_coup("a", "refus 7009"));
+    assert_eq!(histoire_de(&evenements, 1), prise_refusee_avant_le_gel("a", "refus 7009"));
     assert!(fusions(&evenements).is_empty(), "aucune fusion n'est notée");
     assert_eq!(git(&depot, &["rev-parse", &branche]), base);
     worktree_a_la_tete(&depot, &kraken, &branche);
@@ -2310,6 +2366,7 @@ fn une_main_hors_de_ses_fichiers_est_rouge_se_corrige_a_la_relance_et_passe() {
         "début 2",
         "fin 2 Vert Constate",
         "verdict Prise Constate",
+        "gel",
         "fusion",
     ];
     assert_eq!(histoire_de(&evenements, 1), attendu);
@@ -2421,6 +2478,7 @@ fn une_main_qui_coupe_le_texte_exact_est_rouge_se_corrige_a_la_relance_et_passe(
         "début 2",
         "fin 2 Vert Constate",
         "verdict Prise Constate",
+        "gel",
         "fusion",
     ];
     assert_eq!(histoire_de(&evenements, 1), attendu);
@@ -2531,6 +2589,7 @@ fn une_main_qui_change_un_chemin_protege_est_rouge_se_corrige_a_la_relance_et_pa
         "début 2",
         "fin 2 Vert Constate",
         "verdict Prise Constate",
+        "gel",
         "fusion",
     ];
     assert_eq!(histoire_de(&evenements, 1), attendu);

@@ -138,6 +138,10 @@
 //!   et la preuve de la vague y est verte. `sha` est la nouvelle tête de la branche, `verif` la fin de la sortie de
 //!   cette preuve. `foi` vaut `constate`, seule valeur que le lecteur prend : Kraken seul fusionne, et une fusion
 //!   déclarée s'afficherait comme un fait.
+//! - `main.gel {vague, main, sha}` : le commit `sha` (40 hexadécimaux minuscules, comme celui de `forge.poussee`) est
+//!   ce que Kraken a gelé du bac de la main prise, et c'est sur lui que porte son `main.verdict`. Noté juste après le
+//!   gel, avant la fusion ; une main classée ou impossible n'en note pas. Une note de Kraken, sans `foi`. Type neuf,
+//!   il ne change pas `v`. Au rejeu, la main garde le dernier `sha` noté.
 //! - `vague.refus {vague, main, code, regle, preuve, correction, verif}` : Kraken a refusé la tâche. Une décision de
 //!   Kraken, sans `foi`. `code` est le numéro d'un code, un entier de 1000 à 9999 ; `regle`, `preuve` et `correction`
 //!   sont les trois textes de son refus (`erreur.rs`). `verif` est la fin de la sortie de la preuve de la vague, `null`
@@ -377,6 +381,8 @@ pub(crate) enum Evenement {
     /// `verif` la fin de la sortie de la preuve de la vague, verte. Sa `foi` n'est pas un champ : elle s'écrit
     /// `constate`, seule valeur que le lecteur prend.
     Fusion { vague: String, main: usize, sha: String, verif: String },
+    /// `main.gel` : le commit `sha` que Kraken a gelé du bac de la main prise, celui sur lequel porte son verdict.
+    Gel { vague: String, main: usize, sha: String },
     /// `vague.refus` : Kraken refuse la tâche. `code` est le numéro d'un code (1000 à 9999), `verif` la fin de la
     /// sortie de la preuve de la vague, `None` si elle n'a pas tourné.
     Refus {
@@ -907,6 +913,7 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
             jeton(&[Foi::Constate], Foi::mot, "foi", texte("foi")?)?;
             fusion
         }
+        "main.gel" => Evenement::Gel { vague: texte("vague")?.into(), main: nombre("main")?, sha: sha("sha")? },
         "vague.refus" => Evenement::Refus {
             vague: texte("vague")?.into(),
             main: nombre("main")?,
@@ -1178,6 +1185,8 @@ pub(crate) struct Main {
     /// La dernière de ses `vague.fusion` et `vague.refus`, `None` tant qu'il n'y en a pas. Elle l'emporte sur
     /// `verdict`.
     pub(crate) issue: Option<Issue>,
+    /// `main.gel` : le commit du bac gelé, le dernier noté, sur lequel porte son verdict ; `None` sans.
+    pub(crate) gel: Option<String>,
 }
 
 /// Ce que Kraken a décidé d'une tâche de plan : l'assembler dans la branche de la vague (`vague.fusion`), ou la refuser
@@ -1276,6 +1285,9 @@ pub(crate) fn etat(evenements: &[Evenement]) -> Vec<Vague> {
             Evenement::Fusion { main, .. } => {
                 vague.mains.entry(*main).or_default().issue = Some(Issue::Assemblee);
             }
+            Evenement::Gel { main, sha, .. } => {
+                vague.mains.entry(*main).or_default().gel = Some(sha.clone());
+            }
             Evenement::Refus { main, code, regle, preuve, correction, .. } => {
                 let (regle, preuve, correction) = (regle.clone(), preuve.clone(), correction.clone());
                 vague.mains.entry(*main).or_default().issue =
@@ -1370,6 +1382,7 @@ impl Evenement {
             Evenement::Bail { .. } => "main.bail",
             Evenement::Perimee { .. } => "main.perimee",
             Evenement::Fusion { .. } => "vague.fusion",
+            Evenement::Gel { .. } => "main.gel",
             Evenement::Refus { .. } => "vague.refus",
             Evenement::Poussee { .. } => "forge.poussee",
             Evenement::Pr { .. } => "forge.pr",
@@ -1399,6 +1412,7 @@ impl Evenement {
         | Evenement::Perimee { vague, .. }
         | Evenement::Verdict { vague, .. }
         | Evenement::Fusion { vague, .. }
+        | Evenement::Gel { vague, .. }
         | Evenement::Refus { vague, .. }
         | Evenement::Poussee { vague, .. }
         | Evenement::Pr { vague, .. }
@@ -1506,6 +1520,9 @@ impl Evenement {
                 ("verif", texte(verif)),
                 ("foi", texte(Foi::Constate.mot())),
             ],
+            Evenement::Gel { vague, main, sha } => {
+                vec![("vague", texte(vague)), ("main", entier(*main)), ("sha", texte(sha))]
+            }
             Evenement::Refus { vague, main, code, regle, preuve, correction, verif } => vec![
                 ("vague", texte(vague)),
                 ("main", entier(*main)),
