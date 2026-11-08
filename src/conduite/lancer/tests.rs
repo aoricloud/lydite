@@ -731,14 +731,22 @@ fn une_main_finie_par(nom: &str, fin: &str, verifier: Option<&str>) -> (usize, R
 
 #[cfg(unix)]
 #[test]
-fn une_erreur_qui_n_est_pas_une_declaration_est_relancee_puis_classee_meme_si_son_texte_la_copie() {
-    // La preuve rouge imprime le texte que Kraken écrit pour une main impossible : ce n'est pas la main qui l'a dit.
-    let preuve = "echo 'impossible (déclarée) : pas la main'; exit 1";
-    let (departs, issue, verdict, foi) = une_main_finie_par("copie-impossible", "echo 'PREUVE: vert'", Some(preuve));
+fn une_erreur_qui_commence_comme_une_declaration_est_relancee_puis_classee_constatee() {
+    // Le juge d'un relecteur ou d'un découpeur rend un texte qui COMMENCE par le préfixe de l'impossible : ce n'est pas
+    // la main qui l'a dit, et ce texte reste une erreur ordinaire.
+    let racine = racine("copie-impossible");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    let profil = Profil::faux(main_qui_finit_par(&racine, "echo 'PREUVE: vert'"), DELAI);
+    let juge = |_: &Path| -> Result<(), String> { Err(format!("{IMPOSSIBLE}x")) };
+    let liens = Liens { juge: Some(&juge), ..Liens::default() };
+    let menee = lancer_avec(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL, &base, liens).unwrap();
+    let departs = fs::read_to_string(racine.join("departs")).unwrap().lines().count();
     assert_eq!(departs, 2, "relancée une fois");
-    assert_eq!((verdict, foi), (Verdict::Classee, Foi::Constate));
-    let erreur = issue.unwrap_err();
-    assert!(erreur.contains("impossible (déclarée) : pas la main"), "la preuve rouge est dans l'erreur : {erreur}");
+    assert_eq!(menee.issues[0].1.as_ref().unwrap_err(), "impossible (déclarée) : x");
+    let vagues = etat(&fil(&kraken));
+    assert_eq!(vagues[0].mains[&1].verdict, Some((Verdict::Classee, Foi::Constate)));
+    let _ = fs::remove_dir_all(&racine);
 }
 
 #[cfg(unix)]
