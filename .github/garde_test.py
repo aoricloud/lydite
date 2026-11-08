@@ -61,11 +61,14 @@ def supprime(chemin, *lignes):
     )
 
 
-def jouer(diff="", commits=(PROPRE,), erreur=False, liste=LISTE, **variables):
-    """Joue la garde sur ces entrées : son code de sortie et tout ce qu'elle a écrit."""
+def jouer(diff="", commits=(PROPRE,), erreur=False, liste=LISTE, pr=None, **variables):
+    """Joue la garde sur ces entrées (`pr` : le titre, le corps et la branche, comme l'API les écrit) : son code de
+    sortie et tout ce qu'elle a écrit."""
     with tempfile.TemporaryDirectory() as dossier:
         Path(dossier, "diff").write_text(diff, encoding="utf-8")
         Path(dossier, "commits.jsonl").write_text("".join(json.dumps(c) + "\n" for c in commits), encoding="utf-8")
+        if pr is not None:
+            Path(dossier, "pr.json").write_text(json.dumps(pr), encoding="utf-8")
         if erreur:
             Path(dossier, "erreur").write_text("diff\n", encoding="utf-8")
         ecartees = ("GARDE", "LISTE", "TITRE", "CORPS", "BRANCHE")
@@ -106,13 +109,15 @@ class Garde(unittest.TestCase):
             "169.254.169.254",
             "host.docker.internal",
         )
-        code, sortie = jouer(bloc("src/a.rs", *lignes), TITRE="Un titre", CORPS="Un corps", BRANCHE="lydite/vague-1")
+        pr = {"titre": "Un titre", "corps": "Un corps", "branche": "lydite/vague-1"}
+        code, sortie = jouer(bloc("src/a.rs", *lignes), pr=pr)
         self.assertEqual(code, 0, sortie)
         self.assertIn("3 words of the list", sortie)
         self.que_des_annotations(sortie)
 
     def test_le_titre_le_corps_et_la_branche(self):
-        code, sortie = jouer(TITRE=f"Avec {MOT.upper()}", CORPS=f"un {MOT_ACCENTUE.upper()}", BRANCHE=MOT.lower())
+        pr = {"titre": f"Avec {MOT.upper()}", "corps": f"un {MOT_ACCENTUE.upper()}", "branche": MOT.lower()}
+        code, sortie = jouer(pr=pr)
         self.assertEqual(code, 1)
         self.assertIn("Line 4 of the guard list appears in the title.", sortie)
         self.assertIn("Line 5 of the guard list appears in the body.", sortie)
@@ -198,8 +203,13 @@ class Garde(unittest.TestCase):
                 self.assertIn(f"{trouve} appears in the added lines of src/a.rs.", sortie)
                 self.sans_rien_de_trouve(sortie, valeur, "someone", "mailbox", "portable", "nas.")
 
+    def test_le_texte_de_la_pr_ne_vient_pas_de_l_environnement(self):
+        # Le journal d'Actions affiche l'environnement d'une étape : le texte de la PR n'y passe plus.
+        code, sortie = jouer(TITRE=f"Avec {MOT}", CORPS=MOT, BRANCHE=MOT)
+        self.assertEqual(code, 0, sortie)
+
     def test_un_fork_ne_lit_pas_la_liste(self):
-        code, sortie = jouer(TITRE=f"Avec {MOT}", LISTE="fork")
+        code, sortie = jouer(pr={"titre": f"Avec {MOT}"}, LISTE="fork")
         self.assertEqual(code, 0, sortie)
         self.assertIn("A pull request from a fork", sortie)
         self.assertNotIn("::error", sortie)

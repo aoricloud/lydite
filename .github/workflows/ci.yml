@@ -36,7 +36,8 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
-  garde:
+  # Les essais de la garde : un nom à eux, pour ne pas se confondre avec le workflow garde dans les contrôles d'une PR.
+  essais-garde:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
