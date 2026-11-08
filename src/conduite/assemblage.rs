@@ -18,7 +18,8 @@
 //!
 //! Les chemins que le profil protège (`proteges`, 7018) se jugent aux mêmes deux endroits, avant les `fichiers` : à la
 //! fin de chaque tentative (`proteges_tenus`), un chemin protégé changé la rougit ; au gel, la tâche est refusée et
-//! rien d'elle n'est fusionné, qu'elle ait des `fichiers` ou non.
+//! rien d'elle n'est fusionné, qu'elle ait des `fichiers` ou non. Les leçons (`.agents/skills/`) sont toujours de ces
+//! chemins, que le profil ait ou non une clé `proteges` : une main n'en change aucune.
 //!
 //! Avant l'assemblage, `fichiers_tenus` juge ce que la main a changé dans son bac contre les `fichiers` de sa tâche
 //! (7013) : la vague le joue à la fin de chaque tentative prise, avant qu'elle ne soit notée, et un chemin de trop la

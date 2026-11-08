@@ -106,7 +106,14 @@ const FAUSSE_WINDOWS: &[&str] = &[
     "rem La fausse claude des essais du decoupage.",
     r#"set "ici=%~dp0""#,
     "for %%I in (.) do set bac=%%~nxI",
-    r#"type "%ici%controle.jsonl""#,
+    // La règle des leçons nomme le bac de la main : `@BAC@` y est remplacé par sa règle.
+    // PowerShell rend le dossier courant en nom long, la règle de Lydite le garde tel quel : `%CD%` aussi.
+    r#"set "bac_cd=%CD%""#,
+    concat!(
+        r#"powershell -NoProfile -Command "$p=$env:bac_cd; "#,
+        r#"$r='//'+$p.Substring(0,1).ToLower()+$p.Substring(2).Replace('\','/'); "#,
+        r#"[Console]::Out.Write((Get-Content -Raw '%ici%controle.jsonl').Replace('@BAC@',$r))""#,
+    ),
     r#"findstr "^" > "%TEMP%\entree.jsonl""#,
     r#"findstr /l /c:"PLAN.lydite" "%TEMP%\entree.jsonl" > nul"#,
     "if errorlevel 1 goto tache",
@@ -143,7 +150,8 @@ const FAUSSE_UNIX: &[&str] = &[
     "# La fausse claude des essais du decoupage.",
     r#"ici=$(dirname "$0")"#,
     r#"bac=$(basename "$(pwd)")"#,
-    r#"cat "$ici/controle.jsonl""#,
+    // La règle des leçons nomme le bac de la main : `@BAC@` y est remplacé par sa règle.
+    r#"sed "s|@BAC@|/$(pwd)|g" "$ici/controle.jsonl""#,
     r#"cat > "$TMPDIR/entree.jsonl""#,
     r#"if grep -q 'PLAN\.lydite' "$TMPDIR/entree.jsonl"; then"#,
     "n=1",
@@ -449,6 +457,8 @@ impl Essai {
             ["Bash(git commit:*)", "Bash(git commit *)", "PowerShell(git commit:*)", "PowerShell(git commit *)"]
                 .map(String::from),
         );
+        // Les leçons, protégées de toute main : la fausse claude met le bac de la main à la place de `@BAC@`.
+        deny.push("Edit(@BAC@/.agents/skills/**)".into());
         let vues: Vec<String> = [("allow", &allow), ("deny", &deny)]
             .iter()
             .flat_map(|(comportement, regles)| {

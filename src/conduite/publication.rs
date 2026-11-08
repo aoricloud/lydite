@@ -31,6 +31,7 @@ use crate::coeur::fil::{
     self, Base, Couleur, Evenement, Foi, Note, SceauVague, Vague, correction_de, etat, relecture_de,
 };
 use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
+use crate::coeur::profil::{SANS_A1, SANS_LECTURE};
 use crate::coeur::remarques::lire_fichier;
 use crate::conduite::alarmes;
 use crate::conduite::lancer::Menee;
@@ -747,10 +748,15 @@ pub(crate) struct Recu {
     classees: usize,
     /// Les mains qui ont déclaré leur tâche impossible (`IMPOSSIBLE: <raison>`), comptées à part des classées.
     impossibles: usize,
+    /// Les mains dont la dernière issue est un refus, comme `lydite etat` les montre.
+    refusees: usize,
     /// De la première note de la vague à la dernière de ses vagues liées, en millisecondes ; `None` sans instants.
     duree: Option<u128>,
     /// Le sceau du fil noté juste avant le corps de la PR ; `None` hors d'une PR (`recu_de` n'en lit aucun).
     sceau: Option<SceauVague>,
+    /// Les réglages de mesure (`main.consigne.mesure`) que les mains de ces vagues ont reçus, sans doublon, dans
+    /// l'ordre `sans-lecture`, `sans-a1`. Vide pour une vraie vague.
+    mesure: Vec<&'static str>,
 }
 
 /// Le reçu de la vague `id` parmi `vagues` : elle, son découpage, ses relectures, ses corrections et ses relances, et
@@ -781,7 +787,9 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
         recu.mains += mains.clone().map(|main| main.tentatives.len()).sum::<usize>();
         recu.relances += mains.clone().flat_map(|main| main.tentatives.keys()).filter(|n| **n >= 2).count();
         recu.classees += mains.clone().filter(|main| matches!(main.verdict, Some((fil::Verdict::Classee, _)))).count();
-        recu.impossibles += mains.filter(|main| matches!(main.verdict, Some((fil::Verdict::Impossible, _)))).count();
+        recu.impossibles +=
+            mains.clone().filter(|main| matches!(main.verdict, Some((fil::Verdict::Impossible, _)))).count();
+        recu.refusees += mains.filter(|main| matches!(main.issue, Some(fil::Issue::Refusee { .. }))).count();
     }
     let (mut debut, mut fin): (Option<u128>, Option<u128>) = (None, None);
     for note in notes.iter().filter(|note| est_liee(note.evenement.vague())) {
@@ -791,6 +799,13 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
                 Base::Forfait => recu.forfait = true,
                 Base::Estime => recu.estime = true,
                 Base::Inconnu => recu.inconnu = true,
+            }
+        }
+        if let Evenement::Consigne { mesure, .. } = &note.evenement {
+            for reglage in [SANS_LECTURE, SANS_A1] {
+                if mesure.lines().any(|ligne| ligne == reglage) && !recu.mesure.contains(&reglage) {
+                    recu.mesure.push(reglage);
+                }
             }
         }
         let ms = millisecondes(&note.instant);
@@ -818,14 +833,18 @@ impl Recu {
         if self.inconnu { format!("{connu} + inconnu") } else { connu }
     }
 
-    /// `7 mains, 2 relances, 1 classée`.
+    /// `7 mains, 2 relances, 1 classée`, suivi de `, N impossible` et de `, N refusée` seulement quand N > 0.
     pub(crate) fn mains(&self) -> String {
         let pluriel = |n: usize, mot: &str| format!("{n} {mot}{}", if n > 1 { "s" } else { "" });
         let (m, r, c) = (self.mains, self.relances, self.classees);
         let base = format!("{}, {}, {}", pluriel(m, "main"), pluriel(r, "relance"), pluriel(c, "classée"));
-        match self.impossibles {
+        let base = match self.impossibles {
             0 => base,
             i => format!("{base}, {}", pluriel(i, "impossible")),
+        };
+        match self.refusees {
+            0 => base,
+            n => format!("{base}, {}", pluriel(n, "refusée")),
         }
     }
 
@@ -847,10 +866,18 @@ impl Recu {
         parties.join(" · ")
     }
 
+    /// La ligne à part qui dit les réglages de mesure posés, `Measurement: sans-lecture, sans-a1.` ; `None` quand
+    /// aucun n'est posé : une vraie vague n'en porte pas.
+    pub(crate) fn ligne_de_mesure(&self) -> Option<String> {
+        (!self.mesure.is_empty()).then(|| format!("Measurement: {}.", self.mesure.join(", ")))
+    }
+
     /// Les lignes du bloc « Reçu » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la durée ;
-    /// puis, si le reçu porte un sceau, `- Fil sealed at <octets> bytes: sha256 <empreinte>.`
+    /// puis, si des réglages de mesure sont posés, `- Measurement: <réglages>.` ; puis, si le reçu porte un sceau,
+    /// `- Fil sealed at <octets> bytes: sha256 <empreinte>.`
     pub(crate) fn lignes_de_pr(&self) -> Vec<String> {
         let mut lignes = vec![format!("- Coût : {}", self.cout()), format!("- {}", self.mains())];
+        lignes.extend(self.ligne_de_mesure().map(|ligne| format!("- {ligne}")));
         lignes
             .extend(self.sceau.iter().map(|s| format!("- Fil sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)));
         lignes

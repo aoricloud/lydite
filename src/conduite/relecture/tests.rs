@@ -643,6 +643,76 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
 }
 
 #[test]
+fn une_lecon_ecrite_par_une_main_n_atteint_ni_le_relecteur_ni_la_correction() {
+    // Les leçons se lisent au commit de base de la vague : une leçon fausse (6031 si elle était lue) qui arrive à la
+    // tête de la vague, ici par une `Menee` faite à la main (une main ne change jamais une leçon), n'est lue ni par le
+    // relecteur ni par la correction, qui reçoivent celles de la base, sans aucune.
+    let essai = Essai::nouveau("relecture-lecon-de-main");
+    essai.remarques(1, &remarques_justes());
+    fs::create_dir_all(&essai.kraken).unwrap();
+    let base = essai.base();
+    let tete =
+        commiter(&essai.depot, &[("sortie/a.txt", "a\nb\nc\n"), (".agents/skills/ecrite/SKILL.md", "pas une lecon\n")]);
+    let pris = || Ok(Pris { sortie: String::new(), prouve: true });
+    let id = crate::coeur::fil::lot();
+    let issues = vec![(format!("main-{id}-1"), pris()), (format!("main-{id}-2"), pris())];
+    let menee = Menee { id, branche: None, tete: Some(tete.clone()), arretee: false, issues, lecons: Vec::new() };
+    let Relue::Prise(Prise { n: 2, bloquantes: 1, correction: Some(correction), .. }) =
+        relire_sous(&essai, &menee, &base, Origine::Plan)
+    else {
+        panic!("la relecture et la correction n'ont pas lu la leçon fausse")
+    };
+    // La leçon est bien dans la tête de la vague, puis dans celle de la correction, qui part de la tête.
+    let t2 = correction.tete.expect("la tête de la correction");
+    assert_ne!(t2, tete);
+    for tete in [&tete, &t2] {
+        let arbre = git(&essai.depot, &["ls-tree", "-r", "--name-only", tete]);
+        assert!(arbre.contains(".agents/skills/ecrite/SKILL.md"), "{arbre}");
+    }
+    // Ni l'un ni l'autre n'a reçu la moindre leçon, ni la fausse : rien du fil n'est un refus 6031.
+    // On cherche le code dans les notes qui en portent un (refus, refus de forge, fin de tentative), non dans tout
+    // le texte du fil, où une empreinte ou un id peut porter ces chiffres par hasard.
+    let fil = essai.fil();
+    let chaine = Code::LeconMalFormee.to_string();
+    let porte_6031 = |evenement: &Evenement| match evenement {
+        Evenement::Refus { code, preuve, .. } | Evenement::RefusForge { code, preuve, .. } => {
+            *code == 6031 || preuve.contains(&chaine)
+        }
+        Evenement::Fin { texte, .. } => texte.starts_with("6031 ") || texte.contains(&chaine),
+        _ => false,
+    };
+    let lues: Vec<&Evenement> = fil.iter().filter(|evenement| porte_6031(evenement)).collect();
+    assert!(lues.is_empty(), "la leçon fausse a été lue : {lues:?}");
+    let consigne = essai.garde("consigne-relecteur-1.txt").expect("la consigne du relecteur");
+    assert!(!consigne.contains("ecrite") && !consigne.contains("The lessons of this repository"), "{consigne}");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn une_main_qui_change_une_lecon_est_rouge_en_7018_et_sa_lecon_n_atteint_pas_la_vague() {
+    // Le refus au gel est montré dans `assemblage/tests.rs`.
+    // Le profil de l'essai n'a pas de `proteges` : `.agents/skills/` est protégé quand même.
+    let essai = Essai::nouveau("relecture-lecon-protegee");
+    essai.marque("ecrire-lecon");
+    let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    assert_eq!(essai.mener(&plan, None), ExitCode::FAILURE);
+    let fil = essai.fil();
+    let ouvertes = ouvertes(&fil);
+    let [v, ..] = &ouvertes[..] else { panic!("la vague : {ouvertes:?}") };
+    // La tentative de la tâche critique est rouge, et dit le refus 7018 et la leçon changée.
+    let fins = fins_de(&fil, v);
+    let rouge_en_7018 = |(couleur, texte): &(Couleur, String)| {
+        let debut = texte.starts_with("7018 vague.chemin_protege : ");
+        *couleur == Couleur::Rouge && debut && texte.contains(".agents/skills/ecrite/SKILL.md")
+    };
+    assert!(fins.iter().any(rouge_en_7018), "{fins:?}");
+    // Rien de la leçon n'est fusionné.
+    let arbre = git(&essai.depot, &["ls-tree", "-r", "--name-only", &tete_de(&fil, v)]);
+    assert!(!arbre.contains(".agents/skills"), "{arbre}");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
 fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     let essai = Essai::nouveau("relecture-corrigee");
     distant_nu(&essai.racine, &essai.depot);
@@ -679,7 +749,8 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
                     sortie/a.txt, ligne 3 : Le test ne peut pas echouer. SECRET-DE-LA-RELECTURE\n    Ajouter une \
                     assertion.\n";
     let (socle, consigne) = consigne.split_once("\n\n").unwrap();
-    assert!(socle.starts_with("A refused action is not retried another way.\n"), "{socle}");
+    let debut_du_socle = "A refusal from the wall or from your profile is not worked around another way.\n";
+    assert!(socle.starts_with(debut_du_socle), "{socle}");
     assert!(consigne.starts_with(objectif), "{consigne}");
     assert!(!consigne.contains("Un nom peu clair"), "une remarque à noter n'est pas à corriger : {consigne}");
     // Le texte des remarques n'est ni dans le corps de la PR, ni dans un commit poussé : il n'y reste que les nombres.
@@ -980,7 +1051,7 @@ fn vague_qui_pese(essai: &Essai, taille: usize) -> (Menee, String) {
     let pris = || Ok(Pris { sortie: String::new(), prouve: true });
     let id = crate::coeur::fil::lot();
     let issues = vec![(format!("main-{id}-1"), pris()), (format!("main-{id}-2"), pris())];
-    (Menee { id, branche: None, tete: Some(tete), arretee: false, issues }, base)
+    (Menee { id, branche: None, tete: Some(tete), arretee: false, issues, lecons: Vec::new() }, base)
 }
 
 /// La relecture de cette vague du plan des essais, sous cette origine.

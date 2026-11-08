@@ -32,7 +32,9 @@ proof. It is a small harness written in Rust, with no dependencies, for Linux an
   that was reviewed and replayed: a reviewed wave only pushes the head its review judged, or the correction of that
   review. Merging stays a human gesture.
 - **One thread of facts.** Everything that happens is appended to a journal outside the repository, and `lydite etat`
-  is read from it. A fact only declared by a hand is never shown as a fact Lydite observed.
+  is read from it. A fact only declared by a hand is never shown as a fact Lydite observed. Before a hand leaves, a
+  `main.consigne` line says what it received: its role, the SHA-256 of the exact text sent, the SHA-256 of its system
+  prompt file, and the lessons given and set aside. Both texts are kept in `consignes/<SHA-256>.txt`.
 - **A sealed thread.** Before it builds the body of its PR, and again when it ends (on every exit, published or not),
   a wave writes a `vague.sceau` line: the journal's length in bytes and the SHA-256 of those bytes. The PR receipt
   repeats the first one (`Fil sealed at <bytes> bytes: sha256 <hash>.`). `lydite etat` recomputes every seal, names
@@ -82,7 +84,9 @@ delai_main = 3600
 delai_preuve = 300
 ```
 
-The optional `proteges` key lists repository paths (files, or folders ending in `/`) that no hand may change, whatever the `fichiers` of its task, and the hand never runs `git commit`: Lydite commits its work itself.
+The optional `proteges` key lists repository paths (files, or folders ending in `/`) that no hand may change, whatever the `fichiers` of its task, and the hand never runs `git commit`: Lydite commits its work itself. The lessons folder `.agents/skills/` is always protected, with or without the key: a hand never changes a lesson (a change there turns its attempt red, and at the freeze the task is refused with 7018), only the human does. A neighbouring path such as `.agents/other` stays free.
+
+The optional `mesure` key is made for a measurement bench only, never for a real wave. It lists one or two settings, `sans-lecture` and `sans-a1`, to measure the effect of a lesson: `sans-lecture` keeps the lessons block in the system prompt but drops the reading instruction; `sans-a1` drops the two fixed sentences (honesty and perimeter) from a task hand's instruction, and keeps its list of files and everything else. Any other value is refused like any unknown profile value. The thread notes the active settings in `main.consigne.mesure`, and the receipt (the PR body and `lydite etat`) says so on a line of its own, `Measurement: <settings>.`, so a real wave is never weakened without saying it.
 
 ```bash
 lydite accepter <name>        # shows the profile and accepts its fingerprint; a changed profile must be accepted again
@@ -103,6 +107,22 @@ journal is at the top of `src/coeur/profil.rs`, `src/coeur/plan.rs` and `src/coe
 In a plan, the repeatable task key `exact : <file> : <text>` makes Lydite check itself, byte for byte and without a
 model, that the text appears in that file of the task (the file must be covered by the task's `fichiers`); a hand that
 splits it or leaves it out gets a red attempt.
+
+**Lessons.** A lesson is a file of the target repository, `.agents/skills/<name>/SKILL.md`, in the open skills format.
+It starts with a header of exactly `name: <name>` (the folder's name: `a-z`, digits and `-`, 1 to 64 characters) and
+`description: <the rule>` (one line, 1 to 200 characters), between two `---` lines. Then six sections, each once and in
+this order, each with text: `## What happened`, `## Why`, `## How it is checked`, `## Pitfall`, `## Files` (zero or
+more `- <path>` lines, written like a plan's `fichiers`; none means a general lesson) and `## Falls when`. UTF-8, 4096
+bytes at most. `lydite lecons <repository folder>` reads every lesson of a repository: it says nothing and exits 0 if
+all are right, otherwise it refuses (6031) with the file and the line of the first wrong one. A lesson is written by the
+session or the pilot, in the pull request that fixes the mistake, never by a hand.
+
+At the start of a wave Lydite reads the lessons of the base commit with git (a wrong one refuses the wave before any
+hand), and gives each task hand (a plan task, the correction, the CI retry) one to three of them: first those whose
+`## Files` and the task's `fichiers` cover each other, then the general ones, each group by name; a hand without
+`fichiers` gets only the general ones, and a bare hand none. They go into the system prompt, in the file
+`<Lydite folder>/consignes/<SHA-256 of the text>.txt` passed by `--append-system-prompt-file`; the splitter and the
+reviewer get the list of all lessons, one line each, the same way.
 
 **Windows.** The wall (the sandbox) is not held under Windows: a profile asks for it there, it does not require it.
 

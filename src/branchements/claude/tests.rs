@@ -410,6 +410,7 @@ fn les_reglages_d_un_vrai_profil_se_jugent_pris_par_une_main_fidele() {
     let (kraken, config, claude) =
         (regle(dir.join("lydite")), regle(dir.join("config")), regle(dir.join("personnel").join(".claude")));
     let commun = regle(dir.join("depot").join(".git"));
+    let bac_regle = regle(bac.clone());
     let fermes = format!(
         concat!(
             r#""AskUserQuestion","WebSearch","Edit({kraken}/fil.jsonl)","Edit({kraken}/profils/**)","#,
@@ -417,8 +418,9 @@ fn les_reglages_d_un_vrai_profil_se_jugent_pris_par_une_main_fidele() {
             r#""Read({config}/.credentials.json)","Edit({config}/.credentials.json)","#,
             r#""Read({claude}/.credentials.json)","Edit({claude}/.credentials.json)","#,
             r#""Edit({commun}/**)","Bash(git commit:*)","Bash(git commit *)","#,
-            r#""PowerShell(git commit:*)","PowerShell(git commit *)"]"#,
+            r#""PowerShell(git commit:*)","PowerShell(git commit *)","Edit({bac}/.agents/skills/**)"]"#,
         ),
+        bac = bac_regle,
         kraken = kraken,
         config = config,
         claude = claude,
