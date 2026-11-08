@@ -351,7 +351,9 @@ impl Relecture<'_> {
     fn relecteur(&self) -> Result<Lue, Refus> {
         let (id, tete, base) = (&self.menee.id, self.tete, self.base);
         let fichiers = fichiers_de(&self.critiques);
-        // Un git qui ne lit pas le diff est dit par `ecrire_le_diff` (7009) : sans lui, pas de point.
+        // Un git qui ne lit pas le diff est dit par `ecrire_le_diff` (7009) : sans lui, pas de point. Un échec de
+        // lecture a deux effets : la publication s'arrête (`points_a_justifier`, comme `reglages_changes`), et le
+        // relecteur ne reçoit aucun point (`unwrap_or_default`).
         let points = racines(self.depot)
             .ok()
             .and_then(|(racine, _)| alarmes::lire(&racine, base, tete, fichiers.as_deref()).ok())

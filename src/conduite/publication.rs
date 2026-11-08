@@ -24,10 +24,11 @@ use std::time::Duration;
 
 use crate::branchements::bac::{retirer, temporaire_de};
 use crate::branchements::dossier::{self, Fil};
+use crate::branchements::git::faire_borne;
 use crate::branchements::github::{Ci, Forge, GIT_FORGE, PrOuverte, a_pousser, distant, en_echec};
 use crate::coeur::erreur::{Code, Refus, queue};
 use crate::coeur::fil::{self, Base, Couleur, Evenement, Foi, Note, Vague, correction_de, etat, relecture_de};
-use crate::coeur::plan::{Plan, Tache};
+use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
 use crate::conduite::alarmes;
 use crate::conduite::lancer::Menee;
 
@@ -509,16 +510,15 @@ impl Proposition<'_> {
         Ok(reglages_changes(noms.split('\0').filter(|nom| !nom.is_empty())))
     }
 
-    /// Les points à justifier du diff de la base à `tete` ([`alarmes::points`]). Un git qui ne le lit pas est une
+    /// Les points à justifier du diff de la base à `tete` ([`alarmes::points`]). Le diff se lit avec une borne, comme
+    /// [`alarmes::lire`] : au-delà de [`TAILLE_MAX`] octets il est lu coupé. Un git qui ne le lit pas est une
     /// erreur : le corps ne se tait pas sur ce qu'il n'a pas lu.
     fn points_a_justifier(&self, tete: &str) -> Result<Vec<String>, String> {
         let mut args = alarmes::ARGUMENTS.to_vec();
         args.extend([self.base.as_str(), tete]);
-        let diff = self
-            .forge
-            .faire(self.forge.git(&args), None)
+        let (gardes, _) = faire_borne(self.forge.git(&args), TAILLE_MAX + 1)
             .map_err(|vu| format!("le diff de la base à la tête ne se lit pas : {vu}"))?;
-        Ok(alarmes::points(&diff))
+        Ok(alarmes::points(&String::from_utf8_lossy(&gardes)))
     }
 
     /// La branche locale `nom` du dépôt visé et sa valeur, si son travail est dans `poussee` : sa valeur en est un
