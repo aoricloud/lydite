@@ -5,7 +5,6 @@ import re
 import subprocess
 import tempfile
 import unittest
-from pathlib import Path
 
 from .chargeur import DOSSIER, FauxContexte, plugin, sous_module
 
@@ -92,7 +91,12 @@ class Regles(unittest.TestCase):
 
     def test_le_code_ne_lit_pas_de_fichier_de_cle_et_n_appelle_pas_de_shell(self):
         interdits = (
-            r"\.env\b", r"auth\.json", r"shell\s*=\s*True", r"os\.system", r"os\.popen", r"os\.getenv",
+            r"\.env\b",
+            r"auth\.json",
+            r"shell\s*=\s*True",
+            r"os\.system",
+            r"os\.popen",
+            r"os\.getenv",
             r"os\.environ\[",
         )
         for chemin in DOSSIER.glob("*.py"):
