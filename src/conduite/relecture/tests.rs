@@ -554,10 +554,27 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     let (t, branche) = (tete_de(&fil, v), format!("lydite/vague-{v}"));
     assert_eq!(git(&essai.depot, &["rev-parse", &branche]), t);
     assert_eq!(essai.distante(&branche), Some(t.clone()));
+    // Le verdict suit aussitôt la relecture : la tête relue, et le lancement du relecteur (null pour une main nue).
+    let rang = fil.iter().position(|e| matches!(e, Evenement::Relecture { .. })).unwrap();
+    let lancement = fil.iter().rev().find_map(|e| match e {
+        Evenement::Lancement { vague, profil, empreinte, modele, .. } if vague == r => {
+            Some((profil.clone(), empreinte.clone(), modele.clone()))
+        }
+        _ => None,
+    });
+    let (profil, empreinte, modele) = match lancement {
+        Some((profil, empreinte, modele)) => (Some(profil), Some(empreinte), Some(modele)),
+        None => (None, None, None),
+    };
+    let verdict =
+        Evenement::VerdictRelecture { vague: r.clone(), relue: v.clone(), sha: t.clone(), profil, empreinte, modele };
+    assert_eq!(fil.get(rang + 1), Some(&verdict), "{fil:?}");
     // Son corps dit la relecture en nombres, jamais en texte.
-    let attendu = "Reçu\n- Coût : inconnu\n- 3 mains, 0 relance, 0 classée\n- Réglages de la preuve changés : aucun\n\n\
-                   Ecrire deux fichiers\n\nPreuve : exit 0 → vert\n\na : Ecrire le fichier critique\nb : Ecrire \
-                   l'autre fichier\n\nRelecture : 1 remarques, dont 0 bloquantes.\n";
+    let attendu = format!(
+        "Reçu\n- Coût : inconnu\n- 3 mains, 0 relance, 0 classée\n- Réglages de la preuve changés : aucun\n\n\
+         Ecrire deux fichiers\n\nPreuve : exit 0 → vert\n\na : Ecrire le fichier critique\nb : Ecrire \
+         l'autre fichier\n\nRelecture : 1 remarques, dont 0 bloquantes.\nReviewed and replayed on commit {t}.\n"
+    );
     assert_eq!(essai.corps(), attendu);
     // Le relecteur a reçu sa consigne : l'objectif, la tâche critique seule avec ses fichiers, la preuve prêtée.
     let consigne = essai.garde("consigne-relecteur-1.txt").unwrap();
@@ -629,7 +646,11 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     assert!(!consigne.contains("Un nom peu clair"), "une remarque à noter n'est pas à corriger : {consigne}");
     // Le texte des remarques n'est ni dans le corps de la PR, ni dans un commit poussé : il n'y reste que les nombres.
     let corps = essai.corps();
-    assert!(corps.ends_with("\n\nRelecture : 2 remarques, dont 1 bloquantes, corrigées.\n"), "{corps}");
+    let ligne = format!(
+        "Relecture : 2 remarques, dont 1 bloquantes, corrigées.\nReviewed on commit {t}, corrected in {t2} without a \
+         second review, and replayed on commit {t2}.\n"
+    );
+    assert!(corps.ends_with(&format!("\n\n{ligne}")), "{corps}");
     let messages = git(&essai.depot, &["log", "--format=%B", &format!("{base}..{t2}")]);
     for (ou, texte) in [("le corps", corps.as_str()), ("l'histoire", messages.as_str())] {
         assert!(!texte.contains("SECRET-DE-LA-RELECTURE") && !texte.contains("Le test ne peut pas"), "{ou} : {texte}");

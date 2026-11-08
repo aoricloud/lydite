@@ -14,8 +14,10 @@
 //!    pas, les seuls changements du bac sont lui et [`DIFF`] (sinon 7014, `assemblage::seul_change`), et il se lit
 //!    ([`lire_remarques`], sinon 7015). Rouge, le relecteur a une relance, le refus en contexte ; rouge encore, la
 //!    relecture est classée : le travail critique n'a pas été relu, rien ne se pousse, et c'est le refus 7016 ;
-//! 4. prise, la relecture se note au fil avec le nombre de remarques et leur texte (le fil reste local), puis le bac du
-//!    relecteur se retire. Sans remarque bloquante, la forge peut partir de `t`. Avec, une seule correction part :
+//! 4. prise, la relecture se note au fil avec le nombre de remarques et leur texte (le fil reste local), puis son
+//!    verdict (`vague.verdict` : la tête `t` relue, et le profil, l'empreinte et le modèle du lancement du relecteur,
+//!    `null` pour une main nue), avant la correction et la forge ; puis le bac du relecteur se retire. Sans remarque
+//!    bloquante, la forge peut partir de `t`. Avec, une seule correction part :
 //!    une vague d'une tâche `correction`, partie de `t`, de modèle la clé `relance` du profil, de `fichiers` l'union
 //!    de ceux des tâches critiques, de preuve celle de la vague. Assemblée en `t2`, elle fait avancer la branche de
 //!    la vague de `t` à `t2`, d'où la forge part ; non assemblée, ou sans rien changer à `t`, rien ne se pousse, et
@@ -37,7 +39,7 @@ use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-use crate::branchements::dossier::Fil;
+use crate::branchements::dossier::{Fil, lire};
 use crate::branchements::git::{faire, faire_borne, geste, racines};
 use crate::coeur::erreur::{Code, Refus, nommee, queue};
 use crate::coeur::fil::Evenement;
@@ -336,14 +338,52 @@ impl Relecture<'_> {
     fn mener(&self) -> Result<Prise, Refus> {
         let Lue { vague, main, remarques, texte } = self.relecteur()?;
         let (n, bloquantes) = (remarques.len(), remarques.iter().filter(|remarque| remarque.bloquante).count());
+        let vague_du_relecteur = vague.clone();
         let note = Evenement::Relecture { vague, relue: self.menee.id.clone(), n, bloquantes, remarques: texte };
         if let Err(erreur) = Fil::seance(self.dossier, "humain").noter(&note) {
             let preuve = format!("la relecture {main} de la vague {} n'est pas notée : {erreur}", self.menee.id);
             return Err(Refus::new(Code::FilInjoignable, preuve, SANS_NOTE));
         }
+        // Le verdict : la tête relue, et le profil, l'empreinte et le modèle du lancement du relecteur.
+        let (profil, empreinte, modele) = self.lancement_du_relecteur(&vague_du_relecteur).map_err(|erreur| {
+            let preuve = format!("le lancement de la relecture {main} ne se lit pas au fil : {erreur}");
+            Refus::new(Code::FilInjoignable, preuve, SANS_NOTE)
+        })?;
+        let sha = self.tete.to_string();
+        let verdict = Evenement::VerdictRelecture {
+            vague: vague_du_relecteur,
+            relue: self.menee.id.clone(),
+            sha,
+            profil,
+            empreinte,
+            modele,
+        };
+        if let Err(erreur) = Fil::seance(self.dossier, "humain").noter(&verdict) {
+            let preuve =
+                format!("le verdict de la relecture {main} de la vague {} n'est pas noté : {erreur}", self.menee.id);
+            return Err(Refus::new(Code::FilInjoignable, preuve, SANS_NOTE));
+        }
         retirer_le_bac(self.depot, self.dossier, "le bac du relecteur", &main, self.tete, &[REMARQUES, DIFF]);
         let correction = if bloquantes == 0 { None } else { Some(self.corriger(&remarques)?) };
         Ok(Prise { main, n, bloquantes, correction })
+    }
+
+    /// Le profil, l'empreinte et le modèle du dernier `main.lancement` de la main du relecteur dans sa vague `vague`,
+    /// lus au fil ; `None` pour chacun si la main est nue et n'en a noté aucun. Un fil qui ne se relit pas est une
+    /// erreur.
+    #[allow(clippy::type_complexity)]
+    fn lancement_du_relecteur(&self, vague: &str) -> Result<(Option<String>, Option<String>, Option<String>), String> {
+        let lu = lire(self.dossier).map_err(|refus| refus.preuve)?;
+        let lancement = lu.notes.into_iter().rev().find_map(|note| match note.evenement {
+            Evenement::Lancement { vague: v, main: 1, profil, empreinte, modele, .. } if v == vague => {
+                Some((profil, empreinte, modele))
+            }
+            _ => None,
+        });
+        Ok(match lancement {
+            Some((profil, empreinte, modele)) => (Some(profil), Some(empreinte), Some(modele)),
+            None => (None, None, None),
+        })
     }
 
     /// Le relecteur : sa vague de copies, son juge, son diff. Rend ce qu'il a rendu, ou le refus 7016. Sous une

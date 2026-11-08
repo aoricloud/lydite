@@ -28,8 +28,9 @@ proof. It is a small harness written in Rust, with no dependencies, for Linux an
   (`impossible (déclarée)`), the receipt counts such tasks next to the set-aside ones, and the public pull request
   body never quotes the hand's words.
 - **A pull request, never a merge.** Lydite pushes the wave's branch, opens the pull request, reads its CI and, if it
-  is red, reruns it once. The pull request body states the proof result and the review outcome. Merging stays a human
-  gesture.
+  is red, reruns it once. The pull request body states the proof result and the review outcome, and names the commit
+  that was reviewed and replayed: a reviewed wave only pushes the head its review judged, or the correction of that
+  review. Merging stays a human gesture.
 - **One thread of facts.** Everything that happens is appended to a journal outside the repository, and `lydite etat`
   is read from it. A fact only declared by a hand is never shown as a fact Lydite observed.
 - **Plans, reviews.** An objective (or an issue) is split into tasks by a hand, and Lydite reads the plan itself;

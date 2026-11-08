@@ -517,8 +517,11 @@ fn une_pr_verte_part_de_la_base_distante_puis_range_ses_bacs() {
     attendus.extend(tour_de_ci(&tete));
     assert_eq!(lieu.gh.appels(), attendus);
     assert_eq!(lieu.appels_bien_partis(), 6);
-    let corps = "Reçu\n- Coût : inconnu\n- 2 mains, 0 relance, 0 classée\n- Réglages de la preuve changés : aucun\n\n\
-                 Ecrire a et b\n\nPreuve : exit 0 → vert\n\na : Ecrire a\nb : Ecrire b\n";
+    let corps = format!(
+        "Reçu\n- Coût : inconnu\n- 2 mains, 0 relance, 0 classée\n- Réglages de la preuve changés : aucun\n\n\
+         Ecrire a et b\n\nPreuve : exit 0 → vert\n\na : Ecrire a\nb : Ecrire b\n\n\
+         Replayed on commit {tete}, not reviewed: no task is critical.\n"
+    );
     assert_eq!(lieu.gh.entree(2), corps);
     // Le commit local n'est pas dans la PR : ni dans l'histoire de la tête poussée, ni dans son arbre.
     let mut dedans = Command::new("git");
@@ -1246,6 +1249,203 @@ fn une_ci_muette_en_conflit_ou_changee_arrete_la_forge_8008_8009_8010() {
         assert_eq!(lieu.distante(&format!("lydite/vague-{}", menee.id)), tete);
     }
     assert_eq!(lieu.appels_bien_partis(), 12);
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+/// Les notes d'une vague `v` relue par `r`, corrigée par `c` : la relecture (`bloquantes` sur `n = 1`), son verdict sur
+/// `jugee`, la fusion de `v` sur `jugee`, et la correction de `corrige` (que `c` vise) avec ses fusions `fusions`.
+fn relue_notee(bloquantes: usize, jugee: &str, corrige: &str, fusions: &[&str]) -> Vec<Evenement> {
+    let mut notes = vec![
+        Evenement::Fusion { vague: "v".into(), main: 1, sha: jugee.into(), verif: String::new() },
+        Evenement::Relecteur { vague: "r".into(), relue: "v".into() },
+        Evenement::Relecture { vague: "r".into(), relue: "v".into(), n: 1, bloquantes, remarques: "r".into() },
+        Evenement::VerdictRelecture {
+            vague: "r".into(),
+            relue: "v".into(),
+            sha: jugee.into(),
+            profil: Some("claude".into()),
+            empreinte: Some("e".repeat(64)),
+            modele: Some("sonnet".into()),
+        },
+        Evenement::Correction { vague: "c".into(), corrige: corrige.into() },
+    ];
+    for sha in fusions {
+        notes.push(Evenement::Fusion { vague: "c".into(), main: 1, sha: (*sha).into(), verif: String::new() });
+    }
+    notes
+}
+
+/// Ce que `controler_la_tete` dit de la vague `v` face à `tete`, d'après ces notes.
+fn controle(notes: &[Evenement], tete: &str) -> Result<String, Refus> {
+    controler_la_tete(&etat(notes), notes, "v", tete)
+}
+
+#[test]
+fn une_vague_relue_sans_bloquante_ne_pousse_que_la_tete_jugee() {
+    let (t, autre) = ("a".repeat(40), "b".repeat(40));
+    let notes = relue_notee(0, &t, "v", &[]);
+    assert_eq!(controle(&notes, &t).unwrap(), format!("Reviewed and replayed on commit {t}."));
+    // Une autre tête est refusée en 7016, et la preuve nomme les deux commits.
+    let refus = controle(&notes, &autre).unwrap_err();
+    assert_eq!(refus.code, Code::RelectureManquee);
+    assert!(refus.preuve.contains(&t) && refus.preuve.contains(&autre), "{}", refus.preuve);
+    // Même une tête qui fut relue pour une autre vague, ou une relance de la CI du même nom : seule la jugée passe.
+    let sans_verdict: Vec<Evenement> =
+        notes.iter().filter(|e| !matches!(e, Evenement::VerdictRelecture { .. })).cloned().collect();
+    assert_eq!(controle(&sans_verdict, &t).unwrap_err().code, Code::RelectureManquee);
+}
+
+#[test]
+fn le_verdict_d_un_autre_relecteur_ne_juge_pas_la_relecture() {
+    let t = "a".repeat(40);
+    let mut notes = relue_notee(0, &t, "v", &[]);
+    // Une relecture plus récente, d'un autre relecteur, sans verdict : le verdict de `r` ne la couvre pas.
+    notes.push(Evenement::Relecture {
+        vague: "s".into(),
+        relue: "v".into(),
+        n: 0,
+        bloquantes: 0,
+        remarques: "".into(),
+    });
+    assert_eq!(controle(&notes, &t).unwrap_err().code, Code::RelectureManquee);
+}
+
+#[test]
+fn des_bloquantes_ne_poussent_que_la_correction_qui_vise_la_relecture() {
+    let (t, t2, autre) = ("a".repeat(40), "c".repeat(40), "d".repeat(40));
+    // Sans correction : 7016, quelle que soit la tête.
+    let sans = relue_notee(1, &t, "v", &[]);
+    for tete in [&t, &t2] {
+        let refus = controle(&sans, tete).unwrap_err();
+        assert_eq!(refus.code, Code::RelectureManquee, "{tete}");
+        assert!(refus.preuve.contains(tete.as_str()) && refus.preuve.contains(&t), "{}", refus.preuve);
+    }
+    // Seulement la correction d'une autre relecture : 7016, même sur sa tête.
+    let d_une_autre = relue_notee(1, &t, "autre", &[&t2]);
+    for tete in [&t, &t2] {
+        assert_eq!(controle(&d_une_autre, tete).unwrap_err().code, Code::RelectureManquee, "{tete}");
+    }
+    // La tête relue elle-même est refusée, correction vue ou non.
+    let corrigee = relue_notee(1, &t, "v", &[&t2]);
+    let refus = controle(&corrigee, &t).unwrap_err();
+    assert_eq!(refus.code, Code::RelectureManquee);
+    assert!(refus.preuve.contains(&t) && refus.preuve.contains(&t2), "{}", refus.preuve);
+    let sans_changement = relue_notee(1, &t, "v", &[&t]);
+    assert_eq!(controle(&sans_changement, &t).unwrap_err().code, Code::RelectureManquee);
+    // Une autre tête que celle de la correction est refusée aussi ; c'est son dernier `vague.fusion` qui compte.
+    assert_eq!(controle(&corrigee, &autre).unwrap_err().code, Code::RelectureManquee);
+    let deux = relue_notee(1, &t, "v", &[&autre, &t2]);
+    assert!(controle(&deux, &t2).is_ok() && controle(&deux, &autre).is_err());
+    // La tête de la correction passe.
+    assert!(controle(&corrigee, &t2).is_ok());
+}
+
+#[test]
+fn la_ligne_du_corps_dit_le_commit_relu_et_rejoue() {
+    let (t, t2) = ("a".repeat(40), "c".repeat(40));
+    // Sans correction.
+    let notes = relue_notee(0, &t, "v", &[]);
+    assert_eq!(controle(&notes, &t).unwrap(), format!("Reviewed and replayed on commit {t}."));
+    // Avec une correction : le commit relu, la tête corrigée, sans seconde relecture.
+    let notes = relue_notee(1, &t, "v", &[&t2]);
+    assert_eq!(
+        controle(&notes, &t2).unwrap(),
+        format!("Reviewed on commit {t}, corrected in {t2} without a second review, and replayed on commit {t2}.")
+    );
+    // Sans relecture : la tête part comme elle est, et le corps le dit.
+    let ouverte = [Evenement::Fusion { vague: "v".into(), main: 1, sha: t.clone(), verif: String::new() }];
+    assert_eq!(controle(&ouverte, &t).unwrap(), format!("Replayed on commit {t}, not reviewed: no task is critical."));
+    // « replayed » ne s'écrit que si un `vague.fusion` de la vague ou de sa correction porte le commit.
+    let mut sans_fusion = relue_notee(0, &t, "v", &[]);
+    sans_fusion.remove(0);
+    assert_eq!(controle(&sans_fusion, &t).unwrap(), format!("Reviewed and not replayed on commit {t}."));
+    let mut sans_fusion = relue_notee(1, &t, "v", &[&t2]);
+    sans_fusion.pop();
+    sans_fusion.push(Evenement::Fusion { vague: "autre".into(), main: 1, sha: t2.clone(), verif: String::new() });
+    let ligne = controle(&sans_fusion, &t2);
+    assert!(ligne.is_err(), "sans fusion de la correction, la tête de la correction ne se trouve pas : {ligne:?}");
+    assert_eq!(controle(&[], &t2).unwrap(), format!("Not replayed on commit {t2}, not reviewed: no task is critical."));
+}
+
+#[test]
+fn une_vague_relue_dont_la_tete_n_est_pas_jugee_ne_pousse_rien() {
+    let lieu = lieu("forge-verdict");
+    let proposition = lieu.proposition();
+    let plan = plan(&["plan 1", "objectif : Ecrire a", "preuve : exit 0", "tache a", "    Ecrire a"]);
+    let menee = lieu.vague(&proposition, &plan);
+    let tete = menee.tete.clone().unwrap();
+    // Le fil dit la vague relue sur une autre tête, sans bloquante : la tête de la vague n'est pas la jugée.
+    let jugee = "e".repeat(40);
+    let fil = Fil::seance(&lieu.kraken, "humain");
+    let relecteur = "relecteur-1";
+    for note in [
+        Evenement::Relecture {
+            vague: relecteur.into(),
+            relue: menee.id.clone(),
+            n: 0,
+            bloquantes: 0,
+            remarques: String::new(),
+        },
+        Evenement::VerdictRelecture {
+            vague: relecteur.into(),
+            relue: menee.id.clone(),
+            sha: jugee.clone(),
+            profil: None,
+            empreinte: None,
+            modele: None,
+        },
+    ] {
+        fil.noter(&note).unwrap();
+    }
+    assert_eq!(lieu.apres(&proposition, &plan, &menee, Duration::from_secs(60)), ExitCode::FAILURE);
+    // Rien ne part : pas de `forge.poussee`, ni de PR, ni de branche au distant ; le refus 7016 nomme les deux commits.
+    let notes = lieu.forge_du_fil(&menee.id);
+    assert_eq!(mots(&notes), ["refus 7016"]);
+    let Evenement::RefusForge { preuve, .. } = &notes[0] else { panic!("{notes:?}") };
+    assert!(preuve.contains(&tete) && preuve.contains(&jugee), "{preuve}");
+    assert_eq!(lieu.gh.appels(), ["auth status --hostname forge.test".to_string()]);
+    assert_eq!(lieu.poussees(), "");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn une_vague_relue_sur_sa_tete_pousse_et_le_corps_nomme_le_commit() {
+    let lieu = lieu("forge-verdict-ok");
+    let proposition = lieu.proposition();
+    let plan = plan(&["plan 1", "objectif : Ecrire a", "preuve : exit 0", "tache a", "    Ecrire a"]);
+    let menee = lieu.vague(&proposition, &plan);
+    let tete = menee.tete.clone().unwrap();
+    let fil = Fil::seance(&lieu.kraken, "humain");
+    let relecteur = "relecteur-1";
+    for note in [
+        Evenement::Relecture {
+            vague: relecteur.into(),
+            relue: menee.id.clone(),
+            n: 0,
+            bloquantes: 0,
+            remarques: String::new(),
+        },
+        Evenement::VerdictRelecture {
+            vague: relecteur.into(),
+            relue: menee.id.clone(),
+            sha: tete.clone(),
+            profil: None,
+            empreinte: None,
+            modele: None,
+        },
+    ] {
+        fil.noter(&note).unwrap();
+    }
+    lieu.ouvre(2, &tete, &[run("test", "completed", "success")]);
+    assert_eq!(lieu.apres(&proposition, &plan, &menee, Duration::from_secs(60)), ExitCode::SUCCESS);
+    assert_eq!(lieu.distante(&format!("lydite/vague-{}", menee.id)), tete);
+    let corps = lieu.gh.entree(2);
+    assert!(
+        corps.ends_with(&format!(
+            "Relecture : 0 remarques, dont 0 bloquantes.\nReviewed and replayed on commit {tete}.\n"
+        )),
+        "{corps}"
+    );
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
