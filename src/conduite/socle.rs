@@ -28,13 +28,14 @@ pub(crate) fn fixe() -> String {
     [REFUS, DONNEE, ROLE, ARRET].join("\n")
 }
 
-/// Le socle d'une main partie à `depart` (en secondes depuis l'époque Unix) et jouée sous `delai` : l'heure de son
-/// arrêt, en UTC, et les minutes qui lui restent, que le délai arrondit au-dessus. Pure : les mêmes pièces donnent le
-/// même texte, octet pour octet.
+/// Le socle d'une main partie à `depart` (en secondes depuis l'époque Unix) et jouée sous `delai` : les minutes qui
+/// lui restent, que le délai arrondit au-dessous, et l'heure de son arrêt, en UTC : celle du départ plus ces minutes,
+/// tronquée à la minute. Les deux disent le même instant, jamais après l'arrêt réel. Pure : les mêmes pièces donnent
+/// le même texte, octet pour octet.
 pub(crate) fn socle(depart: u64, delai: Duration) -> String {
-    let arret = depart.saturating_add(delai.as_secs()) % 86_400;
+    let minutes = delai.as_secs() / 60;
+    let arret = depart.saturating_add(minutes * 60) % 86_400;
     let heure = format!("{:02}:{:02}", arret / 3600, arret % 3600 / 60);
-    let minutes = delai.as_secs().div_ceil(60);
     let arret = ARRET.replace("<HH:MM>", &heure).replace("<N>", &minutes.to_string());
     [REFUS, DONNEE, ROLE, &arret].join("\n")
 }
