@@ -31,6 +31,7 @@ use crate::coeur::fil::{
     self, Base, Couleur, Evenement, Foi, Note, SceauVague, Vague, correction_de, etat, relecture_de,
 };
 use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
+use crate::coeur::profil::{SANS_A1, SANS_LECTURE};
 use crate::coeur::remarques::lire_fichier;
 use crate::conduite::alarmes;
 use crate::conduite::lancer::Menee;
@@ -753,6 +754,9 @@ pub(crate) struct Recu {
     duree: Option<u128>,
     /// Le sceau du fil noté juste avant le corps de la PR ; `None` hors d'une PR (`recu_de` n'en lit aucun).
     sceau: Option<SceauVague>,
+    /// Les réglages de mesure (`main.consigne.mesure`) que les mains de ces vagues ont reçus, sans doublon, dans
+    /// l'ordre `sans-lecture`, `sans-a1`. Vide pour une vraie vague.
+    mesure: Vec<&'static str>,
 }
 
 /// Le reçu de la vague `id` parmi `vagues` : elle, son découpage, ses relectures, ses corrections et ses relances, et
@@ -795,6 +799,13 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
                 Base::Forfait => recu.forfait = true,
                 Base::Estime => recu.estime = true,
                 Base::Inconnu => recu.inconnu = true,
+            }
+        }
+        if let Evenement::Consigne { mesure, .. } = &note.evenement {
+            for reglage in [SANS_LECTURE, SANS_A1] {
+                if mesure.lines().any(|ligne| ligne == reglage) && !recu.mesure.contains(&reglage) {
+                    recu.mesure.push(reglage);
+                }
             }
         }
         let ms = millisecondes(&note.instant);
@@ -855,10 +866,18 @@ impl Recu {
         parties.join(" · ")
     }
 
+    /// La ligne à part qui dit les réglages de mesure posés, `Measurement: sans-lecture, sans-a1.` ; `None` quand
+    /// aucun n'est posé : une vraie vague n'en porte pas.
+    pub(crate) fn ligne_de_mesure(&self) -> Option<String> {
+        (!self.mesure.is_empty()).then(|| format!("Measurement: {}.", self.mesure.join(", ")))
+    }
+
     /// Les lignes du bloc « Reçu » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la durée ;
-    /// puis, si le reçu porte un sceau, `- Fil sealed at <octets> bytes: sha256 <empreinte>.`
+    /// puis, si des réglages de mesure sont posés, `- Measurement: <réglages>.` ; puis, si le reçu porte un sceau,
+    /// `- Fil sealed at <octets> bytes: sha256 <empreinte>.`
     pub(crate) fn lignes_de_pr(&self) -> Vec<String> {
         let mut lignes = vec![format!("- Coût : {}", self.cout()), format!("- {}", self.mains())];
+        lignes.extend(self.ligne_de_mesure().map(|ligne| format!("- {ligne}")));
         lignes
             .extend(self.sceau.iter().map(|s| format!("- Fil sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)));
         lignes

@@ -1,6 +1,7 @@
 use super::*;
 use crate::branchements::bac::temporaire_de;
 use crate::branchements::processus::{retire_de_l_env, retire_de_la_preuve};
+use crate::coeur::profil::Mesure;
 use crate::essais::mains::{DELAI, bac_jetable, profil_borne};
 use std::collections::BTreeMap;
 use std::env;
@@ -166,6 +167,69 @@ result.\n\nChange only the files of your task; the other tasks do the rest.";
 
 /// La phrase fixe qui suit la ligne des fichiers, sur sa propre ligne.
 const SUITE: &str = "\nLydite commits your work itself: do not run git commit.";
+
+/// [`super::consigne`] sans réglage de mesure : celle d'une vraie vague.
+fn consigne(
+    objectif: &str,
+    fichiers: Option<&[String]>,
+    exacts: &[(String, String)],
+    verifier: Option<&str>,
+    precedente: Option<&str>,
+    pretee: bool,
+    socle: &str,
+) -> String {
+    super::consigne(objectif, fichiers, exacts, verifier, precedente, pretee, socle, false)
+}
+
+#[test]
+fn sans_a1_retire_honnetete_et_perimetre_et_rien_d_autre() {
+    let fichiers = ["src/a.rs".to_string(), "docs/".to_string()];
+    let exacts = [("src/a.rs".to_string(), "fn a() {}".to_string())];
+    for (fichiers, exacts, verifier, precedente, pretee) in [
+        (Some(&fichiers[..]), &exacts[..], Some("cargo test"), Some("avant"), true),
+        (Some(&fichiers[..]), &[][..], None, None, false),
+        (None, &exacts[..], Some("cargo test"), None, false),
+        (None, &[][..], None, Some("avant"), false),
+    ] {
+        let pieces =
+            |sans_a1| super::consigne("Écrire a", fichiers, exacts, verifier, precedente, pretee, "S", sans_a1);
+        let (pleine, nue) = (pieces(false), pieces(true));
+        assert!(pleine.contains(HONNETETE) && pleine.contains(PERIMETRE), "{pleine}");
+        assert!(!nue.contains(HONNETETE) && !nue.contains(PERIMETRE) && !nue.contains("IMPOSSIBLE"), "{nue}");
+        // Rien d'autre ne change : retirer les deux phrases de la consigne pleine donne la consigne nue.
+        let attendue = pleine.replacen(&format!("{HONNETETE}\n\n"), "", 1);
+        let attendue = match fichiers {
+            Some(_) => attendue.replacen(&format!("{PERIMETRE} "), "", 1),
+            None => attendue.replacen(&format!("{PERIMETRE}\n"), "", 1),
+        };
+        assert_eq!(nue, attendue);
+        assert!(nue.contains(COMMIT), "{nue}");
+        assert_eq!(nue.contains("Your files: src/a.rs docs/"), fichiers.is_some(), "{nue}");
+        assert_eq!(nue.contains("fn a() {}"), !exacts.is_empty(), "{nue}");
+    }
+}
+
+#[test]
+fn sans_a1_ne_laisse_pas_de_ligne_vide_en_trop() {
+    let nue = super::consigne("Écrire a", None, &[], None, None, false, "S", true);
+    assert!(nue.starts_with(&format!("S\n\nÉcrire a\n\n{COMMIT}\n\n")), "{nue}");
+}
+
+#[test]
+fn le_profil_sans_a1_retire_les_deux_phrases_de_la_consigne_de_tache_seulement() {
+    let pleine = Profil::faux(vec![], DELAI);
+    let mesure = Mesure { sans_a1: true, ..Mesure::default() };
+    let nue = Profil::faux(vec![], DELAI).avec_mesure(mesure);
+    let (a, b) = (
+        consigne_de(&pleine, "Écrire a", None, &[], None, None, false),
+        consigne_de(&nue, "Écrire a", None, &[], None, None, false),
+    );
+    assert!(a.contains(HONNETETE) && a.contains(PERIMETRE), "{a}");
+    assert!(!b.contains(HONNETETE) && !b.contains(PERIMETRE) && b.contains(COMMIT), "{b}");
+    // Une main jugée n'a jamais ces phrases : le réglage n'y change rien.
+    let juge = |profil: &Profil| consigne_de(profil, "Juger", None, &[], Some("exit 0"), Some("avant"), true);
+    assert_eq!(juge(&pleine).split_once("\n\n").unwrap().1, juge(&nue).split_once("\n\n").unwrap().1);
+}
 
 #[test]
 fn la_consigne_nomme_les_fichiers_de_la_tache_a_la_suite_de_la_ligne_fixe() {

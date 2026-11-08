@@ -201,6 +201,46 @@ fn sans_fichier_claude_est_le_profil_integre() {
 }
 
 #[test]
+fn la_cle_mesure_liste_un_ou_deux_reglages_et_aucun_par_defaut() {
+    let mesure = |ligne: &str| lu(&format!("sorte = claude\n{ligne}\n")).map(|profil| profil.mesure());
+    assert_eq!(lu("sorte = claude\n").unwrap().mesure(), Mesure::default());
+    assert_eq!(lu("sorte = claude\n").unwrap().mesure().texte(), "");
+    assert_eq!(mesure("mesure = sans-lecture").unwrap(), Mesure { sans_lecture: true, sans_a1: false });
+    assert_eq!(mesure("mesure = sans-a1").unwrap(), Mesure { sans_lecture: false, sans_a1: true });
+    let deux = Mesure { sans_lecture: true, sans_a1: true };
+    assert_eq!(mesure("mesure = sans-lecture, sans-a1").unwrap(), deux);
+    assert_eq!(mesure("mesure = sans-a1 ,sans-lecture").unwrap(), deux);
+    // Les réglages actifs se disent un par ligne, dans le même ordre quel que soit celui du fichier.
+    assert_eq!(deux.texte(), "sans-lecture\nsans-a1");
+    assert_eq!(Mesure { sans_lecture: false, sans_a1: true }.texte(), "sans-a1");
+    // Le profil intégré et une main brute n'ont aucun réglage.
+    assert_eq!(lire("claude", integre("claude").unwrap(), None, None).unwrap().mesure(), Mesure::default());
+    assert_eq!(Profil::faux(Vec::new(), Duration::from_secs(1)).mesure(), Mesure::default());
+    // Une autre valeur, un réglage redit, une valeur vide, une clé redite : refusés comme toute valeur d'un profil.
+    for ligne in [
+        "mesure = autre",
+        "mesure = sans-lecture, autre",
+        "mesure = SANS-A1",
+        "mesure = sans-a1 sans-lecture",
+        "mesure = sans-a1, sans-a1",
+        "mesure = sans-lecture,sans-a1,sans-lecture",
+        "mesure =",
+        "mesure = sans-a1,",
+        "mesure = -sans-a1",
+        "mesure = sans-a1\nmesure = sans-lecture",
+    ] {
+        let refus = mesure(ligne).expect_err(ligne);
+        assert_eq!(refus.code, Code::ProfilLigneRefusee, "{ligne} : {refus}");
+        assert!(refus.preuve.contains("essai.profil:"), "{ligne} : {refus}");
+    }
+    let refus = mesure("mesure = autre").unwrap_err();
+    assert!(refus.preuve.contains("sans-lecture, sans-a1"), "{refus}");
+    // Elle s'accepte avec le profil, comme toute clé : l'empreinte est celle du fichier.
+    let texte = "sorte = claude\nmesure = sans-a1\n";
+    assert_eq!(claude(&lu(texte).unwrap()).empreinte, empreinte(texte));
+}
+
+#[test]
 fn un_profil_faux_est_refuse_avec_sa_ligne() {
     let ailleurs = absolu("a").join("..").join("b").display().to_string();
     // Chaque faute en ligne 2, après un commentaire et avant la sorte, puis le bout de la règle de son cas.
