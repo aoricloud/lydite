@@ -89,6 +89,10 @@ lydite etat                                                                     
 refusal always says its code, its rule, what was seen and what to do. The full format of profiles, plans and the
 journal is at the top of `src/coeur/profil.rs`, `src/coeur/plan.rs` and `src/coeur/fil.rs`.
 
+In a plan, the repeatable task key `exact : <file> : <text>` makes Lydite check itself, byte for byte and without a
+model, that the text appears in that file of the task (the file must be covered by the task's `fichiers`); a hand that
+splits it or leaves it out gets a red attempt.
+
 **Windows.** The wall (the sandbox) is not held under Windows: a profile asks for it there, it does not require it.
 
 ## Claude Code and your accounts

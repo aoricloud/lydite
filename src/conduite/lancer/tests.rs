@@ -2,7 +2,7 @@ use super::*;
 use crate::branchements::bac::temporaire_de;
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::fil::{Issue, Lecture, Mur, Note, etat};
-use crate::essais::{depot, fausse_main, git, main_de_vague, main_hors_fichiers, racine};
+use crate::essais::{depot, fausse_main, git, main_de_vague, main_hors_fichiers, main_texte_coupe, racine};
 use crate::essais::{ecrire, effacer, faux_srt, lancer, lancer_sur, pour_sh, script};
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
@@ -2276,6 +2276,83 @@ fn une_main_hors_de_ses_fichiers_est_rouge_se_corrige_a_la_relance_et_passe() {
     assert_eq!(fusions(&evenements).len(), 1);
     worktree_a_la_tete(&depot, &kraken, &branche);
     rien_derriere(&racine, &base);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+/// Le plan d'une tâche `a` qui peut changer `dedans.txt`, où le plan exige le texte `alpha beta`.
+fn plan_exact() -> Plan {
+    plan(&[
+        "plan 1",
+        "objectif : Écrire dedans.txt",
+        "preuve : exit 0",
+        "tache a",
+        "fichiers : dedans.txt",
+        "exact : dedans.txt : alpha beta",
+        "    Écrire a",
+    ])
+}
+
+#[test]
+fn une_main_qui_coupe_le_texte_exact_est_rouge_se_corrige_a_la_relance_et_passe() {
+    let racine = racine("exact-corrige");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(main_texte_coupe(&racine, true), DELAI);
+    let (branche, issues) = lancer(&depot, &kraken, &profil, &plan_exact(), BAIL).unwrap();
+    assert!(branche.is_some());
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Vert Constate",
+        "verdict Prise Constate",
+        "fusion",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    assert_eq!(issues.len(), 1);
+    let erreur = fin_de(&evenements, 1);
+    assert_eq!(erreur, "the text that the plan requires is missing from dedans.txt: alpha beta");
+    assert!(consigne_de(&racine, 2).contains(&format!("Tentative précédente échouée :\n{erreur}")));
+    assert!(consigne_de(&racine, 1).contains("dedans.txt: alpha beta\n"));
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn une_main_qui_coupe_encore_le_texte_exact_est_classee() {
+    let racine = racine("exact-obstinee");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(main_texte_coupe(&racine, false), DELAI);
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan_exact(), BAIL).unwrap();
+    let erreur = issues[0].1.as_ref().unwrap_err();
+    assert_eq!(erreur, "the text that the plan requires is missing from dedans.txt: alpha beta");
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Rouge Constate",
+        "verdict Classee Constate",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn une_main_qui_n_ecrit_pas_le_fichier_exact_est_rouge() {
+    let racine = racine("exact-absent");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(fausse_main(&racine), DELAI);
+    let plan =
+        plan(&["plan 1", "objectif : Écrire", "preuve : exit 0", "tache a", "exact : absent.txt : x", "    Écrire a"]);
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    let erreur = issues[0].1.as_ref().unwrap_err();
+    assert_eq!(erreur, "the text that the plan requires is missing from absent.txt: x");
     let _ = fs::remove_dir_all(&racine);
 }
 

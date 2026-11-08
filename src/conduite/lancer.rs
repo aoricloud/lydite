@@ -278,6 +278,22 @@ fn dans_ses_fichiers(bac: &Path, depart: &str, tache: &Tache, proteges: &[String
     assemblage::fichiers_tenus(bac, depart, &tache.id, fichiers).map(|()| pris).map_err(|refus| en_erreur(&refus))
 }
 
+/// Chaque texte que le plan exige (`exact`) paraît, octet pour octet, dans son fichier du bac ; sinon la tentative est
+/// rouge, et son erreur nomme le fichier et le texte, que la relance reçoit. Un fichier absent, ou illisible, ne le
+/// contient pas.
+fn textes_exacts(bac: &Path, tache: &Tache, pris: Pris) -> Result<Pris, String> {
+    for (fichier, texte) in &tache.exacts {
+        let present = std::fs::read(bac.join(fichier)).is_ok_and(|octets| {
+            let aiguille = texte.as_bytes();
+            octets.windows(aiguille.len().max(1)).any(|fenetre| fenetre == aiguille)
+        });
+        if !present {
+            return Err(format!("the text that the plan requires is missing from {fichier}: {texte}"));
+        }
+    }
+    Ok(pris)
+}
+
 /// Le seul message qu'une main envoie à la vague : sa tâche, la tentative de son bail (le jeton que son résultat
 /// porte), et ce qu'elle a rendu.
 struct Message {
@@ -495,12 +511,14 @@ impl<'a> Vague<'a> {
                     &bac,
                     &tache.objectif,
                     tache.fichiers.as_deref(),
+                    &tache.exacts,
                     verifier,
                     precedente.as_deref(),
                     &journal,
                     juge,
                 );
                 let verdict = verdict.and_then(|pris| dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris));
+                let verdict = verdict.and_then(|pris| textes_exacts(&bac, tache, pris));
                 (constat, verif, verdict)
             });
             // La vague lit le canal jusqu'au dernier message qu'elle attend : celui-ci ne se perd pas.
