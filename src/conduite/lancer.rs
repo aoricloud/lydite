@@ -34,13 +34,13 @@ use crate::branchements::git::{faire, geste, lecons_du_commit};
 use crate::coeur::bail::Baux;
 use crate::coeur::erreur::{Code, Refus, nommee};
 use crate::coeur::fil::{Base, Couleur, Evenement, Foi, IssueVague, Verdict};
-use crate::coeur::fil::{instant, lot, maintenant, refus_en_clair};
+use crate::coeur::fil::{Role, instant, lot, maintenant, refus_en_clair};
 use crate::coeur::lecons::{self, Lecon};
 use crate::coeur::plan::{Plan, Tache};
-use crate::coeur::profil::{Prix, Profil};
+use crate::coeur::profil::{Prix, Profil, empreinte};
 use crate::coeur::protocole::{Constat, Jetons, Usage, UsageModele};
 use crate::conduite::assemblage::{self, Assemblage};
-use crate::conduite::tentative::{Echec, IMPOSSIBLE, Juge, Pris, tenter};
+use crate::conduite::tentative::{Echec, IMPOSSIBLE, Juge, Pris, consigne_de, tenter};
 
 /// Ce que devient chaque tâche d'une vague, dans l'ordre du plan : l'id de sa main, `main-<vague>-<k>`, qui nomme aussi
 /// son bac, et son issue.
@@ -192,6 +192,13 @@ pub(crate) fn lancer_avec(
         juge: liens.juge,
         lecons,
         corrige: liens.corrige.is_some() || liens.relance_ci,
+        role: match (liens.relance_ci, liens.corrige, liens.juge, liens.relit) {
+            (true, ..) => Role::Relance,
+            (_, Some(_), ..) => Role::Correction,
+            (_, _, Some(_), Some(_)) => Role::Relecteur,
+            (_, _, Some(_), None) => Role::Decoupeur,
+            _ => Role::Main,
+        },
         preparation: liens.preparation,
         baux: Baux::new(),
         rangs: (0..).zip(&plan.taches).map(|(rang, tache)| (tache.id.as_str(), rang)).collect(),
@@ -341,6 +348,16 @@ enum Etat {
     Finie(Result<Pris, String>),
 }
 
+/// Ce que la main reçoit en prompt système et ce que le fil en dit (`main.consigne`) : le fichier des leçons données,
+/// s'il y en a, son empreinte, les leçons données (`<nom> <SHA-256 de son SKILL.md>`, une par ligne) et le nom des
+/// autres, une par ligne.
+struct Gardees {
+    fichier: Option<PathBuf>,
+    systeme: Option<String>,
+    donnees: String,
+    ecartees: String,
+}
+
 /// Une vague qui tourne : ce qu'elle mène, et où en est chaque tâche.
 struct Vague<'a> {
     id: String,
@@ -361,6 +378,8 @@ struct Vague<'a> {
     lecons: Vec<Lecon>,
     /// Vrai pour la vague d'une correction (7017) ou d'une relance de la CI, qui ont leur propre contrôle.
     corrige: bool,
+    /// Le rôle de ses mains, que dit leur `main.consigne`.
+    role: Role,
     /// Ce qui se pose dans le bac de chaque main avant son premier départ ([`Preparation`]).
     preparation: Option<Preparation<'a>>,
     baux: Baux,
@@ -509,8 +528,13 @@ impl<'a> Vague<'a> {
         let verifier = tache.preuve.as_deref().or(plan.preuve.as_deref());
         let profil = self.profil.avec_modeles(tache.modele.as_deref(), tache.relance.as_deref());
         // Les leçons de la main, écrites avant tout bail : une écriture ratée arrête la vague.
-        let lecons = match self.fichier_des_lecons(&profil, tache) {
-            Ok(lecons) => lecons,
+        // Puis le texte de sa consigne, calculé une fois et gardé de même.
+        let gardees = self.fichier_des_lecons(&profil, tache).and_then(|gardees| {
+            let consigne = self.garder_la_consigne(tache, &profil, verifier, precedente.as_deref())?;
+            Ok((gardees, consigne))
+        });
+        let (gardees, consigne) = match gardees {
+            Ok(prises) => prises,
             Err(refus) => {
                 self.arret.get_or_insert(refus);
                 let issue = self.hors_du_fil(precedente.as_deref().unwrap_or_default());
@@ -534,7 +558,23 @@ impl<'a> Vague<'a> {
         let echeance = instant(ms.saturating_add(self.duree.as_millis()));
         let bail = Evenement::Bail { vague: self.id.clone(), main: k, tentative, echeance: echeance.clone() };
         let debut = Evenement::Debut { vague: self.id.clone(), main: k, tentative };
-        if !(self.noter(&bail) && self.noter(&debut) && self.noter_lancement(&profil, &bac, k, tentative, verifier)) {
+        // La consigne se note après le lancement (et le fournisseur), avant que la main parte.
+        let note_consigne = Evenement::Consigne {
+            vague: self.id.clone(),
+            main: k,
+            tentative,
+            role: self.role,
+            consigne: empreinte(&consigne),
+            systeme: gardees.systeme.clone(),
+            lecons: gardees.donnees.clone(),
+            ecartees: gardees.ecartees.clone(),
+            mesure: String::new(),
+        };
+        if !(self.noter(&bail)
+            && self.noter(&debut)
+            && self.noter_lancement(&profil, &bac, k, tentative, verifier)
+            && self.noter(&note_consigne))
+        {
             // La main ne part pas ; son issue garde l'erreur de sa tentative d'avant, s'il y en a une.
             let issue = self.hors_du_fil(precedente.as_deref().unwrap_or_default());
             self.taches[k - 1] = Etat::Finie(Err(issue));
@@ -554,14 +594,12 @@ impl<'a> Vague<'a> {
                 let (constat, verif, verdict) = tenter(
                     &profil,
                     &bac,
-                    &tache.objectif,
-                    tache.fichiers.as_deref(),
-                    &tache.exacts,
+                    &consigne,
                     verifier,
                     precedente.as_deref(),
                     &journal,
                     juge,
-                    lecons.as_deref(),
+                    gardees.fichier.as_deref(),
                 );
                 let verdict = verdict.and_then(|pris| {
                     dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris).map_err(Echec::Erreur)
@@ -777,19 +815,50 @@ impl<'a> Vague<'a> {
     /// Le fichier des leçons de la main de `tache` (`dossier::ecrire_consigne`), s'il y en a : les leçons de la tâche
     /// (`lecons::donnees`) pour une main de tâche, la liste de toutes pour le découpeur et le relecteur (la vague a un
     /// juge). Aucun pour une main nue, ou sans leçon qui lui aille. Une écriture ratée est le refus 7012.
-    fn fichier_des_lecons(&self, profil: &Profil, tache: &Tache) -> Result<Option<PathBuf>, Refus> {
-        if profil.nue() {
-            return Ok(None);
-        }
-        let texte = if self.juge.is_some() {
+    fn fichier_des_lecons(&self, profil: &Profil, tache: &Tache) -> Result<Gardees, Refus> {
+        let mut triees: Vec<&Lecon> = self.lecons.iter().collect();
+        triees.sort_by(|a, b| a.nom.cmp(&b.nom));
+        let donnees: Vec<&Lecon> = if profil.nue() {
+            Vec::new()
+        } else if self.juge.is_some() {
+            triees.clone()
+        } else {
+            lecons::donnees(&self.lecons, tache.fichiers.as_deref())
+        };
+        let ecartees: Vec<&str> =
+            triees.iter().filter(|lecon| !donnees.contains(lecon)).map(|lecon| lecon.nom.as_str()).collect();
+        let donnees_dites: Vec<String> =
+            donnees.iter().map(|lecon| format!("{} {}", lecon.nom, empreinte(&lecon.texte))).collect();
+        let texte = if profil.nue() {
+            String::new()
+        } else if self.juge.is_some() {
             lecons::texte_liste(&self.lecons)
         } else {
-            lecons::texte_donne(&lecons::donnees(&self.lecons, tache.fichiers.as_deref()))
+            lecons::texte_donne(&donnees)
         };
-        if texte.is_empty() {
-            return Ok(None);
-        }
-        ecrire_consigne(self.fil.dossier(), &texte, ARRET).map(Some)
+        let (fichier, systeme) = if texte.is_empty() {
+            (None, None)
+        } else {
+            (Some(ecrire_consigne(self.fil.dossier(), &texte, ARRET)?), Some(empreinte(&texte)))
+        };
+        Ok(Gardees { fichier, systeme, donnees: donnees_dites.join("\n"), ecartees: ecartees.join("\n") })
+    }
+
+    /// Le texte exact de la consigne de la tentative `precedente` de la tâche `tache`, calculé une fois, et gardé dans
+    /// le dossier de Kraken (`dossier::ecrire_consigne`) : ses octets sont ceux qu'on note et qu'on envoie à la main.
+    /// Une écriture ratée est le refus 7012.
+    fn garder_la_consigne(
+        &self,
+        tache: &Tache,
+        profil: &Profil,
+        verifier: Option<&str>,
+        precedente: Option<&str>,
+    ) -> Result<String, Refus> {
+        let juge = self.juge.is_some();
+        let fichiers = tache.fichiers.as_deref();
+        let texte = consigne_de(profil, &tache.objectif, fichiers, &tache.exacts, verifier, precedente, juge);
+        ecrire_consigne(self.fil.dossier(), &texte, ARRET)?;
+        Ok(texte)
     }
 
     /// Le quota du jour (`profils/quota`, voir `lire_quota`), avant le départ d'une tentative de la tâche `profil` :

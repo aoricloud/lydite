@@ -221,7 +221,7 @@ fn kraken_etat_affiche_une_vague_a_plan() {
         format!("main-{V2}-8 h : en attente de c"),
         format!("main-{V2}-9 i : en attente"),
         format!("main-{V2}-10 j : en attente de f, e"),
-        "Coût : inconnu · 8 mains, 2 relances, 1 classée".to_string(),
+        "Coût : inconnu · 8 mains, 2 relances, 1 classée, 2 refusées".to_string(),
     ];
     assert_eq!(rendu(&etat(&evenements), MAINTENANT), attendu.join("\n"));
     // Une même tâche remplit parfois plusieurs états à la fois : le premier de la liste l'emporte, et de la
@@ -351,7 +351,7 @@ fn des_copies_refusees_ou_sans_nouvelles_le_disent() {
         format!("main-{V1}-4 : prise"),
         format!("main-{V1}-5 : prise"),
         format!("main-{V1}-6 : en attente"),
-        "Coût : inconnu · 5 mains, 0 relance, 1 classée".to_string(),
+        "Coût : inconnu · 5 mains, 0 relance, 1 classée, 1 refusée".to_string(),
     ];
     assert_eq!(rendu(&etat(&evenements), MAINTENANT), attendu.join("\n"));
     // Leur code reste celui des prises constatées : deux copies prises donnent 0, une copie refusée donne 1.

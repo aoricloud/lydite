@@ -188,6 +188,14 @@
 //!   vide). `foi` vaut toujours `declare` : Kraken n'a pas lu ce que répond ce serveur, et une main déclarée `sonnet`
 //!   sur un autre fournisseur ne passe pas pour du Claude. Une main dont le profil ne nomme aucun fournisseur n'en a
 //!   pas. Elle porte l'origine de la séance, comme le lancement qu'elle suit.
+//! - `main.consigne {vague, main, tentative, role, consigne, systeme, lecons, ecartees, mesure}` : ce que la main a
+//!   reçu pour sa tentative, noté avant qu'elle parte, main nue comprise. `role` est `main`, `decoupeur`,
+//!   `relecteur`, `correction` ou `relance` (la relance de la CI). `consigne` est le SHA-256 du texte exact envoyé à
+//!   la main, heure d'arrêt comprise, et `systeme` celui du fichier de son prompt système, ou `null` : les deux
+//!   textes sont gardés dans `<dossier>/consignes/<SHA-256>.txt` (un dossier qui ne peut pas les garder arrête la
+//!   vague, 7012). `lecons` dit les leçons données, une par ligne, `<nom> <SHA-256 de son SKILL.md>` (la chaîne vide
+//!   sans leçon), `ecartees` le nom des autres leçons du commit de base, une par ligne ; `mesure` est la chaîne vide
+//!   pour l'instant. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`.
 //! - `vague.issue {vague, issue}` : la vague `vague` a son issue sur la forge, de numéro `issue`, un entier positif
 //!   sans la borne de 10 000, comme le `numero` d'une PR. Le titre et le corps de l'issue n'entrent pas au fil, seul
 //!   son numéro. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`. Il s'écrit par `Fil::noter_issue`
@@ -240,11 +248,12 @@
 //!
 //! Toute main, quel que soit l'appelant, est précédée de son `main.lancement` : si la note échoue, elle ne part pas.
 //! Dans une tentative, l'ordre est `main.bail`, `main.debut`, `main.lancement`, `main.fournisseur` s'il y en a un,
-//! `main.constat` s'il y en a un, `main.usage` (une ligne par modèle) s'il y a un usage, puis `main.fin`. Le
-//! lancement, le fournisseur, le constat et l'usage ne changent pas `v` : un lecteur qui ne connaît pas ces lignes les
-//! ignore, et leur `seq` compte quand même dans leur séance. Le résultat périmé d'une main qui a dépassé son bail note
-//! de même son `main.usage` (une ligne par modèle), juste avant son `main.perimee` : cette main a dépensé, et sa
-//! dépense compte pour le quota des départs qui suivent.
+//! `main.consigne` (toujours, main nue comprise, avant que la main parte), `main.constat` s'il y en a un,
+//! `main.usage` (une ligne par modèle) s'il y a un usage, puis `main.fin`. Le lancement, le fournisseur, la consigne,
+//! le constat et l'usage ne changent pas `v` : un lecteur qui ne connaît pas ces lignes les ignore, et leur `seq`
+//! compte quand même dans leur séance. Le résultat périmé d'une main qui a dépassé son bail note de même son
+//! `main.usage` (une ligne par modèle), juste avant son `main.perimee` : cette main a dépensé, et sa dépense compte
+//! pour le quota des départs qui suivent.
 //!
 //! L'écriture :
 //!
@@ -449,6 +458,21 @@ pub(crate) enum Evenement {
     /// `main.fournisseur` : la main part pour sa tentative chez le fournisseur que son profil déclare, l'hôte de son
     /// `api`, un jeton. Toujours déclaré : la ligne porte `foi: declare`, qui n'est pas un champ.
     Fournisseur { vague: String, main: usize, tentative: usize, fournisseur: String },
+    /// `main.consigne` : ce que la main a reçu pour sa tentative, noté avant qu'elle parte : son `role`, l'empreinte
+    /// SHA-256 du texte exact de sa `consigne`, celle du fichier de son prompt système (`systeme`, `None` sans lui),
+    /// les `lecons` données (une par ligne, `<nom> <SHA-256 de son SKILL.md>`, vide sans leçon), le nom des leçons
+    /// `ecartees` (une par ligne) et la `mesure`, vide pour l'instant. Une note de Kraken, sans `foi`.
+    Consigne {
+        vague: String,
+        main: usize,
+        tentative: usize,
+        role: Role,
+        consigne: String,
+        systeme: Option<String>,
+        lecons: String,
+        ecartees: String,
+        mesure: String,
+    },
     /// `main.usage` : l'usage d'un modèle de la tentative, en jetons, et sa dépense en micro-dollars (0 si la `base`
     /// est `Inconnu`). Toujours déclaré : la ligne porte `foi: declare`, qui n'est pas un champ.
     Usage {
@@ -601,6 +625,31 @@ impl Verdict {
             Verdict::Prise => "prise",
             Verdict::Classee => "classee",
             Verdict::Impossible => "impossible",
+        }
+    }
+}
+
+/// Le rôle d'une main dont le fil note la consigne (`main.consigne`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Role {
+    Main,
+    Decoupeur,
+    Relecteur,
+    Correction,
+    /// La relance de la CI.
+    Relance,
+}
+
+impl Role {
+    const TOUS: [Role; 5] = [Role::Main, Role::Decoupeur, Role::Relecteur, Role::Correction, Role::Relance];
+
+    fn mot(self) -> &'static str {
+        match self {
+            Role::Main => "main",
+            Role::Decoupeur => "decoupeur",
+            Role::Relecteur => "relecteur",
+            Role::Correction => "correction",
+            Role::Relance => "relance",
         }
     }
 }
@@ -1086,6 +1135,17 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
                 fournisseur: jeton_ascii("fournisseur")?,
             }
         }
+        "main.consigne" => Evenement::Consigne {
+            vague: texte("vague")?.into(),
+            main: nombre("main")?,
+            tentative: nombre("tentative")?,
+            role: jeton(&Role::TOUS, Role::mot, "role", texte("role")?)?,
+            consigne: sha256("consigne")?,
+            systeme: if matches!(valeur("systeme"), Some(Valeur::Nul)) { None } else { Some(sha256("systeme")?) },
+            lecons: texte("lecons")?.into(),
+            ecartees: texte("ecartees")?.into(),
+            mesure: texte("mesure")?.into(),
+        },
         "main.usage" => {
             foi_fixe(Foi::Declare)?;
             Evenement::Usage {
@@ -1470,7 +1530,8 @@ pub(crate) fn etat(evenements: &[Evenement]) -> Vec<Vague> {
                 let lancee = vague.mains.entry(*main).or_default().tentatives.entry(*tentative).or_default();
                 lancee.fournisseur = Some(fournisseur.clone());
             }
-            Evenement::Usage { .. } => {} // l'usage se lit au fil (le quota du jour), `lydite etat` n'en dit rien
+            Evenement::Consigne { .. } => {} // la consigne vit au fil, `lydite etat` n'en dit rien
+            Evenement::Usage { .. } => {}    // l'usage se lit au fil (le quota du jour), `lydite etat` n'en dit rien
         }
     }
     // Une relance nomme, dans son `forge.pr`, la branche d'assemblage d'une autre vague : la vague qu'elle relance.
@@ -1547,6 +1608,7 @@ impl Evenement {
             Evenement::Correction { .. } => "vague.correction",
             Evenement::Relecteur { .. } => "vague.relecteur",
             Evenement::Fournisseur { .. } => "main.fournisseur",
+            Evenement::Consigne { .. } => "main.consigne",
             Evenement::Usage { .. } => "main.usage",
         }
     }
@@ -1578,6 +1640,7 @@ impl Evenement {
         | Evenement::Correction { vague, .. }
         | Evenement::Relecteur { vague, .. }
         | Evenement::Fournisseur { vague, .. }
+        | Evenement::Consigne { vague, .. }
         | Evenement::Usage { vague, .. }) = self;
         vague
     }
@@ -1745,6 +1808,17 @@ impl Evenement {
                 ("tentative", entier(*tentative)),
                 ("fournisseur", texte(fournisseur)),
                 ("foi", texte(Foi::Declare.mot())),
+            ],
+            Evenement::Consigne { vague, main, tentative, role, consigne, systeme, lecons, ecartees, mesure } => vec![
+                ("vague", texte(vague)),
+                ("main", entier(*main)),
+                ("tentative", entier(*tentative)),
+                ("role", texte(role.mot())),
+                ("consigne", texte(consigne)),
+                ("systeme", ou_nul(systeme)),
+                ("lecons", texte(lecons)),
+                ("ecartees", texte(ecartees)),
+                ("mesure", texte(mesure)),
             ],
             Evenement::Usage {
                 vague,
