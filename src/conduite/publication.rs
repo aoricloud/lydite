@@ -28,6 +28,7 @@ use crate::branchements::github::{Ci, Forge, GIT_FORGE, PrOuverte, a_pousser, di
 use crate::coeur::erreur::{Code, Refus, queue};
 use crate::coeur::fil::{self, Base, Couleur, Evenement, Foi, Note, Vague, correction_de, etat, relecture_de};
 use crate::coeur::plan::{Plan, Tache};
+use crate::conduite::alarmes;
 use crate::conduite::lancer::Menee;
 
 /// La correction du refus 8011.
@@ -82,6 +83,7 @@ pub(crate) fn corps(
     issue: Option<u64>,
     recu: &Recu,
     reglages: &[String],
+    points: &[String],
 ) -> String {
     let decoupee = vague.decoupage.is_some();
     let (mut assemblees, mut dehors) = (Vec::new(), Vec::new());
@@ -113,7 +115,18 @@ pub(crate) fn corps(
     };
     let [cout, mains] = recu.lignes_de_pr();
     let recu = format!("Reçu\n{cout}\n{mains}\n- Réglages de la preuve changés : {changes}");
-    let paragraphes = [recu, plan.objectif.clone(), preuve, assemblees.join("\n"), dehors.join("\n"), relue];
+    let a_justifier = if points.is_empty() {
+        String::new()
+    } else {
+        let mut lignes = vec!["Points to justify (found by Lydite without a model):".to_string()];
+        lignes.extend(points.iter().take(POINTS_NOMMES).map(|point| format!("- {point}")));
+        if points.len() > POINTS_NOMMES {
+            lignes.push(format!("- … and {} more", points.len() - POINTS_NOMMES));
+        }
+        lignes.join("\n")
+    };
+    let paragraphes =
+        [recu, plan.objectif.clone(), preuve, assemblees.join("\n"), dehors.join("\n"), a_justifier, relue];
     let mut corps: Vec<String> = paragraphes.into_iter().filter(|paragraphe| !paragraphe.is_empty()).collect();
     corps.extend(issue.map(|numero| format!("Closes #{numero}")));
     corps.join("\n\n") + "\n"
@@ -123,9 +136,12 @@ pub(crate) fn corps(
 /// borne de la forge.
 const REGLAGES_NOMMES: usize = 20;
 
+/// Le nombre de points à justifier ([`alarmes::points`]) que le corps nomme : au-delà, il compte les autres.
+const POINTS_NOMMES: usize = 20;
+
 /// Un chemin que le diff nomme, écrit en code : une main l'a écrit, et ni une mention, ni un saut de ligne n'y a
 /// d'effet. Un chemin qui porte un caractère de contrôle ou une apostrophe inverse y est remplacé par un nom neutre.
-fn en_code(chemin: &str) -> String {
+pub(crate) fn en_code(chemin: &str) -> String {
     if chemin.chars().any(|c| c.is_control() || c == '`') {
         "`chemin au nom illisible`".to_string()
     } else {
@@ -344,7 +360,8 @@ impl Proposition<'_> {
             (Some((coupe, _)), Some(_)) => format!("{}…", &plan.objectif[..coupe]),
             _ => plan.objectif.clone(),
         };
-        let corps = corps(plan, &vague, relecture.as_deref(), self.issue, &recu, &reglages);
+        let points = self.points_a_justifier(tete).map_err(Arret::Net)?;
+        let corps = corps(plan, &vague, relecture.as_deref(), self.issue, &recu, &reglages, &points);
         let chemins: Vec<&Path> = personnel.into_iter().chain([self.forge.dossier, self.forge.depot]).collect();
         self.forge.publiable(&self.base, tete, branche, &titre, &corps, &chemins).map_err(Arret::Refus)?;
         let poussee = Evenement::Poussee { vague: menee.id.clone(), branche: branche.clone(), sha: tete.clone() };
@@ -490,6 +507,18 @@ impl Proposition<'_> {
         let noms =
             self.forge.faire(diff, None).map_err(|vu| format!("le diff de la base à la tête ne se lit pas : {vu}"))?;
         Ok(reglages_changes(noms.split('\0').filter(|nom| !nom.is_empty())))
+    }
+
+    /// Les points à justifier du diff de la base à `tete` ([`alarmes::points`]). Un git qui ne le lit pas est une
+    /// erreur : le corps ne se tait pas sur ce qu'il n'a pas lu.
+    fn points_a_justifier(&self, tete: &str) -> Result<Vec<String>, String> {
+        let mut args = alarmes::ARGUMENTS.to_vec();
+        args.extend([self.base.as_str(), tete]);
+        let diff = self
+            .forge
+            .faire(self.forge.git(&args), None)
+            .map_err(|vu| format!("le diff de la base à la tête ne se lit pas : {vu}"))?;
+        Ok(alarmes::points(&diff))
     }
 
     /// La branche locale `nom` du dépôt visé et sa valeur, si son travail est dans `poussee` : sa valeur en est un
