@@ -278,6 +278,11 @@ class Garde(unittest.TestCase):
         code, sortie = jouer(bloc("src/a.rs", "essai un"), liste="essai-un\n")
         self.assertEqual(code, 0, sortie)
 
+    def test_une_ligne_sans_lettres_ne_trouve_pas_tout(self):
+        # Repliée, « !! ?? » serait vide, et tout texte la contiendrait : elle ne se compare qu'à la lettre.
+        code, sortie = jouer(bloc("src/a.rs", "fn a() {}"), liste="!! ??\n")
+        self.assertEqual(code, 0, sortie)
+
 
 if __name__ == "__main__":
     unittest.main()
