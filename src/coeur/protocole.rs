@@ -15,10 +15,10 @@
 //! 3. [`juger_reponses`] les juge contre le JSON de `--settings` que Kraken a passé : `get_settings` sans erreur, avec
 //!    la source `flagSettings`, les réglages effectifs qui gardent la main (crochets et mémoire automatique coupés, le
 //!    mur tel que déclaré, ses `excludedCommands` compris : absents au déclaré, ils le sont à l'effectif, et une autre
-//!    source qui en ajoute est un écart) et le modèle déclaré ; `list_permission_rules` avec chaque règle déclarée, à
-//!    la source `flagSettings` ; `get_hooks_listing` avec tous les crochets coupés ; `get_sandbox_dialog`, interne à
-//!    Claude Code, qui dit le mur actif ou non, et dont le silence n'est pas un écart, sauf un mur exigé qu'il dit
-//!    inactif.
+//!    source qui en ajoute est un écart ; `sandbox.credentials.envVars` de même) et le modèle déclaré ;
+//!    `list_permission_rules` avec chaque règle déclarée, à la source `flagSettings` ;
+//!    `get_hooks_listing` avec tous les crochets coupés ; `get_sandbox_dialog`, interne à Claude Code,
+//!    qui dit le mur actif ou non, et dont le silence n'est pas un écart, sauf un mur exigé qu'il dit inactif.
 //! 4. Sans écart, Kraken écrit la consigne ([`message`]), puis ferme l'entrée de la main. Au moindre écart, la main
 //!    meurt sans sa consigne : `main : réglages non pris : <écarts>`, chaque écart en une ligne qui dit le déclaré
 //!    contre le constaté, les écarts joints par « ; ».
@@ -43,13 +43,16 @@ pub(crate) const DEMANDES: [&str; 4] =
 
 /// Les réglages du mur, que `get_settings` rend effectifs tels que déclarés, `excludedCommands` compris : les commandes
 /// qui sortent du bac à sable, que Kraken ne déclare que pour la preuve prêtée sous un mur demandé. Absentes au
-/// déclaré, elles le sont à l'effectif : une autre source qui en ajoute est un écart.
-const MUR: [&str; 5] = [
+/// déclaré, elles le sont à l'effectif : une autre source qui en ajoute est un écart. `sandbox.credentials.envVars`
+/// y est aussi : les deux règles `deny` qui cachent la clé du fournisseur aux commandes ; un effectif qui les perd ou
+/// en change tue la main sans sa consigne.
+const MUR: [&str; 6] = [
     "sandbox.enabled",
     "sandbox.failIfUnavailable",
     "sandbox.allowUnsandboxedCommands",
     "sandbox.excludedCommands",
     "sandbox.network.strictAllowlist",
+    "sandbox.credentials.envVars",
 ];
 
 /// Le début de l'erreur d'une main tuée sur un écart, avant sa consigne ou à son ouverture.

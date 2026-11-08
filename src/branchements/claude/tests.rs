@@ -11,7 +11,9 @@ const GET_SETTINGS: &str = concat!(
     r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_settings","response""#,
     r#":{"applied":{"model":"claude-sonnet-5-5"},"effective":{"disableAllHooks":true,"autoMemoryEnabled""#,
     r#":false,"sandbox":{"enabled":true,"failIfUnavailable":false,"allowUnsandboxedCommands":false,"#,
-    r#""network":{"allowedDomains":[],"strictAllowlist":true}}},"sources":[{"source":"userSettings","#,
+    r#""network":{"allowedDomains":[],"strictAllowlist":true},"credentials":{"envVars":[{"name":"#,
+    r#""ANTHROPIC_API_KEY","mode":"deny"},{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}}},"#,
+    r#""sources":[{"source":"userSettings","#,
     r#""settings":{}},{"source":"flagSettings","settings":{}}]}}}"#,
 );
 const LIST_PERMISSION_RULES: &str = concat!(
@@ -46,7 +48,9 @@ const JUSTES: [&str; 4] = [GET_SETTINGS, LIST_PERMISSION_RULES, GET_HOOKS_LISTIN
 const REGLAGES: &str = concat!(
     r#"{"sandbox":{"enabled":true,"failIfUnavailable":false,"allowUnsandboxedCommands":false,"filesystem""#,
     r#":{"denyRead":["~/","/srv/lydite"],"allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git"]},"#,
-    r#""network":{"allowedDomains":[],"strictAllowlist":true}},"permissions":{"allow":["WebSearch"],"deny""#,
+    r#""network":{"allowedDomains":[],"strictAllowlist":true},"credentials":{"envVars":[{"name":"#,
+    r#""ANTHROPIC_API_KEY","mode":"deny"},{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}},"#,
+    r#""permissions":{"allow":["WebSearch"],"deny""#,
     r#":["CronCreate"]},"disableAllHooks":true,"autoMemoryEnabled":false}"#,
 );
 
@@ -631,5 +635,23 @@ fn les_reponses_s_apparient_par_leur_id_dans_n_importe_quel_ordre() {
         })
     );
     assert!(entree(&bac).ends_with(&protocole::message("consigne")), "la consigne est partie");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn la_main_recoit_l_epuration_de_l_environnement_des_commandes_avec_ou_sans_fournisseur() {
+    let (dir, bac) = bac_jetable("epuration");
+    let liste: Vec<String> =
+        if cfg!(windows) { vec!["cmd".into(), "/C".into(), "set".into()] } else { vec!["env".into()] };
+    for fournisseur in [None, Some(("https://api.exemple.test/anthropic", "leurre-de-la-cle", "CLE_ESSAI"))] {
+        let sortie = jouer(&liste, &bac, "", DELAI, None, false, fournisseur).1.unwrap();
+        let vues: Vec<_> = sortie
+            .lines()
+            .filter_map(|ligne| ligne.split_once('='))
+            .filter(|(nom, _)| nom.eq_ignore_ascii_case("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"))
+            .collect();
+        assert_eq!(vues.len(), 1, "{fournisseur:?} : {sortie}");
+        assert_eq!(vues[0].1, "1");
+    }
     let _ = fs::remove_dir_all(&dir);
 }
