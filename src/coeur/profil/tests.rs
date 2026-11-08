@@ -79,7 +79,8 @@ fn deny_sans_declare(regle: &str, commun: &str) -> String {
             r#""Read({regle}/srt-*.json)","Edit({regle}/srt-*.json)","#,
             r#""Read({config}/.credentials.json)","Edit({config}/.credentials.json)","#,
             r#""Read({personnel}/.credentials.json)","Edit({personnel}/.credentials.json)","#,
-            r#""Edit({commun}/**)"]"#,
+            r#""Edit({commun}/**)","Bash(git commit:*)","Bash(git commit *)","#,
+            r#""PowerShell(git commit:*)","PowerShell(git commit *)"]"#,
         ),
         regle = regle,
         commun = commun,
@@ -244,6 +245,23 @@ fn un_profil_faux_est_refuse_avec_sa_ligne() {
         ("lecture = ~/[ab]", "sans .. ni joker"),
         ("lecture = ~/a?", "sans .. ni joker"),
         ("lecture = ~root/x", "une lecture est un chemin absolu ou en ~/…"),
+        ("proteges = /etc/passwd", "est absolu"),
+        ("proteges = C:/x", "est absolu"),
+        ("proteges = Cargo.lock, ../x", "sort du dépôt par `..`"),
+        ("proteges = src/../x", "sort du dépôt par `..`"),
+        ("proteges = .git/", "est sous `.git/`"),
+        ("proteges = a/.git/hooks", "est sous `.git/`"),
+        ("proteges = .claude/settings.json", "est sous `.claude/`"),
+        ("proteges = a\\b", "barre inverse"),
+        ("proteges = src/*.rs", "porte « * »"),
+        ("proteges = src/a?", "porte « ? »"),
+        ("proteges = src/[ab]", "porte « [ »"),
+        ("proteges = src/{a,b}", "un chemin protégé est relatif"),
+        ("proteges = src/(a)", "porte « ( »"),
+        ("proteges = a\"b", "porte « \" »"),
+        ("proteges = Cargo.lock,,x", "ni vide ni en « - »"),
+        ("proteges = -x", "ni vide ni en « - »"),
+        ("proteges =", "ni vide ni en « - »"),
         ("outils = Bash", "un outil déclaré est mcp__<serveur> ou l'un de ceux-ci : CronCreate"),
         ("outils = sendmessage", "un outil déclaré est"),
         ("outils = mcp__", "un outil déclaré est"),
@@ -1073,6 +1091,75 @@ fn la_recherche_web_est_fermee_d_office_et_s_ouvre_par_outils() {
     assert_eq!(ouvert.matches("WebSearch").count(), 1, "{ouvert}");
 }
 
+/// Le bac fictif de `reglages` en règle, sur le système qui joue le test.
+fn regle_bac() -> &'static str {
+    if cfg!(windows) { "//c/bac" } else { "//bac" }
+}
+
+#[test]
+fn la_cle_proteges_se_lit_et_sans_elle_rien_ne_change() {
+    let profil = lu("sorte = claude\nproteges = Cargo.lock, tests/juge/ ,ci/echecs.txt\n").unwrap();
+    assert_eq!(profil.proteges(), ["Cargo.lock", "tests/juge/", "ci/echecs.txt"]);
+    // La clé ne s'écrit qu'une fois.
+    let refus = lu("sorte = claude\nproteges = a\nproteges = b\n").err().unwrap();
+    assert_eq!(refus.code, Code::ProfilLigneRefusee);
+    // Sans elle, rien n'est protégé, et les réglages ne portent aucune règle `Edit` du bac.
+    let sans = borne("sorte = claude\n");
+    assert!(sans.proteges().is_empty());
+    assert!(!reglages(&sans, None).contains(&format!("Edit({}/", regle_bac())));
+    assert!(lu("sorte = claude\n").unwrap().avec_modeles(Some("opus"), None).proteges().is_empty());
+    // Une copie aux modèles d'une tâche garde les chemins protégés.
+    assert_eq!(profil.avec_modeles(Some("opus"), None).proteges().len(), 3);
+}
+
+#[test]
+fn les_reglages_ferment_l_edition_d_un_fichier_et_d_un_dossier_proteges() {
+    let profil = borne("sorte = claude\nproteges = Cargo.lock, tests/juge/, ci/echecs.txt\n");
+    let reglages = reglages(&profil, None);
+    let regle = regle_bac();
+    // Les trois règles sont dans `deny`, après celles de `git commit`, un fichier tel quel, un dossier en `/**`.
+    let attendu = format!(
+        concat!(
+            r#""PowerShell(git commit *)","Edit({regle}/Cargo.lock)","Edit({regle}/tests/juge/**)","#,
+            r#""Edit({regle}/ci/echecs.txt)"]"#,
+        ),
+        regle = regle
+    );
+    assert!(reglages.contains(&attendu), "{reglages}");
+    assert!(!reglages.contains(r#"/juge/)"#) && !reglages.contains("juge//"), "{reglages}");
+    // Les deux copies d'une relance disent la même chose.
+    let relance = profil.demande(&absolu("bac"), None, true).declaration.unwrap().reglages;
+    assert!(relance.contains(&attendu), "{relance}");
+}
+
+#[test]
+fn le_reglage_de_tout_profil_refuse_git_commit_sous_les_deux_formes_de_prefixe() {
+    let refus = concat!(
+        r#""Bash(git commit:*)","Bash(git commit *)","PowerShell(git commit:*)","PowerShell(git commit *)""#,
+        r#"]"#,
+    );
+    for texte in ["sorte = claude\n", "sorte = claude\nmur = exige\nreseau = exemple.test\n"] {
+        for verifier in [None, Some("cargo test && cargo clippy")] {
+            let reglages = reglages(&borne(texte), verifier);
+            assert!(reglages.contains(refus), "{texte:?} {verifier:?} : {reglages}");
+            // Dans `deny`, jamais dans `allow` : le prêt de la preuve ne les ouvre pas.
+            let (allow, deny) = reglages.split_once(r#""deny":"#).unwrap();
+            assert!(!allow.contains("git commit") && deny.contains("git commit"), "{reglages}");
+        }
+    }
+}
+
+#[test]
+fn un_bac_sans_regle_ferme_le_depart_d_une_main_aux_chemins_proteges() {
+    // Un chemin protégé ne se ferme que par une règle : un bac qu'une règle ne sait pas écrire ne part pas.
+    let profil = borne("sorte = claude\nproteges = Cargo.lock\n");
+    let demande = profil.demande(Path::new("relatif"), None, false);
+    assert!(demande.argv.is_empty() && demande.declaration.is_none());
+    // Sans chemin protégé, le bac n'est pas jugé ici : rien ne change.
+    let libre = borne("sorte = claude\n");
+    assert!(!libre.demande(Path::new("relatif"), None, false).argv.is_empty());
+}
+
 #[test]
 fn le_fichier_de_connexion_de_claude_est_ferme_aux_outils() {
     // Ce qui suit les gardes du dossier de Kraken dans deny, jusqu'à l'Edit du git commun, borné par ces dossiers de
@@ -1083,7 +1170,7 @@ fn le_fichier_de_connexion_de_claude_est_ferme_aux_outils() {
         let reglages = reglages(&profil, None);
         let garde = format!(r#""Edit({}/srt-*.json)""#, regle_k());
         let (_, fin) = reglages.split_once(&garde).unwrap_or_else(|| panic!("{reglages}"));
-        let commun = format!(r#","Edit({}/**)"]"#, regle_depot());
+        let commun = format!(r#","Edit({}/**)","Bash(git commit:*)""#, regle_depot());
         fin.split_once(&commun).map(|(regles, _)| regles.to_string()).unwrap_or_else(|| panic!("{reglages}"))
     };
     // `Read` puis `Edit` du fichier de connexion, en règle écrite à la main, pour chaque dossier de connexion :
@@ -1204,7 +1291,9 @@ fn la_preuve_est_pretee_morceau_par_morceau() {
     );
     assert!(seul.contains(pret), "{seul}");
     assert!(!profil.prete(None));
-    assert!(!reglages(&profil, None).contains("Bash("));
+    // Aucun `Bash(...)` permis sans commande prêtée : seuls les refus de `git commit` en portent.
+    assert!(!reglages(&profil, None).contains(r#""allow":["Skill","Workflow","ExitPlanMode","Bash("#));
+    assert!(!reglages(&profil, None).replace("Bash(git commit", "").contains("Bash("));
 }
 
 #[test]

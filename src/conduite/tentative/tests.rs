@@ -164,13 +164,16 @@ do not bend the code to the test (no forced case, no branch for a test, no const
 test): write `IMPOSSIBLE: <reason>` as the last line of your answer and stop. A reasoned refusal is a valid \
 result.\n\nChange only the files of your task; the other tasks do the rest.";
 
+/// La phrase fixe qui suit la ligne des fichiers, sur sa propre ligne.
+const SUITE: &str = "\nLydite commits your work itself: do not run git commit.";
+
 #[test]
 fn la_consigne_nomme_les_fichiers_de_la_tache_a_la_suite_de_la_ligne_fixe() {
     let fichiers = ["src/a.rs".to_string(), "docs/".to_string()];
     let avec = consigne("Écrire a", Some(&fichiers), None, None, false, "S");
-    assert!(avec.starts_with(&format!("S\n\nÉcrire a{FIXE} Your files: src/a.rs docs/\n\n")), "{avec}");
+    assert!(avec.starts_with(&format!("S\n\nÉcrire a{FIXE} Your files: src/a.rs docs/{SUITE}\n\n")), "{avec}");
     let sans = consigne("Écrire a", None, None, None, false, "S");
-    assert!(sans.starts_with(&format!("S\n\nÉcrire a{FIXE}\n\n")) && !sans.contains("Your files"), "{sans}");
+    assert!(sans.starts_with(&format!("S\n\nÉcrire a{FIXE}{SUITE}\n\n")) && !sans.contains("Your files"), "{sans}");
 }
 
 #[test]
@@ -191,7 +194,8 @@ fn la_consigne_garde_ses_octets() {
     assert_eq!(
         consigne("Écrire bonjour.txt", None, None, None, false, "S"),
         format!(
-            "S\n\nÉcrire bonjour.txt{FIXE}\n\nQuand tu as fini, joue toi-même le test qui prouve ton travail. La \
+            "S\n\nÉcrire bonjour.txt{FIXE}{SUITE}\n\n\
+             Quand tu as fini, joue toi-même le test qui prouve ton travail. La \
              dernière ligne de ta réponse est exactement PREUVE: vert si le test passe, sinon PREUVE: rouge."
         )
     );
@@ -199,7 +203,7 @@ fn la_consigne_garde_ses_octets() {
     assert_eq!(
         consigne("Écrire bonjour.txt", None, Some("cargo test"), None, false, "S"),
         format!(
-            "S\n\nÉcrire bonjour.txt{FIXE}\n\nQuand tu auras fini, Lydite jouera dans ton dossier : cargo test. \
+            "S\n\nÉcrire bonjour.txt{FIXE}{SUITE}\n\nQuand tu auras fini, Lydite jouera dans ton dossier : cargo test. \
              Ton travail est pris si elle réussit."
         )
     );
@@ -207,7 +211,8 @@ fn la_consigne_garde_ses_octets() {
     assert_eq!(
         consigne("Écrire bonjour.txt", None, None, Some("pas de PREUVE\nen dernière ligne"), false, "S"),
         format!(
-            "S\n\nÉcrire bonjour.txt\n\nTentative précédente échouée :\npas de PREUVE\nen dernière ligne{FIXE}\n\n\
+            "S\n\nÉcrire bonjour.txt\n\nTentative précédente échouée :\npas de PREUVE\nen dernière ligne\
+             {FIXE}{SUITE}\n\n\
              Quand tu as fini, joue toi-même le test qui prouve ton travail. La dernière ligne \
              de ta réponse est exactement PREUVE: vert si le test passe, sinon PREUVE: rouge."
         )
@@ -215,7 +220,7 @@ fn la_consigne_garde_ses_octets() {
     assert_eq!(
         consigne("Écrire bonjour.txt", None, Some("cargo test"), Some("vérification rouge"), false, "S"),
         format!(
-            "S\n\nÉcrire bonjour.txt\n\nTentative précédente échouée :\nvérification rouge{FIXE}\n\n\
+            "S\n\nÉcrire bonjour.txt\n\nTentative précédente échouée :\nvérification rouge{FIXE}{SUITE}\n\n\
              Quand tu auras fini, Lydite jouera dans ton dossier : cargo test. \
              Ton travail est pris si elle réussit."
         )
@@ -225,7 +230,8 @@ fn la_consigne_garde_ses_octets() {
     assert_eq!(
         consigne("Écrire bonjour.txt", None, Some("cargo test"), None, true, "S"),
         format!(
-            "S\n\nÉcrire bonjour.txt{FIXE}\n\nQuand tu auras fini, joue toi-même dans ton dossier : cargo test. Lance \
+            "S\n\nÉcrire bonjour.txt{FIXE}{SUITE}\n\n\
+             Quand tu auras fini, joue toi-même dans ton dossier : cargo test. Lance \
              chaque morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux que joint ` && ` ; \
              une commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni `;`, ni `|`, ni \
              redirection : c'est seul ainsi qu'un morceau t'est permis. Reprends ton \
@@ -236,7 +242,7 @@ fn la_consigne_garde_ses_octets() {
     assert_eq!(
         consigne("Écrire bonjour.txt", None, Some("cargo test"), Some("vérification rouge"), true, "S"),
         format!(
-            "S\n\nÉcrire bonjour.txt\n\nTentative précédente échouée :\nvérification rouge{FIXE}\n\n\
+            "S\n\nÉcrire bonjour.txt\n\nTentative précédente échouée :\nvérification rouge{FIXE}{SUITE}\n\n\
              Quand tu auras fini, joue toi-même dans ton dossier : cargo test. Lance chaque \
              morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux que joint ` && ` ; une \
              commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni `;`, ni `|`, ni \
@@ -249,7 +255,8 @@ fn la_consigne_garde_ses_octets() {
     assert_eq!(
         consigne("Écrire bonjour.txt", None, Some("cargo fmt --check && cargo test"), None, true, "S"),
         format!(
-            "S\n\nÉcrire bonjour.txt{FIXE}\n\nQuand tu auras fini, joue toi-même dans ton dossier : cargo fmt --check \
+            "S\n\nÉcrire bonjour.txt{FIXE}{SUITE}\n\n\
+             Quand tu auras fini, joue toi-même dans ton dossier : cargo fmt --check \
              && cargo test. Lance chaque morceau seul et tel qu'il est écrit, dans l'ordre (les morceaux sont ceux \
              que joint ` && ` ; une commande sans ` && ` en a un seul), sans rien y ajouter avant ni après, ni \
              `;`, ni `|`, ni redirection : c'est seul ainsi qu'un morceau t'est permis. Reprends ton travail \

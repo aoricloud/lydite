@@ -83,6 +83,7 @@ const TABLE: &[(u16, &str)] = &[
     (7015, "vague.remarques_illisibles"),
     (7016, "vague.relecture_manquee"),
     (7017, "vague.bloquantes_restantes"),
+    (7018, "vague.chemin_protege"),
     // --- 8000 : forge ---
     (8001, "forge.distant_illisible"),
     (8002, "forge.base_inconnue"),

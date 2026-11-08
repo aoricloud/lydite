@@ -49,6 +49,12 @@
 //!     joker (`* ? [ ] { }`), qui ne recouvrent ni le dossier de Kraken ni un dossier de connexion de Claude
 //!     (`CLAUDE_CONFIG_DIR`, le `.claude` du dossier personnel) : ni l'un d'eux, ni un de ses ancêtres, ni un chemin
 //!     sous lui ;
+//!   - `proteges` : les chemins du dépôt visé qu'aucune main ne change, une liste à virgules : chacun un fichier, ou
+//!     un dossier fini par `/`, relatif à la racine du dépôt et de la forme des `fichiers` d'une tâche (voir
+//!     `plan::hors_forme` : ni absolu, ni `..`, ni sous `.git/` ou `.claude/`), sans `( ) * ? [ ] { }` ni guillemet
+//!     (un joker est refusé). Un chemin protégé l'emporte sur les `fichiers` d'une tâche : le réglage de la main
+//!     refuse son édition, et un changement par une commande rougit la tentative puis refuse la tâche au gel (7018).
+//!     Sans la clé, rien ne change. La main ne commite pas : son réglage refuse `git commit`, que Lydite fait au gel ;
 //!   - `delai_main` (3600 par défaut) et `delai_preuve` (300), en secondes, des entiers positifs : au premier, Kraken
 //!     tue la main ; au second, la preuve qu'il rejoue.
 //! - L'empreinte d'un profil est le SHA-256 des octets de son fichier. `lydite accepter <nom>` l'écrit dans
@@ -76,6 +82,7 @@ use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::fil::lot;
 use crate::coeur::fil::{Evenement, Mur};
 use crate::coeur::json::{self, Json};
+use crate::coeur::plan::hors_forme;
 
 /// Les délais d'un profil qui ne les dit pas : une heure pour la main, cinq minutes pour la preuve que Kraken rejoue.
 const DELAI_MAIN: Duration = Duration::from_secs(3600);
@@ -87,7 +94,7 @@ const INTEGRE: &str =
     "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = demande\ndelai_main = 3600\ndelai_preuve = 300\n";
 
 /// Les clés d'un profil, et aucune autre.
-const CLES: [&str; 16] = [
+const CLES: [&str; 17] = [
     "sorte",
     "programme",
     "modele",
@@ -102,12 +109,18 @@ const CLES: [&str; 16] = [
     "mur",
     "reseau",
     "lecture",
+    "proteges",
     "delai_main",
     "delai_preuve",
 ];
 
 /// Les clés dont la valeur est une liste à virgules.
-const LISTES: [&str; 4] = ["prix", "outils", "reseau", "lecture"];
+const LISTES: [&str; 5] = ["prix", "outils", "reseau", "lecture", "proteges"];
+
+/// Ce que la main ne lance jamais : `git commit`, que Lydite fait lui-même au gel. Les deux formes de préfixe des
+/// règles de Claude Code, pour `Bash` comme pour `PowerShell`.
+const COMMIT_REFUSE: [&str; 4] =
+    ["Bash(git commit:*)", "Bash(git commit *)", "PowerShell(git commit:*)", "PowerShell(git commit *)"];
 
 /// Ce que la main a d'office dans `permissions.allow` : ce qui, sinon, demanderait une permission dans son mode.
 const PERMIS: [&str; 3] = ["Skill", "Workflow", "ExitPlanMode"];
@@ -159,6 +172,8 @@ pub(crate) struct Profil {
     sorte: Sorte,
     delai_main: Duration,
     delai_preuve: Duration,
+    /// Les chemins que nulle main ne change (`proteges`), de la forme des `fichiers` d'une tâche.
+    proteges: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -366,6 +381,19 @@ impl Profil {
         claude.fournisseur.as_ref().map(|fournisseur| fournisseur.cle.as_str())
     }
 
+    /// Les chemins que le profil protège (`proteges`) : aucune main ne les change. Vide sans la clé, et pour une main
+    /// brute.
+    pub(crate) fn proteges(&self) -> &[String] {
+        &self.proteges
+    }
+
+    /// Un profil de test aux chemins protégés qu'on lui donne, comme le ferait la clé `proteges`.
+    #[cfg(test)]
+    pub(crate) fn avec_proteges(mut self, proteges: &[&str]) -> Profil {
+        self.proteges = proteges.iter().map(|chemin| chemin.to_string()).collect();
+        self
+    }
+
     /// Les [`Prix`] d'un modèle chez le fournisseur du profil, en micro-dollars par million de jetons ; `None` si le
     /// profil ne lui donne pas de prix. Un prix du cache que le profil ne donne pas vaut le prix d'entrée.
     pub(crate) fn prix(&self, modele: &str) -> Option<Prix> {
@@ -376,7 +404,7 @@ impl Profil {
     /// Un profil de test : la commande et le délai qu'on lui donne.
     #[cfg(test)]
     pub(crate) fn faux(main: Vec<String>, delai_preuve: Duration) -> Profil {
-        Profil { sorte: Sorte::Brute(main), delai_main: DELAI_MAIN, delai_preuve }
+        Profil { sorte: Sorte::Brute(main), delai_main: DELAI_MAIN, delai_preuve, proteges: Vec::new() }
     }
 
     /// Le profil a l'empreinte que l'humain a acceptée : celle de `<nom>.empreinte`, à côté de son fichier, que `lire`
@@ -609,7 +637,10 @@ impl Profil {
     ///   "Edit(<dossier en règle>/fil.jsonl)","Edit(<dossier en règle>/profils/**)",
     ///   "Read(<dossier en règle>/srt-*.json)","Edit(<dossier en règle>/srt-*.json)",
     ///   <"Read(<connexion en règle>/.credentials.json)","Edit(<connexion en règle>/.credentials.json)">…,
-    ///   "Edit(<git commun en règle>/**)"]},"disableAllHooks":true,"autoMemoryEnabled":false}
+    ///   "Edit(<git commun en règle>/**)","Bash(git commit:*)","Bash(git commit *)","PowerShell(git commit:*)",
+    ///   "PowerShell(git commit *)",<"Edit(<bac en règle>/<chemin protégé>)", ou pour un dossier
+    ///   "Edit(<bac en règle>/<dossier>/**)">…]},
+    ///   "disableAllHooks":true,"autoMemoryEnabled":false}
     ///   ```
     ///   `<exclues>` n'est rien, sauf sous un mur demandé quand un morceau de la preuve est prêté :
     ///   `"excludedCommands":[<morceaux prêtés>…],`, les morceaux des règles du prêt, dans leur ordre. Sous un mur
@@ -640,6 +671,12 @@ impl Profil {
         let Some(bornes) = claude.bornes.as_ref().filter(|_| !sans_cle) else {
             return Demande { argv: Vec::new(), declaration: None };
         };
+        // Une règle `Edit` par chemin protégé, dans le bac : un bac qu'une règle ne sait pas écrire ne ferait pas
+        // tomber ces règles seules, en silence, et la main ne part pas.
+        let protegees = match protegees(&self.proteges, bac) {
+            Ok(regles) => regles,
+            Err(()) => return Demande { argv: Vec::new(), declaration: None },
+        };
         let modele = if relance { &claude.relance } else { &claude.modele };
         let declare = |sortant: &str| claude.outils.iter().any(|outil| outil == sortant);
         let pretes = verifier.and_then(pret).unwrap_or_default();
@@ -658,7 +695,9 @@ impl Profil {
             .chain(["fil.jsonl", "profils/**"].map(|garde| format!("Edit({}/{garde})", bornes.regle)))
             .chain(["Read", "Edit"].map(|outil| format!("{outil}({}/srt-*.json)", bornes.regle)))
             .chain(bornes.connexions.iter().flat_map(connexion))
-            .chain([format!("Edit({}/**)", bornes.commun)]);
+            .chain([format!("Edit({}/**)", bornes.commun)])
+            .chain(COMMIT_REFUSE.map(String::from))
+            .chain(protegees);
         let (fermes, lus, domaines) = claude.regles(bornes, bac);
         // raccourci : sous un mur demandé et actif, la preuve prêtée tourne hors du mur pendant le travail de la main,
         // ce que personne n'a joué sous Linux ; monter (la laisser dans le bac à sable quand il est actif) si une vraie
@@ -734,6 +773,22 @@ impl Claude {
     }
 }
 
+/// Les règles `Edit` des chemins protégés dans `bac` : `Edit(<bac>/<fichier>)`, ou `Edit(<bac>/<dossier>/**)` pour un
+/// dossier (fini par `/`), chacune par [`regle_de_chemin`]. `Err` si le bac n'a pas de règle.
+fn protegees(proteges: &[String], bac: &Path) -> Result<Vec<String>, ()> {
+    if proteges.is_empty() {
+        return Ok(Vec::new());
+    }
+    let regle = bac.to_str().ok_or(()).and_then(|bac| regle_de_chemin(bac, cfg!(windows)).map_err(|_| ()))?;
+    Ok(proteges
+        .iter()
+        .map(|chemin| match chemin.strip_suffix('/') {
+            Some(dossier) => format!("Edit({regle}/{dossier}/**)"),
+            None => format!("Edit({regle}/{chemin})"),
+        })
+        .collect())
+}
+
 /// Ce qui rejoue une preuve sous un mur exigé (voir [`Profil::rejeu`]).
 #[derive(Debug)]
 pub(crate) struct Srt {
@@ -786,6 +841,7 @@ pub(crate) fn lire(
     // `api` (sa ligne, sa valeur, son hôte) et `cle` (sa ligne, sa valeur), réunies après la lecture.
     let (mut api, mut variable) = (None, None);
     let mut ligne_prix = 0;
+    let mut proteges = Vec::new();
     for (i, ligne) in texte.strip_prefix('\u{feff}').unwrap_or(texte).split('\n').enumerate() {
         let (n, ligne) = (i + 1, ligne.strip_suffix('\r').unwrap_or(ligne));
         let refus = |regle: &str| Err(refusee(n, ligne, regle));
@@ -882,6 +938,21 @@ pub(crate) fn lire(
                 (claude.lecture, claude.ligne_lecture) = (liste(), (n, ligne.to_string()));
             }
             "lecture" => return refus("une lecture est un chemin absolu ou en ~/…, sans .. ni joker (* ? [ ] { })"),
+            "proteges" => {
+                for chemin in &elements {
+                    let faute = hors_forme(chemin).map(String::from).or_else(|| {
+                        chemin.chars().find(|c| "()*?[]{}\"\\".contains(*c)).map(|c| format!("porte « {c} »"))
+                    });
+                    if let Some(faute) = faute {
+                        return refus(&format!(
+                            "un chemin protégé est relatif à la racine du dépôt, en noms séparés par /, un / final \
+                             pour un dossier, sans ( ) * ? [ ] {{ }} ni guillemet, hors de .git/ et de .claude/ : \
+                             {chemin} {faute}"
+                        ));
+                    }
+                }
+                proteges = liste();
+            }
             _ => {
                 // `delai_main` ou `delai_preuve` : des chiffres seuls, sans signe, et plus que zéro.
                 let secondes = valeur.bytes().all(|c| c.is_ascii_digit()).then(|| valeur.parse::<u64>().ok());
@@ -933,7 +1004,7 @@ pub(crate) fn lire(
             format!("Ajoute la ligne « sorte = claude » à {lieu}, puis accepte le profil : lydite accepter {nom}."),
         ));
     }
-    Ok(Profil { sorte: Sorte::Claude(Box::new(claude)), delai_main, delai_preuve })
+    Ok(Profil { sorte: Sorte::Claude(Box::new(claude)), delai_main, delai_preuve, proteges })
 }
 
 /// Le chemin absolu en forme POSIX d'une règle de permission de Claude Code : `//` puis le chemin, `C:\x` donnant

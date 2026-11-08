@@ -815,3 +815,77 @@ fn le_gel_refuse_un_fichier_non_vide_ou_inscriptible_sous_claude() {
         let _ = fs::remove_dir_all(&racine);
     }
 }
+
+#[test]
+fn un_chemin_protege_change_est_le_refus_7018_a_la_fin_de_la_tentative() {
+    let (racine, depot, kraken, base) = vise_avec_fichiers("protege-tentative");
+    let bac = prise(&depot, &kraken, "t", &base, &[("src/b.txt", "autre\n"), ("src/neuf/x.txt", "1")]);
+    // Sans chemin protégé, rien n'est jugé, et git n'est pas même interrogé.
+    assert_eq!(proteges_tenus(&bac, &base, "t", &[]), Ok(()));
+    assert_eq!(proteges_tenus(&racine.join("absent"), &"0".repeat(40), "t", &[]), Ok(()));
+    // Un fichier protégé change : le refus 7018, avec la preuve et la correction de la tentative.
+    let refus = proteges_tenus(&bac, &base, "t", &chemins(&["src/b.txt"])).unwrap_err();
+    assert_eq!(refus.code, Code::CheminProtege);
+    let preuve = r#"the hand of task t changed paths that its profile protects: "src/b.txt""#;
+    assert_eq!(refus.preuve, preuve);
+    assert!(refus.correction.contains("a protected path changes only through its profile"), "{refus}");
+    // Un dossier protégé couvre ce qui est sous lui, jusqu'au non suivi, et rien de ses voisins de même préfixe.
+    let refus = proteges_tenus(&bac, &base, "t", &chemins(&["src/"])).unwrap_err();
+    assert_eq!(refus.code, Code::CheminProtege);
+    assert!(refus.preuve.ends_with(r#": "src/b.txt", "src/neuf/x.txt""#), "{refus}");
+    assert_eq!(proteges_tenus(&bac, &base, "t", &chemins(&["sr/", "src/neuf", "doc/", "src/a.txt"])), Ok(()));
+    // Un chemin protégé effacé est changé ; commité, de même.
+    let efface = prise(&depot, &kraken, "efface", &base, &[]);
+    fs::remove_file(efface.join("doc/c.txt")).unwrap();
+    let refus = proteges_tenus(&efface, &base, "t", &chemins(&["doc/c.txt"])).unwrap_err();
+    assert!(refus.preuve.ends_with(r#": "doc/c.txt""#), "{refus}");
+    let commite = prise(&depot, &kraken, "commite", &base, &[("src/a.txt", "commité\n")]);
+    commiter(&commite);
+    let refus = proteges_tenus(&commite, &base, "t", &chemins(&["src/a.txt"])).unwrap_err();
+    assert_eq!(refus.code, Code::CheminProtege);
+    // Un git qui ne répond pas est le refus 7009, pas un « rien changé ».
+    let refus = proteges_tenus(&racine.join("absent"), &base, "t", &chemins(&["src/"])).unwrap_err();
+    assert_eq!(refus.code, Code::GitImpossible);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn un_chemin_protege_au_gel_refuse_la_tache_et_rien_n_est_fusionne() {
+    let (racine, depot, kraken, base) = vise_avec_fichiers("protege-gel");
+    let profil = Profil::faux(vec!["lydite-main-inutile".into()], DELAI).avec_proteges(&["src/b.txt", "doc/"]);
+    let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+    let a_la_tete = |assemblage: &Assemblage<'_>| {
+        assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
+        a_sa_tete(&kraken, &base);
+    };
+    // Des `fichiers` qui couvrent le chemin protégé ne le sauvent pas : le protégé l'emporte.
+    let couvrant = prise(&depot, &kraken, "a", &base, &[("src/a.txt", "ok\n"), ("src/b.txt", "autre\n")]);
+    let permis = chemins(&["src/"]);
+    let (verif, issue) = assemblage
+        .assembler(&couvrant, &base, "a", Some(&permis), 1, |_, _| panic!("un chemin protégé ne se note pas"));
+    let refus = issue.unwrap_err();
+    assert_eq!((refus.code, verif), (Code::CheminProtege, None));
+    assert_eq!(refus.preuve, r#"the hand of task a changed paths that its profile protects: "src/b.txt""#);
+    assert!(refus.correction.starts_with("The task is refused and nothing of it is merged. Restore these paths"));
+    assert!(refus.correction.contains("a protected path changes only through its profile, which the human accepts."));
+    a_la_tete(&assemblage);
+    // Une tâche sans `fichiers` reste bornée par `proteges`, et un dossier protégé couvre ce qui est sous lui.
+    let libre = prise(&depot, &kraken, "b", &base, &[("neuf.txt", "1"), ("doc/profond/d.txt", "2")]);
+    let (verif, issue) =
+        assemblage.assembler(&libre, &base, "b", None, 2, |_, _| panic!("un chemin protégé ne se note pas"));
+    let refus = issue.unwrap_err();
+    assert_eq!((refus.code, verif), (Code::CheminProtege, None));
+    assert!(refus.preuve.ends_with(r#": "doc/profond/d.txt""#), "{refus}");
+    a_la_tete(&assemblage);
+    // Par `fusionner`, la tête et la branche reviennent de même, et la tâche refusée ne laisse rien derrière.
+    let (_, issue) = assemblage.fusionner(&libre, &base, "b", None, 2, |_, _| panic!("rien ne se note"));
+    assert_eq!(issue.unwrap_err().code, Code::CheminProtege);
+    a_la_tete(&assemblage);
+    // Un travail qui ne touche aucun chemin protégé s'assemble comme avant, avec ou sans `fichiers`.
+    let bon = prise(&depot, &kraken, "c", &base, &[("src/a.txt", "bon\n")]);
+    let sha = assemblage.fusionner(&bon, &base, "c", Some(&permis), 3, |_, _| Ok(())).1.unwrap();
+    assert_eq!(assemblage.tete(), sha);
+    let propre = prise(&depot, &kraken, "d", &sha, &[("neuf2.txt", "2")]);
+    assert!(assemblage.fusionner(&propre, &sha, "d", None, 4, |_, _| Ok(())).1.is_ok());
+    let _ = fs::remove_dir_all(&racine);
+}

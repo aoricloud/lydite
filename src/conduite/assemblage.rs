@@ -16,6 +16,10 @@
 //! ni détourner un geste vers un dépôt dont la configuration en définit un : ce ne sont que ceux que l'humain a posés
 //! dans le dépôt visé ou dans la configuration globale de git.
 //!
+//! Les chemins que le profil protège (`proteges`, 7018) se jugent aux mêmes deux endroits, avant les `fichiers` : à la
+//! fin de chaque tentative (`proteges_tenus`), un chemin protégé changé la rougit ; au gel, la tâche est refusée et
+//! rien d'elle n'est fusionné, qu'elle ait des `fichiers` ou non.
+//!
 //! Avant l'assemblage, `fichiers_tenus` juge ce que la main a changé dans son bac contre les `fichiers` de sa tâche
 //! (7013) : la vague le joue à la fin de chaque tentative prise, avant qu'elle ne soit notée, et un chemin de trop la
 //! rougit, pour que la relance le reçoive. Le gel est jugé de même, contre les mêmes `fichiers` : un chemin de trop
@@ -58,6 +62,16 @@ const HORS_FICHIERS_GEL: &str = "La tâche est refusée, et il n'y a pas de rela
                                  lieu, et la branche comme le worktree de la vague restent à leur tête. Un nouveau \
                                  travail qui ne change que les chemins de `fichiers`, un dossier (fini par `/`) \
                                  couvrant ce qu'il contient, repartira de cette tête.";
+
+/// La correction d'un chemin protégé changé pendant une tentative (7018), que la relance reçoit en contexte.
+const PROTEGE: &str = "Restore these paths as in the base, in this same bac, then run your proof again: a protected \
+                       path changes only through its profile, which the human accepts. Do not change them by an edit, \
+                       nor by a command.";
+
+/// La correction d'un chemin protégé que le gel porterait (7018) : la fusion n'a pas eu lieu.
+const PROTEGE_GEL: &str = "The task is refused and nothing of it is merged. Restore these paths as in the base, then \
+                           run the task again: a protected path changes only through its profile, which the human \
+                           accepts.";
 
 /// La correction d'un `.claude` que le gel prendrait (7006), vu après `sans_claude` : la fusion n'a pas eu lieu, et la
 /// tâche est refusée sans relance automatique.
@@ -308,12 +322,19 @@ impl Assemblage<'_> {
         }
         // Le gel est ce que la branche recevra : ses chemins sont jugés contre les `fichiers` de la tâche, même si le
         // contrôle de fin de tentative ne les a pas vus.
-        if let Some(fichiers) = fichiers {
+        // Un chemin protégé l'emporte sur les `fichiers`, et borne aussi une tâche qui n'en a pas.
+        let proteges = self.profil.proteges();
+        if fichiers.is_some() || !proteges.is_empty() {
             let changes = match chemins_geles(bac, depart, &gel) {
                 Ok(changes) => changes,
                 Err(refus) => return (None, Err(refus)),
             };
-            if let Err(refus) = hors_des_fichiers(changes, id, fichiers, HORS_FICHIERS_GEL) {
+            if let Err(refus) = protegees_changees(&changes, id, proteges, PROTEGE_GEL) {
+                return (None, Err(refus));
+            }
+            if let Some(fichiers) = fichiers
+                && let Err(refus) = hors_des_fichiers(changes, id, fichiers, HORS_FICHIERS_GEL)
+            {
                 return (None, Err(refus));
             }
         }
@@ -491,6 +512,28 @@ fn hors_des_fichiers(changes: Vec<String>, id: &str, fichiers: &[String], correc
     let preuve =
         format!("la main de la tâche {id} a changé, hors de ses fichiers ({}) : {}", citer(fichiers), citer(&hors));
     Err(Refus::new(Code::HorsFichiers, preuve, correction))
+}
+
+/// Le refus 7018 pour les chemins de `changes` que `proteges` couvre ([`couvre`]), avec la `correction` de l'endroit
+/// qui juge.
+fn protegees_changees(changes: &[String], id: &str, proteges: &[String], correction: &str) -> Result<(), Refus> {
+    let touches: Vec<String> =
+        changes.iter().filter(|chemin| proteges.iter().any(|entree| couvre(entree, chemin))).cloned().collect();
+    if touches.is_empty() {
+        return Ok(());
+    }
+    let preuve = format!("the hand of task {id} changed paths that its profile protects: {}", citer(&touches));
+    Err(Refus::new(Code::CheminProtege, preuve, correction))
+}
+
+/// La main de la tâche `id` n'a changé aucun chemin que `proteges` couvre ([`couvre`]), vu à la fin d'une tentative,
+/// qu'elle ait des `fichiers` ou non, et avant le jugement des `fichiers`. Un chemin protégé changé est le refus 7018 ;
+/// git qui ne dit pas ce que la main a changé, le refus 7009. Sans chemin protégé, git n'est pas interrogé.
+pub(crate) fn proteges_tenus(bac: &Path, depart: &str, id: &str, proteges: &[String]) -> Result<(), Refus> {
+    if proteges.is_empty() {
+        return Ok(());
+    }
+    protegees_changees(&chemins_changes(bac, depart)?, id, proteges, PROTEGE)
 }
 
 /// La main de la tâche `id` n'a changé que des chemins que `fichiers` couvre ([`couvre`]). La comparaison est exacte,
