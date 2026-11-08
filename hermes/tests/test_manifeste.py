@@ -57,6 +57,9 @@ class Manifeste(unittest.TestCase):
             def register_hook(self, nom, rappel):
                 self.outils.append(nom)
 
+            def register_skill(self, name, path, description="", frontmatter=None):
+                pass
+
         nu = Nu()
         plugin().register(nu)
         self.assertEqual(len(nu.outils), 3)

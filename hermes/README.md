@@ -16,6 +16,12 @@ disagree.
 | `lydite_lancer` | Starts `lydite lancer <profile> --issue <n> --decouper --verifier "<proof>" --depot <repo> --pr main` in the background and returns at once with an id. Also takes `objectif` (instead of `issue`), `plan` (instead of both: a plan file written by hand, with its own models, files and `preuve :` line; see below), `profil`, `pr`, and `observer` (show the plan, build nothing). |
 | `lydite_etat` | Returns `lydite etat` (what Lydite itself recorded: tasks, proofs, pull request, CI) and the launches made from this plugin, with the end of a launch's log when given its `id`. |
 
+It also ships one skill, `lydite:driving-lydite`, in the open `SKILL.md` format with only its common fields, so
+Claude Code can read it too. It tells the model when to hand a job to Lydite, what to have before launching (the
+repository, the work, your proof), how to read what `lydite_etat` returns (what Lydite observed against what a worker
+only declared; what the cost line means), and to quote a refusal and stop rather than redo the work itself. Hermes
+lists it for the model while the plugin is enabled, on Linux, and does not copy it into `~/.hermes/skills/`.
+
 The workers are **Claude Code sessions that Lydite starts itself**, on the model and provider of the Lydite profile
 (for example a DeepSeek endpoint). They are never Hermes agents or Hermes child processes.
 
@@ -53,8 +59,9 @@ starts.
 
 ## If the model does the work itself
 
-By default Hermes hides plugin tools behind a `tool_search` step, and a model can miss them. Name Lydite in your
-request ("use Lydite to run the plan ..."), or show the tools to the model directly:
+By default Hermes hides plugin tools behind a `tool_search` step, and a model can miss them. The skill above tells
+the model when to reach for Lydite, but it does not change how Hermes hides tools. Name Lydite in your request ("use
+Lydite to run the plan ..."), or show the tools to the model directly:
 
 ```bash
 hermes config set tools.tool_search.enabled off
@@ -89,8 +96,9 @@ hermes config set tools.tool_search.enabled off
   repository, work, proof and profile. A request that would be refused anyway is answered without asking. "Always"
   only covers the same repository, profile and proof. Nothing here disables a guard or reads the YOLO mode; in an
   unattended run Hermes' gate fails closed.
-- **Files.** Reads nothing outside its own data folder except what the Lydite binary reports, the `plan` file named in
-  a call (to show it to you in full, and to copy it), and the existence of the repository's `.git`. A plan is copied
+- **Files.** Reads nothing outside its own data folder except its own `skills/driving-lydite/SKILL.md` (when it
+  registers the skill), what the Lydite binary reports, the `plan` file named in a call (to show it to you in full,
+  and to copy it), and the existence of the repository's `.git`. A plan is copied
   with mode 0600 under the plugin's data folder and Lydite reads the copy: if the file changed after you saw it, the
   launch is refused.
 
@@ -98,8 +106,12 @@ hermes config set tools.tool_search.enabled off
 
 - Linux only. On Windows the wall is not held by Lydite; the tools do not appear.
 - Lydite's proof is only as good as your command: a test that is wrong is replayed as faithfully as one that is right.
-- The pull request body today states the proof result and the review outcome; a fuller receipt (cost, models, tests
-  before and after) is planned. `lydite_etat` returns what Lydite prints today.
+- Nothing comes back into the chat by itself: the plugin does not notify Hermes when a wave ends. Ask for the state
+  with `lydite_etat`.
+- The pull request body opens with a receipt written when the pull request is opened: the cost so far, the hands, the
+  retries, the set-aside tasks and the proof-setting files the diff changed; then the proof result and the review
+  outcome. `lydite_etat` returns what `lydite etat` prints, which has the same cost and hands line plus the wave's
+  duration. The cost is an estimate, a flat-rate approximation or `inconnu` (unknown), never an invoice.
 
 ## Test
 
