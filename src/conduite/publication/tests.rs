@@ -38,6 +38,43 @@ fn usage(vague: &str, micro_dollars: u64, base: fil::Base) -> Evenement {
 }
 
 #[test]
+fn le_corps_ne_cite_pas_la_raison_d_une_main_impossible() {
+    let plan = Plan::lire(b"plan 1\nobjectif : Un test\npreuve : cargo test\n\ntache a\n    Ecrire a.txt\n").unwrap();
+    let v = "1761901500000_11_0";
+    let evenements = [
+        Evenement::Vague { vague: v.into(), n: 1, depot: "depot".into(), verifier: None, objectif: "Un test".into() },
+        Evenement::Debut { vague: v.into(), main: 1, tentative: 1 },
+        Evenement::Fin {
+            vague: v.into(),
+            main: 1,
+            tentative: 1,
+            couleur: Couleur::Rouge,
+            foi: Foi::Declare,
+            texte: "IMPOSSIBLE: le test se contredit".into(),
+            verif: None,
+        },
+        Evenement::Verdict { vague: v.into(), main: 1, verdict: Verdict::Impossible, foi: Foi::Declare },
+    ];
+    let vagues = etat(&evenements);
+    let notes: Vec<fil::Note> = evenements
+        .iter()
+        .zip(1..)
+        .map(|(evenement, seq)| fil::Note {
+            seance: "s".into(),
+            seq,
+            instant: "2026-10-31T21:00:00.000Z".into(),
+            origine: "humain".into(),
+            origine_foi: Foi::Declare,
+            evenement: evenement.clone(),
+        })
+        .collect();
+    let texte = corps_sans_reglage(&plan, &vagues, v, None, None, &notes);
+    assert!(!texte.contains("le test se contredit"), "{texte}");
+    assert!(texte.contains("\na : classée\n"), "{texte}");
+    assert!(texte.contains("1 impossible"), "{texte}");
+}
+
+#[test]
 fn le_corps_dit_le_plan_sans_sortie_de_main_ni_chemin() {
     let racine = racine("forge-corps");
     let plan = Plan::lire(
