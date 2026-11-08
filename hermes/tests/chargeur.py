@@ -53,10 +53,14 @@ class FauxContexte:
         self.reglages = dict(reglages or {})
         self.outils = {}
         self.crochets = {}
+        self.skills = {}
         self.state = FauxEtat(dossier)
 
     def register_tool(self, name, toolset, schema, handler, **options):
         self.outils[name] = {"toolset": toolset, "schema": schema, "handler": handler, **options}
+
+    def register_skill(self, name, path, description="", frontmatter=None):
+        self.skills[name] = {"path": Path(path), "description": description, "frontmatter": dict(frontmatter or {})}
 
     def register_hook(self, nom, rappel):
         self.crochets[nom] = rappel
