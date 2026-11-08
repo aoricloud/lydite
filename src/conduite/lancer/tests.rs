@@ -984,10 +984,27 @@ fn une_vague_note_la_consigne_gardee_que_sa_main_a_recue() {
     assert_ne!(seconde, consigne);
     let entree = fs::read_to_string(kraken.join("bacs").join(&id).join("entree.txt")).unwrap();
     let seconde = fs::read_to_string(kraken.join("consignes").join(format!("{seconde}.txt"))).unwrap();
-    assert_eq!(entree.replace("\r\n", "\n").trim_end(), seconde.trim_end(), "le texte de la dernière tentative");
+    // La consigne gardée porte l'erreur de la première tentative, que la fausse main écrit selon la plateforme.
+    let (entree, seconde) = (entree.replace("\r\n", "\n"), seconde.replace("\r\n", "\n"));
+    assert_eq!(entree.trim_end(), seconde.trim_end(), "le texte de la dernière tentative");
     assert!(garde.starts_with("A refusal from the wall") && garde.contains("objectif"), "{garde}");
     assert!(!garde.contains("Tentative précédente"), "{garde}");
     assert!(seconde.contains("Tentative précédente"), "{seconde}");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn une_lecon_en_crlf_au_commit_de_base_est_notee_avec_l_empreinte_de_son_texte_en_lf() {
+    let racine = racine("lecons-crlf");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let en_lf = texte_de_lecon("g", &[]);
+    commiter_les_lecons(&depot, &[("g", en_lf.replace('\n', "\r\n"))]);
+    let profil = profil_declare("sorte = claude\nprogramme = lydite-claude-introuvable\n", &kraken, &depot);
+    lancer(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL).unwrap();
+    let notees = consignes_notees(&kraken);
+    let Some(Evenement::Consigne { lecons, .. }) = notees.first() else { panic!("{notees:?}") };
+    let attendue = format!("g {}", crate::coeur::profil::empreinte(&en_lf));
+    assert_eq!(lecons, &attendue);
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -1132,7 +1149,9 @@ fn un_dossier_qui_ne_peut_pas_garder_la_consigne_arrete_la_vague_sans_lecon() {
     assert!(menee.arretee);
     let issue = menee.issues[0].1.as_ref().unwrap_err();
     assert!(issue.contains("écriture de la consigne") && issue.contains("7012"), "{issue}");
-    assert!(!racine.join("entree.txt").exists() && consignes_notees(&kraken).is_empty());
+    // La fausse main écrit `entree.txt` dans son bac : aucun bac n'en porte, elle n'est pas partie.
+    let partie = trouves(&kraken, &|nom| nom == "entree.txt");
+    assert!(partie.is_empty() && consignes_notees(&kraken).is_empty(), "{partie:?}");
     let _ = fs::remove_dir_all(&racine);
 }
 
