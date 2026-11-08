@@ -525,7 +525,7 @@ fn une_pr_verte_part_de_la_base_distante_puis_range_ses_bacs() {
         "Reçu\n- Coût : inconnu\n- 2 mains, 0 relance, 0 classée\n- Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
          - Réglages de la preuve changés : aucun\n\n\
          Ecrire a et b\n\nPreuve : exit 0 → vert\n\na : Ecrire a\nb : Ecrire b\n\n\
-         Replayed on commit {tete}, not reviewed: no task is critical.\n"
+         Replayed on commit {tete}, not reviewed: no critical task was assembled.\n"
     );
     assert_eq!(lieu.gh.entree(2), corps);
     // Le commit local n'est pas dans la PR : ni dans l'histoire de la tête poussée, ni dans son arbre.
@@ -962,6 +962,36 @@ fn lancer_qui_refuse_la_relance_est_8011_sous_la_vague() {
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
+#[cfg(unix)]
+#[test]
+fn une_main_de_relance_de_ci_qui_ne_change_rien_est_refusee_par_le_controle_de_la_relance() {
+    let lieu = lieu("forge-relance-vide");
+    let proposition = lieu.proposition();
+    let plan = plan_de_a();
+    let menee = lieu.vague_rouge(&proposition, &plan);
+    let tete = menee.tete.clone().unwrap();
+    // Une main qui ne change rien, verte, et qui note chacun de ses départs.
+    let departs = lieu.racine.join("departs");
+    let script_vide = lieu.racine.join("vide.sh");
+    let corps = format!("cat > /dev/null\necho x >> '{}'\necho 'PREUVE: vert'\n", pour_sh(&departs));
+    fs::write(&script_vide, corps).unwrap();
+    let profil = Profil::faux(vec!["sh".into(), script_vide.to_string_lossy().into_owned()], PREUVE);
+    let relancer = |plan: &Plan, base: &str| -> Result<Menee, Refus> {
+        let liens = crate::conduite::lancer::Liens { relance_ci: true, ..Default::default() };
+        crate::conduite::lancer::lancer_avec(&lieu.depot, &lieu.kraken, &profil, plan, BAIL, base, liens)
+    };
+    assert_eq!(lieu.apres_avec(&proposition, &plan, &menee, &relancer, Duration::from_secs(60)), ExitCode::FAILURE);
+    // Le contrôle propre à la relance refuse : la tête poussée n'a pas changé ; la main n'est pas partie deux fois.
+    let vagues = lieu.vagues();
+    assert_eq!(vagues.len(), 2, "{vagues:?}");
+    let notes = lieu.forge_du_fil(&vagues[1]);
+    let Some(Evenement::RefusForge { preuve, .. }) = notes.first() else { panic!("{notes:?}") };
+    assert_eq!(preuve, &format!("la vague de relance {} n'a rien changé à la tête poussée {tete}", vagues[1]));
+    let departs = fs::read_to_string(&departs).unwrap();
+    assert_eq!(departs.lines().count(), 1, "pas de relance de main : {departs}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
 #[test]
 fn une_relance_non_assemblee_est_8011_sous_la_relance() {
     let lieu = lieu("forge-relance-classee");
@@ -1359,7 +1389,10 @@ fn la_ligne_du_corps_dit_le_commit_relu_et_rejoue() {
     );
     // Sans relecture : la tête part comme elle est, et le corps le dit.
     let ouverte = [Evenement::Fusion { vague: "v".into(), main: 1, sha: t.clone(), verif: String::new() }];
-    assert_eq!(controle(&ouverte, &t).unwrap(), format!("Replayed on commit {t}, not reviewed: no task is critical."));
+    assert_eq!(
+        controle(&ouverte, &t).unwrap(),
+        format!("Replayed on commit {t}, not reviewed: no critical task was assembled.")
+    );
     // « replayed » ne s'écrit que si un `vague.fusion` de la vague ou de sa correction porte le commit.
     let mut sans_fusion = relue_notee(0, &t, "v", &[]);
     sans_fusion.remove(0);
@@ -1369,7 +1402,10 @@ fn la_ligne_du_corps_dit_le_commit_relu_et_rejoue() {
     sans_fusion.push(Evenement::Fusion { vague: "autre".into(), main: 1, sha: t2.clone(), verif: String::new() });
     let ligne = controle(&sans_fusion, &t2);
     assert!(ligne.is_err(), "sans fusion de la correction, la tête de la correction ne se trouve pas : {ligne:?}");
-    assert_eq!(controle(&[], &t2).unwrap(), format!("Not replayed on commit {t2}, not reviewed: no task is critical."));
+    assert_eq!(
+        controle(&[], &t2).unwrap(),
+        format!("Not replayed on commit {t2}, not reviewed: no critical task was assembled.")
+    );
 }
 
 #[test]

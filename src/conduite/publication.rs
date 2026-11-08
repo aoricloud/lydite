@@ -247,8 +247,8 @@ fn derniere_tete(evenements: &[Evenement], id: &str) -> Option<String> {
 /// Ce que le fil dit de la relecture de la vague `id` face à `tete`, la tête que la forge va pousser au premier envoi,
 /// et, s'il la laisse partir, la ligne du corps de la PR qui nomme le commit relu et rejoué.
 ///
-/// - Sans relecture (aucune tâche critique), la tête part comme elle est : « Replayed on commit <tête>, not reviewed:
-///   no task is critical. »
+/// - Sans relecture (aucune tâche critique assemblée), la tête part comme elle est : « Replayed on commit <tête>, not
+///   reviewed: no critical task was assembled. »
 /// - Relue sans remarque bloquante, seule part la tête que le verdict (`vague.verdict`) dit relue : « Reviewed and
 ///   replayed on commit <sha>. »
 /// - Relue avec des bloquantes, seule part la tête de la correction qui vise cette relecture (le dernier
@@ -256,12 +256,14 @@ fn derniere_tete(evenements: &[Evenement], id: &str) -> Option<String> {
 ///   second review, and replayed on commit <tête>. »
 /// - Sinon, le refus 7016, dont la preuve nomme la tête à pousser et celle qu'il fallait.
 ///
+/// Une vague n'a qu'une relecture : la correction d'une relecture plus ancienne de la même vague ne s'y voit donc pas.
+///
 /// « replayed » ne s'écrit que si un `vague.fusion` de la vague ou de sa correction porte le commit.
 fn controler_la_tete(vagues: &[Vague], evenements: &[Evenement], id: &str, tete: &str) -> Result<String, Refus> {
     let refus = |preuve: String| Refus::new(Code::RelectureManquee, preuve, SANS_TETE_JUGEE);
     let Some(relecture) = relecture_de(vagues, id) else {
         let rejoue = rejoue(rejouee_sur(evenements, &[id], tete));
-        return Ok(format!("{} on commit {tete}, not reviewed: no task is critical.", capitaliser(rejoue)));
+        return Ok(format!("{} on commit {tete}, not reviewed: no critical task was assembled.", capitaliser(rejoue)));
     };
     // Le verdict est celui du relecteur qui a rendu la dernière relecture de la vague.
     let relecteur = vagues.iter().rev().find(|v| v.relecture.as_ref().is_some_and(|r| r.relue == id));
