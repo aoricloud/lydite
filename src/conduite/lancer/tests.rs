@@ -673,6 +673,7 @@ fn une_main_qui_declare_l_impossible_est_classee_sans_rejeu_ni_relance_ni_assemb
         assert_eq!(departs.lines().count(), 1, "{departs}");
         let evenements = fil(&kraken);
         assert!(!evenements.iter().any(|e| matches!(e, Evenement::Fusion { .. } | Evenement::Refus { .. })));
+        assert!(!evenements.iter().any(|e| matches!(e, Evenement::Gel { .. })), "une main impossible ne gèle rien");
         let fins: Vec<_> = evenements
             .iter()
             .filter_map(|e| match e {
