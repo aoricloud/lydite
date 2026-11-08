@@ -940,6 +940,19 @@ fn la_consigne_porte_les_points_a_justifier_apres_les_taches_critiques_vingt_au_
 }
 
 #[test]
+fn la_borne_de_vingt_points_tient_sur_ceux_d_un_vrai_diff() {
+    let mut diff = String::from("--- a/src/s.rs\n+++ b/src/s.rs\n@@ -1,25 +0,0 @@\n");
+    for k in 1..=25 {
+        diff.push_str(&format!("-assert!(a{k});\n"));
+    }
+    let tous = crate::conduite::alarmes::points(&diff);
+    assert_eq!(tous.len(), 25);
+    let consigne = consigne("o", &[], &tous);
+    assert!(consigne.contains("`src/s.rs`, line 20: an assertion removed or changed"), "{consigne}");
+    assert!(!consigne.contains("line 21:"), "{consigne}");
+}
+
+#[test]
 fn la_couche_fixe_du_relecteur_tient_sous_son_plafond_sans_la_sortie_honnete_ni_le_perimetre() {
     // Mesurée avec la phrase des points à justifier, qui n'entre qu'avec un point.
     let fixe = consigne("", &[], &["p".to_string()]);

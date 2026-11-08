@@ -1,9 +1,9 @@
 //! Les points à justifier d'un diff, relevés sans modèle : ce que Lydite voit seul dans le travail d'une vague et que
 //! son auteur doit pouvoir justifier. Une fonction pure ([`points`]) lit le diff de git ; [`lire`] et [`ARGUMENTS`]
-//! disent comment git le donne. Trois signes, chacun une ligne `<chemin>, line <n>: <raison>` (sans `, line <n>` pour
-//! un test modifié) : un fichier de test modifié, une assertion retirée, une tolérance qui change (ajoutée ou
-//! retirée). Le numéro est celui de la ligne de la base ; pour une ligne ajoutée, la ligne de la base où elle
-//! s'insère. Les points sont triés et sans doublon.
+//! disent comment git le donne. Seules les lignes retirées comptent : un fichier de test de la base dont le diff en
+//! retire (`<chemin>: a test of the base changed (<N> lines removed)`, une fois par chemin), puis, par ligne retirée,
+//! une tolérance ou, sinon, une assertion (`<chemin>, line <n>: …`). Le numéro est celui de la ligne de la base. Les
+//! points sont triés par chemin puis par ligne, et sans doublon.
 
 use std::path::Path;
 
@@ -26,11 +26,29 @@ pub(crate) fn lire(dossier: &Path, base: &str, tete: &str, fichiers: Option<&[St
     Ok(points(&String::from_utf8_lossy(&gardes)))
 }
 
-/// Un fichier de test : sous un dossier `tests`, ou nommé `tests.rs`, `*_test.rs`, `*_tests.rs` ou `test_*`.
+/// Un fichier de test : un de ses dossiers s'appelle `tests` ou `test`, ou son nom est `tests.rs`, commence par
+/// `test_`, finit par `_test.<ext>` ou `_tests.<ext>`, ou contient `.test.` ou `.spec.`, sans casse.
 fn est_un_test(chemin: &str) -> bool {
+    let chemin = chemin.to_lowercase();
     let mut parties = chemin.rsplit('/');
     let nom = parties.next().unwrap_or_default();
-    nom.ends_with("tests.rs") || nom.ends_with("_test.rs") || nom.starts_with("test_") || parties.any(|d| d == "tests")
+    let radical = nom.rsplit_once('.').map_or("", |(radical, _)| radical);
+    nom == "tests.rs"
+        || nom.starts_with("test_")
+        || radical.ends_with("_test")
+        || radical.ends_with("_tests")
+        || nom.contains(".test.")
+        || nom.contains(".spec.")
+        || parties.any(|d| d == "tests" || d == "test")
+}
+
+/// Une ligne, en minuscules, qui porte une tolérance.
+fn porte_une_tolerance(bas: &str) -> bool {
+    let mots = ["epsilon", "toleran", "approx", "abs_diff", "relative_eq", "ulps"];
+    let octets = bas.as_bytes();
+    let exposant =
+        octets.windows(4).any(|q| q[0].is_ascii_digit() && q[1] == b'e' && q[2] == b'-' && q[3].is_ascii_digit());
+    mots.iter().any(|mot| bas.contains(mot)) || (bas.contains(".abs()") && bas.contains('<')) || exposant
 }
 
 /// Le chemin d'une ligne `--- ` ou `+++ ` d'un en-tête de diff, sans le préfixe `a/` ou `b/`, `None` pour `/dev/null`.
@@ -46,15 +64,15 @@ fn plage(texte: &str) -> (u64, u64) {
     (debut, nombres.next().unwrap_or(1))
 }
 
-/// Les points à justifier de `diff`, triés et sans doublon.
+/// Les points à justifier de `diff`, triés par chemin puis par ligne, et sans doublon.
 pub(crate) fn points(diff: &str) -> Vec<String> {
     // (chemin, ligne de la base, raison)
-    let mut trouves: Vec<(String, Option<u64>, &str)> = Vec::new();
+    let mut trouves: Vec<(String, Option<u64>, String)> = Vec::new();
+    // Les lignes retirées de chaque chemin, dans l'ordre où on les voit.
+    let mut retirees: Vec<(String, u64)> = Vec::new();
     let (mut ancien, mut nouveau) = (None, None);
     // Dans un hunk : les lignes qui restent de l'ancien et du nouveau, et la ligne courante de la base.
-    // Une ligne ajoutée prend la ligne de la base que le changement retire juste avant elle, sinon celle où elle
-    // s'insère.
-    let (mut restent, mut courante, mut retiree) = ((0u64, 0u64), 0u64, None);
+    let (mut restent, mut courante) = ((0u64, 0u64), 0u64);
     for ligne in diff.lines() {
         let chemin: &str = nouveau.or(ancien).unwrap_or_default();
         if restent != (0, 0) {
@@ -62,27 +80,29 @@ pub(crate) fn points(diff: &str) -> Vec<String> {
             if signe == "\\" {
                 continue;
             }
-            let bas = texte.to_lowercase();
-            let lieu = if signe == "+" { retiree.unwrap_or(courante) } else { courante };
-            retiree = match signe {
-                "-" => Some(courante),
-                "+" => retiree,
-                _ => None,
-            };
-            if signe == "-" && bas.contains("assert") {
-                trouves.push((chemin.into(), Some(lieu), "assertion removed"));
-            }
-            if matches!(signe, "-" | "+") && ["toler", "tolér", "epsilon"].iter().any(|mot| bas.contains(mot)) {
-                trouves.push((chemin.into(), Some(lieu), "tolerance changed"));
+            if signe == "-" {
+                let bas = texte.to_lowercase();
+                // raccourci : un test écrit dans un fichier de code n'est vu que par ses assertions, monter avec A3,
+                // qui lira les tests un par un
+                let raison = if porte_une_tolerance(&bas) {
+                    Some("a tolerance removed or changed")
+                } else {
+                    bas.contains("assert").then_some("an assertion removed or changed")
+                };
+                if let Some(raison) = raison {
+                    trouves.push((chemin.into(), Some(courante), raison.into()));
+                }
+                match retirees.iter_mut().find(|(vu, _)| vu == chemin) {
+                    Some((_, n)) => *n += 1,
+                    None => retirees.push((chemin.into(), 1)),
+                }
             }
             if signe != "+" {
                 restent.0 = restent.0.saturating_sub(1);
+                courante += 1;
             }
             if signe != "-" {
                 restent.1 = restent.1.saturating_sub(1);
-            }
-            if signe != "+" {
-                courante += 1;
             }
         } else if ligne.starts_with("diff ") {
             (ancien, nouveau) = (None, None);
@@ -94,9 +114,11 @@ pub(crate) fn points(diff: &str) -> Vec<String> {
             let (vieux, neuf) = entete.split_once(" +").unwrap_or_default();
             let (vieux, neuf) = (plage(vieux), plage(neuf.split(' ').next().unwrap_or_default()));
             (restent, courante) = ((vieux.1, neuf.1), vieux.0);
-            if est_un_test(chemin) {
-                trouves.push((chemin.into(), None, "test modified"));
-            }
+        }
+    }
+    for (chemin, n) in retirees {
+        if est_un_test(&chemin) {
+            trouves.push((chemin, None, format!("a test of the base changed ({n} lines removed)")));
         }
     }
     trouves.sort();
