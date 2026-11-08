@@ -138,6 +138,10 @@
 //!   et la preuve de la vague y est verte. `sha` est la nouvelle tête de la branche, `verif` la fin de la sortie de
 //!   cette preuve. `foi` vaut `constate`, seule valeur que le lecteur prend : Kraken seul fusionne, et une fusion
 //!   déclarée s'afficherait comme un fait.
+//! - `main.gel {vague, main, sha}` : le commit `sha` (40 hexadécimaux minuscules, comme celui de `forge.poussee`) est
+//!   ce que Kraken a gelé du bac de la main prise, et c'est sur lui que porte son `main.verdict`. Noté juste après le
+//!   gel, avant la fusion ; une main classée ou impossible n'en note pas. Une note de Kraken, sans `foi`. Type neuf,
+//!   il ne change pas `v`. Au rejeu, la main garde le dernier `sha` noté.
 //! - `vague.refus {vague, main, code, regle, preuve, correction, verif}` : Kraken a refusé la tâche. Une décision de
 //!   Kraken, sans `foi`. `code` est le numéro d'un code, un entier de 1000 à 9999 ; `regle`, `preuve` et `correction`
 //!   sont les trois textes de son refus (`erreur.rs`). `verif` est la fin de la sortie de la preuve de la vague, `null`
@@ -168,6 +172,11 @@
 //!   leur texte, tel que le relecteur l'a écrit. Notée une fois la relecture prise. Une relecture classée n'en note
 //!   pas : son refus, 7016, se note à sa place par un `forge.refus` de la vague relue, comme le refus 7017 d'une
 //!   correction qui ne s'assemble pas.
+//! - `vague.verdict {vague, relue, sha, profil, empreinte, modele}` : le verdict de la relecture `vague`, noté juste
+//!   après sa `vague.relecture` et avant la correction et la forge. `relue` est la vague relue, une autre, et `sha`
+//!   la tête que le relecteur a relue (40 hexadécimaux minuscules). `profil`, `empreinte` et `modele` sont ceux du
+//!   `main.lancement` du relecteur, des jetons ; `null` pour une main nue, qui n'en note pas. Une note de Kraken, sans
+//!   `foi`. Type neuf, il ne change pas `v`. Au rejeu, la vague relue garde le dernier verdict noté sur elle.
 //! - `vague.correction {vague, corrige}` : la correction `vague`, une vague d'une tâche, corrige la vague `corrige`,
 //!   une autre, que la relecture a dite à corriger. Avant tout départ de la correction. Elle n'a pas de seconde
 //!   relecture, et les notes `forge.*` de la vague corrigée restent à la vague corrigée.
@@ -183,6 +192,16 @@
 //!   sans la borne de 10 000, comme le `numero` d'une PR. Le titre et le corps de l'issue n'entrent pas au fil, seul
 //!   son numéro. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`. Il s'écrit par `Fil::noter_issue`
 //!   et se relit par `lire_tout`, strictement comme les autres ; `lire` en dit les lignes mal formées.
+//! - `vague.sceau {vague, octets, empreinte}` : le sceau du fil. `octets` est la longueur du fil au moment du sceau,
+//!   un entier positif sans la borne de 10 000, comme le `numero` d'une PR ; `empreinte` est le SHA-256 de ses `octets`
+//!   premiers octets, en 64 hexadécimaux minuscules. Une note de Kraken, sans `foi`, type neuf qui ne change pas `v`.
+//!   Une vague le note juste avant de construire le corps de sa PR, puis à sa fin, sur chacune de ses sorties, qu'elle
+//!   publie ou non ; le reçu de la PR reprend le premier. Plusieurs séances écrivent le même fil : le sceau couvre ce
+//!   qui précède ses `octets`, même si d'autres lignes se glissent avant la sienne. `lydite etat` relit chaque sceau
+//!   et recalcule l'empreinte ; le premier qui ne correspond plus est nommé sur stderr (sa vague, ses octets), et la
+//!   sortie est 2. Un sceau dont les `octets` dépassent le début de sa propre ligne ne correspond pas.
+//!   Ce que le sceau montre : une ligne changée ou retirée avant lui. Ce qu'il ne montre pas : une ligne ajoutée après
+//!   lui, ni un fil réécrit avec des sceaux refaits (le reçu de la PR, hors de la machine, garde le sien).
 //!
 //! Au rejeu d'une vague à plan, `lydite etat` ne garde que ce qu'il dit, le reste vit au fil :
 //!
@@ -209,7 +228,8 @@
 //!   vague joue le plan ;
 //! - `vague.relecture` : la vague que cette relecture a relue, ses remarques et celles qui sont bloquantes, en
 //!   nombres ; `vague.correction` : la vague que cette correction corrige ; `vague.relecteur` : la vague que ce
-//!   relecteur relit ;
+//!   relecteur relit ; `vague.verdict` : sur la vague relue (non sur celle du relecteur), la tête jugée et le relecteur
+//!   qui l'a jugée ;
 //! - `main.fournisseur` : le fournisseur déclaré de la tentative.
 //!
 //! Et de `vague.issue` : le numéro de l'issue de la vague, le dernier noté, que `porter_issues` met sur
@@ -294,6 +314,7 @@ use std::str;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::json::{self, Valeur};
 
@@ -377,6 +398,8 @@ pub(crate) enum Evenement {
     /// `verif` la fin de la sortie de la preuve de la vague, verte. Sa `foi` n'est pas un champ : elle s'écrit
     /// `constate`, seule valeur que le lecteur prend.
     Fusion { vague: String, main: usize, sha: String, verif: String },
+    /// `main.gel` : le commit `sha` que Kraken a gelé du bac de la main prise, celui sur lequel porte son verdict.
+    Gel { vague: String, main: usize, sha: String },
     /// `vague.refus` : Kraken refuse la tâche. `code` est le numéro d'un code (1000 à 9999), `verif` la fin de la
     /// sortie de la preuve de la vague, `None` si elle n'a pas tourné.
     Refus {
@@ -409,6 +432,16 @@ pub(crate) enum Evenement {
     /// `vague.relecture` : la relecture `vague` de la vague `relue`, une autre, a rendu `n` remarques (0 à 10 000),
     /// dont `bloquantes` bloquantes (0 à `n`) ; `remarques` est leur texte.
     Relecture { vague: String, relue: String, n: usize, bloquantes: usize, remarques: String },
+    /// `vague.verdict` : le verdict de la relecture `vague` de la vague `relue` : `sha` est la tête relue, et `profil`,
+    /// `empreinte` et `modele` ceux du `main.lancement` du relecteur, `None` pour une main nue.
+    VerdictRelecture {
+        vague: String,
+        relue: String,
+        sha: String,
+        profil: Option<String>,
+        empreinte: Option<String>,
+        modele: Option<String>,
+    },
     /// `vague.correction` : la correction `vague` corrige la vague `corrige`, une autre.
     Correction { vague: String, corrige: String },
     /// `vague.relecteur` : la vague `vague`, celle du relecteur, relit la vague `relue`, une autre.
@@ -476,10 +509,60 @@ impl IssueVague {
     }
 }
 
-/// Ce qu'une ligne d'un type connu donne : une note d'[`Evenement`], ou l'issue d'une vague.
+/// `vague.sceau` : le fil, à la longueur `octets`, avait pour SHA-256 `empreinte` (64 hexadécimaux minuscules). Un
+/// événement plat comme [`IssueVague`], hors de l'énumération d'[`Evenement`] : écrit par `Fil::sceller`, relu par
+/// [`lire_octets`], vérifié par [`premier_sceau_rompu`].
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SceauVague {
+    pub(crate) vague: String,
+    pub(crate) octets: u64,
+    pub(crate) empreinte: String,
+}
+
+impl SceauVague {
+    /// Son nom, le `type` de sa ligne.
+    const GENRE: &'static str = "vague.sceau";
+
+    /// Le sceau de la vague `vague` sur les `octets` premiers octets du fil.
+    pub(crate) fn sur(vague: &str, fil: &[u8]) -> SceauVague {
+        SceauVague { vague: vague.into(), octets: fil.len() as u64, empreinte: hex(&sha256(fil)) }
+    }
+
+    /// Les champs de son corps, dans l'ordre de l'en-tête.
+    fn champs(&self) -> Vec<(&'static str, Valeur)> {
+        vec![
+            ("vague", Valeur::Texte(self.vague.clone())),
+            ("octets", Valeur::Entier(self.octets)),
+            ("empreinte", Valeur::Texte(self.empreinte.clone())),
+        ]
+    }
+
+    /// Le sceau tient-il encore sur `fil`, dont sa ligne commence à l'octet `debut` ? Ses `octets` ne dépassent pas
+    /// le début de sa ligne, et l'empreinte de ces octets est la sienne.
+    fn tient(&self, debut: usize, fil: &[u8]) -> bool {
+        let Ok(octets) = usize::try_from(self.octets) else { return false };
+        octets <= debut && fil.get(..octets).is_some_and(|avant| hex(&sha256(avant)) == self.empreinte)
+    }
+}
+
+/// Un sceau lu, avec l'octet où sa ligne commence.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SceauLu {
+    pub(crate) sceau: SceauVague,
+    pub(crate) debut: usize,
+}
+
+/// Le premier des `sceaux` lus dans `fil` qui ne tient plus : ses octets dépassent le début de sa ligne, ou leur
+/// empreinte a changé. Un octet changé après le dernier sceau, ou une ligne ajoutée après lui, ne se voit pas.
+pub(crate) fn premier_sceau_rompu<'a>(fil: &[u8], sceaux: &'a [SceauLu]) -> Option<&'a SceauVague> {
+    sceaux.iter().find(|lu| !lu.sceau.tient(lu.debut, fil)).map(|lu| &lu.sceau)
+}
+
+/// Ce qu'une ligne d'un type connu donne : une note d'[`Evenement`], l'issue d'une vague, ou son sceau.
 enum Lue {
     Note(Box<Note>),
     Issue(IssueVague),
+    Sceau(SceauVague),
 }
 
 /// Comment une tentative finit.
@@ -596,6 +679,11 @@ pub(crate) fn ligne_d_issue(seance: &str, seq: u64, origine: &str, issue: &Issue
     ligne(seance, seq, origine.into(), IssueVague::GENRE, issue.champs())
 }
 
+/// La ligne du sceau d'une vague, comme [`ligne_d_issue`] : à l'origine de la séance.
+pub(crate) fn ligne_de_sceau(seance: &str, seq: u64, origine: &str, sceau: &SceauVague) -> String {
+    ligne(seance, seq, origine.into(), SceauVague::GENRE, sceau.champs())
+}
+
 /// Une ligne, son enveloppe puis son corps.
 fn ligne(seance: &str, seq: u64, origine: String, genre: &str, corps: Vec<(&'static str, Valeur)>) -> String {
     debug_assert!(origine_lue(&origine), "une origine que le fil lit : {origine}");
@@ -616,15 +704,23 @@ fn ligne(seance: &str, seq: u64, origine: String, genre: &str, corps: Vec<(&'sta
 /// Les octets du fil `chemin`, lus selon la recette de l'en-tête : ses notes de Kraken et ses écarts, et ses issues de
 /// vague, dans l'ordre du fil. Chaque écart nomme `chemin` et sa ligne. Une ligne d'une autre version arrête la
 /// lecture : le refus 1002, qui nomme la ligne et les deux versions.
-pub(crate) fn lire_octets(chemin: &Path, octets: &[u8]) -> Result<(Lecture, Vec<IssueVague>), Refus> {
+pub(crate) fn lire_octets(chemin: &Path, octets: &[u8]) -> Result<Lu, Refus> {
     let mut issues = Vec::new();
+    let mut sceaux = Vec::new();
+    // L'octet où commence la ligne en cours.
+    let mut debut = 0usize;
     let mut lecture = Lecture::default();
     // Le dernier `seq` lu de chaque séance.
     let mut seances: BTreeMap<String, u64> = BTreeMap::new();
     let mut lignes = octets.split(|&octet| octet == b'\n');
     lignes.next_back(); // ce qui suit le dernier `\n` : rien, ou une ligne en cours d'écriture
     // Une ligne vide ne dit rien (voir l'écriture) : elle compte dans les numéros, sans être note ni écart.
-    for (i, ligne) in lignes.enumerate().filter(|(_, ligne)| !ligne.is_empty()) {
+    for (i, ligne) in lignes.enumerate() {
+        let ici = debut;
+        debut += ligne.len() + 1;
+        if ligne.is_empty() {
+            continue;
+        }
         let numero = i + 1;
         let ecart = |code, preuve: String| {
             let correction = match code {
@@ -677,12 +773,16 @@ pub(crate) fn lire_octets(chemin: &Path, octets: &[u8]) -> Result<(Lecture, Vec<
         match note(&objet) {
             Ok(Some(Lue::Note(note))) => lecture.notes.push(*note),
             Ok(Some(Lue::Issue(issue))) => issues.push(issue),
+            Ok(Some(Lue::Sceau(sceau))) => sceaux.push(SceauLu { sceau, debut: ici }),
             Ok(None) => {} // un type d'une autre pièce, ignoré au rejeu
             Err(raison) => lecture.ecarts.push(ecart(Code::EvenementMalForme, raison)),
         }
     }
-    Ok((lecture, issues))
+    Ok((lecture, issues, sceaux))
 }
+
+/// Ce que [`lire_octets`] rend : les notes et écarts, les issues de vague, et les sceaux, dans l'ordre du fil.
+pub(crate) type Lu = (Lecture, Vec<IssueVague>, Vec<SceauLu>);
 
 /// Une ligne v2 lue en objet : sa note ou son issue, `None` pour un type inconnu dont l'enveloppe se lit, ou ce qui la
 /// rend mal formée.
@@ -792,6 +892,10 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
         } else {
             Err(format!("« {cle} » vaut {lu:?}, hors de son domaine : un jeton ASCII, non vide, sans blanc"))
         }
+    };
+    // Un jeton du corps, ou `null`.
+    let jeton_ou_nul = |cle: &str| {
+        if matches!(valeur(cle), Some(Valeur::Nul)) { Ok(None) } else { jeton_ascii(cle).map(Some) }
     };
     // `foi` ne varie pas dans ces deux types : `declare` pour un lancement, `constate` pour un constat.
     let foi_fixe = |attendue: Foi| jeton(&[attendue], Foi::mot, "foi", texte("foi")?).map(drop);
@@ -907,6 +1011,7 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
             jeton(&[Foi::Constate], Foi::mot, "foi", texte("foi")?)?;
             fusion
         }
+        "main.gel" => Evenement::Gel { vague: texte("vague")?.into(), main: nombre("main")?, sha: sha("sha")? },
         "vague.refus" => Evenement::Refus {
             vague: texte("vague")?.into(),
             main: nombre("main")?,
@@ -962,6 +1067,14 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
             }
             Evenement::Relecture { vague, relue, n, bloquantes, remarques: texte("remarques")?.into() }
         }
+        "vague.verdict" => Evenement::VerdictRelecture {
+            vague: texte("vague")?.into(),
+            relue: autre_vague("relue")?,
+            sha: sha("sha")?,
+            profil: jeton_ou_nul("profil")?,
+            empreinte: jeton_ou_nul("empreinte")?,
+            modele: jeton_ou_nul("modele")?,
+        },
         "vague.correction" => Evenement::Correction { vague: texte("vague")?.into(), corrige: autre_vague("corrige")? },
         "vague.relecteur" => Evenement::Relecteur { vague: texte("vague")?.into(), relue: autre_vague("relue")? },
         "main.fournisseur" => {
@@ -993,6 +1106,21 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
             let issue = IssueVague { vague: texte("vague")?.into(), issue: numero_de_pr("issue")? };
             en_trop(&issue.champs())?;
             return Ok(Some(Lue::Issue(issue)));
+        }
+        SceauVague::GENRE => {
+            let empreinte = texte("empreinte")?;
+            if empreinte.len() != 64 || !empreinte.bytes().all(|octet| matches!(octet, b'0'..=b'9' | b'a'..=b'f')) {
+                return Err(format!(
+                    "« empreinte » vaut {empreinte:?}, hors de son domaine : 64 hexadécimaux minuscules"
+                ));
+            }
+            let sceau = SceauVague {
+                vague: texte("vague")?.into(),
+                octets: numero_de_pr("octets")?,
+                empreinte: empreinte.into(),
+            };
+            en_trop(&sceau.champs())?;
+            return Ok(Some(Lue::Sceau(sceau)));
         }
         _ => return Ok(None),
     };
@@ -1127,6 +1255,9 @@ pub(crate) struct Vague {
     pub(crate) decoupage: Option<String>,
     /// `vague.relecture` : ce que cette relecture a rendu de la vague qu'elle a relue, `None` sans note.
     pub(crate) relecture: Option<Relecture>,
+    /// `vague.verdict` : le dernier verdict noté de la relecture de cette vague, qu'elle porte en tant que vague
+    /// relue ; `None` sans note.
+    pub(crate) jugement: Option<Jugement>,
     /// `vague.correction` : l'id de la vague que cette correction corrige, `None` si elle n'en corrige aucune.
     pub(crate) corrige: Option<String>,
     /// `vague.relecteur` : l'id de la vague que ce relecteur relit, `None` si elle n'en relit aucune.
@@ -1143,6 +1274,17 @@ pub(crate) struct Relecture {
     pub(crate) relue: String,
     pub(crate) n: usize,
     pub(crate) bloquantes: usize,
+}
+
+/// Ce que le verdict d'une relecture dit, tel que le rejeu le garde sur la vague relue : la vague du relecteur qui l'a
+/// rendu, la tête qu'il a relue, et le profil, l'empreinte et le modèle de son lancement (`None` pour une main nue).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Jugement {
+    pub(crate) relecteur: String,
+    pub(crate) sha: String,
+    pub(crate) profil: Option<String>,
+    pub(crate) empreinte: Option<String>,
+    pub(crate) modele: Option<String>,
 }
 
 /// Ce que le rejeu garde des notes `forge.*` d'une vague : ce que `lydite etat` dit, constaté seulement.
@@ -1178,6 +1320,8 @@ pub(crate) struct Main {
     /// La dernière de ses `vague.fusion` et `vague.refus`, `None` tant qu'il n'y en a pas. Elle l'emporte sur
     /// `verdict`.
     pub(crate) issue: Option<Issue>,
+    /// `main.gel` : le commit du bac gelé, le dernier noté, sur lequel porte son verdict ; `None` sans.
+    pub(crate) gel: Option<String>,
 }
 
 /// Ce que Kraken a décidé d'une tâche de plan : l'assembler dans la branche de la vague (`vague.fusion`), ou la refuser
@@ -1233,8 +1377,24 @@ pub(crate) fn etat(evenements: &[Evenement]) -> Vec<Vague> {
             vagues.push(Vague { id: id.into(), ..Vague::default() });
             vagues.len() - 1
         });
+        // Le verdict d'une relecture se garde sur la vague relue, non sur celle du relecteur qui le note.
+        if let Evenement::VerdictRelecture { vague: relecteur, relue, sha, profil, empreinte, modele } = evenement {
+            let j = vagues.iter().position(|vague| vague.id == *relue).unwrap_or_else(|| {
+                vagues.push(Vague { id: relue.clone(), ..Vague::default() });
+                vagues.len() - 1
+            });
+            vagues[j].jugement = Some(Jugement {
+                relecteur: relecteur.clone(),
+                sha: sha.clone(),
+                profil: profil.clone(),
+                empreinte: empreinte.clone(),
+                modele: modele.clone(),
+            });
+            continue;
+        }
         let vague = &mut vagues[i];
         match evenement {
+            Evenement::VerdictRelecture { .. } => {} // gardé plus haut, sur la vague relue
             Evenement::Vague { n, depot, verifier, objectif, .. } => {
                 (vague.n, vague.depot, vague.verifier, vague.objectif) =
                     (*n, depot.clone(), verifier.clone(), objectif.clone());
@@ -1275,6 +1435,9 @@ pub(crate) fn etat(evenements: &[Evenement]) -> Vec<Vague> {
             }
             Evenement::Fusion { main, .. } => {
                 vague.mains.entry(*main).or_default().issue = Some(Issue::Assemblee);
+            }
+            Evenement::Gel { main, sha, .. } => {
+                vague.mains.entry(*main).or_default().gel = Some(sha.clone());
             }
             Evenement::Refus { main, code, regle, preuve, correction, .. } => {
                 let (regle, preuve, correction) = (regle.clone(), preuve.clone(), correction.clone());
@@ -1370,6 +1533,7 @@ impl Evenement {
             Evenement::Bail { .. } => "main.bail",
             Evenement::Perimee { .. } => "main.perimee",
             Evenement::Fusion { .. } => "vague.fusion",
+            Evenement::Gel { .. } => "main.gel",
             Evenement::Refus { .. } => "vague.refus",
             Evenement::Poussee { .. } => "forge.poussee",
             Evenement::Pr { .. } => "forge.pr",
@@ -1379,6 +1543,7 @@ impl Evenement {
             Evenement::Decoupage { .. } => "vague.decoupage",
             Evenement::Joue { .. } => "vague.joue",
             Evenement::Relecture { .. } => "vague.relecture",
+            Evenement::VerdictRelecture { .. } => "vague.verdict",
             Evenement::Correction { .. } => "vague.correction",
             Evenement::Relecteur { .. } => "vague.relecteur",
             Evenement::Fournisseur { .. } => "main.fournisseur",
@@ -1399,6 +1564,7 @@ impl Evenement {
         | Evenement::Perimee { vague, .. }
         | Evenement::Verdict { vague, .. }
         | Evenement::Fusion { vague, .. }
+        | Evenement::Gel { vague, .. }
         | Evenement::Refus { vague, .. }
         | Evenement::Poussee { vague, .. }
         | Evenement::Pr { vague, .. }
@@ -1408,6 +1574,7 @@ impl Evenement {
         | Evenement::Decoupage { vague, .. }
         | Evenement::Joue { vague, .. }
         | Evenement::Relecture { vague, .. }
+        | Evenement::VerdictRelecture { vague, .. }
         | Evenement::Correction { vague, .. }
         | Evenement::Relecteur { vague, .. }
         | Evenement::Fournisseur { vague, .. }
@@ -1506,6 +1673,9 @@ impl Evenement {
                 ("verif", texte(verif)),
                 ("foi", texte(Foi::Constate.mot())),
             ],
+            Evenement::Gel { vague, main, sha } => {
+                vec![("vague", texte(vague)), ("main", entier(*main)), ("sha", texte(sha))]
+            }
             Evenement::Refus { vague, main, code, regle, preuve, correction, verif } => vec![
                 ("vague", texte(vague)),
                 ("main", entier(*main)),
@@ -1558,6 +1728,14 @@ impl Evenement {
                 ("n", entier(*n)),
                 ("bloquantes", entier(*bloquantes)),
                 ("remarques", texte(remarques)),
+            ],
+            Evenement::VerdictRelecture { vague, relue, sha, profil, empreinte, modele } => vec![
+                ("vague", texte(vague)),
+                ("relue", texte(relue)),
+                ("sha", texte(sha)),
+                ("profil", ou_nul(profil)),
+                ("empreinte", ou_nul(empreinte)),
+                ("modele", ou_nul(modele)),
             ],
             Evenement::Correction { vague, corrige } => vec![("vague", texte(vague)), ("corrige", texte(corrige))],
             Evenement::Relecteur { vague, relue } => vec![("vague", texte(vague)), ("relue", texte(relue))],

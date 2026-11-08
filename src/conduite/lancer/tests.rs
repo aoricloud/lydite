@@ -58,6 +58,7 @@ fn histoire(evenements: &[Evenement]) -> Vec<String> {
         Evenement::Fin { tentative, couleur, foi, .. } => format!("fin {tentative} {couleur:?} {foi:?}"),
         Evenement::Perimee { tentative, couleur, foi, .. } => format!("périmée {tentative} {couleur:?} {foi:?}"),
         Evenement::Verdict { verdict, foi, .. } => format!("verdict {verdict:?} {foi:?}"),
+        Evenement::Gel { .. } => "gel".into(),
         Evenement::Fusion { .. } => "fusion".into(),
         Evenement::Refus { code, .. } => format!("refus {code}"),
         Evenement::Poussee { .. } => "poussée".into(),
@@ -70,6 +71,7 @@ fn histoire(evenements: &[Evenement]) -> Vec<String> {
         Evenement::Relecture { n, bloquantes, .. } => format!("relecture {n} {bloquantes}"),
         Evenement::Correction { .. } => "correction".into(),
         Evenement::Relecteur { .. } => "relecteur".into(),
+        Evenement::VerdictRelecture { sha, .. } => format!("verdict de relecture {sha}"),
         Evenement::Fournisseur { tentative, fournisseur, .. } => format!("fournisseur {tentative} {fournisseur}"),
         Evenement::Usage { tentative, modele, base, .. } => format!("usage {tentative} {modele} {base:?}"),
     };
@@ -240,6 +242,7 @@ fn main_de(evenement: &Evenement) -> Option<usize> {
         | Evenement::Joue { .. }
         | Evenement::Relecture { .. }
         | Evenement::Correction { .. }
+        | Evenement::VerdictRelecture { .. }
         | Evenement::Relecteur { .. } => None,
         Evenement::Tache { main, .. }
         | Evenement::Bail { main, .. }
@@ -251,6 +254,7 @@ fn main_de(evenement: &Evenement) -> Option<usize> {
         | Evenement::Fin { main, .. }
         | Evenement::Perimee { main, .. }
         | Evenement::Verdict { main, .. }
+        | Evenement::Gel { main, .. }
         | Evenement::Fusion { main, .. }
         | Evenement::Refus { main, .. } => Some(*main),
     }
@@ -266,7 +270,15 @@ fn histoire_de(evenements: &[Evenement], k: usize) -> Vec<String> {
 /// de prise, puis `suite` (`fusion`, ou le refus qui la suit).
 fn prise_du_premier_coup(id: &str, suite: &str) -> Vec<String> {
     let mut histoire = vec![format!("tâche {id}")];
-    histoire.extend(["bail 1", "début 1", "fin 1 Vert Constate", "verdict Prise Constate", suite].map(String::from));
+    histoire
+        .extend(["bail 1", "début 1", "fin 1 Vert Constate", "verdict Prise Constate", "gel", suite].map(String::from));
+    histoire
+}
+
+/// La même, refusée avant le gel du bac (`sans_claude` ou le retour du worktree) : sans `gel`.
+fn prise_refusee_avant_le_gel(id: &str, refus: &str) -> Vec<String> {
+    let mut histoire = prise_du_premier_coup(id, refus);
+    histoire.retain(|mot| mot != "gel");
     histoire
 }
 
@@ -702,6 +714,67 @@ fn une_ligne_impossible_au_milieu_de_la_reponse_ne_compte_pas() {
     let _ = fs::remove_dir_all(&racine);
 }
 
+/// Lance une seule main de copie qui finit par `fin`, sous la preuve `verifier` ; rend le nombre de départs de main,
+/// l'issue, et le verdict que le fil garde pour la main.
+#[cfg(unix)]
+fn une_main_finie_par(nom: &str, fin: &str, verifier: Option<&str>) -> (usize, Result<Pris, String>, Verdict, Foi) {
+    let racine = racine(nom);
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(main_qui_finit_par(&racine, fin), DELAI);
+    let (_, mut issues) = lancer(&depot, &kraken, &profil, &Plan::copies("objectif", verifier, 1), BAIL).unwrap();
+    let departs = fs::read_to_string(racine.join("departs")).unwrap().lines().count();
+    let vagues = etat(&fil(&kraken));
+    let (verdict, foi) = vagues[0].mains[&1].verdict.expect("la main a un verdict");
+    let _ = fs::remove_dir_all(&racine);
+    (departs, issues.remove(0).1, verdict, foi)
+}
+
+#[cfg(unix)]
+#[test]
+fn une_erreur_qui_commence_comme_une_declaration_est_relancee_puis_classee_constatee() {
+    // Le juge d'un relecteur ou d'un découpeur rend un texte qui COMMENCE par le préfixe de l'impossible : ce n'est pas
+    // la main qui l'a dit, et ce texte reste une erreur ordinaire.
+    let racine = racine("copie-impossible");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    let profil = Profil::faux(main_qui_finit_par(&racine, "echo 'PREUVE: vert'"), DELAI);
+    let juge = |_: &Path| -> Result<(), String> { Err(format!("{IMPOSSIBLE}x")) };
+    let liens = Liens { juge: Some(&juge), ..Liens::default() };
+    let menee = lancer_avec(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL, &base, liens).unwrap();
+    let departs = fs::read_to_string(racine.join("departs")).unwrap().lines().count();
+    assert_eq!(departs, 2, "relancée une fois");
+    assert_eq!(menee.issues[0].1.as_ref().unwrap_err(), "impossible (déclarée) : x");
+    let vagues = etat(&fil(&kraken));
+    assert_eq!(vagues[0].mains[&1].verdict, Some((Verdict::Classee, Foi::Constate)));
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[cfg(unix)]
+#[test]
+fn un_resume_de_main_ne_fait_pas_monter_la_confiance() {
+    // La preuve rejouée est rouge : « PREUVE: vert » ne prend pas la main.
+    let (departs, issue, verdict, foi) = une_main_finie_par("resume-rouge", "echo 'PREUVE: vert'", Some("exit 3"));
+    assert_eq!(departs, 2);
+    assert!(issue.is_err());
+    assert_eq!((verdict, foi), (Verdict::Classee, Foi::Constate));
+    // Sans commande de preuve, « PREUVE: vert » prend la main, mais déclarée, jamais constatée.
+    let (departs, issue, verdict, foi) = une_main_finie_par("resume-sans-preuve", "echo 'PREUVE: vert'", None);
+    assert_eq!(departs, 1);
+    assert!(issue.is_ok_and(|pris| !pris.prouve));
+    assert_eq!((verdict, foi), (Verdict::Prise, Foi::Declare));
+}
+
+#[cfg(unix)]
+#[test]
+fn un_resume_de_main_peut_faire_baisser_la_confiance() {
+    // La main déclare IMPOSSIBLE : classée « impossible » bien que sa preuve rejouée serait verte.
+    let (departs, issue, verdict, foi) =
+        une_main_finie_par("resume-impossible", "echo 'IMPOSSIBLE: contradiction'", Some("exit 0"));
+    assert_eq!(departs, 1, "sans relance");
+    assert_eq!(issue.unwrap_err(), "impossible (déclarée) : contradiction");
+    assert_eq!((verdict, foi), (Verdict::Impossible, Foi::Declare));
+}
+
 #[test]
 fn un_dossier_impossible_nomme_son_chemin() {
     let racine = racine("pose");
@@ -1105,6 +1178,50 @@ fn les_dependantes_d_une_classee_sont_sautees() {
 }
 
 #[test]
+fn une_main_prise_note_son_gel_avant_sa_fusion_et_une_classee_n_en_note_pas() {
+    let racine = racine("gel");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(main_de_vague(&racine), DELAI);
+    // a joue une preuve rouge : classée après sa relance ; b est prise et assemblée.
+    let plan = plan(&[
+        "plan 1",
+        "objectif : Un gel",
+        "preuve : exit 0",
+        "tache a",
+        "preuve : exit 3",
+        "    Échouer",
+        "tache b",
+        "    Écrire b",
+    ]);
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    assert!(issues[0].1.is_err(), "a est classée : {issues:?}");
+    assemblee(&issues[1].0, &issues[1].1);
+    let evenements = fil(&kraken);
+    let gels: Vec<(usize, &str)> = evenements
+        .iter()
+        .filter_map(|e| match e {
+            Evenement::Gel { main, sha, .. } => Some((*main, sha.as_str())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(gels.len(), 1, "seule la main prise note son gel : {gels:?}");
+    let (main, gel) = gels[0];
+    assert_eq!(main, 2);
+    // Le gel est le commit du bac, noté après le verdict et avant la fusion, dont il est le second parent.
+    let rang = |cherche: &dyn Fn(&Evenement) -> bool| evenements.iter().position(cherche).unwrap();
+    let verdict = rang(&|e| matches!(e, Evenement::Verdict { main: 2, verdict: Verdict::Prise, .. }));
+    let note = rang(&|e| matches!(e, Evenement::Gel { .. }));
+    let fusion = rang(&|e| matches!(e, Evenement::Fusion { main: 2, .. }));
+    assert!(verdict < note && note < fusion, "verdict {verdict}, gel {note}, fusion {fusion}");
+    let fusions = fusions(&evenements);
+    assert_eq!(fusions.len(), 1);
+    assert_eq!(git(&depot, &["rev-parse", &format!("{}^2", fusions[0].1)]), gel);
+    let bac = bac_de(&kraken, &vague_du_fil(&kraken), 2);
+    assert_eq!(git(&bac, &["rev-parse", "HEAD"]), gel, "le gel est le HEAD du bac");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
 fn une_base_rouge_ne_lance_rien() {
     let racine = racine("base-rouge");
     let (depot, kraken) = (depot(&racine), racine.join("lydite"));
@@ -1286,9 +1403,12 @@ fn une_main_sans_programme_est_classee_sans_faire_tomber_la_vague() {
 #[test]
 fn une_panique_de_main_devient_son_message() {
     let (constat, verif, verdict) = en_message(|| panic!("boum"));
-    assert_eq!((constat, verif, verdict.unwrap_err()), (None, None, "la main a paniqué : boum".to_string()));
+    assert_eq!(
+        (constat, verif, verdict.unwrap_err()),
+        (None, None, Echec::Erreur("la main a paniqué : boum".to_string()))
+    );
     let (_, _, verdict) = en_message(|| panic!("boum {}", 2));
-    assert_eq!(verdict.unwrap_err(), "la main a paniqué : boum 2");
+    assert_eq!(verdict.unwrap_err(), Echec::Erreur("la main a paniqué : boum 2".to_string()));
     // Sans panique, ce que la main rend passe tel quel, son constat compris.
     let lu = Constat { version: Some("2.1.312".into()), mur_actif: Some(false), ..Constat::default() };
     let pris = Ok(Pris { sortie: "fait".into(), prouve: true });
@@ -1525,6 +1645,7 @@ fn une_preuve_de_vague_rouge_laisse_la_branche_a_sa_base() {
         "début 1",
         "fin 1 Vert Constate",
         "verdict Prise Constate",
+        "gel",
         "refus 7008",
         "refus 7011",
     ];
@@ -1578,6 +1699,7 @@ fn une_relance_reste_seule_et_porte_un_jeton_neuf() {
         "début 2",
         "fin 2 Vert Constate",
         "verdict Prise Constate",
+        "gel",
         "fusion",
     ];
     assert_eq!(histoire_de(&evenements, 1), relance);
@@ -1722,7 +1844,7 @@ fn un_plan_dont_une_main_touche_claude() {
     let evenements = fil(&kraken);
     let a = ["tâche a", "bail 1", "début 1", "fin 1 Rouge Constate", "refus 7006"];
     assert_eq!(histoire_de(&evenements, 1), a);
-    assert_eq!(histoire_de(&evenements, 2), prise_du_premier_coup("b", "refus 7006"));
+    assert_eq!(histoire_de(&evenements, 2), prise_refusee_avant_le_gel("b", "refus 7006"));
     assert_eq!(histoire_de(&evenements, 3), prise_du_premier_coup("c", "fusion"));
     assert_eq!(histoire_de(&evenements, 4), ["tâche d", "refus 7011"]);
     assert!(!kraken.join("bacs").join(ids[3]).exists(), "d n'a pas de bac");
@@ -1776,7 +1898,7 @@ fn une_competence_imbriquee_fait_refuser_sa_tache() {
     assert!(!kraken.join("bacs").join(ids[1]).exists(), "b n'a pas de bac");
     // a était verte, mais son bac n'est ni figé ni assemblé, et la branche est restée à sa base.
     let evenements = fil(&kraken);
-    assert_eq!(histoire_de(&evenements, 1), prise_du_premier_coup("a", "refus 7006"));
+    assert_eq!(histoire_de(&evenements, 1), prise_refusee_avant_le_gel("a", "refus 7006"));
     let bac = bac_de(&kraken, &vague_du_fil(&kraken), 1);
     assert_eq!(git(&bac, &["rev-parse", "HEAD"]), base, "aucun commit dans le bac");
     assert_eq!(git(&bac, &["diff", "--cached", "--name-only"]), "", "rien d'ajouté à son index");
@@ -1996,7 +2118,7 @@ fn un_bac_dont_git_ne_repond_plus_est_refuse_en_7009() {
     assert!(refus.contains("git diff --name-only"), "le refus nomme la commande de git qui a raté : {refus}");
     refusee(ids[1], &issues[1].1, 7011);
     let evenements = fil(&kraken);
-    assert_eq!(histoire_de(&evenements, 1), prise_du_premier_coup("a", "refus 7009"));
+    assert_eq!(histoire_de(&evenements, 1), prise_refusee_avant_le_gel("a", "refus 7009"));
     assert!(fusions(&evenements).is_empty(), "aucune fusion n'est notée");
     assert_eq!(git(&depot, &["rev-parse", &branche]), base);
     worktree_a_la_tete(&depot, &kraken, &branche);
@@ -2254,6 +2376,7 @@ fn une_main_hors_de_ses_fichiers_est_rouge_se_corrige_a_la_relance_et_passe() {
         "début 2",
         "fin 2 Vert Constate",
         "verdict Prise Constate",
+        "gel",
         "fusion",
     ];
     assert_eq!(histoire_de(&evenements, 1), attendu);
@@ -2276,6 +2399,62 @@ fn une_main_hors_de_ses_fichiers_est_rouge_se_corrige_a_la_relance_et_passe() {
     assert_eq!(fusions(&evenements).len(), 1);
     worktree_a_la_tete(&depot, &kraken, &branche);
     rien_derriere(&racine, &base);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+/// Une fausse main qui ne change aucun fichier du bac : elle garde sa consigne dans `consigne-<n>.txt` de `dir`, `n`
+/// étant 1 à sa première tentative et 2 ensuite, puis finit sur `PREUVE: vert`.
+fn main_qui_ne_change_rien(dir: &Path) -> Vec<String> {
+    let d = dir.to_string_lossy();
+    if cfg!(windows) {
+        let script = dir.join("rien.bat");
+        let corps = format!(
+            "@echo off\r\nset \"d={d}\"\r\nset n=1\r\nif exist \"%d%\\marque\" set n=2\r\n\
+             findstr \"^\" > \"%d%\\consigne-%n%.txt\"\r\ntype nul > \"%d%\\marque\"\r\necho PREUVE: vert\r\n"
+        );
+        fs::write(&script, corps).unwrap();
+        vec![script.to_string_lossy().into_owned()]
+    } else {
+        let script = dir.join("rien.sh");
+        let corps = format!(
+            "d='{d}'\nn=1\nif [ -f \"$d/marque\" ]; then n=2; fi\ncat > \"$d/consigne-$n.txt\"\n: > \"$d/marque\"\n\
+             echo 'PREUVE: vert'\n"
+        );
+        fs::write(&script, corps).unwrap();
+        vec!["sh".into(), script.to_string_lossy().into_owned()]
+    }
+}
+
+#[test]
+fn une_main_qui_ne_change_rien_est_rouge_relancee_puis_classee_et_rien_n_est_assemble() {
+    let racine = racine("main-vide");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    let profil = Profil::faux(main_qui_ne_change_rien(&racine), DELAI);
+    let plan = plan(&["plan 1", "objectif : Rien", "preuve : exit 0", "tache a", "    Ne rien écrire"]);
+    let (branche, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    let branche = branche.expect("la branche d'une vague à plan");
+    assert_eq!(issues[0].1.as_ref().unwrap_err(), "the hand changed nothing");
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Rouge Constate",
+        "verdict Classee Constate",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    let lire = |n: usize| {
+        let octets = fs::read(racine.join(format!("consigne-{n}.txt"))).unwrap();
+        String::from_utf8_lossy(&octets).replace("\r\n", "\n")
+    };
+    assert!(!lire(1).contains("Tentative pr"));
+    assert!(lire(2).contains("Tentative précédente échouée :\nthe hand changed nothing"));
+    assert!(fusions(&evenements).is_empty(), "rien n'est assemblé");
+    assert_eq!(git(&depot, &["rev-parse", &branche]), base);
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -2309,6 +2488,7 @@ fn une_main_qui_coupe_le_texte_exact_est_rouge_se_corrige_a_la_relance_et_passe(
         "début 2",
         "fin 2 Vert Constate",
         "verdict Prise Constate",
+        "gel",
         "fusion",
     ];
     assert_eq!(histoire_de(&evenements, 1), attendu);
@@ -2419,6 +2599,7 @@ fn une_main_qui_change_un_chemin_protege_est_rouge_se_corrige_a_la_relance_et_pa
         "début 2",
         "fin 2 Vert Constate",
         "verdict Prise Constate",
+        "gel",
         "fusion",
     ];
     assert_eq!(histoire_de(&evenements, 1), attendu);
@@ -2921,6 +3102,7 @@ mod quota {
             fil: Fil::seance(&kraken, "humain"),
             assemblage: None,
             juge: None,
+            corrige: false,
             preparation: None,
             baux: Baux::new(),
             rangs: HashMap::new(),

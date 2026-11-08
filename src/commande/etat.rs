@@ -3,17 +3,29 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use crate::branchements::dossier::lire_tout;
+use crate::branchements::dossier::lire_scelle;
 use crate::coeur::erreur::Refus;
 use crate::coeur::fil::{self, Evenement, Foi, Lecture, Main, Note, Vague, Verdict, correction_de, etat, relecture_de};
 use crate::conduite::publication::recu_de;
 
 /// `lydite etat` dans ce dossier de Kraken : les écarts du fil sur stderr, un refus chacun, puis la chaîne de la
-/// dernière vague sur stdout (voir `montrees`), vue à l'heure de la lecture. Un fil absent est un fil vide.
+/// dernière vague sur stdout (voir `montrees`), vue à l'heure de la lecture. Un fil absent est un fil vide. Le premier
+/// sceau (`vague.sceau`) qui ne tient plus se nomme sur stderr (sa vague, ses octets), et la sortie est 2, comme pour
+/// un fil qu'on ne lit pas, sans l'état. Le sceau montre une ligne changée ou retirée avant lui ; il ne montre ni une
+/// ligne ajoutée après lui, ni un fil réécrit avec des sceaux refaits.
 pub(crate) fn etat_dans(dossier: &Path) -> Result<ExitCode, Refus> {
-    let (Lecture { notes, ecarts }, issues) = lire_tout(dossier)?;
+    let (Lecture { notes, ecarts }, issues, rompu) = lire_scelle(dossier)?;
     for (_, refus) in &ecarts {
         eprintln!("{refus}");
+    }
+    // Un sceau qui ne correspond plus : une ligne d'avant lui a changé ou disparu. Le fil ne se lit plus comme sûr.
+    if let Some(sceau) = rompu {
+        eprintln!(
+            "le fil ne correspond plus au sceau de la vague {}, noté à {} octets : une ligne d'avant lui a changé ou \
+             disparu",
+            sceau.vague, sceau.octets
+        );
+        return Ok(ExitCode::from(2));
     }
     let evenements: Vec<Evenement> = notes.iter().map(|note| note.evenement.clone()).collect();
     let mut vagues = etat(&evenements);

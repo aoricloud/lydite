@@ -27,7 +27,9 @@ use crate::branchements::dossier::{self, Fil};
 use crate::branchements::git::faire_borne;
 use crate::branchements::github::{Ci, Forge, GIT_FORGE, PrOuverte, a_pousser, distant, en_echec};
 use crate::coeur::erreur::{Code, Refus, queue};
-use crate::coeur::fil::{self, Base, Couleur, Evenement, Foi, Note, Vague, correction_de, etat, relecture_de};
+use crate::coeur::fil::{
+    self, Base, Couleur, Evenement, Foi, Note, SceauVague, Vague, correction_de, etat, relecture_de,
+};
 use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
 use crate::conduite::alarmes;
 use crate::conduite::lancer::Menee;
@@ -64,7 +66,9 @@ fn plan_de_relance(plan: &Plan, numero: u64, contexte: &str) -> Plan {
 /// un caractère de contrôle ou une apostrophe inverse ; vingt au plus, puis « … et <k> autres »), ou « aucun » ; puis
 /// l'objectif du plan ; `Preuve : <preuve de la vague> → vert` ; les tâches assemblées,
 /// `<id> : <première ligne de son objectif>` ; les tâches dehors, `<id> : classée` ou `<id> : refusée (<code>) :
-/// <règle>` ; puis la ligne de la relecture, `relecture`, si la vague a été relue. La fusion suit la règle du dépôt, et
+/// <règle>` ; puis la ligne de la relecture, `relecture`, si la vague a été relue, et sous elle la ligne du commit
+/// relu et rejoué ([`controler_la_tete`]), que `relecture` porte aussi, dont `rejouee` fait un texte de deux lignes.
+/// La fusion suit la règle du dépôt, et
 /// le corps n'en dit rien. L'issue de la tâche `k` du plan est celle que le fil rejoue pour la main `k` de `vague`
 /// (`fil::etat`) : le numéro d'un refus vient de sa note `vague.refus`, et sa règle de la table des codes, rien qu'un
 /// numéro pour un code inconnu. Jamais la sortie d'une main, qui peut commencer par « refusée (», ni la preuve d'un
@@ -114,8 +118,8 @@ pub(crate) fn corps(
         }
         noms.join(", ")
     };
-    let [cout, mains] = recu.lignes_de_pr();
-    let recu = format!("Reçu\n{cout}\n{mains}\n- Réglages de la preuve changés : {changes}");
+    let lignes = recu.lignes_de_pr().join("\n");
+    let recu = format!("Reçu\n{lignes}\n- Réglages de la preuve changés : {changes}");
     let a_justifier = if points.is_empty() {
         String::new()
     } else {
@@ -180,6 +184,103 @@ fn ligne_de_relecture(vagues: &[Vague], id: &str) -> Option<String> {
     let relecture = relecture_de(vagues, id)?;
     let corrigees = if correction_de(vagues, id).is_some() { ", corrigées" } else { "" };
     Some(format!("Relecture : {} remarques, dont {} bloquantes{corrigees}.", relecture.n, relecture.bloquantes))
+}
+
+/// La correction du refus 7016 d'une tête qui n'est pas celle que la relecture a jugée.
+const SANS_TETE_JUGEE: &str = "Rien ne se pousse : seule se pousse la tête que la relecture a jugée, ou la correction \
+                               qui vise cette relecture. Relance la vague, ou relis toi-même la tête avant de la \
+                               pousser.";
+
+/// Vrai si un `vague.fusion` de l'une des vagues `ids` porte le commit `sha` : la preuve y a été rejouée verte.
+fn rejouee_sur(evenements: &[Evenement], ids: &[&str], sha: &str) -> bool {
+    evenements.iter().any(|e| match e {
+        Evenement::Fusion { vague, sha: fusionne, .. } => ids.contains(&vague.as_str()) && fusionne == sha,
+        _ => false,
+    })
+}
+
+/// « replayed » si la preuve a été rejouée sur le commit, « not replayed » sinon.
+fn rejoue(rejouee: bool) -> &'static str {
+    if rejouee { "replayed" } else { "not replayed" }
+}
+
+/// Le dernier `vague.fusion` de la vague `id` : sa tête, `None` sans.
+fn derniere_tete(evenements: &[Evenement], id: &str) -> Option<String> {
+    evenements.iter().rev().find_map(|e| match e {
+        Evenement::Fusion { vague, sha, .. } if vague == id => Some(sha.clone()),
+        _ => None,
+    })
+}
+
+/// Ce que le fil dit de la relecture de la vague `id` face à `tete`, la tête que la forge va pousser au premier envoi,
+/// et, s'il la laisse partir, la ligne du corps de la PR qui nomme le commit relu et rejoué.
+///
+/// - Sans relecture (aucune tâche critique), la tête part comme elle est : « Replayed on commit <tête>, not reviewed:
+///   no task is critical. »
+/// - Relue sans remarque bloquante, seule part la tête que le verdict (`vague.verdict`) dit relue : « Reviewed and
+///   replayed on commit <sha>. »
+/// - Relue avec des bloquantes, seule part la tête de la correction qui vise cette relecture (le dernier
+///   `vague.fusion` de sa vague), jamais la tête relue : « Reviewed on commit <relue>, corrected in <tête> without a
+///   second review, and replayed on commit <tête>. »
+/// - Sinon, le refus 7016, dont la preuve nomme la tête à pousser et celle qu'il fallait.
+///
+/// « replayed » ne s'écrit que si un `vague.fusion` de la vague ou de sa correction porte le commit.
+fn controler_la_tete(vagues: &[Vague], evenements: &[Evenement], id: &str, tete: &str) -> Result<String, Refus> {
+    let refus = |preuve: String| Refus::new(Code::RelectureManquee, preuve, SANS_TETE_JUGEE);
+    let Some(relecture) = relecture_de(vagues, id) else {
+        let rejoue = rejoue(rejouee_sur(evenements, &[id], tete));
+        return Ok(format!("{} on commit {tete}, not reviewed: no task is critical.", capitaliser(rejoue)));
+    };
+    // Le verdict est celui du relecteur qui a rendu la dernière relecture de la vague.
+    let relecteur = vagues.iter().rev().find(|v| v.relecture.as_ref().is_some_and(|r| r.relue == id));
+    let jugement = vagues.iter().find(|vague| vague.id == id).and_then(|vague| vague.jugement.as_ref());
+    let Some(jugement) = jugement.filter(|j| relecteur.is_some_and(|r| r.id == j.relecteur)) else {
+        return Err(refus(format!(
+            "la relecture de la vague {id} n'a pas de verdict au fil, et la tête à pousser est {tete}"
+        )));
+    };
+    let jugee = jugement.sha.as_str();
+    if relecture.bloquantes == 0 {
+        if tete != jugee {
+            return Err(refus(format!("la tête à pousser {tete} n'est pas la tête relue {jugee} de la vague {id}")));
+        }
+        return Ok(if rejouee_sur(evenements, &[id], jugee) {
+            format!("Reviewed and replayed on commit {jugee}.")
+        } else {
+            format!("Reviewed and not replayed on commit {jugee}.")
+        });
+    }
+    let Some(correction) = correction_de(vagues, id) else {
+        return Err(refus(format!(
+            "la relecture de la vague {id} a des remarques bloquantes sur la tête relue {jugee}, aucune correction ne \
+             les vise, et la tête à pousser est {tete}"
+        )));
+    };
+    let corrigee = derniere_tete(evenements, &correction.id).filter(|corrigee| corrigee != jugee);
+    let Some(corrigee) = corrigee else {
+        return Err(refus(format!(
+            "la correction {} de la vague {id} n'a pas de tête autre que la tête relue {jugee}, et la tête à pousser \
+             est {tete}",
+            correction.id
+        )));
+    };
+    if tete != corrigee {
+        return Err(refus(format!(
+            "la tête à pousser {tete} n'est pas la tête {corrigee} de la correction {} de la vague {id} (relue sur \
+             {jugee})",
+            correction.id
+        )));
+    }
+    let rejoue = rejoue(rejouee_sur(evenements, &[id, &correction.id], tete));
+    Ok(format!(
+        "Reviewed on commit {jugee}, corrected in {tete} without a second review, and {rejoue} on commit {tete}."
+    ))
+}
+
+/// Le mot avec sa première lettre en capitale.
+fn capitaliser(mot: &str) -> String {
+    let mut lettres = mot.chars();
+    lettres.next().map_or_else(String::new, |premiere| premiere.to_uppercase().chain(lettres).collect())
 }
 
 /// La PR d'une vague à `--pr`, préparée avant la vague ([`avant_la_vague`]) : la forge du dépôt visé, la branche que
@@ -354,7 +455,7 @@ impl Proposition<'_> {
             return Err(Arret::Net("la vague n'a pas d'assemblage, et rien ne se pousse".into()));
         };
         a_pousser(&self.base, tete).map_err(Arret::Refus)?;
-        let (vague, relecture, recu) = self.rejouee(menee).map_err(Arret::Net)?;
+        let (vague, relecture, mut recu) = self.rejouee(menee, tete)?;
         let reglages = self.reglages_changes(tete).map_err(Arret::Net)?;
         let mut caracteres = plan.objectif.char_indices();
         let titre = match (caracteres.nth(255), caracteres.next()) {
@@ -362,6 +463,10 @@ impl Proposition<'_> {
             _ => plan.objectif.clone(),
         };
         let points = self.points_a_justifier(tete).map_err(Arret::Net)?;
+        // Le sceau du fil, noté juste avant le corps : le reçu le reprend.
+        let sceau =
+            suite.fil.sceller(&menee.id).map_err(|e| Arret::Net(format!("le sceau du fil ne s'écrit pas : {e}")))?;
+        recu.sceau = Some(sceau);
         let corps = corps(plan, &vague, relecture.as_deref(), self.issue, &recu, &reglages, &points);
         let chemins: Vec<&Path> = personnel.into_iter().chain([self.forge.dossier, self.forge.depot]).collect();
         self.forge.publiable(&self.base, tete, branche, &titre, &corps, &chemins).map_err(Arret::Refus)?;
@@ -468,6 +573,8 @@ impl Proposition<'_> {
         let Some(nouvelle) = nouvelle else {
             return Err(refus(format!("la vague de relance {id} n'a rien changé à la tête poussée {tete}")));
         };
+        // raccourci : la relance pousse une tête que personne n'a relue, et le corps de la PR garde sa ligne de commit
+        // relu et rejoué d'origine ; monter avec le contrôle de fusion de la CI
         self.forge
             .publiable(&self.base, &nouvelle, branche, &publication.titre, &publication.corps, &publication.chemins)
             .map_err(Arret::Refus)?;
@@ -488,15 +595,19 @@ impl Proposition<'_> {
 
     /// La vague `menee` telle que le fil la rejoue, avec la ligne de sa relecture s'il y en a une
     /// ([`ligne_de_relecture`]) : le corps de la PR en tire l'issue de chaque tâche, et les nombres de la relecture.
-    fn rejouee(&self, menee: &Menee) -> Result<(Vague, Option<String>, Recu), String> {
-        let lue =
-            dossier::lire(self.forge.dossier).map_err(|refus| format!("le fil ne se relit pas : {}", refus.preuve))?;
+    fn rejouee(&self, menee: &Menee, tete: &str) -> Result<(Vague, Option<String>, Recu), Arret> {
+        let lue = dossier::lire(self.forge.dossier)
+            .map_err(|refus| Arret::Net(format!("le fil ne se relit pas : {}", refus.preuve)))?;
         let evenements: Vec<Evenement> = lue.notes.iter().map(|note| note.evenement.clone()).collect();
         let mut vagues = etat(&evenements);
-        let relecture = ligne_de_relecture(&vagues, &menee.id);
+        // La tête à pousser est celle que la relecture a jugée, ou sa correction : sinon rien ne se pousse (7016).
+        let commit = controler_la_tete(&vagues, &evenements, &menee.id, tete).map_err(Arret::Refus)?;
+        // Sous la ligne de la relecture, s'il y en a une, la ligne du commit relu et rejoué.
+        let relecture = [ligne_de_relecture(&vagues, &menee.id), Some(commit)].into_iter().flatten();
+        let relecture = Some(relecture.collect::<Vec<_>>().join("\n"));
         let recu = recu_de(&vagues, &lue.notes, &menee.id);
         let rang = vagues.iter().position(|vague| vague.id == menee.id);
-        let rang = rang.ok_or_else(|| format!("le fil ne rejoue pas la vague {}", menee.id))?;
+        let rang = rang.ok_or_else(|| Arret::Net(format!("le fil ne rejoue pas la vague {}", menee.id)))?;
         Ok((vagues.swap_remove(rang), relecture, recu))
     }
 
@@ -602,6 +713,8 @@ pub(crate) struct Recu {
     impossibles: usize,
     /// De la première note de la vague à la dernière de ses vagues liées, en millisecondes ; `None` sans instants.
     duree: Option<u128>,
+    /// Le sceau du fil noté juste avant le corps de la PR ; `None` hors d'une PR (`recu_de` n'en lit aucun).
+    sceau: Option<SceauVague>,
 }
 
 /// Le reçu de la vague `id` parmi `vagues` : elle, son découpage, ses relectures, ses corrections et ses relances, et
@@ -698,9 +811,13 @@ impl Recu {
         parties.join(" · ")
     }
 
-    /// Les lignes du bloc « Reçu » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la durée.
-    pub(crate) fn lignes_de_pr(&self) -> [String; 2] {
-        [format!("- Coût : {}", self.cout()), format!("- {}", self.mains())]
+    /// Les lignes du bloc « Reçu » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la durée ;
+    /// puis, si le reçu porte un sceau, `- Fil sealed at <octets> bytes: sha256 <empreinte>.`
+    pub(crate) fn lignes_de_pr(&self) -> Vec<String> {
+        let mut lignes = vec![format!("- Coût : {}", self.cout()), format!("- {}", self.mains())];
+        lignes
+            .extend(self.sceau.iter().map(|s| format!("- Fil sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)));
+        lignes
     }
 }
 

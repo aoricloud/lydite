@@ -391,8 +391,15 @@ fn un_claude_ecrit_apres_sans_claude_est_le_refus_7006_au_gel() {
     assert_eq!(sans_claude(&avec_fichiers, &base), Ok(()), "sans_claude passe avant l'écriture");
     ecrire(&avec_fichiers, ".claude/settings.json", r#"{"hooks":{}}"#);
     let permis = chemins(&["src/"]);
-    let (verif, issue) = assemblage
-        .assembler(&avec_fichiers, &base, "a", Some(&permis), 1, |_, _| panic!("un .claude au gel ne se note pas"));
+    let (verif, issue) = assemblage.assembler(
+        &avec_fichiers,
+        &base,
+        "a",
+        Some(&permis),
+        1,
+        |_| Ok(()),
+        |_, _| panic!("un .claude au gel ne se note pas"),
+    );
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
     assert!(refus.preuve.ends_with(r#" : ".claude/settings.json""#), "{refus}");
@@ -405,8 +412,15 @@ fn un_claude_ecrit_apres_sans_claude_est_le_refus_7006_au_gel() {
     let sans_fichiers = prise(&depot, &kraken, "b", &base, &[("b.txt", "b")]);
     assert_eq!(sans_claude(&sans_fichiers, &base), Ok(()), "sans_claude passe avant l'écriture");
     ecrire(&sans_fichiers, ".claude/settings.json", r#"{"hooks":{}}"#);
-    let (verif, issue) =
-        assemblage.assembler(&sans_fichiers, &base, "b", None, 2, |_, _| panic!("un .claude au gel ne se note pas"));
+    let (verif, issue) = assemblage.assembler(
+        &sans_fichiers,
+        &base,
+        "b",
+        None,
+        2,
+        |_| Ok(()),
+        |_, _| panic!("un .claude au gel ne se note pas"),
+    );
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
     assert!(refus.preuve.ends_with(r#" : ".claude/settings.json""#), "{refus}");
@@ -429,8 +443,15 @@ fn un_claude_commite_puis_ote_apres_sans_claude_est_le_refus_7006_au_gel() {
     commiter(&avec_fichiers);
     fs::remove_file(avec_fichiers.join(".claude/settings.json")).unwrap();
     let permis = chemins(&["src/"]);
-    let (verif, issue) = assemblage
-        .assembler(&avec_fichiers, &base, "a", Some(&permis), 1, |_, _| panic!("un .claude au gel ne se note pas"));
+    let (verif, issue) = assemblage.assembler(
+        &avec_fichiers,
+        &base,
+        "a",
+        Some(&permis),
+        1,
+        |_| Ok(()),
+        |_, _| panic!("un .claude au gel ne se note pas"),
+    );
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
     assert!(refus.preuve.ends_with(r#" : ".claude/settings.json""#), "{refus}");
@@ -449,8 +470,15 @@ fn un_claude_commite_puis_ote_apres_sans_claude_est_le_refus_7006_au_gel() {
     ecrire(&sans_fichiers, ".claude/settings.json", r#"{"hooks":{}}"#);
     commiter(&sans_fichiers);
     fs::remove_file(sans_fichiers.join(".claude/settings.json")).unwrap();
-    let (verif, issue) =
-        assemblage.assembler(&sans_fichiers, &base, "b", None, 2, |_, _| panic!("un .claude au gel ne se note pas"));
+    let (verif, issue) = assemblage.assembler(
+        &sans_fichiers,
+        &base,
+        "b",
+        None,
+        2,
+        |_| Ok(()),
+        |_, _| panic!("un .claude au gel ne se note pas"),
+    );
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
     assert!(refus.preuve.ends_with(r#" : ".claude/settings.json""#), "{refus}");
@@ -807,8 +835,15 @@ fn le_gel_refuse_un_fichier_non_vide_ou_inscriptible_sous_claude() {
         fs::write(&fichier, contenu).unwrap();
         droits.set_readonly(lecture_seule);
         fs::set_permissions(&fichier, droits).unwrap();
-        let (verif, issue) =
-            assemblage.assembler(&bac, &base, "t", None, 1, |_, _| panic!("un .claude au gel ne se note pas"));
+        let (verif, issue) = assemblage.assembler(
+            &bac,
+            &base,
+            "t",
+            None,
+            1,
+            |_| Ok(()),
+            |_, _| panic!("un .claude au gel ne se note pas"),
+        );
         let refus = issue.unwrap_err();
         assert_eq!((refus.code, verif), (Code::ClaudeTouche, None), "{nom}");
         assert!(refus.preuve.ends_with(r#" : ".claude/loop.md""#), "{refus}");
@@ -861,8 +896,15 @@ fn un_chemin_protege_au_gel_refuse_la_tache_et_rien_n_est_fusionne() {
     // Des `fichiers` qui couvrent le chemin protégé ne le sauvent pas : le protégé l'emporte.
     let couvrant = prise(&depot, &kraken, "a", &base, &[("src/a.txt", "ok\n"), ("src/b.txt", "autre\n")]);
     let permis = chemins(&["src/"]);
-    let (verif, issue) = assemblage
-        .assembler(&couvrant, &base, "a", Some(&permis), 1, |_, _| panic!("un chemin protégé ne se note pas"));
+    let (verif, issue) = assemblage.assembler(
+        &couvrant,
+        &base,
+        "a",
+        Some(&permis),
+        1,
+        |_| Ok(()),
+        |_, _| panic!("un chemin protégé ne se note pas"),
+    );
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::CheminProtege, None));
     assert_eq!(refus.preuve, r#"the hand of task a changed paths that its profile protects: "src/b.txt""#);
@@ -871,8 +913,15 @@ fn un_chemin_protege_au_gel_refuse_la_tache_et_rien_n_est_fusionne() {
     a_la_tete(&assemblage);
     // Une tâche sans `fichiers` reste bornée par `proteges`, et un dossier protégé couvre ce qui est sous lui.
     let libre = prise(&depot, &kraken, "b", &base, &[("neuf.txt", "1"), ("doc/profond/d.txt", "2")]);
-    let (verif, issue) =
-        assemblage.assembler(&libre, &base, "b", None, 2, |_, _| panic!("un chemin protégé ne se note pas"));
+    let (verif, issue) = assemblage.assembler(
+        &libre,
+        &base,
+        "b",
+        None,
+        2,
+        |_| Ok(()),
+        |_, _| panic!("un chemin protégé ne se note pas"),
+    );
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::CheminProtege, None));
     assert!(refus.preuve.ends_with(r#": "doc/profond/d.txt""#), "{refus}");

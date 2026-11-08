@@ -110,7 +110,10 @@ fn preparer_dans(
 /// relecture classée (7016) ou une correction qui ne s'assemble pas (7017) s'écrit comme refus, rien ne se pousse, et
 /// le code est 1. Corrigée, la vague finit à la tête de la correction, d'où part la forge. Puis, avec `proposition`,
 /// sa forge jusqu'à sa PR (`publication.rs`), qui rend le code, et dont une CI rouge se relance par une vague de plus,
-/// sans lien, dite de même. Sans forge, le code est 0 si chaque tâche est prise et sa prise constatée, 1 sinon. Une
+/// sans lien, dite de même. Sans forge, le code est 0 si chaque tâche est prise et sa prise constatée, 1 sinon. Sur
+/// chacune de ses sorties une fois la vague partie, publiée ou non, elle note au fil le sceau de fin (`vague.sceau`) ;
+/// un sceau qui ne s'écrit pas fait un code 1. Le sceau montre une ligne changée ou retirée avant lui, non une ligne
+/// ajoutée après lui ni un fil réécrit avec des sceaux refaits. Une
 /// vague née d'une issue (`origine`) se relit par `relecture::relire_issue`.
 pub(crate) fn mener_sur(
     lieu: &Lieu<'_>,
@@ -127,6 +130,15 @@ pub(crate) fn mener_sur(
         Ok(menee)
     };
     let mut menee = lancer_la_vague(plan, base, liens)?;
+    // À chacune de ses sorties, publiée ou non, la vague scelle le fil ; un sceau qui ne s'écrit pas fait échouer.
+    let id = menee.id.clone();
+    let finir = |code: ExitCode| match dossier::Fil::seance(lieu.dossier, "humain").sceller(&id) {
+        Ok(_) => code,
+        Err(e) => {
+            eprintln!("le sceau de fin du fil ne s'écrit pas : {e}");
+            ExitCode::FAILURE
+        }
+    };
     let relire = if origine == Origine::Issue { relire_issue } else { relire };
     let corrigee = match relire(lieu.depot, lieu.dossier, lieu.profil, plan, &menee, base, bail) {
         Relue::Aucune => None,
@@ -141,17 +153,19 @@ pub(crate) fn mener_sur(
         }
         Relue::Dehors(refus) => {
             eprintln!("{refus}");
-            return Ok(ExitCode::FAILURE);
+            return Ok(finir(ExitCode::FAILURE));
         }
     };
     if let Some(tete) = corrigee.as_ref().and_then(|corrigee| corrigee.tete.clone()) {
         menee.tete = Some(tete);
     }
     let Some(proposition) = proposition else {
-        return Ok(if toutes_constatees(&menee.issues) { ExitCode::SUCCESS } else { ExitCode::FAILURE });
+        let code = if toutes_constatees(&menee.issues) { ExitCode::SUCCESS } else { ExitCode::FAILURE };
+        return Ok(finir(code));
     };
     let relancer = |plan: &Plan, base: &str| lancer_la_vague(plan, base, Liens::default());
-    Ok(proposition.apres_la_vague(plan, &menee, corrigee.as_ref(), &relancer, lieu.personnel, lieu.ci))
+    let code = proposition.apres_la_vague(plan, &menee, corrigee.as_ref(), &relancer, lieu.personnel, lieu.ci);
+    Ok(finir(code))
 }
 
 /// `lancer --decouper`, après `preparer` : avec `--issue`, avant tout bac, un profil dont le mur n'est pas exigé est le

@@ -804,6 +804,7 @@ fn chaque_type_fait_l_aller_retour() {
         verif: verif.map(str::to_string),
     };
     let poussee = Evenement::Poussee { vague: "v".into(), branche: "kraken/vague-v".into(), sha: sha.into() };
+    let gel = Evenement::Gel { vague: "v".into(), main: 2, sha: sha.into() };
     let pr = |foi, numero: u64| Evenement::Pr {
         vague: "v".into(),
         branche: "kraken/vague-v".into(),
@@ -850,6 +851,14 @@ fn chaque_type_fait_l_aller_retour() {
     };
     let correction = Evenement::Correction { vague: "c".into(), corrige: "v".into() };
     let relecteur = Evenement::Relecteur { vague: "r".into(), relue: "v".into() };
+    let jugement = |profil: Option<&str>| Evenement::VerdictRelecture {
+        vague: "r".into(),
+        relue: "v".into(),
+        sha: "9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34".into(),
+        profil: profil.map(Into::into),
+        empreinte: profil.map(|_| EMPREINTE.into()),
+        modele: profil.map(|_| "sonnet".into()),
+    };
     let fournisseur =
         |hote: &str| Evenement::Fournisseur { vague: "v".into(), main: 2, tentative: 1, fournisseur: hote.into() };
     let usage = |modele: &str, micro_dollars, base| Evenement::Usage {
@@ -1051,6 +1060,13 @@ fn chaque_type_fait_l_aller_retour() {
             ),
         ),
         (
+            gel,
+            concat!(
+                r#""type":"main.gel","vague":"v","main":2,"sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a6"#,
+                r#"0d1c2b34""#,
+            ),
+        ),
+        (
             poussee,
             concat!(
                 r#""type":"forge.poussee","vague":"v","branche":"kraken/vague-v","sha":"9f2c41a7d3b"#,
@@ -1145,6 +1161,21 @@ fn chaque_type_fait_l_aller_retour() {
         ),
         (correction, r#""type":"vague.correction","vague":"c","corrige":"v""#),
         (relecteur, r#""type":"vague.relecteur","vague":"r","relue":"v""#),
+        (
+            jugement(Some("claude")),
+            concat!(
+                r#""type":"vague.verdict","vague":"r","relue":"v","sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34","#,
+                r#""profil":"claude","empreinte":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","#,
+                r#""modele":"sonnet""#,
+            ),
+        ),
+        (
+            jugement(None),
+            concat!(
+                r#""type":"vague.verdict","vague":"r","relue":"v","sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34","#,
+                r#""profil":null,"empreinte":null,"modele":null"#,
+            ),
+        ),
         (
             fournisseur("api.deepseek.com"),
             concat!(
@@ -2239,6 +2270,8 @@ fn un_type_de_forge_aux_champs_faux_est_mal_forme() {
         r#""type":"forge.ci","vague":"v","numero":12,"sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a"#,
         r#"60d1c2b34","couleur":"rouge","texte":"test : FAILURE","foi":"constate""#,
     );
+    const GEL: &str =
+        concat!(r#""type":"main.gel","vague":"v","main":2,"sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a6"#, r#"0d1c2b34""#,);
     const REFUS: &str = r#""type":"forge.refus","vague":"v","code":8005,"regle":"r","preuve":"p","correction":"c""#;
     const RANGEMENT: &str = r#""type":"forge.rangement","vague":"v","retires":"a\nb""#;
     let en_trop = |corps: &str, cle: &str| format!(r#"{corps},"{cle}":1"#);
@@ -2264,6 +2297,16 @@ fn un_type_de_forge_aux_champs_faux_est_mal_forme() {
         ),
         (POUSSEE.replace(r#""vague":"v","#, ""), "« vague » manque".to_string()),
         (en_trop(POUSSEE, "essai"), "champ en trop pour forge.poussee : « essai »".to_string()),
+        // main.gel : une main et un sha de 40 hexadécimaux minuscules
+        (sans_sha(GEL), "« sha » manque".to_string()),
+        (avec_sha(GEL, "9f2c41a7"), format!("« sha » vaut \"9f2c41a7\", {hors_domaine}")),
+        (avec_sha(GEL, &sha_majuscule), hors_domaine.to_string()),
+        (avec_sha(GEL, &sha_en_trop), hors_domaine.to_string()),
+        (avec_sha(GEL, &sha_non_hexa), hors_domaine.to_string()),
+        (GEL.replace(r#","main":2"#, ""), "« main » manque".to_string()),
+        (GEL.replace(r#""main":2"#, r#""main":"2""#), "« main » manque ou n'est pas".into()),
+        (GEL.replace(r#""vague":"v","#, ""), "« vague » manque".to_string()),
+        (en_trop(GEL, "foi"), "champ en trop pour main.gel : « foi »".to_string()),
         // forge.pr : un numéro positif, une foi dans son domaine, tous ses champs
         (
             PR.replace(r#""numero":12"#, r#""numero":0"#),
@@ -2361,6 +2404,76 @@ fn un_type_de_forge_aux_champs_faux_est_mal_forme() {
     let Evenement::Rangement { retires, .. } = &notes[6].evenement else { panic!("{:?}", notes[6]) };
     assert!(retires.is_empty(), "la chaîne vide est une liste sans élément : {retires:?}");
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_verdict_de_relecture_aux_champs_faux_est_mal_forme() {
+    const SHA: &str = "9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34";
+    let verdict = |sha: &str, profil: &str| {
+        format!(
+            r#""type":"vague.verdict","vague":"r","relue":"v","sha":{sha},"profil":{profil},"#,
+            // les deux autres jetons sont nuls : seuls `sha` et `profil` varient ici
+        ) + r#""empreinte":null,"modele":null"#
+    };
+    let juste = verdict(&format!("\"{SHA}\""), "\"claude\"");
+    let hors_domaine = "hors de son domaine";
+    let cas = vec![
+        (verdict("\"9f2c41a7\"", "\"claude\""), hors_domaine.to_string()),
+        (verdict(&format!("\"{SHA}0\""), "\"claude\""), hors_domaine.to_string()),
+        (verdict(&format!("\"{}\"", SHA.to_uppercase()), "\"claude\""), hors_domaine.to_string()),
+        (verdict(&format!("\"{}\"", SHA.replacen('9', "g", 1)), "\"claude\""), hors_domaine.to_string()),
+        (verdict("12", "\"claude\""), "« sha » manque ou n'est pas une chaîne".to_string()),
+        (juste.replace(r#","sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34""#, ""), "« sha » manque".to_string()),
+        (verdict(&format!("\"{SHA}\""), "\"\""), "« profil » vaut \"\", hors de son domaine".to_string()),
+        (verdict(&format!("\"{SHA}\""), "\"deux mots\""), "« profil » vaut \"deux mots\"".to_string()),
+        (juste.replace(r#","profil":"claude""#, ""), "« profil » manque".to_string()),
+        (format!(r#"{juste},"foi":"declare""#), "champ en trop pour vague.verdict : « foi »".to_string()),
+        (juste.replace(r#""relue":"v""#, r#""relue":"r""#), "« relue » vaut \"r\"".to_string()),
+    ];
+    let mut lignes = Vec::new();
+    for (i, (faux, _)) in cas.iter().enumerate() {
+        lignes.push(ligne_s(2 * i as u64 + 1, faux));
+        lignes.push(ligne_s(2 * i as u64 + 2, &juste));
+    }
+    let dir = dossier("verdict-faux");
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert_eq!(codes(&ecarts), (0..cas.len()).map(|i| (2 * i + 1, 1009)).collect::<Vec<_>>(), "et aucun 1010");
+    for ((_, refus), (_, bout)) in ecarts.iter().zip(&cas) {
+        assert!(refus.preuve.contains(bout.as_str()), "la preuve devait dire « {bout} » : {refus}");
+    }
+    assert_eq!(notes.len(), cas.len(), "les lignes justes se lisent");
+    // `null` est accepté pour les trois jetons, et une ligne sans `foi` est la bonne forme.
+    let nul = juste.replace(r#""profil":"claude""#, r#""profil":null"#);
+    poser(&dir, &[&ligne_s(1, &nul)]);
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(ecarts.is_empty(), "{ecarts:?}");
+    let Evenement::VerdictRelecture { profil, empreinte, modele, .. } = &notes[0].evenement else { panic!() };
+    assert_eq!((profil, empreinte, modele), (&None, &None, &None));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn au_rejeu_le_verdict_se_garde_sur_la_vague_relue() {
+    let sha = |c: char| c.to_string().repeat(40);
+    let verdict = |sha: String, profil: Option<&str>| Evenement::VerdictRelecture {
+        vague: "r".into(),
+        relue: "v".into(),
+        sha,
+        profil: profil.map(Into::into),
+        empreinte: profil.map(|_| EMPREINTE.into()),
+        modele: profil.map(|_| "sonnet".into()),
+    };
+    let vagues = etat(&[verdict(sha('a'), Some("claude")), verdict(sha('b'), None)]);
+    let ids: Vec<&str> = vagues.iter().map(|vague| vague.id.as_str()).collect();
+    assert_eq!(ids, ["r", "v"], "la vague du relecteur et la vague relue sont nommées");
+    assert_eq!(vagues[0].jugement, None, "le relecteur ne porte pas le verdict");
+    // Le dernier verdict noté l'emporte.
+    let jugement = vagues[1].jugement.as_ref().unwrap();
+    assert_eq!((jugement.relecteur.as_str(), jugement.sha.as_str()), ("r", sha('b').as_str()));
+    assert_eq!((&jugement.profil, &jugement.empreinte, &jugement.modele), (&None, &None, &None));
+    let un = etat(&[verdict(sha('a'), Some("claude"))]);
+    assert_eq!(un[1].jugement.as_ref().unwrap().profil.as_deref(), Some("claude"));
 }
 
 #[test]
@@ -2776,9 +2889,15 @@ fn l_empreinte_du_plan_du_fil_est_celle_de_son_texte() {
 #[test]
 fn les_exemples_du_fil_se_relisent_sans_trou_ni_doublon() {
     // Les exemples vivent dans `exemples.jsonl`, à côté de ce fichier : on les lit là, une ligne de fil par ligne.
-    let lignes: Vec<&str> =
+    // Le sceau d'un exemple n'est pas une note : il a son propre essai.
+    let toutes: Vec<&str> =
         include_str!("exemples.jsonl").lines().filter(|ligne| ligne.starts_with(r#"{"v":2,"#)).collect();
+    let (sceaux, lignes): (Vec<&str>, Vec<&str>) =
+        toutes.iter().partition(|ligne| ligne.contains(r#""type":"vague.sceau""#));
     let dir = dossier("entete");
+    let octets = toutes.iter().map(|ligne| format!("{ligne}\n")).collect::<String>().into_bytes();
+    let (_, _, lus) = lire_octets(Path::new("exemples.jsonl"), &octets).unwrap();
+    assert_eq!(lus.len(), sceaux.len(), "chaque sceau d'exemple se lit : {sceaux:?}");
     poser(&dir, &lignes);
     let Lecture { notes, ecarts } = lire(&dir).unwrap();
     // Chaque ligne se lit, d'un type que Kraken connaît ; le lecteur ne relève que les trous des lignes omises.
@@ -2797,7 +2916,9 @@ fn les_exemples_du_fil_se_relisent_sans_trou_ni_doublon() {
     let tentative = ["main.bail", "main.debut", "main.lancement", "main.constat", "main.fin", "main.verdict"];
     let vague = ["vague.ouverte", "vague.assemblage", "vague.tache"];
     let forge = ["forge.poussee", "forge.pr", "forge.ci", "forge.poussee", "forge.pr", "forge.ci"];
-    let entieres: [(&str, Vec<&str>); 12] = [
+    let entieres: [(&str, Vec<&str>); 13] = [
+        // Le gel d'une main prise, dans une séance à lui.
+        ("1761902100000_14_1", vec!["main.gel"]),
         // Les copies : la première séance va jusqu'au verdict de sa main, la seconde jusqu'à sa fin déclarée, la
         // troisième jusqu'à l'usage de sa tentative, qui suit le constat et précède la fin.
         ("1761901200000_7_1", [&["vague.ouverte"][..], &tentative].concat()),
@@ -2823,7 +2944,7 @@ fn les_exemples_du_fil_se_relisent_sans_trou_ni_doublon() {
         // relecture, dans la séance de l'objectif ; la vague qui joue le plan, de deux tâches assemblées ; la vague de
         // copies du relecteur, une main ; la correction, d'une tâche assemblée.
         ("1761901700000_13_1", [&["vague.ouverte"][..], &tentative].concat()),
-        ("1761901780000_13_2", vec!["vague.decoupage", "vague.relecture"]),
+        ("1761901780000_13_2", vec!["vague.decoupage", "vague.relecture", "vague.verdict"]),
         (
             "1761901790000_13_4",
             [
@@ -3001,6 +3122,103 @@ fn un_substitut_seul_ou_65_niveaux_sont_illisibles_quel_que_soit_v() {
         }
     }
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn le_sceau_d_une_vague_s_ecrit_et_se_relit_a_l_identique() {
+    let dir = dossier("sceau-aller-retour");
+    let fil = Fil::seance(&dir, "humain");
+    // Un fil vide ne se scelle pas : `octets` est un entier positif.
+    assert_eq!(fil.sceller("v").unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+    assert!(!dir.join(FICHIER).exists(), "rien n'est écrit");
+    fil.noter(&Evenement::Correction { vague: "v".into(), corrige: "u".into() }).unwrap();
+    let premier = fil.sceller("v").unwrap();
+    fil.noter(&Evenement::Correction { vague: "v".into(), corrige: "t".into() }).unwrap();
+    let second = fil.sceller("w").unwrap();
+    let brut = fs::read(dir.join(FICHIER)).unwrap();
+    let lignes: Vec<&[u8]> = brut.split_inclusive(|&octet| octet == b'\n').collect();
+    // Le sceau couvre ce qui précède sa ligne, la sienne exclue.
+    assert_eq!(premier.octets as usize, lignes[0].len());
+    assert_eq!(premier.empreinte, hex(&sha256(lignes[0])));
+    assert_eq!(second.octets as usize, lignes[..3].iter().map(|l| l.len()).sum::<usize>());
+    assert_eq!(second.empreinte, hex(&sha256(&brut[..second.octets as usize])));
+    // Le corps, plat, dans l'ordre du contrat : la vague, les octets, l'empreinte, rien d'autre.
+    let ecrit = String::from_utf8(brut.clone()).unwrap();
+    let corps = format!(
+        r#""type":"vague.sceau","vague":"v","octets":{},"empreinte":"{}"}}"#,
+        premier.octets, premier.empreinte
+    );
+    assert!(ecrit.contains(&corps), "{ecrit}");
+    // Elle partage le compteur de la séance, et ne se lit pas comme une note.
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(ecarts.is_empty(), "{ecarts:?}");
+    assert_eq!(seqs(&notes), [1, 3]);
+    let (_, _, lus) = lire_octets(&dir.join(FICHIER), &brut).unwrap();
+    assert_eq!(lus.iter().map(|lu| lu.sceau.clone()).collect::<Vec<_>>(), [premier, second]);
+    // Chaque sceau lu sait où sa ligne commence.
+    let debuts = [lignes[0].len(), lignes[..3].iter().map(|l| l.len()).sum::<usize>()];
+    assert_eq!(lus.iter().map(|lu| lu.debut).collect::<Vec<_>>(), debuts);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_sceau_aux_champs_faux_est_mal_forme() {
+    let vide = "0".repeat(64);
+    let juste = format!(r#""type":"vague.sceau","vague":"v","octets":7,"empreinte":"{vide}""#);
+    let cas = vec![
+        (juste.replace(r#""octets":7"#, r#""octets":0"#), "« octets » vaut 0, hors de son domaine : un entier positif"),
+        (juste.replace(r#""octets":7"#, r#""octets":-7"#), "« octets » n'est pas une valeur plate"),
+        (juste.replace(r#""octets":7"#, r#""octets":1.5"#), "« octets » n'est pas une valeur plate"),
+        (juste.replace(r#""octets":7"#, r#""octets":"7""#), "« octets » manque ou n'est pas un entier positif"),
+        (juste.replace(r#""octets":7,"#, ""), "« octets » manque"),
+        (juste.replace(&vide, &"0".repeat(63)), "64 hexadécimaux minuscules"),
+        (juste.replace(&vide, &"0".repeat(65)), "64 hexadécimaux minuscules"),
+        (juste.replace(&vide, &"A".repeat(64)), "64 hexadécimaux minuscules"),
+        (juste.replace(&vide, &"g".repeat(64)), "64 hexadécimaux minuscules"),
+        (juste.replace(&format!(r#""empreinte":"{vide}""#), r#""empreinte":null"#), "« empreinte » manque"),
+        (juste.replace(&format!(r#","empreinte":"{vide}""#), ""), "« empreinte » manque"),
+        (juste.replace(r#""vague":"v","#, ""), "« vague » manque"),
+        (format!("{juste},\"titre\":\"x\""), "champ en trop pour vague.sceau : « titre »"),
+    ];
+    // Chaque ligne fausse est suivie d'une juste, de la même séance : aucun trou ne s'y voit.
+    let mut lignes = Vec::new();
+    for (i, (faux, _)) in cas.iter().enumerate() {
+        lignes.push(ligne_s(2 * i as u64 + 1, faux));
+        lignes.push(ligne_s(2 * i as u64 + 2, &juste));
+    }
+    let dir = dossier("sceau-faux");
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(notes.is_empty(), "un sceau n'est pas une note d'événement : {notes:?}");
+    assert_eq!(codes(&ecarts), (0..cas.len()).map(|i| (2 * i + 1, 1009)).collect::<Vec<_>>(), "et aucun 1010");
+    for ((_, refus), (_, bout)) in ecarts.iter().zip(&cas) {
+        assert!(refus.preuve.contains(bout), "la preuve devait dire « {bout} » : {refus}");
+    }
+    let brut = fs::read(dir.join(FICHIER)).unwrap();
+    let (_, _, lus) = lire_octets(&dir.join(FICHIER), &brut).unwrap();
+    assert_eq!(lus.len(), cas.len(), "les lignes justes se lisent");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_sceau_tient_tant_que_son_avant_ne_change_pas() {
+    let avant = b"une ligne\nune autre\n";
+    let sceau = SceauVague::sur("v", avant);
+    let lu = |debut| [SceauLu { sceau: sceau.clone(), debut }];
+    let fil = |suite: &[u8]| [&avant[..], suite].concat();
+    // Intact, un octet de plus après, ou un sceau qui suit : il tient.
+    assert_eq!(premier_sceau_rompu(&fil(b"suite\n"), &lu(avant.len())), None);
+    assert_eq!(premier_sceau_rompu(&fil(b"suite\n"), &lu(avant.len() + 3)), None);
+    // Ses octets dépassent le début de sa propre ligne : il ne correspond pas, même si le fil est assez long.
+    assert_eq!(premier_sceau_rompu(&fil(b"suite\n"), &lu(avant.len() - 1)), Some(&sceau));
+    // Un octet changé, une ligne retirée, un fil plus court que ses octets.
+    let mut change = fil(b"suite\n");
+    change[3] ^= 1;
+    assert_eq!(premier_sceau_rompu(&change, &lu(avant.len())), Some(&sceau));
+    assert_eq!(premier_sceau_rompu(&avant[10..], &lu(avant.len())), Some(&sceau));
+    // Les octets d'un sceau trop grands pour tenir en mémoire ne font pas paniquer.
+    let enorme = SceauVague { octets: u64::MAX, ..sceau.clone() };
+    assert_eq!(premier_sceau_rompu(avant, &[SceauLu { sceau: enorme.clone(), debut: usize::MAX }]), Some(&enorme));
 }
 
 #[test]

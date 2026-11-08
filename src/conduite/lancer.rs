@@ -39,7 +39,7 @@ use crate::coeur::plan::{Plan, Tache};
 use crate::coeur::profil::{Prix, Profil};
 use crate::coeur::protocole::{Constat, Jetons, Usage, UsageModele};
 use crate::conduite::assemblage::{self, Assemblage};
-use crate::conduite::tentative::{Juge, Pris, impossible_declaree, tenter};
+use crate::conduite::tentative::{Echec, IMPOSSIBLE, Juge, Pris, tenter};
 
 /// Ce que devient chaque tâche d'une vague, dans l'ordre du plan : l'id de sa main, `main-<vague>-<k>`, qui nomme aussi
 /// son bac, et son issue.
@@ -84,7 +84,7 @@ pub(crate) struct Menee {
 /// Ce qu'une tentative rend, tel que `tenter` le rend : le constat de la main (`None` pour une main brute, qui ne
 /// déclare rien), la fin de la sortie de sa preuve (`None` si elle n'a pas tourné), et son verdict. Seule la vague
 /// note.
-type Rendu = (Option<Constat>, Option<String>, Result<Pris, String>);
+type Rendu = (Option<Constat>, Option<String>, Result<Pris, Echec>);
 
 /// Les mains qui tournent en même temps, au plus, copies de `--n` comprises ; les autres attendent leur tour, dans
 /// l'ordre du plan. Une relance garde la place de la tentative qu'elle suit : elle part quand le message de celle-ci
@@ -175,6 +175,7 @@ pub(crate) fn lancer_avec(
         fil,
         assemblage,
         juge: liens.juge,
+        corrige: liens.corrige.is_some(),
         preparation: liens.preparation,
         baux: Baux::new(),
         rangs: (0..).zip(&plan.taches).map(|(rang, tache)| (tache.id.as_str(), rang)).collect(),
@@ -250,7 +251,7 @@ fn en_message(main: impl FnOnce() -> Rendu) -> Rendu {
             .map(|quoi| (*quoi).to_string())
             .or_else(|| panique.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "sans message".into());
-        (None, None, Err(format!("la main a paniqué : {quoi}")))
+        (None, None, Err(Echec::Erreur(format!("la main a paniqué : {quoi}"))))
     })
 }
 
@@ -276,6 +277,18 @@ fn dans_ses_fichiers(bac: &Path, depart: &str, tache: &Tache, proteges: &[String
     assemblage::proteges_tenus(bac, depart, &tache.id, proteges).map_err(|refus| en_erreur(&refus))?;
     let Some(fichiers) = &tache.fichiers else { return Ok(pris) };
     assemblage::fichiers_tenus(bac, depart, &tache.id, fichiers).map(|()| pris).map_err(|refus| en_erreur(&refus))
+}
+
+/// Une main de plan verte qui n'a changé aucun chemin depuis `depart` n'a rien fait : sa tentative est rouge, et son
+/// erreur le dit, que la relance reçoit. Un git qui ne dit pas ce qu'elle a changé ne la rougit pas ici : son refus
+/// 7009 reste celui d'aujourd'hui.
+fn main_qui_change(bac: &Path, depart: &str) -> Result<(), String> {
+    match assemblage::chemins_changes(bac, depart) {
+        Ok(chemins) if chemins.is_empty() => Err("the hand changed nothing".to_string()),
+        Ok(_) => Ok(()),
+        // Le refus 7009 vient plus loin, à l'assemblage : ici, la main n'est pas jugée sur ce que git ne dit pas.
+        Err(_) => Ok(()),
+    }
 }
 
 /// Chaque texte que le plan exige (`exact`) paraît, octet pour octet, dans son fichier du bac ; sinon la tentative est
@@ -328,6 +341,8 @@ struct Vague<'a> {
     assemblage: Option<Assemblage<'a>>,
     /// Le juge de ses mains, celui du découpeur ou du relecteur ([`Liens`]).
     juge: Option<Juge<'a>>,
+    /// Vrai pour la vague d'une correction, qui a son propre contrôle (7017).
+    corrige: bool,
     /// Ce qui se pose dans le bac de chaque main avant son premier départ ([`Preparation`]).
     preparation: Option<Preparation<'a>>,
     baux: Baux,
@@ -504,6 +519,8 @@ impl<'a> Vague<'a> {
         // raccourci : tué en pleine vérification, Kraken laisse le fichier ; monter avec le nœud, qui rangera.
         let journal = self.fil.dossier().join(format!("verif-{}-{k}-{tentative}.tmp", self.id));
         let juge = self.juge;
+        // Une tâche de plan sans juge : sa main doit avoir changé un chemin. Les mains qui jugent ont leur contrôle.
+        let plan_sans_juge = self.assemblage.is_some() && juge.is_none() && !self.corrige;
         s.spawn(move || {
             let rendu = en_message(|| {
                 let (constat, verif, verdict) = tenter(
@@ -517,8 +534,14 @@ impl<'a> Vague<'a> {
                     &journal,
                     juge,
                 );
-                let verdict = verdict.and_then(|pris| dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris));
-                let verdict = verdict.and_then(|pris| textes_exacts(&bac, tache, pris));
+                let verdict = verdict.and_then(|pris| {
+                    dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris).map_err(Echec::Erreur)
+                });
+                let verdict = verdict.and_then(|pris| textes_exacts(&bac, tache, pris).map_err(Echec::Erreur));
+                let verdict = match (plan_sans_juge, verdict) {
+                    (true, Ok(pris)) => main_qui_change(&bac, &depart).map(|()| pris).map_err(Echec::Erreur),
+                    (_, verdict) => verdict,
+                };
                 (constat, verif, verdict)
             });
             // La vague lit le canal jusqu'au dernier message qu'elle attend : celui-ci ne se perd pas.
@@ -539,10 +562,8 @@ impl<'a> Vague<'a> {
             Ok(Pris { sortie, prouve: true }) => (Couleur::Vert, Foi::Constate, sortie.clone()),
             Ok(Pris { sortie, prouve: false }) => (Couleur::Vert, Foi::Declare, sortie.clone()),
             // La raison d'une main qui déclare l'impossible : rouge, et déclarée, car Kraken n'a rien vu.
-            Err(erreur) => match impossible_declaree(erreur) {
-                Some(raison) => (Couleur::Rouge, Foi::Declare, raison.to_string()),
-                None => (Couleur::Rouge, Foi::Constate, erreur.clone()),
-            },
+            Err(Echec::Impossible(raison)) => (Couleur::Rouge, Foi::Declare, raison.clone()),
+            Err(Echec::Erreur(erreur)) => (Couleur::Rouge, Foi::Constate, erreur.clone()),
         };
         let vague = self.id.clone();
         // Le jeton : seul se prend un résultat qui porte la tentative du bail ouvert de sa tâche. Un résultat périmé
@@ -587,13 +608,14 @@ impl<'a> Vague<'a> {
         match verdict {
             // Impossible, déclarée : classée sans relance (l'erreur en contexte la pousserait à plier), rien ne
             // s'assemble.
-            Err(erreur) if impossible_declaree(&erreur).is_some() => {
+            Err(Echec::Impossible(raison)) => {
                 let impossible = Evenement::Verdict { vague, main: k, verdict: Verdict::Impossible, foi: Foi::Declare };
+                let erreur = format!("{IMPOSSIBLE}{raison}");
                 let issue = if self.noter(&impossible) { erreur } else { self.hors_du_fil(&erreur) };
                 self.taches[k - 1] = Etat::Finie(Err(issue));
             }
-            Err(erreur) if tentative == 1 => self.relancer(s, envoi, k, bac, erreur),
-            Err(erreur) => {
+            Err(Echec::Erreur(erreur)) if tentative == 1 => self.relancer(s, envoi, k, bac, erreur),
+            Err(Echec::Erreur(erreur)) => {
                 let classee = Evenement::Verdict { vague, main: k, verdict: Verdict::Classee, foi: Foi::Constate };
                 let issue = if self.noter(&classee) { erreur } else { self.hors_du_fil(&erreur) };
                 self.taches[k - 1] = Etat::Finie(Err(issue));
@@ -654,10 +676,17 @@ impl<'a> Vague<'a> {
             self.taches[k - 1] = Etat::Finie(Ok(pris));
             return;
         };
-        let (verif, issue) =
-            assemblage.fusionner(bac, depart, &tache.id, tache.fichiers.as_deref(), k, |sha, verif| {
+        let (verif, issue) = assemblage.fusionner_et_noter_le_gel(
+            bac,
+            depart,
+            &tache.id,
+            tache.fichiers.as_deref(),
+            k,
+            |sha| fil.noter(&Evenement::Gel { vague: vague.into(), main: k, sha: sha.into() }),
+            |sha, verif| {
                 fil.noter(&Evenement::Fusion { vague: vague.into(), main: k, sha: sha.into(), verif: verif.into() })
-            });
+            },
+        );
         match issue {
             Ok(_) => self.taches[k - 1] = Etat::Finie(Ok(pris)),
             Err(refus) if refus.code == Code::FilInjoignable => {

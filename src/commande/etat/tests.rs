@@ -987,6 +987,109 @@ fn kraken_etat_ne_sort_en_0_que_sur_des_prises_constatees() {
     let _ = fs::remove_dir_all(&dossier);
 }
 
+/// Un fil scellé deux fois : l'ouverture de `V1` (l'objectif « premier »), le sceau S1, un début, le sceau S2, puis
+/// une note (l'objectif « dernier »). Rend le dossier.
+fn fil_scelle(nom: &str) -> std::path::PathBuf {
+    let dossier = env::temp_dir().join(format!("lydite-test-{nom}-{}", lot()));
+    fs::create_dir_all(&dossier).unwrap();
+    let fil = Fil::seance(&dossier, "humain");
+    fil.noter(&ouverture(V1, 1, "premier")).unwrap();
+    fil.sceller(V1).unwrap();
+    fil.noter(&debut(V1, 1, 1)).unwrap();
+    fil.sceller(V1).unwrap();
+    fil.noter(&ouverture(V1, 1, "dernier")).unwrap();
+    dossier
+}
+
+/// Change, dans le fil du dossier, `avant` en `apres` (de même longueur) : une ligne changée sur place.
+fn changer_dans_le_fil(dossier: &Path, avant: &str, apres: &str) {
+    assert_eq!(avant.len(), apres.len());
+    let chemin = dossier.join("fil.jsonl");
+    let texte = fs::read_to_string(&chemin).unwrap();
+    assert_eq!(texte.matches(avant).count(), 1, "{texte}");
+    fs::write(&chemin, texte.replace(avant, apres)).unwrap();
+}
+
+#[test]
+fn un_fil_scelle_intact_passe_kraken_etat() {
+    let scelle = fil_scelle("sceau-intact");
+    let (_, _, rompu) = crate::branchements::dossier::lire_scelle(&scelle).unwrap();
+    assert_eq!(rompu, None);
+    // Le même fil, sans ses sceaux, rend le même code : les sceaux n'y changent rien tant qu'ils tiennent.
+    let nu = env::temp_dir().join(format!("lydite-test-sans-sceau-{}", lot()));
+    fs::create_dir_all(&nu).unwrap();
+    let fil = Fil::seance(&nu, "humain");
+    for evenement in [ouverture(V1, 1, "premier"), debut(V1, 1, 1), ouverture(V1, 1, "dernier")] {
+        fil.noter(&evenement).unwrap();
+    }
+    let code = etat_dans(&nu).unwrap();
+    assert_eq!(etat_dans(&scelle), Ok(code));
+    assert_ne!(code, ExitCode::from(2));
+    let _ = fs::remove_dir_all(&scelle);
+    let _ = fs::remove_dir_all(&nu);
+}
+
+#[test]
+fn un_octet_change_avant_un_sceau_le_fait_nommer() {
+    let dossier = fil_scelle("sceau-rompu");
+    // Une ligne d'avant le premier sceau change : le premier sceau est nommé, avec ses octets.
+    let (_, _, intact) = crate::branchements::dossier::lire_scelle(&dossier).unwrap();
+    assert_eq!(intact, None);
+    let premier = crate::branchements::dossier::lire_sceaux(&dossier)[0].clone();
+    changer_dans_le_fil(&dossier, "premier", "premiex");
+    let (_, _, rompu) = crate::branchements::dossier::lire_scelle(&dossier).unwrap();
+    assert_eq!(rompu, Some(premier.clone()));
+    assert_eq!(rompu.map(|sceau| (sceau.vague, sceau.octets)), Some((V1.to_string(), premier.octets)));
+    // `lydite etat` échoue, du code d'un fil qu'il ne lit pas.
+    assert_eq!(etat_dans(&dossier), Ok(ExitCode::from(2)));
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn le_premier_sceau_rompu_est_nomme_pas_le_dernier() {
+    let dossier = fil_scelle("sceau-second");
+    // Une ligne entre les deux sceaux change : le premier tient encore, le second est nommé.
+    let sceaux = crate::branchements::dossier::lire_sceaux(&dossier);
+    changer_dans_le_fil(&dossier, r#""main":1,"tentative":1}"#, r#""main":2,"tentative":1}"#);
+    let (_, _, rompu) = crate::branchements::dossier::lire_scelle(&dossier).unwrap();
+    assert_eq!(rompu, Some(sceaux[1].clone()));
+    assert_eq!(etat_dans(&dossier), Ok(ExitCode::from(2)));
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_octet_change_apres_le_dernier_sceau_ne_se_voit_pas() {
+    let dossier = fil_scelle("sceau-apres");
+    let avant = etat_dans(&dossier).unwrap();
+    // La note d'après le dernier sceau change, et une ligne s'y ajoute : aucun sceau ne les couvre.
+    changer_dans_le_fil(&dossier, "dernier", "dernieu");
+    let chemin = dossier.join("fil.jsonl");
+    let mut texte = fs::read_to_string(&chemin).unwrap();
+    texte.push_str("{\"ajoutee\":\"apres\"}\n");
+    fs::write(&chemin, texte).unwrap();
+    let (_, _, rompu) = crate::branchements::dossier::lire_scelle(&dossier).unwrap();
+    assert_eq!(rompu, None);
+    assert_eq!(etat_dans(&dossier), Ok(avant));
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_fil_reecrit_avec_ses_sceaux_refaits_ne_se_voit_pas() {
+    let dossier = fil_scelle("sceau-refait");
+    // Le fil change avant son premier sceau, puis on refait les sceaux sur le fil changé : ils tiennent.
+    changer_dans_le_fil(&dossier, "premier", "premiex");
+    let chemin = dossier.join("fil.jsonl");
+    let texte = fs::read_to_string(&chemin).unwrap();
+    let sans_sceaux: String =
+        texte.lines().filter(|ligne| !ligne.contains("vague.sceau")).map(|ligne| format!("{ligne}\n")).collect();
+    fs::write(&chemin, sans_sceaux).unwrap();
+    let fil = Fil::seance(&dossier, "humain");
+    fil.sceller(V1).unwrap();
+    let (_, _, rompu) = crate::branchements::dossier::lire_scelle(&dossier).unwrap();
+    assert_eq!(rompu, None);
+    let _ = fs::remove_dir_all(&dossier);
+}
+
 #[test]
 fn un_fil_absent_est_aucune_vague() {
     let dossier = env::temp_dir().join(format!("lydite-test-etat-{}", lot()));
