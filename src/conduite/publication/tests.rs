@@ -1470,3 +1470,35 @@ fn les_dollars_s_arrondissent_au_centime_a_la_virgule() {
     assert_eq!(dollars(834_999), "0,83");
     assert_eq!(dollars(12_340_000), "12,34");
 }
+
+#[test]
+fn le_corps_porte_le_bloc_non_rejoue_de_la_relecture_dix_lignes_de_200_caracteres_au_plus() {
+    let relecture = |id: &str, remarques: String| Evenement::Relecture {
+        vague: "r".into(),
+        relue: id.into(),
+        n: 0,
+        bloquantes: 0,
+        remarques,
+    };
+    let forme_2 = |non_rejoue: &str| format!("remarques 2\n\nrejoue\n    Vert.\n\nnon rejoue\n{non_rejoue}");
+    // Les lignes du bloc, sous l'intitulé, chacune en code.
+    let notes = [relecture("v", forme_2("    Windows n'est pas joué.\n    Le réseau non plus.\n"))];
+    assert_eq!(
+        non_rejoue_de_la_relecture(&notes, "v"),
+        ["Not replayed (from the review):", "- `Windows n'est pas joué.`", "- `Le réseau non plus.`"]
+    );
+    // Dix lignes au plus, chacune coupée à 200 caractères, sans caractère de contrôle ni apostrophe inverse.
+    let lignes: String = (1..=12).map(|k| format!("    ligne {k} {}\n", "é".repeat(300))).collect();
+    let dites = non_rejoue_de_la_relecture(&[relecture("v", forme_2(&lignes))], "v");
+    assert_eq!(dites.len(), 1 + NON_REJOUE_LIGNES);
+    assert!(dites[1].starts_with("- `ligne 1 é") && !dites.iter().any(|l| l.contains("ligne 11")), "{dites:?}");
+    assert!(dites[1..].iter().all(|l| l.chars().count() == "- ``".len() + 200), "{dites:?}");
+    let sale = non_rejoue_de_la_relecture(&[relecture("v", forme_2("    a`b\u{1b}[2Jc @nom\n"))], "v");
+    assert_eq!(sale, ["Not replayed (from the review):", "- `a'b[2Jc @nom`"]);
+    // La dernière relecture de la vague compte ; celle d'une autre vague, la forme 1 et un texte illisible se taisent.
+    let notes = [relecture("v", forme_2("    Ancienne.\n")), relecture("v", forme_2("    Récente.\n"))];
+    assert_eq!(non_rejoue_de_la_relecture(&notes, "v"), ["Not replayed (from the review):", "- `Récente.`"]);
+    assert!(non_rejoue_de_la_relecture(&notes, "autre").is_empty());
+    assert!(non_rejoue_de_la_relecture(&[relecture("v", "remarques 1\n".into())], "v").is_empty());
+    assert!(non_rejoue_de_la_relecture(&[relecture("v", "n'importe quoi".into())], "v").is_empty());
+}

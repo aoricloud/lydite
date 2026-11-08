@@ -296,9 +296,11 @@ pub(crate) fn faux_decoupeur(dir: &Path) -> Vec<String> {
 ///   `dir`, et sinon, sauf si `ne-rien-faire` y est, `sortie/correction.txt` ;
 /// - si sa consigne nomme `REMARQUES.lydite`, il est le relecteur, à sa tentative `n` (1, puis 2 une fois posée la
 ///   marque `relecture-1` de `dir`) : il garde sa consigne dans `consigne-relecteur-<n>.txt` de `dir`, son `PATH` dans
-///   `path-relecteur-<n>.txt`, le `DIFF.lydite` de son bac dans `diff-<n>.txt` (ou `sans-diff-<n>` s'il n'y en a pas),
-///   copie `remarques-<n>.lydite` de `dir`, s'il est là, en `REMARQUES.lydite` à la racine de son bac, ôte
-///   l'`autre.txt` d'une tentative d'avant, et en écrit un dans son bac si `toucher-<n>` est dans `dir` ;
+///   `path-relecteur-<n>.txt`, le `DIFF.lydite` de son bac dans `diff-<n>.txt` (ou `sans-diff-<n>` s'il n'y en a
+///   pas), de même son `PREUVE.lydite` dans `preuve-<n>.txt` (ou `sans-preuve-<n>`), copie `remarques-<n>.lydite` de
+///   `dir`, s'il est là, en `REMARQUES.lydite` à la racine de son bac, ôte
+///   l'`autre.txt` d'une tentative d'avant, en écrit un dans son bac si `toucher-<n>` est dans `dir`, et dit dans sa
+///   réponse qu'il n'y a rien de bloquant si `dit-rien-de-bloquant` y est ;
 /// - sinon, il est la main d'une tâche : il garde sa consigne dans `sortie/<bac>.txt` de son bac si elle dit « critique
 ///   », dans `autre/<bac>.txt` sinon, et y copie de même `gros.txt` de `dir`, s'il est là, en `gros-<bac>.txt`.
 ///
@@ -339,9 +341,12 @@ pub(crate) fn faux_relecteur(dir: &Path) -> Vec<String> {
              set PATH > \"%d%\\path-relecteur-%n%.txt\"\r\n\
              if exist DIFF.lydite copy /y DIFF.lydite \"%d%\\diff-%n%.txt\" > nul\r\n\
              if not exist DIFF.lydite type nul > \"%d%\\sans-diff-%n%\"\r\n\
+             if exist PREUVE.lydite copy /y PREUVE.lydite \"%d%\\preuve-%n%.txt\" > nul\r\n\
+             if not exist PREUVE.lydite type nul > \"%d%\\sans-preuve-%n%\"\r\n\
              if exist \"%d%\\remarques-%n%.lydite\" copy /y \"%d%\\remarques-%n%.lydite\" REMARQUES.lydite > nul\r\n\
              if exist autre.txt del autre.txt\r\n\
              if exist \"%d%\\toucher-%n%\" echo touche> autre.txt\r\n\
+             if exist \"%d%\\dit-rien-de-bloquant\" echo There is nothing blocking in my review.\r\n\
              :fin\r\n\
              echo PREUVE: vert\r\n"
         );
@@ -364,9 +369,11 @@ pub(crate) fn faux_relecteur(dir: &Path) -> Vec<String> {
              cp \"$TMPDIR/consigne.txt\" \"$d/consigne-relecteur-$n.txt\"\n\
              printf 'PATH=%s\\n' \"$PATH\" > \"$d/path-relecteur-$n.txt\"\n\
              if [ -f DIFF.lydite ]; then cp DIFF.lydite \"$d/diff-$n.txt\"; else : > \"$d/sans-diff-$n\"; fi\n\
+             if [ -f PREUVE.lydite ]; then cp PREUVE.lydite \"$d/preuve-$n.txt\"; else : > \"$d/sans-preuve-$n\"; fi\n\
              if [ -f \"$d/remarques-$n.lydite\" ]; then cp \"$d/remarques-$n.lydite\" REMARQUES.lydite; fi\n\
              rm -f autre.txt\n\
              if [ -f \"$d/toucher-$n\" ]; then echo touche > autre.txt; fi\n\
+             if [ -f \"$d/dit-rien-de-bloquant\" ]; then echo 'There is nothing blocking in my review.'; fi\n\
              else\n\
              dossier=autre\n\
              if grep -q 'critique' \"$TMPDIR/consigne.txt\"; then dossier=sortie; fi\n\

@@ -9,7 +9,8 @@
 //!   écrit `sortie/correction.txt` dans son bac ;
 //! - si sa consigne nomme `REMARQUES.lydite`, elle est le relecteur, à sa tentative `n` (1, puis 2 une fois posée la
 //!   marque `relecteur-1`) : elle garde son `PATH` dans `path-relecteur-<n>.txt` et le `DIFF.lydite` de son bac dans
-//!   `diff-<n>.txt`, copie `remarques-<n>.lydite` en `REMARQUES.lydite` à la racine de son bac, puis joue elle-même
+//!   `diff-<n>.txt` (et son `PREUVE.lydite` dans `preuve-lydite-<n>.txt`), copie `remarques-<n>.lydite` en
+//!   `REMARQUES.lydite` à la racine de son bac, puis joue elle-même
 //!   `lydite remarques REMARQUES.lydite`, que son `PATH` doit trouver, et en garde la sortie dans `preuve-<n>.txt` et
 //!   le code dans `code-<n>.txt` ;
 //! - sinon, elle est la main d'une tâche : elle écrit sa consigne dans `sortie/<bac>.txt` de son bac si elle dit «
@@ -122,6 +123,7 @@ const FAUSSE_WINDOWS: &[&str] = &[
     r#"type nul > "%ici%relecteur-%n%""#,
     r#"set PATH > "%ici%path-relecteur-%n%.txt""#,
     r#"if exist DIFF.lydite copy /y DIFF.lydite "%ici%diff-%n%.txt" > nul"#,
+    r#"if exist PREUVE.lydite copy /y PREUVE.lydite "%ici%preuve-lydite-%n%.txt" > nul"#,
     r#"if exist "%ici%remarques-%n%.lydite" copy /y "%ici%remarques-%n%.lydite" REMARQUES.lydite > nul"#,
     r#"lydite remarques REMARQUES.lydite > "%ici%preuve-%n%.txt" 2>&1"#,
     // La redirection d'abord : `echo 0> f` redirigerait l'entrée, et écrirait l'état d'echo sur la sortie.
@@ -151,6 +153,7 @@ const FAUSSE_UNIX: &[&str] = &[
     r#": > "$ici/relecteur-$n""#,
     r#"printf 'PATH=%s\n' "$PATH" > "$ici/path-relecteur-$n.txt""#,
     r#"if [ -f DIFF.lydite ]; then cp DIFF.lydite "$ici/diff-$n.txt"; fi"#,
+    r#"if [ -f PREUVE.lydite ]; then cp PREUVE.lydite "$ici/preuve-lydite-$n.txt"; fi"#,
     r#"if [ -f "$ici/remarques-$n.lydite" ]; then cp "$ici/remarques-$n.lydite" REMARQUES.lydite; fi"#,
     r#"lydite remarques REMARQUES.lydite > "$ici/preuve-$n.txt" 2>&1"#,
     r#"echo $? > "$ici/code-$n.txt""#,
@@ -220,7 +223,7 @@ fn texte(lignes: &[&str]) -> String {
 /// Des remarques justes, dont une bloquante.
 fn remarques_justes() -> String {
     texte(&[
-        "remarques 1",
+        "remarques 2",
         "",
         "remarque 1",
         "fichier : sortie/a.txt",
@@ -233,6 +236,12 @@ fn remarques_justes() -> String {
         "fichier : sortie/a.txt",
         "bloquante : non",
         "    Un nom peu clair.",
+        "",
+        "rejoue",
+        "    La preuve de la vague est verte.",
+        "",
+        "non rejoue",
+        "    Le réseau n'est pas joué.",
     ])
 }
 
@@ -544,7 +553,7 @@ fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     let notee = lignes_de(&fil, "vague.relecture");
     let [notee] = &notee[..] else { panic!("{fil}") };
     assert!(
-        notee.contains(&format!(r#""vague":"{r}","relue":"{v}","n":2,"bloquantes":1,"remarques":"remarques 1"#)),
+        notee.contains(&format!(r#""vague":"{r}","relue":"{v}","n":2,"bloquantes":1,"remarques":"remarques 2"#)),
         "{notee}"
     );
     assert!(fil.contains(&format!(r#""type":"vague.correction","vague":"{c}","corrige":"{v}""#)), "{fil}");
@@ -565,6 +574,18 @@ fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     let diff = essai.garde("diff-1.txt");
     assert!(diff.contains(&format!("diff --git a/sortie/main-{v}-1.txt b/sortie/main-{v}-1.txt")), "{diff}");
     assert!(!diff.contains("autre/"), "{diff}");
+    // Et la preuve que Lydite a rejouée sur la tête relue : la commande de la vague, le commit, la sortie.
+    let tete_relue = {
+        let siennes: Vec<&str> =
+            lignes_de(&fil, "vague.fusion").into_iter().filter(|l| l.contains(&format!(r#""vague":"{v}""#))).collect();
+        let derniere = siennes.last().unwrap();
+        let debut = derniere.find(r#""sha":""#).unwrap() + 7;
+        derniere[debut..].split('"').next().unwrap().to_string()
+    };
+    let preuve = essai.garde("preuve-lydite-1.txt");
+    let entete =
+        format!("Proof command: {VERIFIER}\nReplayed green by Lydite on commit: {tete_relue}\nOutput (last 4000");
+    assert!(preuve.starts_with(&entete), "{preuve}");
     let correction = essai.garde("correction.txt");
     assert!(correction.contains("sortie/a.txt, ligne 3 : Le test ne peut pas echouer."), "{correction}");
     assert!(!correction.contains("Un nom peu clair"), "{correction}");
