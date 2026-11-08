@@ -442,6 +442,26 @@ fn un_contenu_ajoute_puis_retire_ne_se_publie_pas_8005() {
 }
 
 #[test]
+fn un_nom_hors_du_sous_dossier_ajoute_puis_retire_ne_fuit_pas_8005() {
+    let lieu = lieu("forge-relatif-noms");
+    git(&lieu.depot, &["config", "diff.relative", "true"]);
+    let base = sur(&lieu.depot, &lieu.base(), &[("sous/a.txt", "a\n")], "sous");
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    fs::write(lieu.kraken.join("garde"), "zébulon\n").unwrap();
+    let sous = lieu.depot.join("sous");
+    let forge = Forge { depot: &sous, ..lieu.forge() };
+    let chemins = [lieu.depot.as_path()];
+    let vu_dans = format!("vu dans {}\n", lieu.depot.display());
+    let ajout = sur(&lieu.depot, &base, &[("Zébulon.md", &vu_dans)], "ajout");
+    fs::remove_file(lieu.depot.join("Zébulon.md")).unwrap();
+    let tete = sur(&lieu.depot, &ajout, &[], "retrait");
+    let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+    assert_eq!(refus.preuve, "la ligne 1 de la garde paraît dans le nom d'un fichier changé");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
 fn un_mot_de_la_garde_ne_fuit_pas_par_le_nom_du_fichier_d_un_autre_8005() {
     let lieu = lieu("forge-garde-deux");
     let forge = lieu.forge();
