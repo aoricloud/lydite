@@ -350,6 +350,50 @@ fn un_mot_de_la_garde_ne_se_publie_pas_8005() {
 }
 
 #[test]
+fn un_contenu_ajoute_puis_retire_ne_se_publie_pas_8005() {
+    let lieu = lieu("forge-historique");
+    let forge = lieu.forge();
+    let base = lieu.base();
+    let chemins = [lieu.depot.as_path()];
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    fs::write(lieu.kraken.join("garde"), "zébulon\n").unwrap();
+    let publier = |tete: &str| {
+        forge.publiable(&base, tete, "b", "t", "c", &chemins).map_err(|refus| {
+            assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+            refus.preuve
+        })
+    };
+    // Ajouté par un commit, retiré par le suivant : le diff net ne l'a plus.
+    let ajoute_puis_retire = |nom: &str, contenu: &str| {
+        let ajout = sur(&lieu.depot, &base, &[(nom, contenu)], "ajout");
+        fs::remove_file(lieu.depot.join(nom)).unwrap();
+        sur(&lieu.depot, &ajout, &[], "retrait")
+    };
+    let net = lieu.depot.display().to_string();
+    let tete = ajoute_puis_retire("notes.txt", "chez zébulon\n");
+    let git_net = forge.git(&["diff", "--name-only", &base, &tete]);
+    assert_eq!(forge.faire(git_net, None).unwrap(), "");
+    let preuve = publier(&tete).unwrap_err();
+    assert_eq!(
+        preuve,
+        "la ligne 1 de la garde paraît dans les lignes ajoutées de b/notes.txt dans l'historique poussé"
+    );
+    assert!(!preuve.contains("zébulon"), "{preuve}");
+    let tete = ajoute_puis_retire("Zébulon.md", "propre\n");
+    let preuve = publier(&tete).unwrap_err();
+    assert_eq!(preuve, "la ligne 1 de la garde paraît dans le nom d'un fichier changé");
+    let tete = ajoute_puis_retire("chemin.txt", &format!("vu dans {net}\n"));
+    let preuve = publier(&tete).unwrap_err();
+    assert!(preuve.contains("paraît dans les lignes ajoutées de b/chemin.txt dans l'historique poussé"), "{preuve}");
+    assert!(!preuve.contains("zébulon"), "{preuve}");
+    // Une plage propre de plusieurs commits reste publiable.
+    let un = sur(&lieu.depot, &base, &[("a.txt", "un\n")], "un");
+    let deux = sur(&lieu.depot, &un, &[("b.txt", "deux\n")], "deux");
+    assert_eq!(publier(&deux), Ok(()));
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
 fn un_mot_de_la_garde_ne_fuit_pas_par_le_nom_du_fichier_d_un_autre_8005() {
     let lieu = lieu("forge-garde-deux");
     let forge = lieu.forge();
