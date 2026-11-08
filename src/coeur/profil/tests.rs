@@ -355,6 +355,25 @@ fn la_relance_prend_son_modele() {
 }
 
 #[test]
+fn l_argv_d_une_main_qui_a_des_lecons_porte_le_fichier_de_consigne() {
+    let profil = borne("sorte = claude\n");
+    let bac = absolu("bac");
+    let fichier = absolu("k").join("consignes").join("abc.txt");
+    let sans = profil.demande(&bac, None, false);
+    assert!(!sans.argv.iter().any(|arg| arg == "--append-system-prompt-file"), "{:?}", sans.argv);
+    let avec = profil.demande_avec(&bac, None, false, Some(&fichier));
+    let n = avec.argv.len();
+    assert_eq!(avec.argv[n - 2..], ["--append-system-prompt-file".to_string(), fichier.to_string_lossy().into_owned()]);
+    // Le reste de l'argv et la déclaration sont ceux d'une main sans leçon.
+    assert_eq!(avec.argv[..n - 2], sans.argv[..]);
+    assert_eq!(avec.declaration, sans.declaration);
+    // Une main nue ne reçoit pas de leçon.
+    let nue = Profil::faux(vec!["x".into()], Duration::from_secs(1));
+    assert!(nue.nue() && !profil.nue());
+    assert_eq!(nue.demande_avec(&bac, None, false, Some(&fichier)).argv, ["x"]);
+}
+
+#[test]
 fn le_decoupeur_a_son_modele_opus_par_defaut() {
     // Sans la clé, opus, profil intégré compris ; avec, la valeur lue, dans le domaine de `modele`.
     assert_eq!(lu("sorte = claude\n").unwrap().decoupeur(), Some("opus"));

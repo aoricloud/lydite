@@ -664,7 +664,17 @@ impl Profil {
     ///   Sans `autoMemoryEnabled` faux, une main posée dans un worktree prendrait pour mémoire celle du dépôt
     ///   principal, hors du bac. `lecture` ne va qu'à `allowRead`, pour les commandes : un dossier de travail de plus
     ///   ouvrirait aussi les éditions.
-    pub(crate) fn demande(&self, bac: &Path, verifier: Option<&str>, relance: bool) -> Demande {
+    ///
+    /// `consigne` est le fichier des leçons que la main reçoit (voir `dossier::ecrire_consigne`) : l'argv de
+    /// la main Claude porte alors, après `--settings`, `--append-system-prompt-file <chemin>`. Une main brute n'en
+    /// reçoit pas.
+    pub(crate) fn demande_avec(
+        &self,
+        bac: &Path,
+        verifier: Option<&str>,
+        relance: bool,
+        consigne: Option<&Path>,
+    ) -> Demande {
         let claude = match &self.sorte {
             Sorte::Brute(argv) => return Demande { argv: argv.clone(), declaration: None },
             Sorte::Claude(claude) => claude,
@@ -750,6 +760,9 @@ impl Profil {
         }
         argv.extend(["--setting-sources", "user", "--model"].map(String::from));
         argv.extend([modele.clone(), "--settings".to_string(), reglages.clone()]);
+        if let Some(consigne) = consigne {
+            argv.extend(["--append-system-prompt-file".to_string(), consigne.to_string_lossy().into_owned()]);
+        }
         let declaration = Declaration {
             profil: claude.nom.clone(),
             empreinte: claude.empreinte.clone(),
@@ -760,6 +773,16 @@ impl Profil {
             fournisseur: claude.fournisseur.as_ref().map(|fournisseur| fournisseur.hote.clone()),
         };
         Demande { argv, declaration: Some(declaration) }
+    }
+
+    /// [`Profil::demande_avec`], sans leçon.
+    pub(crate) fn demande(&self, bac: &Path, verifier: Option<&str>, relance: bool) -> Demande {
+        self.demande_avec(bac, verifier, relance, None)
+    }
+
+    /// Vrai pour une main nue (`Profil::faux`), qui ne reçoit pas de leçon.
+    pub(crate) fn nue(&self) -> bool {
+        matches!(self.sorte, Sorte::Brute(_))
     }
 }
 

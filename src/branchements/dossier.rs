@@ -16,6 +16,31 @@ use crate::coeur::fil::{
 };
 use crate::coeur::profil::{self, Profil, empreinte, integre};
 
+/// Le fichier de consigne de ce texte, `<dossier>/consignes/<SHA-256 du texte>.txt`, hors du bac et du dépôt, que les
+/// mains lisent par `--append-system-prompt-file`. Écrit d'un coup (un fichier temporaire, renommé), et jamais réécrit
+/// s'il existe. Une écriture ratée est le refus 7012 (`correction` dit ce qu'il faut faire).
+pub(crate) fn ecrire_consigne(dossier: &Path, texte: &str, correction: &str) -> Result<PathBuf, Refus> {
+    let ratee = |e: io::Error, quoi: &Path| {
+        Refus::new(Code::FilInjoignable, format!("écriture de la consigne {} : {e}", quoi.display()), correction)
+    };
+    let consignes = dossier.join("consignes");
+    let chemin = consignes.join(format!("{}.txt", empreinte(texte)));
+    if chemin.is_file() {
+        return Ok(chemin);
+    }
+    fs::create_dir_all(&consignes).map_err(|e| ratee(e, &consignes))?;
+    let temporaire = consignes.join(format!("{}.{}.tmp", lot(), empreinte(texte)));
+    let ecrit = fs::write(&temporaire, texte).and_then(|()| fs::rename(&temporaire, &chemin));
+    if let Err(e) = ecrit {
+        let _ = fs::remove_file(&temporaire);
+        // Un autre lancement a pu l'écrire entre-temps : le fichier est le même, car son nom est son empreinte.
+        if !chemin.is_file() {
+            return Err(ratee(e, &chemin));
+        }
+    }
+    Ok(chemin)
+}
+
 /// Le dossier de Kraken, qui peut ne pas exister encore. Sans chemin absolu pour le dire, le refus 6004 ou 6005.
 pub(crate) fn dossier() -> Result<PathBuf, Refus> {
     let var = env::var_os;

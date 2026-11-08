@@ -29,12 +29,13 @@ use std::thread::{self, Scope};
 use std::time::{Duration, Instant};
 
 use crate::branchements::bac::{bac, reglages_du_bac, sans_claude};
-use crate::branchements::dossier::{Fil, depense_du_jour, lire_quota};
-use crate::branchements::git::{faire, geste};
+use crate::branchements::dossier::{Fil, depense_du_jour, ecrire_consigne, lire_quota};
+use crate::branchements::git::{faire, geste, lecons_du_commit};
 use crate::coeur::bail::Baux;
 use crate::coeur::erreur::{Code, Refus, nommee};
 use crate::coeur::fil::{Base, Couleur, Evenement, Foi, IssueVague, Verdict};
 use crate::coeur::fil::{instant, lot, maintenant, refus_en_clair};
+use crate::coeur::lecons::{self, Lecon};
 use crate::coeur::plan::{Plan, Tache};
 use crate::coeur::profil::{Prix, Profil};
 use crate::coeur::protocole::{Constat, Jetons, Usage, UsageModele};
@@ -146,6 +147,8 @@ pub(crate) fn lancer_avec(
     base: &str,
     liens: Liens<'_>,
 ) -> Result<Menee, Refus> {
+    // Les leçons du commit de base, lues par git avant toute main : une leçon fausse refuse la vague.
+    let lecons = lecons_du_commit(depot, base)?;
     fs::create_dir_all(dossier)
         .map_err(|e| nommee(e, format!("création du dossier de Lydite {}", dossier.display())))?;
     // Une vague par lancement, nommée par son lot : les ids de ses mains et de ses bacs en sont faits.
@@ -178,6 +181,7 @@ pub(crate) fn lancer_avec(
         fil,
         assemblage,
         juge: liens.juge,
+        lecons,
         corrige: liens.corrige.is_some() || liens.relance_ci,
         preparation: liens.preparation,
         baux: Baux::new(),
@@ -344,6 +348,8 @@ struct Vague<'a> {
     assemblage: Option<Assemblage<'a>>,
     /// Le juge de ses mains, celui du découpeur ou du relecteur ([`Liens`]).
     juge: Option<Juge<'a>>,
+    /// Les leçons du commit de base, lues au départ de la vague.
+    lecons: Vec<Lecon>,
     /// Vrai pour la vague d'une correction (7017) ou d'une relance de la CI, qui ont leur propre contrôle.
     corrige: bool,
     /// Ce qui se pose dans le bac de chaque main avant son premier départ ([`Preparation`]).
@@ -493,6 +499,16 @@ impl<'a> Vague<'a> {
         };
         let verifier = tache.preuve.as_deref().or(plan.preuve.as_deref());
         let profil = self.profil.avec_modeles(tache.modele.as_deref(), tache.relance.as_deref());
+        // Les leçons de la main, écrites avant tout bail : une écriture ratée arrête la vague.
+        let lecons = match self.fichier_des_lecons(&profil, tache) {
+            Ok(lecons) => lecons,
+            Err(refus) => {
+                self.arret.get_or_insert(refus);
+                let issue = self.hors_du_fil(precedente.as_deref().unwrap_or_default());
+                self.taches[k - 1] = Etat::Finie(Err(issue));
+                return;
+            }
+        };
         // Le quota du jour, avant tout bail : une main refusée ici n'a ni bail ni début ; les mains parties finissent.
         if let Err(refus) = self.sous_le_quota(&profil, &bac, verifier, precedente.is_some()) {
             self.refuser(k, refus, None);
@@ -536,6 +552,7 @@ impl<'a> Vague<'a> {
                     precedente.as_deref(),
                     &journal,
                     juge,
+                    lecons.as_deref(),
                 );
                 let verdict = verdict.and_then(|pris| {
                     dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris).map_err(Echec::Erreur)
@@ -746,6 +763,24 @@ impl<'a> Vague<'a> {
             Evenement::Refus { vague: self.id.clone(), main: k, code: code.numero(), regle, preuve, correction, verif };
         let issue = if self.noter(&note) { clair } else { self.hors_du_fil(&clair) };
         self.taches[k - 1] = Etat::Finie(Err(issue));
+    }
+
+    /// Le fichier des leçons de la main de `tache` (`dossier::ecrire_consigne`), s'il y en a : les leçons de la tâche
+    /// (`lecons::donnees`) pour une main de tâche, la liste de toutes pour le découpeur et le relecteur (la vague a un
+    /// juge). Aucun pour une main nue, ou sans leçon qui lui aille. Une écriture ratée est le refus 7012.
+    fn fichier_des_lecons(&self, profil: &Profil, tache: &Tache) -> Result<Option<PathBuf>, Refus> {
+        if profil.nue() {
+            return Ok(None);
+        }
+        let texte = if self.juge.is_some() {
+            lecons::texte_liste(&self.lecons)
+        } else {
+            lecons::texte_donne(&lecons::donnees(&self.lecons, tache.fichiers.as_deref()))
+        };
+        if texte.is_empty() {
+            return Ok(None);
+        }
+        ecrire_consigne(self.fil.dossier(), &texte, ARRET).map(Some)
     }
 
     /// Le quota du jour (`profils/quota`, voir `lire_quota`), avant le départ d'une tentative de la tâche `profil` :

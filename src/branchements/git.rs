@@ -11,6 +11,7 @@ use std::process::{Command, Output, Stdio};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use crate::coeur::erreur::{Code, Refus, nommee};
+use crate::coeur::lecons::{self, Lecon};
 
 /// Le git-dir et le work-tree de chaque worktree que Kraken a posé, lus à sa pose, avant toute main, et rangés sous le
 /// chemin où il l'a posé : [`geste`] les passe à git au lieu de suivre le fichier `.git` du worktree, que la main peut
@@ -223,6 +224,39 @@ pub(crate) fn hors_du_depot(racine: &Path, dossier: &Path) -> Result<(), Refus> 
         )));
     }
     Ok(())
+}
+
+/// Les leçons du commit `base` du dépôt `depot`, lues par git (`.agents/skills/<nom>/SKILL.md`), jamais dans un bac,
+/// dans l'ordre des noms. Une leçon fausse est le refus 6031, qui nomme son chemin ; un git qui ne les dit pas, le
+/// refus 6006.
+pub(crate) fn lecons_du_commit(depot: &Path, base: &str) -> Result<Vec<Lecon>, Refus> {
+    let illisible = |vu: String| {
+        Refus::new(
+            Code::EntreeSortie,
+            vu,
+            "Vérifie que git se lance dans le dépôt visé et y lit la base, puis relance.",
+        )
+    };
+    let sortie = faire(geste(depot, &["ls-tree", "-r", "-z", "--name-only", base, "--", ".agents/skills"]))
+        .map_err(illisible)?;
+    let mut fichiers: Vec<(&str, &str)> = sortie
+        .split('\0')
+        .filter_map(|chemin| {
+            let nom = chemin.strip_prefix(".agents/skills/")?.strip_suffix("/SKILL.md")?;
+            (!nom.is_empty() && !nom.contains('/')).then_some((nom, chemin))
+        })
+        .collect();
+    fichiers.sort();
+    let mut lecons = Vec::new();
+    for (nom, chemin) in fichiers {
+        let objet = format!("{base}:{chemin}");
+        let (octets, _) =
+            faire_borne(geste(depot, &["cat-file", "blob", &objet]), lecons::TAILLE_MAX + 1).map_err(illisible)?;
+        let lecon = lecons::lire(nom, &octets)
+            .map_err(|refus| Refus::new(refus.code, format!("{chemin} : {}", refus.preuve), refus.correction))?;
+        lecons.push(lecon);
+    }
+    Ok(lecons)
 }
 
 /// Le chemin canonique d'un chemin qui n'existe peut-être pas : son plus proche ancêtre qui existe, canonisé, puis le

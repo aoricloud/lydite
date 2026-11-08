@@ -139,20 +139,21 @@ fn tenter_ne_rend_de_constat_que_d_une_main_declaree() {
     // Une main Claude que `borner` n'a pas bornée ne part pas, et ne déclare rien : pas de constat, et rien n'est
     // créé à côté de son bac.
     let libre = crate::coeur::profil::lire("essai", "sorte = claude\n", None, None).unwrap();
-    let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, &[], None, None, &journal, None);
+    let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, &[], None, None, &journal, None, None);
     assert_eq!(constat, None);
     assert!(erreur(verdict).starts_with("main : aucun programme à lancer"));
     assert!(!temporaire_de(&bac).unwrap().exists());
     // Une main brute ne déclare rien : l'erreur de son départ, sans constat.
     let brute = Profil::faux(vec!["lydite-main-introuvable".into()], DELAI);
-    let (constat, verif, verdict) = tenter(&brute, &bac, "objectif", None, &[], Some("exit 0"), None, &journal, None);
+    let (constat, verif, verdict) =
+        tenter(&brute, &bac, "objectif", None, &[], Some("exit 0"), None, &journal, None, None);
     assert_eq!((constat, verif), (None, None));
     assert!(erreur(verdict).starts_with("lancement impossible de lydite-main-introuvable"));
     // Une main Claude déclare : Kraken rend le constat de ce qu'il en a lu, ici rien, et l'erreur de son départ. Un
     // constat vide est un constat : la vague le note, car la main était déclarée.
     let claude = profil_borne("sorte = claude\nprogramme = lydite-claude-introuvable\n", &dir);
     let (constat, verif, verdict) =
-        tenter(&claude, &bac, "objectif", None, &[], Some("exit 0"), Some("échec"), &journal, None);
+        tenter(&claude, &bac, "objectif", None, &[], Some("exit 0"), Some("échec"), &journal, None, None);
     assert_eq!((constat, verif), (Some(Constat::default()), None));
     assert!(erreur(verdict).starts_with("lancement impossible de lydite-claude-introuvable"));
     let _ = fs::remove_dir_all(&dir);
@@ -301,12 +302,12 @@ fn la_main_de_tache_et_la_main_jugee_recoivent_le_socle_en_tete() {
     let (dir, bac) = bac_jetable("socle");
     let journal = dir.join("journal.tmp");
     let main = Profil::faux(crate::essais::fausse_main(&dir), DELAI);
-    let _ = tenter(&main, &bac, "Écrire a", None, &[], None, None, &journal, None);
+    let _ = tenter(&main, &bac, "Écrire a", None, &[], None, None, &journal, None, None);
     let tache = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(tache.starts_with(TETE_DU_SOCLE), "{tache}");
     assert!(tache.contains(" UTC, in 60 minutes: keep the last minutes to say what is done and what is not.\n\n"));
     let juge = |_: &Path| Ok(());
-    let _ = tenter(&main, &bac, "Juger", None, &[], Some("exit 0"), Some("avant"), &journal, Some(&juge));
+    let _ = tenter(&main, &bac, "Juger", None, &[], Some("exit 0"), Some("avant"), &journal, Some(&juge), None);
     let jugee = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(jugee.starts_with(TETE_DU_SOCLE), "{jugee}");
     assert!(jugee.trim_end().ends_with("\n\nJuger\n\nTentative précédente échouée :\navant"), "{jugee}");
