@@ -55,4 +55,6 @@ jobs:
         with:
           persist-credentials: false
       - run: pipx run --spec "$RUFF" ruff check hermes .github
-      - run: pipx run --spec "$RUFF" ruff format --check --diff hermes .github
+      # La mise en forme se vérifie même quand le lint a rougi : un passage dit les deux.
+      - if: ${{ !cancelled() }}
+        run: pipx run --spec "$RUFF" ruff format --check --diff hermes .github

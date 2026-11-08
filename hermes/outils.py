@@ -308,7 +308,7 @@ class Outils:
             return _json(self._lancer(args if isinstance(args, dict) else {}))
         except Refus as refus:
             return _json({"erreur": str(refus)})
-        except Exception as exc:  # Hermes veut du JSON, jamais une exception
+        except Exception as exc:  # noqa: BLE001 (Hermes veut du JSON, jamais une exception)
             return _json({"erreur": f"unexpected {type(exc).__name__}: {exc}"})
 
     def _lancer(self, args: dict) -> dict:
@@ -383,14 +383,14 @@ class Outils:
     def etat(self, args, **_):
         try:
             return _json(self._etat(args if isinstance(args, dict) else {}))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 (Hermes veut du JSON, jamais une exception)
             return _json({"erreur": f"unexpected {type(exc).__name__}: {exc}"})
 
     def _etat(self, args: dict) -> dict:
         rendu: dict = {}
         try:
             fin = subprocess.run(
-                [self._binaire(), "etat"], env=self._env(avec_cle=False), stdin=subprocess.DEVNULL,
+                [self._binaire(), "etat"], check=False, env=self._env(avec_cle=False), stdin=subprocess.DEVNULL,
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
             )
             rendu["etat"] = fin.stdout.strip()

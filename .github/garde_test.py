@@ -75,7 +75,7 @@ def jouer(diff="", commits=(PROPRE,), erreur=False, liste=LISTE, pr=None, **vari
         environ = {k: v for k, v in os.environ.items() if k not in ecartees}
         environ.update({"GARDE": liste, **variables})
         fini = subprocess.run(
-            [sys.executable, "-I", str(GARDE), dossier], env=environ, capture_output=True, encoding="utf-8"
+            [sys.executable, "-I", str(GARDE), dossier], check=False, env=environ, capture_output=True, encoding="utf-8"
         )
     return fini.returncode, fini.stdout + fini.stderr
 
