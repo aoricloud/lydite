@@ -643,6 +643,31 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
 }
 
 #[test]
+fn une_lecon_ecrite_par_une_main_n_atteint_ni_le_relecteur_ni_la_correction() {
+    // Les leçons se lisent au commit de base de la vague : celle qu'une main écrit (ici fausse, 6031 si elle était
+    // lue) n'est lue ni à la tête que relit le relecteur, ni à celle d'où part la correction.
+    let essai = Essai::nouveau("relecture-lecon-de-main");
+    essai.marque("ecrire-lecon");
+    essai.remarques(1, &remarques_justes());
+    let plan = PLAN_DE_VAGUE.replace("fichiers : sortie/\n", "fichiers : sortie/ .agents/skills/\n");
+    assert_ne!(plan, PLAN_DE_VAGUE);
+    assert_eq!(essai.mener(&Plan::lire(plan.as_bytes()).unwrap(), None), ExitCode::SUCCESS);
+    let fil = essai.fil();
+    let ouvertes = ouvertes(&fil);
+    let [v, r, c] = &ouvertes[..] else { panic!("la vague, le relecteur, la correction : {ouvertes:?}") };
+    assert!(fil.iter().any(
+        |e| matches!(e, Evenement::Relecture { vague, relue, n: 2, bloquantes: 1, .. } if vague == r && relue == v)
+    ));
+    // La leçon est bien dans la tête de la vague, puis dans celle de la correction.
+    let (t, t2) = (tete_de(&fil, v), tete_de(&fil, c));
+    for tete in [&t, &t2] {
+        let arbre = git(&essai.depot, &["ls-tree", "-r", "--name-only", tete]);
+        assert!(arbre.contains(".agents/skills/ecrite/SKILL.md"), "{arbre}");
+    }
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
 fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     let essai = Essai::nouveau("relecture-corrigee");
     distant_nu(&essai.racine, &essai.depot);
@@ -981,7 +1006,7 @@ fn vague_qui_pese(essai: &Essai, taille: usize) -> (Menee, String) {
     let pris = || Ok(Pris { sortie: String::new(), prouve: true });
     let id = crate::coeur::fil::lot();
     let issues = vec![(format!("main-{id}-1"), pris()), (format!("main-{id}-2"), pris())];
-    (Menee { id, branche: None, tete: Some(tete), arretee: false, issues }, base)
+    (Menee { id, branche: None, tete: Some(tete), arretee: false, issues, lecons: Vec::new() }, base)
 }
 
 /// La relecture de cette vague du plan des essais, sous cette origine.

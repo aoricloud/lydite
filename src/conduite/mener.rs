@@ -12,6 +12,7 @@ use crate::branchements::github;
 use crate::branchements::srt;
 use crate::coeur::erreur::{Code, Refus, nommee};
 use crate::coeur::fil::{Evenement, SceauVague};
+use crate::coeur::lecons::Lecon;
 use crate::coeur::plan;
 use crate::coeur::plan::Plan;
 use crate::coeur::profil::Profil;
@@ -127,9 +128,9 @@ fn sceller_la_neuve(dossier: &Path, connues: &[String]) -> Option<std::io::Resul
     Some(dossier::Fil::seance(dossier, "humain").sceller(&neuve))
 }
 
-/// Les liens de la vague qui relance une CI rouge : aucun lien, sinon son drapeau `relance_ci`.
-fn liens_de_la_relance() -> Liens<'static> {
-    Liens { relance_ci: true, ..Liens::default() }
+/// Les liens de la vague qui relance une CI rouge : son drapeau `relance_ci`, et les leçons de la vague première.
+fn liens_de_la_relance(lecons: &[Lecon]) -> Liens<'_> {
+    Liens { relance_ci: true, lecons: Some(lecons), ..Liens::default() }
 }
 
 /// La vague du plan, partie de `base` avec ses liens de découpage, de relecture et de correction, dite comme toute
@@ -199,7 +200,8 @@ pub(crate) fn mener_sur(
         let code = if toutes_constatees(&menee.issues) { ExitCode::SUCCESS } else { ExitCode::FAILURE };
         return Ok(finir(code));
     };
-    let relancer = |plan: &Plan, base: &str| lancer_la_vague(plan, base, liens_de_la_relance());
+    let lecons = menee.lecons.clone();
+    let relancer = |plan: &Plan, base: &str| lancer_la_vague(plan, base, liens_de_la_relance(&lecons));
     let code = proposition.apres_la_vague(plan, &menee, corrigee.as_ref(), &relancer, lieu.personnel, lieu.ci);
     Ok(finir(code))
 }

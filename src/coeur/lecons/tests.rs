@@ -45,11 +45,16 @@ fn une_lecon_juste_est_lue() {
     assert_eq!(lecon.nom, "ma-lecon");
     assert_eq!(lecon.regle, "Une règle.");
     assert_eq!(lecon.fichiers, ["src/a.rs", "docs/"]);
-    assert!(lecon.texte.starts_with("## What happened"), "{}", lecon.texte);
-    assert!(lecon.texte.ends_with("Du texte pour Falls when."), "{}", lecon.texte);
-    // `\r\n` est admis, et une leçon sans retour final aussi.
-    let crlf = en_texte(&lecon_avec(&["- src/a.rs"])).replace('\n', "\r\n");
-    assert_eq!(lire("ma-lecon", crlf.as_bytes()).unwrap().fichiers, ["src/a.rs"]);
+    // Le texte garde le fichier entier, en-tête comprise.
+    assert!(lecon.texte.starts_with("---\nname: ma-lecon\ndescription: Une règle.\n---\n"), "{}", lecon.texte);
+    assert!(lecon.texte.contains("\n## What happened\n"), "{}", lecon.texte);
+    assert!(lecon.texte.trim_end().ends_with("Du texte pour Falls when."), "{}", lecon.texte);
+    // `\r\n` est admis, et ramené à `\n` dans le texte ; une leçon sans retour final aussi.
+    let source = en_texte(&lecon_avec(&["- src/a.rs"]));
+    let crlf = source.replace('\n', "\r\n");
+    let lue = lire("ma-lecon", crlf.as_bytes()).unwrap();
+    assert_eq!(lue.fichiers, ["src/a.rs"]);
+    assert_eq!(lue.texte, source);
     let sans_fin = en_texte(&lecon_avec(&[]));
     assert!(lire("ma-lecon", sans_fin.trim_end().as_bytes()).is_ok());
 }

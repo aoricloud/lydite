@@ -110,8 +110,9 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
 
 #[test]
 fn la_relance_de_la_ci_porte_son_drapeau_et_aucun_autre_lien() {
-    let liens = liens_de_la_relance();
+    let liens = liens_de_la_relance(&[]);
     assert!(liens.relance_ci);
+    assert_eq!(liens.lecons, Some(&[][..]));
     assert!(liens.decoupage.is_none() && liens.issue.is_none() && liens.corrige.is_none());
     assert!(liens.juge.is_none() && liens.relit.is_none() && liens.preparation.is_none());
 }

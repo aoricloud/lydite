@@ -484,7 +484,13 @@ impl Relecture<'_> {
             ecrire_le_diff(bac, base, tete, fichiers.as_deref())?;
             self.ecrire_la_preuve(bac)
         };
-        let liens = Liens { juge: Some(&juge), relit: Some(id), preparation: Some(&preparer), ..Liens::default() };
+        let liens = Liens {
+            juge: Some(&juge),
+            relit: Some(id),
+            preparation: Some(&preparer),
+            lecons: Some(&self.menee.lecons),
+            ..Liens::default()
+        };
         let rendue = lancer_avec(self.depot, self.dossier, self.profil, &relecteur, self.bail, tete, liens)
             .map_err(|echec| classee(format!("sa vague ne s'ouvre pas, {} : {}", echec.code, echec.preuve)))?;
         let (main, issue) = rendue.issues.into_iter().next().unwrap_or_else(|| {
@@ -504,7 +510,7 @@ impl Relecture<'_> {
         let (id, tete) = (&self.menee.id, self.tete);
         let correction = plan_de_la_correction(self.profil, self.plan, &self.critiques, remarques);
         let manque = |preuve: String| Refus::new(Code::BloquantesRestantes, preuve, SANS_CORRECTION);
-        let liens = Liens { corrige: Some(id), ..Liens::default() };
+        let liens = Liens { corrige: Some(id), lecons: Some(&self.menee.lecons), ..Liens::default() };
         let corrigee = lancer_avec(self.depot, self.dossier, self.profil, &correction, self.bail, tete, liens)
             .map_err(|echec| {
                 manque(format!("la correction de la vague {id} ne s'ouvre pas, {} : {}", echec.code, echec.preuve))

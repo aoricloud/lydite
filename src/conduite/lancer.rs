@@ -70,6 +70,9 @@ pub(crate) struct Liens<'a> {
     /// Vrai pour la vague de relance de la CI, qui a son propre contrôle (« n'a rien changé à la tête poussée ») :
     /// ses mains ne passent pas par `main_qui_change`.
     pub(crate) relance_ci: bool,
+    /// Les leçons du commit de base de la vague dont elle est la suite (relecture, correction, relance de la CI) : elle
+    /// les reçoit telles quelles et ne lit rien au commit d'où elle part, qu'un travail de mains a pu faire.
+    pub(crate) lecons: Option<&'a [Lecon]>,
 }
 
 /// Ce que rend une vague partie d'une base donnée ([`lancer_sur`]) : ce que rend [`lancer`], et de quoi la pousser.
@@ -83,6 +86,8 @@ pub(crate) struct Menee {
     /// La vague s'est arrêtée sur le refus 7012.
     pub(crate) arretee: bool,
     pub(crate) issues: Issues,
+    /// Les leçons lues une seule fois, au commit de base de la vague ; ses suites les reçoivent par [`Liens::lecons`].
+    pub(crate) lecons: Vec<Lecon>,
 }
 
 /// Ce qu'une tentative rend, tel que `tenter` le rend : le constat de la main (`None` pour une main brute, qui ne
@@ -147,8 +152,12 @@ pub(crate) fn lancer_avec(
     base: &str,
     liens: Liens<'_>,
 ) -> Result<Menee, Refus> {
-    // Les leçons du commit de base, lues par git avant toute main : une leçon fausse refuse la vague.
-    let lecons = lecons_du_commit(depot, base)?;
+    // Les leçons du commit de base, lues par git avant toute main : une leçon fausse refuse la vague. Une suite de
+    // vague reçoit celles de la vague première, et ne lit pas son commit de départ.
+    let lecons = match liens.lecons {
+        Some(donnees) => donnees.to_vec(),
+        None => lecons_du_commit(depot, base)?,
+    };
     fs::create_dir_all(dossier)
         .map_err(|e| nommee(e, format!("création du dossier de Lydite {}", dossier.display())))?;
     // Une vague par lancement, nommée par son lot : les ids de ses mains et de ses bacs en sont faits.
@@ -192,7 +201,7 @@ pub(crate) fn lancer_avec(
     };
     let issues = thread::scope(|s| vague.mener(s));
     let tete = vague.assemblage.as_ref().map(|assemblage| assemblage.tete().to_string());
-    Ok(Menee { id: vague.id, branche, tete, arretee: vague.arret.is_some(), issues })
+    Ok(Menee { id: vague.id, branche, tete, arretee: vague.arret.is_some(), issues, lecons: vague.lecons })
 }
 
 /// Les notes qui ouvrent la vague : `vague.ouverte`, puis, pour un plan, `vague.assemblage`, son `vague.joue` s'il joue
