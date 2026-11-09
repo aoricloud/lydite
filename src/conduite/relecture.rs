@@ -189,6 +189,8 @@ fn consigne(objectif: &str, critiques: &[&Tache], points: &[String]) -> String {
          Écris tes remarques dans le fichier {REMARQUES}, à la racine de ton dossier, et ne touche à rien d'autre : \
          ni à un autre fichier, ni à l'histoire du dépôt (aucun commit). Sa forme :\n\n\
          {FORME}\n\n\
+         La première ligne du fichier est exactement `remarques 2`, quel que soit le nombre de remarques (aucune, \
+         une, dix) : le 2 est la forme du fichier, jamais un nombre de remarques.\n\n\
          Les remarques sont numérotées 1, 2, 3… dans l'ordre. `fichier` est un chemin relatif à la racine du dépôt, \
          écrit avec `/`. `ligne` est facultative : le numéro de la ligne du fichier, tel que le travail le laisse. \
          `bloquante` vaut `oui` ou `non`. Le texte dit le constat, puis la correction, en lignes indentées. Après la \
