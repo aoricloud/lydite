@@ -145,6 +145,35 @@ fn un_chemin_hostile_reste_en_code() {
 }
 
 #[test]
+fn lire_ignore_les_reglages_de_prefixe_du_depot() {
+    let racine = racine("alarmes-prefixes");
+    let depot = depot(&racine);
+    let commiter = |fichiers: &[(&str, &str)]| {
+        for (chemin, contenu) in fichiers {
+            ecrire(&depot, chemin, contenu);
+        }
+        git(&depot, &["add", "-A"]);
+        git(&depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "f"]);
+        git(&depot, &["rev-parse", "HEAD"])
+    };
+    let base = commiter(&[("tests/a.rs", "un\nassert!(a);\n"), ("src/b.rs", "assert!(b);\n")]);
+    let tete = commiter(&[("tests/a.rs", "un\n"), ("src/b.rs", "rien\n")]);
+    let attendu = [
+        "`src/b.rs`, line 1: an assertion removed or changed",
+        "`tests/a.rs`: a test of the base changed (1 lines removed)",
+        "`tests/a.rs`, line 2: an assertion removed or changed",
+    ];
+    assert_eq!(lire(&depot, &base, &tete, None).unwrap(), attendu);
+    git(&depot, &["config", "diff.noprefix", "true"]);
+    assert_eq!(lire(&depot, &base, &tete, None).unwrap(), attendu);
+    git(&depot, &["config", "--unset", "diff.noprefix"]);
+    git(&depot, &["config", "diff.srcPrefix", "x/"]);
+    git(&depot, &["config", "diff.dstPrefix", "y/"]);
+    assert_eq!(lire(&depot, &base, &tete, None).unwrap(), attendu);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
 fn lire_donne_les_points_du_diff_de_git_limite_aux_fichiers() {
     let racine = racine("alarmes");
     let depot = depot(&racine);

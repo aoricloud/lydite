@@ -11,8 +11,11 @@ use crate::branchements::git::{faire_borne, geste};
 use crate::coeur::plan::TAILLE_MAX;
 use crate::conduite::publication::en_code;
 
-/// Les arguments de `git diff` qui donnent le diff que lit [`points`], avant la base et la tête.
-pub(crate) const ARGUMENTS: [&str; 5] = ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames"];
+/// Les arguments de `git diff` qui donnent le diff que lit [`points`], avant la base et la tête. Les préfixes `a/` et
+/// `b/` sont fixés : la configuration de l'humain ou du dépôt (`diff.noprefix`, `diff.srcPrefix`, `diff.dstPrefix`)
+/// ne change pas la forme des noms que lit `chemin_de`.
+pub(crate) const ARGUMENTS: [&str; 7] =
+    ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"];
 
 /// Le diff de `base` à `tete` limité à `fichiers` (tous s'il n'y en a pas), lu dans `dossier`, puis ses [`points`].
 /// Raccourci : un diff de plus de [`TAILLE_MAX`] octets est lu coupé, et ses points avec lui. Un git qui ne le dit pas
