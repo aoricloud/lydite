@@ -18,7 +18,7 @@ requires_hermes: ">=0.23.0"
 version: "0.1.0"
 platforms: [linux]
 capabilities:
-  provides_tools: [lydite_lancer, lydite_etat]
+  provides_tools: [lydite_lancer, lydite_etat, lydite_lecons]
   provides_hooks: [pre_tool_call]
   provides_middleware: []
   requires_env: []
@@ -36,26 +36,28 @@ capabilities:
 | 9. No core override | `no core override — no runtime rebinds of Hermes core`. |
 | 10. Dependencies | None (standard library only). |
 | 11. Credentials through Hermes | `get_secret("LYDITE_CLE_FOURNISSEUR")` from `agent.secret_scope`; no `.env`, no `auth.json`; a test forbids those strings and `os.getenv` / `os.environ[`. |
-| 12. Approvals respected | `pre_tool_call` returns `approve` for every launch (repository, work, proof and profile shown); nothing bypasses a guard; no Hermes child process is spawned; no shell. |
+| 12. Approvals respected | `pre_tool_call` returns `approve` for every launch (repository, work, proof and profile shown); nothing bypasses a guard; no Hermes child process is spawned; no shell. `lydite_lecons` starts nothing and writes nothing, so it asks no approval; |
 | 13. Risky behavior disclosed | See "Disclosures" below and the README. |
 | 14. Truthful metadata | `requires_hermes: ">=0.23.0"` (the release it was validated on), same in `plugin.yaml`; `version` is the pinned code's. |
 | 17. No unscannable executables | No binary, no `.pyc` in the repository (a test checks the file headers). The Lydite binary is **not** shipped nor downloaded: it must already be on the machine. Lydite's own release binaries, when published, are built by the repository's GitHub Actions with a build attestation. |
 
 ## Disclosures (for the PR description)
 
-- **What it is.** A launcher: two tools that run the already-installed `lydite` binary and read its state. The coding
-  workers are Claude Code sessions that Lydite starts itself behind its sandbox wall, on the model of a Lydite
-  profile a human accepted. They are not Hermes agents.
+- **What it is.** A launcher: three tools that run the already-installed `lydite` binary, read its state and read a
+  repository's lessons. The coding workers are Claude Code sessions that Lydite starts itself behind its sandbox wall,
+  on the model of a Lydite profile a human accepted. They are not Hermes agents.
 - **Shell commands.** None through a shell. One external program (`lydite`) is started with an argument list:
-  `lydite lancer ...` (detached, long-running) and `lydite etat` (read-only). Lydite itself runs `git`, `gh`, `claude`
-  and the user's proof command inside its sandbox.
+  `lydite lancer ...` (detached, long-running), `lydite etat` (read-only) and `lydite lecons <folder>` (read-only).
+  Lydite itself runs `git`, `gh`, `claude` and the user's proof command inside its sandbox.
 - **Network.** None from the plugin. Lydite and its workers reach the model provider named in the profile and GitHub.
 - **Background process.** One detached `lydite lancer` per launch (minutes to hours), at most one per Lydite folder,
   its log under the plugin's data folder; the last 20 launches are kept.
 - **Stored credentials.** None stored by the plugin. The optional provider key lives in Hermes' own `.env`
   (`hermes config set`) and is handed to the Lydite process through one environment variable.
 - **File reads.** The plan file named in a launch call, to show it in full for approval and to copy it (mode 0600,
-  under the plugin's data folder; Lydite reads the copy). Nothing else outside the plugin's own folder.
+  under the plugin's data folder; Lydite reads the copy), and the lesson files of the repository named in a
+  `lydite_lecons` call (`.agents/skills/*/SKILL.md`, 4096 bytes each at most, never following a link out of that
+  folder). Nothing else outside the plugin's own folder.
 - **Telemetry.** None.
 - **Platforms.** Linux only; the tools hide themselves elsewhere.
 - **Honest limit.** A worker runs with `--permission-mode acceptEdits --permission-prompts none` inside Lydite's wall, so what it may do is what the

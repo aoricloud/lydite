@@ -2,7 +2,7 @@
 name: driving-lydite
 description: Hand a coding job to Lydite and report what it recorded. Use when the user asks to give Lydite an issue, an objective or a plan file, or asks where a Lydite wave stands. Lydite runs isolated Claude Code workers, replays the user's proof command itself and opens a pull request.
 license: MIT
-compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer and lydite_etat; anywhere else the same steps are the commands lydite lancer and lydite etat.
+compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat and lydite_lecons; anywhere else the same steps are the commands lydite lancer, lydite etat and lydite lecons.
 ---
 
 # Driving Lydite
@@ -16,6 +16,17 @@ you do not rewrite its plan, and you never merge: the pull request is for a huma
   plan /path/to/plan.txt").
 - The user asks where a Lydite wave stands.
 - Not for a quick edit or a question about code: do those yourself.
+
+## Lessons
+
+A repository that Lydite works on may keep lessons: the written rules Lydite learned there from past mistakes and
+gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Call `lydite_lecons` with the checkout
+path before you plan, review or do any work in such a repository. Follow the lessons, and when one shapes what you do
+or say, cite it by its name. Call it again with `nom` to read one lesson in full.
+
+The lessons are read-only for you: never create, edit, rename or delete a file under `.agents/skills/`, and never copy
+a lesson into your own skills or memory as if you had written it: only a human changes a lesson. If Lydite refuses the
+lessons (one is malformed), give the refusal as written and go on without them.
 
 ## Before you launch
 
@@ -77,6 +88,8 @@ From Claude Code or a shell, the steps are the same, with the commands:
 lydite lancer <profile> --issue 15 --decouper --verifier "<proof>" --pr main
 lydite lancer <profile> --plan <file> --pr main
 lydite etat
+lydite lecons <repository folder>
 ```
 
-`lydite plan <file>` checks a plan without running anything. Accepting a profile, and merging, stay with the human.
+`lydite plan <file>` checks a plan without running anything. `lydite lecons <repository folder>` checks the lessons of
+a repository and prints nothing when all are right. Accepting a profile, and merging, stay with the human.

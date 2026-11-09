@@ -15,6 +15,7 @@ disagree.
 | --- | --- |
 | `lydite_lancer` | Starts `lydite lancer <profile> --issue <n> --decouper --verifier "<proof>" --depot <repo> --pr main` in the background and returns at once with an id. Also takes `objectif` (instead of `issue`), `plan` (instead of both: a plan file written by hand, with its own models, files and `preuve :` line; see below), `profil`, `pr`, and `observer` (show the plan, build nothing). |
 | `lydite_etat` | Returns `lydite etat` (what Lydite itself recorded: tasks, proofs, pull request, CI) and the launches made from this plugin, with the end of a launch's log when given its `id`. |
+| `lydite_lecons` | Returns the lessons of a repository: the written rules Lydite learned there from past mistakes and gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Without `nom`, the list of each lesson's name, rule and files; with `nom`, one lesson in full. It is read-only, and Lydite checks the lessons first. Nothing is approved, because nothing is started or written. |
 
 It also ships one skill, `lydite:driving-lydite`, in the open `SKILL.md` format with only its common fields, so
 Claude Code can read it too. It tells the model when to hand a job to Lydite, what to have before launching (the
@@ -79,7 +80,8 @@ hermes config set tools.tool_search.enabled off
 ## What it does on your machine (disclosures)
 
 - **Commands.** One program only: the Lydite binary, started with an argument list, never through a shell. `lydite
-  lancer` (in the background) and `lydite etat` (read-only, 30 s timeout). Lydite in turn runs `git`, `gh`, `claude`
+  lancer` (in the background), `lydite etat` (read-only, 30 s timeout), and `lydite lecons <folder>` (read-only, 30 s
+  timeout, with the closed list of variables and no provider key). Lydite in turn runs `git`, `gh`, `claude`
   and the proof command inside its sandbox; those are Lydite's, documented in its README.
 - **Network.** The plugin makes no network call itself. Lydite and its workers do: the model provider named in the
   profile, and GitHub (through `gh`) for the issue, the push and the pull request. Nothing is sent anywhere else, and
@@ -98,9 +100,10 @@ hermes config set tools.tool_search.enabled off
   unattended run Hermes' gate fails closed.
 - **Files.** Reads nothing outside its own data folder except its own `skills/driving-lydite/SKILL.md` (when it
   registers the skill), what the Lydite binary reports, the `plan` file named in a call (to show it to you in full,
-  and to copy it), and the existence of the repository's `.git`. A plan is copied
-  with mode 0600 under the plugin's data folder and Lydite reads the copy: if the file changed after you saw it, the
-  launch is refused.
+  and to copy it), the lesson files of the repository named in a `lydite_lecons` call (`.agents/skills/*/SKILL.md`,
+  4096 bytes each at most, never following a link out of that folder), and the existence of the repository's `.git`. A
+  plan is copied with mode 0600 under the plugin's data folder and Lydite reads the copy: if the file changed after you
+  saw it, the launch is refused.
 
 ## Limits, said plainly
 
