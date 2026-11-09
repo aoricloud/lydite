@@ -4,12 +4,12 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{self, Path};
 use std::process::{Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::branchements::bac::temporaire_de;
 use crate::branchements::claude::temporaire;
 use crate::branchements::processus::{
-    SORTIE, attendre, coquille, echeance, retire_de_la_preuve, sans_session, tuer_arbre,
+    attendre, coquille, echeance, retire_de_la_preuve, sans_session, tuer_et_attendre,
 };
 use crate::coeur::erreur::{Code, Refus, nommee, queue};
 use crate::coeur::fil::lot;
@@ -163,14 +163,11 @@ fn executer(
         Err(e) => return Ok(Err(format!("vérification « {commande} » : attente impossible : {e}"))),
         Ok(statut) => statut,
     };
-    if statut.is_none() {
-        let tuee = tuer_arbre(enfant.id());
-        let _ = enfant.kill();
-        let _ = attendre(&mut enfant, Instant::now() + SORTIE);
-        if let Err(e) = tuee {
-            let secondes = delai.as_secs_f32();
-            return Ok(Err(format!("vérification « {commande} » : temps dépassé ({secondes} s) ; mise à mort : {e}")));
-        }
+    if statut.is_none()
+        && let Err(e) = tuer_et_attendre(&mut enfant)
+    {
+        let secondes = delai.as_secs_f32();
+        return Ok(Err(format!("vérification « {commande} » : temps dépassé ({secondes} s) ; mise à mort : {e}")));
     }
     Ok(Ok(statut))
 }

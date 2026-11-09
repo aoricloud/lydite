@@ -15,7 +15,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::branchements::git::{IDENTITE, geste};
-use crate::branchements::processus::{SORTIE, attendre, echeance, tuer_arbre};
+use crate::branchements::processus::{attendre, echeance, tuer_et_attendre};
 use crate::coeur::erreur::{Code, Refus, nommee, queue};
 use crate::coeur::fil::{Couleur, lot};
 use crate::coeur::json::{self, Json};
@@ -216,10 +216,8 @@ fn jouer_borne(
         Ok(mut enfant) => match attendre(&mut enfant, echeance(delai)) {
             Ok(Some(statut)) => Ok(statut),
             Ok(None) => {
-                let tuee = tuer_arbre(enfant.id());
-                let _ = enfant.kill();
-                let _ = attendre(&mut enfant, Instant::now() + SORTIE);
-                let mise_a_mort = tuee.err().map_or_else(String::new, |e| format!(" ; mise à mort : {e}"));
+                let mise_a_mort =
+                    tuer_et_attendre(&mut enfant).err().map_or_else(String::new, |e| format!(" ; mise à mort : {e}"));
                 Err(format!("{quoi} : temps dépassé ({} s){mise_a_mort}", delai.as_secs_f32()))
             }
             Err(e) => Err(format!("{quoi} : attente impossible : {e}")),

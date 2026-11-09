@@ -13,8 +13,11 @@ use std::time::{Duration, Instant};
 
 use crate::branchements::git::VARIABLES_DE_DEPOT;
 
-/// Le temps qu'a une main pour sortir après son résultat, et celui qu'un arbre tué a pour finir de sortir.
+/// Le temps qu'a une main pour sortir après son résultat, et pour finir ses voies (sortie et erreurs) une fois sortie.
 pub(crate) const SORTIE: Duration = Duration::from_secs(10);
+
+/// Le temps qu'un arbre tué a pour finir de sortir, après sa mise à mort ([`tuer_et_attendre`]).
+pub(crate) const MORT: Duration = Duration::from_secs(10);
 
 /// L'instant où tombe ce délai, compté d'ici. Un délai démesuré se borne à cent ans : l'addition d'un `Instant` ne
 /// déborde pas.
@@ -65,6 +68,15 @@ pub(crate) fn tuer_arbre(pid: u32) -> Result<(), String> {
     }
     let (erreur, texte) = (String::from_utf8_lossy(&sortie.stderr), String::from_utf8_lossy(&sortie.stdout));
     Err(format!("{nom} ({}) : {}{}", sortie.status, erreur.trim(), texte.trim()))
+}
+
+/// Tue l'arbre de l'enfant ([`tuer_arbre`], avant tout `wait`), tue l'enfant, attend [`MORT`] au plus qu'il sorte, et
+/// rend l'échec de la mise à mort de l'arbre, s'il y en a un.
+pub(crate) fn tuer_et_attendre(enfant: &mut Child) -> Result<(), String> {
+    let tuee = tuer_arbre(enfant.id());
+    let _ = enfant.kill();
+    let _ = attendre(enfant, Instant::now() + MORT);
+    tuee
 }
 
 /// Tue, une fois la main sortie, tout processus du compte de Lydite dont le dossier courant est dans `bac` : ce que la
