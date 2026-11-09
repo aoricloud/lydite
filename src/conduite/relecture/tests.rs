@@ -73,7 +73,10 @@ fn le_relecteur_et_la_correction_partent_sur_leurs_cles_du_profil() {
     ];
     let objectif = "Corrige au plus petit les remarques bloquantes de la relecture, et rien d'autre\n\
                     sortie/a.txt, ligne 3 : Le test ne peut pas echouer.\n    Ajouter une assertion.\n\
-                    sortie/c.txt : Perdu.";
+                    sortie/c.txt : Perdu.\n\
+                    Réponds à chaque remarque bloquante : dans ton dernier message, nomme chacune par son \
+                    fichier et sa ligne, avec le changement qui y répond, ou dis pourquoi tes fichiers ne le \
+                    permettent pas.";
     // Sans clé écrite : opus au relecteur, sonnet à la correction ; deux fois, aux deux tentatives.
     let defaut = claude("sorte = claude\n");
     let relecteur = plan_du_relecteur(&defaut, &plan, &critiques, &[]);
@@ -747,7 +750,10 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     let consigne = essai.garde("consigne-correction.txt").unwrap();
     let objectif = "Corrige au plus petit les remarques bloquantes de la relecture, et rien d'autre\n\
                     sortie/a.txt, ligne 3 : Le test ne peut pas echouer. SECRET-DE-LA-RELECTURE\n    Ajouter une \
-                    assertion.\n";
+                    assertion.\n\
+                    Réponds à chaque remarque bloquante : dans ton dernier message, nomme chacune par son \
+                    fichier et sa ligne, avec le changement qui y répond, ou dis pourquoi tes fichiers ne le \
+                    permettent pas.";
     let (socle, consigne) = consigne.split_once("\n\n").unwrap();
     let debut_du_socle = "A refusal from the wall or from your profile is not worked around another way.\n";
     assert!(socle.starts_with(debut_du_socle), "{socle}");

@@ -78,6 +78,11 @@ pub(crate) const PREUVE: &str = "lydite remarques REMARQUES.lydite";
 /// La première ligne de l'objectif de la correction ; les remarques bloquantes la suivent.
 const CORRIGER: &str = "Corrige au plus petit les remarques bloquantes de la relecture, et rien d'autre";
 
+/// La dernière ligne de l'objectif de la correction : la main répond à chaque remarque bloquante.
+const REPONDRE: &str = "Réponds à chaque remarque bloquante : dans ton dernier message, nomme chacune par son \
+                        fichier et sa ligne, avec le changement qui y répond, ou dis pourquoi tes fichiers ne le \
+                        permettent pas.";
+
 /// La correction d'une relecture classée (7016).
 const SANS_RELECTURE: &str = "Rien ne se pousse : le travail des tâches critiques n'est pas relu. Lis l'erreur du \
                               relecteur, puis relance la vague, ou relis son travail toi-même avant de le pousser.";
@@ -578,7 +583,8 @@ fn plan_de_la_correction(profil: &Profil, plan: &Plan, critiques: &[&Tache], rem
 }
 
 /// L'objectif de la correction : [`CORRIGER`], puis chaque remarque bloquante, `<fichier>, ligne <n> : <texte>` (sans
-/// `, ligne <n>` si elle n'a pas de ligne), les lignes de son texte qui suivent la première indentées.
+/// `, ligne <n>` si elle n'a pas de ligne), les lignes de son texte qui suivent la première indentées, puis la ligne
+/// fixe [`REPONDRE`].
 fn objectif_de_la_correction(remarques: &[Remarque]) -> String {
     let mut objectif = CORRIGER.to_string();
     for remarque in remarques.iter().filter(|remarque| remarque.bloquante) {
@@ -592,6 +598,8 @@ fn objectif_de_la_correction(remarques: &[Remarque]) -> String {
             objectif.push_str(&format!("\n    {suite}"));
         }
     }
+    objectif.push('\n');
+    objectif.push_str(REPONDRE);
     objectif
 }
 
