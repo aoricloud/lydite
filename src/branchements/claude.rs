@@ -311,8 +311,8 @@ impl Partie {
     /// Tue son arbre, avant tout `wait`, puis attend sa sortie (`MORT`) et la fin de ses voies ([`SORTIE`]), 10 s au
     /// plus chacune. Rend l'échec de la mise à mort, s'il y en a un.
     fn tuer(&mut self) -> Result<(), String> {
-        self.entree = None;
         let mort = tuer_et_attendre(&mut self.enfant);
+        self.entree = None;
         self.vider(Instant::now() + SORTIE);
         mort
     }
