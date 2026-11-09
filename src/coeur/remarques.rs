@@ -29,6 +29,11 @@
 //! ne joue). Un bloc manquant, vide, hors d'ordre ou en double est refusé. [`lire_fichier`] lit les deux formes,
 //! avec les mêmes bornes et les mêmes refus ; [`Fichier::exiger_la_forme_2`] écarte la forme 1.
 //!
+//! Deux refus en disent plus que la forme ne l'exige, sans rien changer à ce qui passe ni à ce qui est refusé : une
+//! première ligne `remarques <chiffres>` autre que `remarques 1` et `remarques 2`, et un bloc `rejoue` ou `non rejoue`
+//! sous `remarques 1`, rappellent que le chiffre est la forme du fichier et non un nombre de remarques ; le refus de
+//! [`Fichier::exiger_la_forme_2`] le redit.
+//!
 //! Toute faute est le refus 7015, qui nomme la ligne qu'il vise. Aucune entrée ne fait paniquer la lecture : un fichier
 //! de main est une frontière de confiance, et le lire strictement est ce qui la garde.
 
@@ -99,6 +104,10 @@ pub(crate) struct Fichier {
     pub(crate) non_rejoue: Vec<String>,
 }
 
+/// Ce que disent les refus quand le chiffre de la première ligne a été pris pour un nombre de remarques.
+const RAPPEL_FORME: &str = "Le chiffre de la première ligne est la forme du fichier, jamais un nombre de remarques : \
+                            le relecteur écrit `remarques 2` quel que soit le nombre de ses remarques, même aucune.";
+
 impl Fichier {
     /// Le fichier s'il est en forme 2, sinon le refus 7015 de sa première ligne.
     pub(crate) fn exiger_la_forme_2(self) -> Result<Self, Refus> {
@@ -107,8 +116,10 @@ impl Fichier {
         }
         let premiere = Ligne { numero: 1, texte: "remarques 1" };
         let quoi = "le relecteur écrit la forme 2, `remarques 2`, avec ses blocs `rejoue` et `non rejoue`";
-        let correction = "Écris `remarques 2` en première ligne, puis tes remarques, puis les blocs `rejoue` et `non \
-                          rejoue`, chacun d'au moins une ligne indentée.";
+        let correction = format!(
+            "Écris `remarques 2` en première ligne, puis tes remarques, puis les blocs `rejoue` et `non rejoue`, \
+             chacun d'au moins une ligne indentée. {RAPPEL_FORME}"
+        );
         Err(refus(premiere, quoi, correction))
     }
 }
@@ -154,8 +165,14 @@ pub(crate) fn lire_fichier(octets: &[u8]) -> Result<Fichier, Refus> {
         "remarques 1" => 1,
         "remarques 2" => 2,
         _ => {
-            let correction = "Écris `remarques 2` seul en première ligne (ou `remarques 1`) : Lydite ne lit que ces \
-                              formes, avant tout le reste.";
+            let mut correction = String::from(
+                "Écris `remarques 2` seul en première ligne (ou `remarques 1`) : Lydite ne lit que ces formes, avant \
+                 tout le reste.",
+            );
+            let chiffres = premiere.texte.strip_prefix("remarques ");
+            if chiffres.is_some_and(|c| !c.is_empty() && c.bytes().all(|b| b.is_ascii_digit())) {
+                correction.push_str(&format!(" {RAPPEL_FORME}"));
+            }
             let quoi = "la première ligne d'un fichier de remarques est `remarques 1` ou `remarques 2`";
             return Err(refus(premiere, quoi, correction));
         }
@@ -213,12 +230,16 @@ impl<'a> Lecteur<'a> {
             }
             return self.indentee(ligne);
         }
-        if self.forme == 2 {
-            match texte.trim_end() {
-                "rejoue" => return self.ouvrir(ligne, Bloc::Rejoue),
-                "non rejoue" => return self.ouvrir(ligne, Bloc::NonRejoue),
-                _ => {}
+        match (self.forme, texte.trim_end()) {
+            (2, "rejoue") => return self.ouvrir(ligne, Bloc::Rejoue),
+            (2, "non rejoue") => return self.ouvrir(ligne, Bloc::NonRejoue),
+            (1, "rejoue" | "non rejoue") => {
+                let quoi = "les blocs `rejoue` et `non rejoue` ne se lisent que sous `remarques 2`, et la première \
+                            ligne de ce fichier est `remarques 1`";
+                let correction = format!("Écris `remarques 2` en première ligne. {RAPPEL_FORME}");
+                return Err(refus(ligne, quoi, correction));
             }
+            _ => {}
         }
         match texte.strip_prefix("remarque").filter(|numero| numero.is_empty() || numero.starts_with([' ', '\t'])) {
             Some(numero) => self.remarque(ligne, numero.trim()),
