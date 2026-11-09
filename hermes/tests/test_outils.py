@@ -276,6 +276,25 @@ class Verrou(AvecOutils):
             "block",
         )
 
+    def test_la_preuve_et_l_objectif_de_110_caracteres_paraissent_en_entier(self):
+        lancer = sous_module("nom").LANCER
+        preuve = "cargo test " + "a" * 99
+        objectif = "o" * 110
+        self.assertEqual(len(preuve), 110)
+        self.assertEqual(len(objectif), 110)
+        for args in (
+            self.demande(preuve=preuve),
+            self.demande(issue=None, objectif=objectif),
+            self.demande(issue=None, objectif=objectif, preuve=preuve),
+        ):
+            decision = self.outils().verrou(tool_name=lancer, args=args)
+            self.assertEqual(decision["action"], "approve", decision)
+            message = self.compact(decision["message"])
+            self.assertIn(self.compact(args["preuve"]), message)
+            if args.get("objectif"):
+                self.assertIn(self.compact(f"objective: {objectif}"), message)
+            self.bornes(decision["message"])
+
     def test_l_accord_toujours_d_un_plan_ne_vaut_que_pour_ce_texte(self):
         lancer = sous_module("nom").LANCER
         un = self.outils().verrou(tool_name=lancer, args=self.demande_de_plan())["rule_key"]

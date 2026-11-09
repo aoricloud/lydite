@@ -323,9 +323,9 @@ class Outils:
 
     @staticmethod
     def _plier(etiquette: str, valeur: str, couper: str = "fin", lignes: int = 2) -> list:
-        """Plie une valeur sous son libellé : le libellé puis la valeur sur la première ligne, et au plus une ligne
-        de continuation indentée de neuf espaces. Une valeur qui reste trop longue est coupée au début (`couper` vaut
-        "debut", pour un chemin dont on garde la fin) ou à la fin, avec `…` pour le montrer."""
+        """Plie une valeur sous son libellé : le libellé puis la valeur sur la première ligne, et au plus
+        `lignes - 1` lignes de continuation indentées de neuf espaces. Une valeur qui reste trop longue est coupée au
+        début (`couper` vaut "debut", pour un chemin dont on garde la fin) ou à la fin, avec `…` pour le montrer."""
         prefixe = f"{etiquette:<7}: "
         largeur = LARGEUR_DE_L_APPROBATION - len(prefixe)
         valeur = valeur.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
@@ -336,9 +336,29 @@ class Outils:
             else:
                 valeur = valeur[: capacite - 1] + "…"
         rendues = [prefixe + valeur[:largeur]]
-        if len(valeur) > largeur:
-            rendues.append(" " * len(prefixe) + valeur[largeur:])
+        for debut in range(largeur, len(valeur), largeur):
+            rendues.append(" " * len(prefixe) + valeur[debut : debut + largeur])
         return rendues
+
+    @staticmethod
+    def _lignes_voulues(etiquette: str, valeur: str) -> int:
+        """Le nombre de rangées qu'il faut à une valeur pour paraître en entier, trois au plus."""
+        largeur = LARGEUR_DE_L_APPROBATION - len(f"{etiquette:<7}: ")
+        longueur = len(valeur.replace("\r\n", " ").replace("\n", " ").replace("\r", " "))
+        return max(1, min(3, -(-longueur // largeur)))
+
+    @classmethod
+    def _place_des_entrees(cls, entrees: list, place: int) -> dict:
+        """Les rangées accordées à chaque entrée : une au moins, puis les rangées restantes vont d'abord au travail
+        et à la preuve, dont l'humain approuve le texte exact, puis au dépôt et au profil ; trois au plus chacune."""
+        accordees = {etiquette: 1 for etiquette, _, _ in entrees}
+        valeurs = {etiquette: valeur for etiquette, valeur, _ in entrees}
+        priorite = ("work", "proof", "repo", "profile")
+        for etiquette in sorted(valeurs, key=lambda nom: priorite.index(nom) if nom in priorite else len(priorite)):
+            prises = min(cls._lignes_voulues(etiquette, valeurs[etiquette]) - 1, place)
+            accordees[etiquette] += prises
+            place -= prises
+        return accordees
 
     @classmethod
     def _plier_selon_budget(cls, etiquette: str, valeur: str, couper: str, place: int):
@@ -376,9 +396,16 @@ class Outils:
             ]
             apres = []
             place = LIGNES_DE_L_APPROBATION - 1 - len(avant)
-        for etiquette, valeur, couper in avant:
-            rendues, place = self._plier_selon_budget(etiquette, valeur, couper, place)
-            lignes.extend(rendues)
+        if demande["plan"]:
+            for etiquette, valeur, couper in avant:
+                rendues, place = self._plier_selon_budget(etiquette, valeur, couper, place)
+                lignes.extend(rendues)
+        else:
+            # Le travail et la preuve d'abord : jusqu'à trois rangées chacun, pour qu'une preuve ou un objectif de
+            # 110 caractères paraisse en entier sans que le message dépasse neuf lignes.
+            accordees = self._place_des_entrees(avant, place)
+            for etiquette, valeur, couper in avant:
+                lignes.extend(self._plier(etiquette, valeur, couper, accordees[etiquette]))
         if demande["plan"]:
             lignes.extend([f"sha256 : {empreinte[:32]}", " " * 9 + empreinte[32:]])
         for etiquette, valeur, couper in apres:
