@@ -2,10 +2,13 @@
 
 use std::path::Path;
 use std::process::ExitCode;
+use std::time::Duration;
 
-use crate::branchements::dossier::lire_scelle;
+use crate::branchements::dossier::{lire, lire_avec_sceaux, sonder};
 use crate::coeur::erreur::Refus;
-use crate::coeur::fil::{self, Evenement, Foi, Lecture, Main, Note, Vague, Verdict, correction_de, etat, relecture_de};
+use crate::coeur::fil::{
+    self, Evenement, Foi, Lecture, Main, Note, SceauLu, Vague, Verdict, correction_de, etat, relecture_de,
+};
 use crate::conduite::publication::recu_de;
 
 /// `lydite etat` dans ce dossier de Kraken : les écarts du fil sur stderr, un refus chacun, puis la chaîne de la
@@ -14,7 +17,65 @@ use crate::conduite::publication::recu_de;
 /// un fil qu'on ne lit pas, sans l'état. Le sceau montre une ligne changée ou retirée avant lui ; il ne montre ni une
 /// ligne ajoutée après lui, ni un fil réécrit avec des sceaux refaits.
 pub(crate) fn etat_dans(dossier: &Path) -> Result<ExitCode, Refus> {
-    let (Lecture { notes, ecarts }, issues, rompu) = lire_scelle(dossier)?;
+    rendre_dans(dossier, false)
+}
+
+/// Le temps entre deux sondes du dossier de `lydite attendre`.
+pub(crate) const PAUSE_DE_L_ATTENTE: Duration = Duration::from_secs(2);
+
+/// Ce que `lydite attendre` laisse à un lancement pour ouvrir sa vague quand le dossier n'est pas encore tenu.
+pub(crate) const DELAI_D_OUVERTURE: Duration = Duration::from_secs(60);
+
+/// `lydite attendre` : attend tant qu'un lancement tient le dossier ([`sonder`]), puis dit la dernière vague comme
+/// `lydite etat`. Le code est celui de `etat` (0 menée à bout et verte, 1 sinon), avec un 1 de plus pour une vague
+/// finie sans son sceau de fin (un lancement tué), et 2 pour un fil illisible ou un sceau rompu. Si le dossier n'est
+/// pas tenu quand elle part, elle laisse `delai` (en pauses de `pause`) à une vague pour s'ouvrir, au fil ou par le
+/// dossier tenu ; sans l'un ni l'autre, elle le dit sur stderr et sort en 2. Tant que le dossier est tenu, elle ne
+/// compte rien : elle attend la fin.
+pub(crate) fn attendre_dans(dossier: &Path, delai: Duration, pause: Duration) -> Result<ExitCode, Refus> {
+    let pauses = delai.as_millis() / pause.as_millis().max(1);
+    attendre_avec(dossier, u32::try_from(pauses).unwrap_or(u32::MAX), &mut || std::thread::sleep(pause))
+}
+
+/// [`attendre_dans`] avec `pauses` sondes de grâce et la `pause` entre deux sondes en paramètre, pour que les tests
+/// n'attendent pas en temps réel.
+pub(crate) fn attendre_avec(dossier: &Path, pauses: u32, pause: &mut dyn FnMut()) -> Result<ExitCode, Refus> {
+    let ouvertes = |dossier: &Path| -> Result<Vec<String>, Refus> {
+        let notes = lire(dossier)?.notes;
+        Ok(notes
+            .into_iter()
+            .filter_map(|note| match note.evenement {
+                Evenement::Vague { vague, .. } => Some(vague),
+                _ => None,
+            })
+            .collect())
+    };
+    let avant = ouvertes(dossier)?;
+    let (mut vu_tenu, mut restantes) = (false, pauses);
+    loop {
+        if sonder(dossier)? {
+            vu_tenu = true;
+            pause();
+            continue;
+        }
+        if vu_tenu || ouvertes(dossier)?.iter().any(|id| !avant.contains(id)) {
+            return rendre_dans(dossier, true);
+        }
+        if restantes == 0 {
+            eprintln!(
+                "aucune vague neuve au fil, et aucun lancement ne tient le dossier {} : il n'y a rien à attendre",
+                dossier.display()
+            );
+            return Ok(ExitCode::from(2));
+        }
+        restantes -= 1;
+        pause();
+    }
+}
+
+/// `etat_dans`, et avec `sceau_exige` la règle de `attendre` : la dernière vague montrée doit porter son sceau de fin.
+fn rendre_dans(dossier: &Path, sceau_exige: bool) -> Result<ExitCode, Refus> {
+    let (Lecture { notes, ecarts }, issues, sceaux, rompu) = lire_avec_sceaux(dossier)?;
     for (_, refus) in &ecarts {
         eprintln!("{refus}");
     }
@@ -32,7 +93,25 @@ pub(crate) fn etat_dans(dossier: &Path) -> Result<ExitCode, Refus> {
     fil::porter_issues(&mut vagues, &issues);
     let maintenant = fil::instant(fil::maintenant());
     println!("{}", if vagues.is_empty() { aucune_vague(dossier) } else { rendu_avec(&vagues, &notes, &maintenant) });
-    Ok(if toutes_menees_a_bout(&montrees(&vagues), &vagues) { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+    let montrees = montrees(&vagues);
+    if sceau_exige && sans_sceau_de_fin(&montrees, &sceaux) {
+        eprintln!(
+            "la dernière vague n'a pas son sceau de fin (vague.sceau) : le lancement a fini sans l'écrire, tué sans \
+             doute"
+        );
+        return Ok(ExitCode::FAILURE);
+    }
+    Ok(if toutes_menees_a_bout(&montrees, &vagues) { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+}
+
+/// Un lancement scelle la vague qu'il mène à chacune de ses sorties : aucune des vagues montrées n'a son sceau, c'est
+/// qu'il a été tué (ou que le sceau ne s'est pas écrit). Un découpage seul (`--observer`) ne scelle rien et n'en doit
+/// pas : la dernière vague montrée qui n'est qu'un découpage pris n'est pas dite sans sceau.
+fn sans_sceau_de_fin(montrees: &[&Vague], sceaux: &[SceauLu]) -> bool {
+    let Some(derniere) = montrees.last() else {
+        return false;
+    };
+    derniere.plan_pris.is_none() && !montrees.iter().any(|vague| sceaux.iter().any(|lu| lu.sceau.vague == vague.id))
 }
 
 /// Ce que `lydite etat` dit sans vague : « aucune vague », et l'ancien fil à tabulations (version 1) s'il reste seul,

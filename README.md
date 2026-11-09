@@ -71,6 +71,21 @@ On Windows the archive is `lydite-*-windows-x86_64.zip`, with `lydite.exe` insid
 Or build it: `cargo build --release` (the toolchain is pinned by `rust-toolchain.toml`); the binary is
 `target/release/lydite`.
 
+**One launch per state folder.** The state folder (below) holds the thread, `fil.jsonl`, and the day's quota. One
+`lydite lancer` (with or without `--decouper`) holds the folder alone until its process ends, CI included: a second
+launch on the same folder is refused with 6032 (`lancer.dossier_pris`), and its correction says to wait for the other
+one or to take another folder (`LYDITE_DOSSIER`). The waves of one launch do not refuse each other. The hold is an
+operating-system file lock on `lancer.verrou` in the folder, never on the thread: a process that dies or is killed
+loses it and leaves nothing to clean. `lydite etat` and `lydite accepter` do not take it. A launch that meets the
+lock for an instant (the probe of `lydite attendre`, below) retries for about 200 ms before it refuses.
+
+**Waiting for a wave.** `lydite etat` returns 1 for a wave still running as well as for a red one. `lydite attendre`
+(no argument) waits while a launch holds the state folder (it probes the lock for an instant, every 2 seconds, and
+never keeps it), then says the last wave like `lydite etat` and exits 0 if it is carried through and green, 1 if it is
+red or finished without its closing seal (a killed launch), 2 if the journal cannot be read or a seal is broken. Run
+just before the launch takes the folder, it waits at most 60 seconds for a wave to open; with no new wave and no held
+folder it says so and exits 2.
+
 **A profile** is a file, `profils/<name>.profil`, in Lydite's state folder (`$LYDITE_DOSSIER`, else
 `$XDG_STATE_HOME/lydite` or `~/.local/state/lydite`; `%USERPROFILE%\.lydite` on Windows). A human writes it, then
 accepts it:
@@ -98,6 +113,7 @@ lydite accepter <name>        # shows the profile and accepts its fingerprint; a
 lydite lancer <name> --issue 15 --decouper --verifier "cargo test && cargo clippy -- -D warnings" --pr main
 lydite lancer <name> "an objective on one line" --decouper --verifier "<proof>" --observer   # show the plan only
 lydite etat                                                                                    # where the last wave stands
+lydite attendre                                                                                # wait for the running launch, then say it
 ```
 
 `lancer` exits 0 only if everything was taken and observed, 1 otherwise, and 2 for a refusal (nothing started). A

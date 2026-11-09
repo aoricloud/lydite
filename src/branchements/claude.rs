@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 
 use crate::branchements::bac::temporaire_de;
 use crate::branchements::git::IDENTITE;
-use crate::branchements::processus::{SORTIE, attendre, echeance, retire_de_l_env, sans_session, tuer_arbre};
+use crate::branchements::processus::{
+    SORTIE, attendre, echeance, retire_de_l_env, sans_session, tuer_arbre, tuer_les_restes,
+};
 use crate::coeur::erreur::queue;
 use crate::coeur::protocole::{self, Attendu, Constat, DEMANDES, Ligne};
 
@@ -44,7 +46,23 @@ pub(crate) fn jouer(
         None => main.brute(consigne),
         Some(attendu) => main.dialoguer(attendu, consigne, &mut constat),
     });
+    // La main est sortie : ce qu'elle a laissé derrière elle dans son bac meurt. Un échec ne change pas son résultat
+    // vert.
+    let jeu = apres_la_mise_a_mort(jeu, tuer_les_restes(bac));
     (attendu.map(|_| constat), jeu)
+}
+
+/// Le jeu de la main, une fois ses restes tués : un échec de la mise à mort s'ajoute à une erreur ; une sortie verte
+/// reste intacte (l'échec se dit sur stderr), car son texte se lit encore pour sa dernière ligne.
+pub(crate) fn apres_la_mise_a_mort(jeu: Result<String, String>, mort: Result<(), String>) -> Result<String, String> {
+    match (jeu, mort) {
+        (jeu, Ok(())) => jeu,
+        (Ok(sortie), Err(e)) => {
+            eprintln!("mise à mort des restes de la main : {e}");
+            Ok(sortie)
+        }
+        (Err(erreur), Err(e)) => Err(format!("{erreur} ; mise à mort : {e}")),
+    }
 }
 
 /// D'où vient une ligne de la main.
@@ -371,6 +389,7 @@ impl Partie {
                         constat.usage.duree_ms = usage.duree_ms;
                         constat.usage.tours = usage.tours;
                     }
+                    constat.coupure = protocole::coupure(&resultat);
                     return self.finir(protocole::resultat(&resultat));
                 }
                 _ => {}

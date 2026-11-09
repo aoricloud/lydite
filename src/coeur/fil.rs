@@ -95,6 +95,12 @@
 //!   dit si Claude Code a répondu que son mur est actif (`true`) ou non (`false`), `null` si rien ne l'a dit. `foi`
 //!   vaut toujours `constate` : Kraken a lu cette réponse, ce qui ne dit rien de la tenue du mur. Il manque quand
 //!   Kraken n'a rien lu de la main, par exemple d'une main qui ne parle pas en stream-json.
+//! - `main.coupure {vague, main, tentative, statut}` : la tentative a fini sur une coupure de l'API (le fournisseur
+//!   surchargé, une limite de débit, une erreur 5xx), que Claude Code marque dans son résultat par `is_error` vrai et
+//!   `api_error_status`. `statut` est ce statut HTTP : 408, 429, ou 500 et plus. La ligne suit le `main.fin` de la
+//!   tentative coupée, rouge comme les autres. Une coupure ne compte pas comme une relance : la tentative qui la suit
+//!   n'est pas une relance au reçu, et une tâche ne repart qu'une fois sur une coupure ; la seconde coupure de la même
+//!   tâche la classe. Un fil sans cette ligne se lit comme avant.
 //! - `main.usage {vague, main, tentative, modele, entree, sortie, cache_ecrit, cache_lu, reflexion, micro_dollars,
 //!   base, foi}` : l'usage d'un modèle de la tentative, un entier par compteur de jetons. Kraken écrit une ligne par
 //!   modèle du détail de l'usage de la main ou, sans détail, une seule ligne du total sous le modèle de la tentative ;
@@ -250,8 +256,9 @@
 //! Toute main, quel que soit l'appelant, est précédée de son `main.lancement` : si la note échoue, elle ne part pas.
 //! Dans une tentative, l'ordre est `main.bail`, `main.debut`, `main.lancement`, `main.fournisseur` s'il y en a un,
 //! `main.consigne` (toujours, main nue comprise, avant que la main parte), `main.constat` s'il y en a un,
-//! `main.usage` (une ligne par modèle) s'il y a un usage, puis `main.fin`. Le lancement, le fournisseur, la consigne,
-//! le constat et l'usage ne changent pas `v` : un lecteur qui ne connaît pas ces lignes les ignore, et leur `seq`
+//! `main.usage` (une ligne par modèle) s'il y a un usage, puis `main.fin`, puis `main.coupure` si la tentative finit
+//! sur une coupure de l'API. Le lancement, le fournisseur, la consigne, le constat, l'usage et la coupure ne changent
+//! pas `v` : un lecteur qui ne connaît pas ces lignes les ignore, et leur `seq`
 //! compte quand même dans leur séance. Le résultat périmé d'une main qui a dépassé son bail note de même son
 //! `main.usage` (une ligne par modèle), juste avant son `main.perimee` : cette main a dépensé, et sa dépense compte
 //! pour le quota des départs qui suivent.
@@ -327,6 +334,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::json::{self, Valeur};
+use crate::coeur::protocole::statut_de_coupure;
 
 /// La version du fil que Kraken écrit, et la seule qu'il lit.
 const VERSION: u64 = 2;
@@ -372,6 +380,9 @@ pub(crate) enum Evenement {
     /// son mur est actif (`mur_actif`), `None` si rien ne l'a dit. Toujours constaté : la ligne porte `foi: constate`,
     /// qui n'est pas un champ.
     Constat { vague: String, main: usize, tentative: usize, version: Option<String>, mur_actif: Option<bool> },
+    /// `main.coupure` : la tentative a fini sur une coupure de l'API, dont `statut` est le statut HTTP (408, 429, ou
+    /// 500 et plus). Noté après son `main.fin`.
+    Coupure { vague: String, main: usize, tentative: usize, statut: u16 },
     /// `main.fin` : la tentative finit. `texte` est la sortie de la main (vert) ou l'erreur (rouge), `verif` la fin de
     /// la sortie de la vérification, `None` si elle n'a pas tourné.
     Fin {
@@ -1004,6 +1015,17 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
                 mur_actif: booleen_ou_nul("mur_actif")?,
             }
         }
+        "main.coupure" => {
+            let lu = entier("statut")?;
+            let statut = u16::try_from(lu).ok().filter(|_| statut_de_coupure(lu));
+            Evenement::Coupure {
+                vague: texte("vague")?.into(),
+                main: nombre("main")?,
+                tentative: nombre("tentative")?,
+                statut: statut
+                    .ok_or_else(|| format!("« statut » vaut {lu}, hors de son domaine : 408, 429, ou 500 et plus"))?,
+            }
+        }
         "main.fin" => Evenement::Fin {
             vague: texte("vague")?.into(),
             main: nombre("main")?,
@@ -1383,6 +1405,8 @@ pub(crate) struct Main {
     pub(crate) issue: Option<Issue>,
     /// `main.gel` : le commit du bac gelé, le dernier noté, sur lequel porte son verdict ; `None` sans.
     pub(crate) gel: Option<String>,
+    /// `main.coupure` : le statut de l'API de chaque tentative qui a fini sur une coupure, par numéro de tentative.
+    pub(crate) coupures: BTreeMap<usize, u16>,
 }
 
 /// Ce que Kraken a décidé d'une tâche de plan : l'assembler dans la branche de la vague (`vague.fusion`), ou la refuser
@@ -1531,6 +1555,9 @@ pub(crate) fn etat(evenements: &[Evenement]) -> Vec<Vague> {
                 let lancee = vague.mains.entry(*main).or_default().tentatives.entry(*tentative).or_default();
                 lancee.fournisseur = Some(fournisseur.clone());
             }
+            Evenement::Coupure { main, tentative, statut, .. } => {
+                vague.mains.entry(*main).or_default().coupures.insert(*tentative, *statut);
+            }
             Evenement::Consigne { .. } => {} // la consigne vit au fil, `lydite etat` n'en dit rien
             Evenement::Usage { .. } => {}    // l'usage se lit au fil (le quota du jour), `lydite etat` n'en dit rien
         }
@@ -1608,6 +1635,7 @@ impl Evenement {
             Evenement::VerdictRelecture { .. } => "vague.verdict",
             Evenement::Correction { .. } => "vague.correction",
             Evenement::Relecteur { .. } => "vague.relecteur",
+            Evenement::Coupure { .. } => "main.coupure",
             Evenement::Fournisseur { .. } => "main.fournisseur",
             Evenement::Consigne { .. } => "main.consigne",
             Evenement::Usage { .. } => "main.usage",
@@ -1640,6 +1668,7 @@ impl Evenement {
         | Evenement::VerdictRelecture { vague, .. }
         | Evenement::Correction { vague, .. }
         | Evenement::Relecteur { vague, .. }
+        | Evenement::Coupure { vague, .. }
         | Evenement::Fournisseur { vague, .. }
         | Evenement::Consigne { vague, .. }
         | Evenement::Usage { vague, .. }) = self;
@@ -1803,6 +1832,12 @@ impl Evenement {
             ],
             Evenement::Correction { vague, corrige } => vec![("vague", texte(vague)), ("corrige", texte(corrige))],
             Evenement::Relecteur { vague, relue } => vec![("vague", texte(vague)), ("relue", texte(relue))],
+            Evenement::Coupure { vague, main, tentative, statut } => vec![
+                ("vague", texte(vague)),
+                ("main", entier(*main)),
+                ("tentative", entier(*tentative)),
+                ("statut", Valeur::Entier(u64::from(*statut))),
+            ],
             Evenement::Fournisseur { vague, main, tentative, fournisseur } => vec![
                 ("vague", texte(vague)),
                 ("main", entier(*main)),

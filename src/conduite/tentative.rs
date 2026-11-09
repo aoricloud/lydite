@@ -37,6 +37,9 @@ pub(crate) const IMPOSSIBLE: &str = "impossible (déclarée) : ";
 pub(crate) enum Echec {
     /// La main a déclaré sa tâche impossible (`IMPOSSIBLE: <raison>`) ; la raison est la sienne. Classée sans relance.
     Impossible(String),
+    /// Une coupure de l'API (`protocole::coupure`) : son statut HTTP, puis l'erreur de la main en texte. Elle repart
+    /// une fois, sans compter comme une relance.
+    Coupure(u16, String),
     /// Toute autre erreur, dite en texte. Suit la relance.
     Erreur(String),
 }
@@ -196,7 +199,8 @@ pub(crate) fn tenter(
         Err(erreur) => (attendu.as_ref().map(|_| Constat::default()), Err(erreur)),
         Ok(_) => jouer(&argv, bac, consigne, profil.delai_main(), attendu.as_ref(), juge.is_some(), fournisseur),
     };
-    let verdict = jeu.map_err(Echec::Erreur).and_then(|sortie| match (juge, verifier) {
+    let coupure = constat.as_ref().and_then(|constat| constat.coupure);
+    let verdict = jeu.map_err(|erreur| echec_de(erreur, coupure)).and_then(|sortie| match (juge, verifier) {
         // Une main de tâche qui déclare l'impossible : rien n'est rejoué, et l'échec le dit pour que la vague classe.
         (None, _) if declare_impossible(&sortie).is_some() => {
             Err(Echec::Impossible(queue(declare_impossible(&sortie).unwrap_or_default())))
@@ -210,6 +214,15 @@ pub(crate) fn tenter(
         (None, None) => annonce_vert(sortie).map(|sortie| Pris { sortie, prouve: false }).map_err(Echec::Erreur),
     });
     (constat, verif, verdict)
+}
+
+/// L'échec d'une main qui a rendu `erreur` : une coupure de l'API si son constat en a lu une (`statut`), sinon une
+/// erreur ordinaire.
+fn echec_de(erreur: String, statut: Option<u16>) -> Echec {
+    match statut {
+        Some(statut) => Echec::Coupure(statut, erreur),
+        None => Echec::Erreur(erreur),
+    }
 }
 
 fn annonce_vert(texte: String) -> Result<String, String> {

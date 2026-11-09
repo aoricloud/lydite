@@ -150,6 +150,30 @@ fn la_main_trop_lente_est_tuee_avec_ses_enfants() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn ce_que_la_main_verte_laisse_dans_son_bac_meurt_et_le_reste_vit() {
+    let (dir, bac) = bac_jetable("main-orpheline");
+    // Une fausse main qui laisse un `sleep` en arrière-plan dans son bac, détaché de ses tuyaux, et sort verte.
+    let script = dir.join("orpheline.sh");
+    fs::write(&script, "sleep 30 </dev/null >/dev/null 2>&1 &\necho $! > marque\necho fait\n").unwrap();
+    // Un processus du même compte hors du bac : un frère du bac, dans `dir`.
+    let mut dehors = Command::new("sleep").arg("30").current_dir(&dir).spawn().unwrap();
+    let argv = vec!["sh".to_string(), script.to_string_lossy().into_owned()];
+    let sortie = jouer(&argv, &bac, "", DELAI, None, false, None).1;
+    assert_eq!(sortie.as_deref(), Ok("fait\n"), "la main reste verte");
+    let pid = marque(&bac, Duration::ZERO);
+    assert!(meurt(pid), "le sleep {pid} laissé dans le bac survit à la fin de la tentative");
+    assert!(
+        fs::metadata(format!("/proc/{}", dehors.id())).is_ok(),
+        "le processus hors du bac a été tué avec les restes"
+    );
+    assert!(dehors.try_wait().unwrap().is_none(), "le processus hors du bac est sorti");
+    dehors.kill().unwrap();
+    dehors.wait().unwrap();
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn une_main_sans_programme_est_une_erreur() {
     let (dir, bac) = bac_jetable("sans-programme");
@@ -572,6 +596,30 @@ fn une_main_qui_sort_en_erreur_apres_son_resultat_est_rouge() {
         let (_, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
         assert_eq!(sortie, Err("main : résultat en erreur (success) : fait\nPREUVE: vert".into()), "code {code}");
     }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_resultat_en_erreur_de_l_api_est_une_coupure_dans_le_constat() {
+    let (dir, bac) = bac_jetable("coupure");
+    let en_erreur = |statut: &str| {
+        RESULTAT
+            .replace(r#""is_error":false"#, &format!(r#""is_error":true,"api_error_status":{statut}"#))
+            .replace("fait\\nPREUVE: vert", "API Error")
+    };
+    // 529 (le fournisseur surchargé) est une coupure, quel que soit le code de sortie de la main ; 401 reste une
+    // erreur.
+    for (statut, code, coupure) in [("529", 0, Some(529)), ("429", 3, Some(429)), ("401", 0, None), ("null", 0, None)] {
+        let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(&en_erreur(statut)), Geste::Sortir(code)];
+        let (constat, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
+        assert_eq!(sortie, Err("main : résultat en erreur (success) : API Error".into()), "{statut} code {code}");
+        assert_eq!(constat.unwrap().coupure, coupure, "{statut} code {code}");
+    }
+    // Une main qui réussit n'a pas de coupure.
+    let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(RESULTAT)];
+    let (constat, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
+    assert_eq!(sortie, Ok("fait\nPREUVE: vert".into()));
+    assert_eq!(constat.unwrap().coupure, None);
     let _ = fs::remove_dir_all(&dir);
 }
 

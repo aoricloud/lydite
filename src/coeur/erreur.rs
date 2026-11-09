@@ -22,7 +22,7 @@
 //! donc pas.
 //!
 //! L'énumération ne tient que les codes que le programme construit : 1001, 1002, 1005, 1006, 1009 et 1010 du bloc
-//! 1000, 6001 à 6031 du bloc 6000, 7001 à 7018 du bloc 7000, 8001 à 8013 du bloc 8000. Les autres lignes du bloc 1000
+//! 1000, 6001 à 6032 du bloc 6000, 7001 à 7018 du bloc 7000, 8001 à 8013 du bloc 8000. Les autres lignes du bloc 1000
 //! de passerelle (1003, 1004, 1007, 1008 et 1011) n'y sont pas ; `tests::copie_du_bloc_1000` en garde la copie entière,
 //! sous `#[cfg(test)]` comme `Code::TOUS` : chaque code de 1000 à 5999 et de 9000 à 9999 en est une ligne, et ceux de
 //! ce dépôt vivent dans 6000 à 8999.
@@ -199,6 +199,9 @@ codes! {
          dossier) et `description` (une ligne), puis `## What happened`, `## Why`, `## How it is checked`, \
          `## Pitfall`, `## Files` (des lignes `- <chemin>`) et `## Falls when`, chacune une fois, dans l'ordre, avec \
          du texte.";
+    DossierPris = 6032, "lancer.dossier_pris",
+        "Un lancement tient le dossier de Lydite pour lui seul jusqu'à la fin de son processus : un second \
+         lancement sur le même dossier est refusé, car ils écriraient le même fil et liraient le même quota.";
     // --- 7000 : vague ---
     VagueBacImpossible = 7001, "vague.bac_impossible",
         "Chaque tâche a son bac, que git pose juste avant sa main ; une tâche sans bac est refusée, et les \

@@ -1848,7 +1848,11 @@ fn le_profil_integre_part_sur_sonnet_et_s_inscrit_sans_etre_garde() {
     for ligne in lancements {
         assert!(ligne.contains(&integre), "{ligne}");
     }
-    assert_eq!(noms(&essai.dossier), ["bacs", "consignes", "fil.jsonl"], "ni profil ni empreinte n'est écrit");
+    assert_eq!(
+        noms(&essai.dossier),
+        ["bacs", "consignes", "fil.jsonl", "lancer.verrou"],
+        "ni profil ni empreinte n'est écrit"
+    );
     essai.nettoyer();
 }
 
