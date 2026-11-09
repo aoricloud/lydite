@@ -44,14 +44,17 @@ pub(crate) fn attendre(enfant: &mut Child, echeance: Instant) -> io::Result<Opti
 // raccourci : un descendant détaché (setsid, nohup, ou dont le parent est déjà mort) survit, et sous Windows un enfant
 // né entre le relevé de `taskkill /T` et la mort de sa racine aussi (sous forte charge, un `ping` tenait encore le bac
 // 2 s après la mise à mort : les tests qui tuent un arbre effacent leur dossier par `essais::effacer`) ;
-// monter vers un Job Object ou un cgroup avec le nœud
-pub(crate) fn tuer_arbre(pid: u32) -> Result<(), String> {
+// monter vers un Job Object ou un cgroup avec le nœud ; et sous Windows, `taskkill /T` relève l'arbre puis arrête
+// chaque processus : un descendant qui sort entre les deux fait rendre un code non nul alors que tout l'arbre est mort.
+// `tuer_et_attendre` ne tient donc ce code pour un échec que si la racine vit encore : un descendant que `taskkill`
+// n'arrête pas pour une autre raison que sa sortie, la racine étant morte, n'est plus dit.
+pub(crate) fn tuer_arbre(pid: u32) -> Result<(), EchecDeMiseAMort> {
     let (mut tueur, nom) = if cfg!(windows) {
         let mut taskkill = Command::new("taskkill");
         taskkill.args(["/T", "/F", "/PID", &pid.to_string()]);
         (taskkill, format!("taskkill /T /F /PID {pid}"))
     } else {
-        let proc = fs::read_dir("/proc").map_err(|e| format!("/proc illisible : {e}"))?;
+        let proc = fs::read_dir("/proc").map_err(|e| EchecDeMiseAMort::NonParti(format!("/proc illisible : {e}")))?;
         let liens: Vec<(u32, u32)> = proc
             .filter_map(|entree| fs::read_to_string(entree.ok()?.path().join("stat")).ok())
             .filter_map(|stat| parent(&stat))
@@ -62,21 +65,40 @@ pub(crate) fn tuer_arbre(pid: u32) -> Result<(), String> {
         kill.arg("-KILL").args(&pids);
         (kill, format!("kill -KILL {}", pids.join(" ")))
     };
-    let sortie = tueur.output().map_err(|e| format!("{nom} impossible : {e}"))?;
+    let sortie = tueur.output().map_err(|e| EchecDeMiseAMort::NonParti(format!("{nom} impossible : {e}")))?;
     if sortie.status.success() {
         return Ok(());
     }
     let (erreur, texte) = (String::from_utf8_lossy(&sortie.stderr), String::from_utf8_lossy(&sortie.stdout));
-    Err(format!("{nom} ({}) : {}{}", sortie.status, erreur.trim(), texte.trim()))
+    Err(EchecDeMiseAMort::CodeNonNul(format!("{nom} ({}) : {}{}", sortie.status, erreur.trim(), texte.trim())))
+}
+
+/// L'échec de [`tuer_arbre`] : l'outil n'a pas pu partir, ou il a tourné et rendu un code non nul. Le texte le dit.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum EchecDeMiseAMort {
+    NonParti(String),
+    CodeNonNul(String),
+}
+
+impl EchecDeMiseAMort {
+    fn texte(self) -> String {
+        match self {
+            Self::NonParti(texte) | Self::CodeNonNul(texte) => texte,
+        }
+    }
 }
 
 /// Tue l'arbre de l'enfant ([`tuer_arbre`], avant tout `wait`), tue l'enfant, attend [`MORT`] au plus qu'il sorte, et
-/// rend l'échec de la mise à mort de l'arbre, s'il y en a un.
+/// rend l'échec de la mise à mort de l'arbre, s'il y en a un. Sous Windows, un code non nul de `taskkill` n'est pas un
+/// échec si l'enfant, racine de l'arbre, est sorti à la fin de l'attente.
 pub(crate) fn tuer_et_attendre(enfant: &mut Child) -> Result<(), String> {
     let tuee = tuer_arbre(enfant.id());
     let _ = enfant.kill();
-    let _ = attendre(enfant, Instant::now() + MORT);
-    tuee
+    let sorti = matches!(attendre(enfant, Instant::now() + MORT), Ok(Some(_)));
+    match tuee {
+        Err(EchecDeMiseAMort::CodeNonNul(_)) if cfg!(windows) && sorti => Ok(()),
+        autre => autre.map_err(EchecDeMiseAMort::texte),
+    }
 }
 
 /// Tue, une fois la main sortie, tout processus du compte de Lydite dont le dossier courant est dans `bac` : ce que la
