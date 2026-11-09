@@ -618,6 +618,7 @@ pub(crate) fn effacer(dir: &Path) {
 /// [`effacer`], qui se reprend `limite` au plus.
 pub(crate) fn effacer_avant(dir: &Path, limite: Duration) {
     let debut = Instant::now();
+    crate::branchements::dossier::lacher_sous(dir);
     loop {
         match fs::remove_dir_all(dir) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => {

@@ -5,6 +5,7 @@ use crate::coeur::fil::{Issue, Lecture, Mur, Note, etat};
 use crate::essais::{depot, fausse_main, git, main_de_vague, main_hors_fichiers, main_texte_coupe, racine};
 use crate::essais::{ecrire, effacer, faux_srt, lancer, lancer_sur, pour_sh, script};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::process::Command;
 
 /// Les notes du fil du dossier de Kraken, lues par `dossier::lire` : toutes ses lignes se lisent, sans écart, et aucune
@@ -380,7 +381,11 @@ fn rien_derriere(racine: &Path, base: &str) {
     assert_eq!(noms(&depot), [".git"], "rien dans le dépôt visé, hors ce que git worktree add pose sous .git");
     // Les consignes des mains, s'il y en a eu, restent : le fil les nomme par leur empreinte.
     let restes: Vec<String> = noms(&kraken).into_iter().filter(|nom| nom != "consignes").collect();
-    assert_eq!(restes, ["bacs", "fil.jsonl"], "le fil et les bacs, et plus de fichier de vérification");
+    assert_eq!(
+        restes,
+        ["bacs", "fil.jsonl", "lancer.verrou"],
+        "le fil, les bacs et le verrou, et plus de fichier de vérification"
+    );
     let sienne = git(&depot, &["symbolic-ref", "HEAD"]);
     for reference in git(&depot, &["for-each-ref", "--format=%(refname)"]).lines() {
         let a_kraken = reference.starts_with("refs/heads/lydite/");
@@ -606,8 +611,8 @@ fn le_depot_vise_ne_voit_rien() {
     }
     assert_eq!(
         noms(&kraken),
-        ["bacs", "consignes", "fil.jsonl"],
-        "le fil, les bacs et les consignes, et plus de fichier de vérification"
+        ["bacs", "consignes", "fil.jsonl", "lancer.verrou"],
+        "le fil, les bacs, les consignes et le verrou, et plus de fichier de vérification"
     );
     fil(&kraken);
     let _ = fs::remove_dir_all(&racine);

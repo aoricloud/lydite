@@ -36,7 +36,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use crate::branchements::bac::retirer;
-use crate::branchements::dossier::Fil;
+use crate::branchements::dossier::{Fil, tenir};
 use crate::branchements::git::{faire, geste};
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus, nommee};
@@ -161,6 +161,8 @@ fn decouper_de(
     base: &str,
     bail: Duration,
 ) -> Result<Decoupage, Refus> {
+    // L'épreuve de la base crée le dossier : le lancement le tient avant, pour lui seul (6032).
+    tenir(dossier)?;
     eprouver_la_base(depot, dossier, profil, base, preuve)?;
     let chemins = chemins_de(depot, base)?;
     let objectif = source.objectif();
