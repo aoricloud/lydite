@@ -67,7 +67,8 @@ class Skill(unittest.TestCase):
     def test_elle_nomme_les_outils_et_les_commandes_qu_elle_decrit(self):
         nom = sous_module("nom")
         _, corps = lire()
-        for attendu in (nom.LANCER, nom.ETAT, "lydite lancer", "lydite etat", "lydite accepter"):
+        for attendu in (nom.LANCER, nom.ETAT, nom.LECONS, "lydite lancer", "lydite etat", "lydite lecons",
+                        "lydite accepter"):
             self.assertIn(attendu, corps)
 
     def test_elle_ne_porte_aucun_motif_que_hermes_tient_pour_suspect(self):
