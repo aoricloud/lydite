@@ -1,5 +1,17 @@
 use super::*;
 use crate::branchements::bac::temporaire_de;
+use crate::branchements::claude::apres_la_mise_a_mort;
+
+#[test]
+fn une_sortie_verte_suivie_d_une_mise_a_mort_ratee_passe_encore_annonce_vert() {
+    let verte = "fait\nPREUVE: vert".to_string();
+    let jeu = apres_la_mise_a_mort(Ok(verte.clone()), Err("restes".into()));
+    assert_eq!(jeu, Ok(verte.clone()));
+    assert_eq!(annonce_vert(jeu.unwrap()), Ok(verte));
+    // Une erreur garde son texte et dit l'échec en plus.
+    let erreur = apres_la_mise_a_mort(Err("rouge".into()), Err("restes".into())).unwrap_err();
+    assert_eq!(erreur, "rouge ; mise à mort : restes");
+}
 use crate::branchements::processus::{retire_de_l_env, retire_de_la_preuve};
 use crate::coeur::profil::Mesure;
 use crate::essais::mains::{DELAI, bac_jetable, profil_borne};
