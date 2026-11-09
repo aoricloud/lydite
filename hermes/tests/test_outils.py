@@ -536,9 +536,7 @@ class Lecons(AvecOutils):
         texte = (
             f"---\nname: {nom}\ndescription: {regle}\n---\n\n"
             "## What happened\nA.\n\n## Why\nB.\n\n## How it is checked\nC.\n\n"
-            "## Pitfall\nD.\n\n## Files\n"
-            + "".join(f"- {chemin}\n" for chemin in fichiers)
-            + "\n## Falls when\nE.\n"
+            "## Pitfall\nD.\n\n## Files\n" + "".join(f"- {chemin}\n" for chemin in fichiers) + "\n## Falls when\nE.\n"
         )
         (dossier / "SKILL.md").write_text(texte, encoding="utf-8")
         return texte
