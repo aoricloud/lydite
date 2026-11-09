@@ -60,9 +60,25 @@ fn commande_du_plan(racine: &Path, plan: &Path) -> Command {
         .arg(racine.join("depot"))
         .current_dir(racine)
         .env("LYDITE_DOSSIER", racine.join("lydite"))
-        .env("LYDITE_CLAUDE", racine.join("claude-absent"));
+        .env("LYDITE_CLAUDE", racine.join("claude-absent"))
+        .env("LYDITE_SRT", faux_srt(racine));
     avec_leurres(&mut commande, racine);
     commande
+}
+
+/// Le faux srt des essais, `<racine>/faux-srt.sh` (`.cmd` sous Windows), que `LYDITE_SRT` nomme : le profil intégré
+/// exige le mur, et ces essais ne portent pas sur lui. Il saute `--settings <fichier>`, puis joue la preuve ; `true`,
+/// l'épreuve du mur, sort en 0. Rend son chemin ; l'écrire deux fois donne le même fichier.
+fn faux_srt(racine: &Path) -> PathBuf {
+    let (chemin, lignes) = if cfg!(windows) {
+        let lignes = ["@echo off", r#"if "%~5"=="true" exit /b 0"#, "%~5", "exit /b %errorlevel%"];
+        (racine.join("faux-srt.cmd"), lignes.map(String::from).to_vec())
+    } else {
+        let lignes = ["#!/bin/sh", "shift 2", r#"exec "$@""#];
+        (racine.join("faux-srt.sh"), lignes.map(String::from).to_vec())
+    };
+    script(&chemin, &lignes);
+    chemin
 }
 
 /// Les leurres du dossier personnel et de `CLAUDE_CONFIG_DIR` que `commande` reçoit, sous la racine du test.
@@ -94,11 +110,16 @@ fn lire_refus(sortie: &Output) -> Refus {
     Refus { code: lignes[0].into(), preuve: apres(2, "  preuve : "), correction: apres(3, "  correction : ") }
 }
 
-/// Rien n'est parti : le dossier de Kraken n'existe pas (ni fil, ni bac), le dépôt visé n'a ni branche de Kraken ni
-/// autre worktree que le sien, et son arbre est propre.
+/// Rien n'est parti : le dossier de Kraken n'a ni fil ni bac (le dossier `bacs/` vide que laisse l'épreuve du mur
+/// est toléré), le dépôt visé n'a ni branche de Kraken ni autre worktree que le sien, et son arbre est propre.
 fn rien_n_est_parti(racine: &Path) {
     let depot = racine.join("depot");
-    assert!(!racine.join("lydite").exists(), "ni fil, ni bac : le dossier de Lydite n'existe pas");
+    let restes: Vec<_> = fs::read_dir(racine.join("lydite"))
+        .map(|entrees| entrees.map(|entree| entree.unwrap().file_name()).collect())
+        .unwrap_or_default();
+    assert!(restes.is_empty() || restes == ["bacs"], "ni fil, ni bac : {restes:?}");
+    let bacs = fs::read_dir(racine.join("lydite").join("bacs")).map_or(0, Iterator::count);
+    assert_eq!(bacs, 0, "aucun bac ne reste");
     assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "", "ni branche");
     assert_eq!(git(&depot, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "ni worktree");
     assert_eq!(git(&depot, &["status", "--porcelain"]), "");
@@ -406,7 +427,7 @@ fn une_vague_a_plan_dit_chaque_tache_puis_sa_branche() {
     let dit = String::from_utf8_lossy(&etat.stdout);
     assert_eq!(etat.status.code(), Some(1), "{dit}");
     let ligne = |tache: &str| dit.lines().find(|ligne| ligne.starts_with(&format!("main-{v}-{tache} "))).unwrap_or("");
-    assert!(ligne("1 a").ends_with(" · mur demandé, non exigé (déclaré)"), "{dit}");
+    assert!(ligne("1 a").ends_with(" · mur exigé (déclaré)"), "{dit}");
     assert!(
         ligne("2 b").starts_with(&format!("main-{v}-2 b : refusée (7011) : ")) && !ligne("2 b").contains("mur"),
         "{dit}"

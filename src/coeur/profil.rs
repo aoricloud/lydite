@@ -43,7 +43,10 @@
 //!     `[A-Za-z0-9_-]`), ce dernier avec `mcp` seulement ;
 //!   - `mcp` : une configuration MCP, un objet JSON sur la ligne, sans clé redite, qui porte l'objet `mcpServers`,
 //!     dont les clés nomment les serveurs : passé tel quel à `--mcp-config` ;
-//!   - `mur`, le bac à sable de Claude Code : `demande` (par défaut) ou `exige` ;
+//!   - `mur`, le bac à sable de Claude Code : `exige` (par défaut, Windows compris) ou `demande`.
+//!     Sous un mur demandé, les commandes de la main peuvent tourner hors du bac à sable de Claude Code, y voient la
+//!     clé du fournisseur, et la preuve se rejoue hors du mur ; `demande` ne vaut que si un profil l'écrit. Le profil
+//!     intégré écrit `mur = exige` ;
 //!   - `reseau` : les domaines que la main joint, en `[A-Za-z0-9.-]`, sans joker ni port ;
 //!   - `lecture` : ce que les commandes de la main lisent hors du bac, des chemins absolus ou en `~/…`, sans `..` ni
 //!     joker (`* ? [ ] { }`), qui ne recouvrent ni le dossier de Kraken ni un dossier de connexion de Claude
@@ -97,7 +100,7 @@ const DELAI_PREUVE: Duration = Duration::from_secs(300);
 /// Le profil `claude` intégré, au format du fichier. Sonnet, et non le défaut du compte (Opus) : `--model` s'écrit
 /// toujours.
 const INTEGRE: &str =
-    "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = demande\ndelai_main = 3600\ndelai_preuve = 300\n";
+    "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = exige\ndelai_main = 3600\ndelai_preuve = 300\n";
 
 /// Les clés d'un profil, et aucune autre.
 const CLES: [&str; 18] = [
@@ -923,7 +926,7 @@ pub(crate) fn lire(
         relecteur: "opus".into(),
         fournisseur: None,
         prix: Vec::new(),
-        exige: false,
+        exige: true,
         outils: Vec::new(),
         mcp: None,
         reseau: Vec::new(),
