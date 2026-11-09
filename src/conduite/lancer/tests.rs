@@ -57,6 +57,7 @@ fn histoire(evenements: &[Evenement]) -> Vec<String> {
         Evenement::Lancement { tentative, .. } => format!("lancement {tentative}"),
         Evenement::Constat { tentative, .. } => format!("constat {tentative}"),
         Evenement::Fin { tentative, couleur, foi, .. } => format!("fin {tentative} {couleur:?} {foi:?}"),
+        Evenement::Coupure { tentative, statut, .. } => format!("coupure {tentative} {statut}"),
         Evenement::Perimee { tentative, couleur, foi, .. } => format!("périmée {tentative} {couleur:?} {foi:?}"),
         Evenement::Verdict { verdict, foi, .. } => format!("verdict {verdict:?} {foi:?}"),
         Evenement::Gel { .. } => "gel".into(),
@@ -256,6 +257,7 @@ fn main_de(evenement: &Evenement) -> Option<usize> {
         | Evenement::Usage { main, .. }
         | Evenement::Constat { main, .. }
         | Evenement::Fin { main, .. }
+        | Evenement::Coupure { main, .. }
         | Evenement::Perimee { main, .. }
         | Evenement::Verdict { main, .. }
         | Evenement::Gel { main, .. }
@@ -3576,6 +3578,9 @@ mod quota {
             baux: Baux::new(),
             rangs: HashMap::new(),
             taches: vec![Etat::Attente],
+            pause: Duration::ZERO,
+            coupures: vec![0],
+            precedentes: vec![None],
             en_vol: vec![(1, 1)],
             arret: None,
         };
@@ -3924,5 +3929,165 @@ mod quota {
         let attendu = ["vague 1", "bail 1", "début 1", "usage 1 m Estime", "fin 1 Rouge Constate", "refus 6030"];
         assert_eq!(histoire(&evenements), attendu, "la tentative 2 n'a ni bail ni début");
         let _ = fs::remove_dir_all(&racine);
+    }
+}
+
+/// Une coupure de l'API : la vague la reçoit comme `tenter` la rend (`Echec::Coupure`), elle repart une fois sans que
+/// la tentative qui suit soit une relance. Les mains sont de vraies fausses mains qui réussissent ; le test remplace
+/// le verdict des tentatives qu'il veut coupées ou rouges, sans fil d'exécution qui court, ni attente (la pause est
+/// nulle).
+mod coupure {
+    use super::*;
+    use crate::conduite::publication::recu_de;
+
+    const API: &str = "main : résultat en erreur (success) : API Error: Overloaded";
+
+    fn coupee(statut: u16) -> Option<Echec> {
+        Some(Echec::Coupure(statut, API.into()))
+    }
+
+    fn rouge() -> Option<Echec> {
+        Some(Echec::Erreur("la preuve est rouge".into()))
+    }
+
+    /// Ce que la vague a rendu d'une tâche, et le fil. `verdicts` remplace, tentative après tentative, le verdict de la
+    /// vraie fausse main (`None` : elle garde le sien, vert) ; la vague finit quand plus aucune main ne court.
+    struct Joue {
+        issue: Result<Pris, String>,
+        evenements: Vec<Evenement>,
+        recu: String,
+        consigne: String,
+    }
+
+    fn jouer(nom: &str, verdicts: Vec<Option<Echec>>) -> Joue {
+        let racine = racine(nom);
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        fs::create_dir_all(&kraken).unwrap();
+        let profil = Profil::faux(main_de_vague(&racine), DELAI);
+        let plan = Plan::copies("objectif", None, 1);
+        let base = base_du_depot(&depot).unwrap();
+        let mut vague = Vague {
+            id: lot(),
+            base,
+            depot: &depot,
+            profil: &profil,
+            plan: &plan,
+            duree: BAIL,
+            fil: Fil::seance(&kraken, "humain"),
+            assemblage: None,
+            juge: None,
+            lecons: Vec::new(),
+            corrige: false,
+            role: crate::coeur::fil::Role::Main,
+            preparation: None,
+            baux: Baux::new(),
+            rangs: HashMap::new(),
+            taches: vec![Etat::Attente],
+            pause: Duration::ZERO,
+            coupures: vec![0],
+            precedentes: vec![None],
+            en_vol: Vec::new(),
+            arret: None,
+        };
+        let (envoi, reception) = mpsc::channel();
+        let mut verdicts = verdicts.into_iter();
+        thread::scope(|s| {
+            vague.depart(s, &envoi, 1, None, false);
+            while !vague.en_vol.is_empty() {
+                let mut message = reception.recv().unwrap();
+                if let Some(Some(echec)) = verdicts.next() {
+                    message.rendu.2 = Err(echec);
+                }
+                vague.recevoir(s, &envoi, message);
+            }
+        });
+        assert!(verdicts.next().is_none(), "toutes les tentatives du test ont joué");
+        let notes = notes(&kraken);
+        let evenements: Vec<Evenement> = notes.iter().map(|note| note.evenement.clone()).collect();
+        let recu = recu_de(&etat(&evenements), &notes, &vague.id).mains();
+        let consigne =
+            fs::read_to_string(kraken.join("bacs").join(vague.main(1)).join(format!("{}.txt", vague.main(1)))).unwrap();
+        let Etat::Finie(issue) = mem::replace(&mut vague.taches[0], Etat::Attente) else { panic!("tâche finie") };
+        let _ = fs::remove_dir_all(&racine);
+        Joue { issue, evenements, recu, consigne }
+    }
+
+    #[test]
+    fn une_coupure_puis_un_succes_est_prise_sans_relance() {
+        let joue = jouer("coupure-succes", vec![coupee(529)]);
+        assert!(joue.issue.is_ok(), "{:?}", joue.issue);
+        let attendu = [
+            "bail 1",
+            "début 1",
+            "fin 1 Rouge Constate",
+            "coupure 1 529",
+            "bail 2",
+            "début 2",
+            "fin 2 Vert Declare",
+            "verdict Prise Declare",
+        ];
+        assert_eq!(histoire(&joue.evenements), attendu);
+        assert_eq!(joue.recu, "2 mains, 0 relance, 0 classée, 1 coupure");
+        assert!(
+            !joue.consigne.contains("Tentative pr"),
+            "la main repart sur sa consigne, sans erreur : {}",
+            joue.consigne
+        );
+    }
+
+    #[test]
+    fn deux_coupures_classent_la_tache_et_disent_la_cause() {
+        let joue = jouer("coupure-coupure", vec![coupee(529), coupee(503)]);
+        assert_eq!(joue.issue.unwrap_err(), "coupure de l'API (503)");
+        let attendu = [
+            "bail 1",
+            "début 1",
+            "fin 1 Rouge Constate",
+            "coupure 1 529",
+            "bail 2",
+            "début 2",
+            "fin 2 Rouge Constate",
+            "coupure 2 503",
+            "verdict Classee Constate",
+        ];
+        assert_eq!(histoire(&joue.evenements), attendu);
+        assert_eq!(joue.recu, "2 mains, 0 relance, 1 classée, 2 coupures");
+    }
+
+    #[test]
+    fn une_coupure_puis_une_erreur_puis_un_succes_compte_une_relance_et_une_coupure() {
+        let joue = jouer("coupure-erreur-succes", vec![coupee(429), rouge()]);
+        assert!(joue.issue.is_ok(), "{:?}", joue.issue);
+        let attendu = [
+            "bail 1",
+            "début 1",
+            "fin 1 Rouge Constate",
+            "coupure 1 429",
+            "bail 2",
+            "début 2",
+            "fin 2 Rouge Constate",
+            "bail 3",
+            "début 3",
+            "fin 3 Vert Declare",
+            "verdict Prise Declare",
+        ];
+        assert_eq!(histoire(&joue.evenements), attendu);
+        assert_eq!(joue.recu, "3 mains, 1 relance, 0 classée, 1 coupure");
+        assert!(joue.consigne.contains("Tentative précédente échouée :\nla preuve est rouge"), "{}", joue.consigne);
+    }
+
+    #[test]
+    fn une_erreur_puis_une_coupure_puis_un_succes_garde_l_erreur_en_contexte() {
+        let joue = jouer("erreur-coupure-succes", vec![rouge(), coupee(500)]);
+        assert!(joue.issue.is_ok(), "{:?}", joue.issue);
+        assert_eq!(joue.recu, "3 mains, 1 relance, 0 classée, 1 coupure");
+        assert!(joue.consigne.contains("Tentative précédente échouée :\nla preuve est rouge"), "{}", joue.consigne);
+    }
+
+    #[test]
+    fn une_erreur_puis_une_erreur_classe_sans_coupure() {
+        let joue = jouer("erreur-erreur", vec![rouge(), rouge()]);
+        assert_eq!(joue.issue.unwrap_err(), "la preuve est rouge");
+        assert_eq!(joue.recu, "2 mains, 1 relance, 1 classée");
     }
 }

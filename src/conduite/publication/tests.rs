@@ -154,6 +154,51 @@ fn le_recu_separe_les_mains_refusees() {
 }
 
 #[test]
+fn le_recu_compte_les_coupures_sans_en_faire_des_relances() {
+    let v = "1761901500000_11_0";
+    let recu = |evenements: &[Evenement]| {
+        let notes: Vec<fil::Note> = evenements
+            .iter()
+            .zip(1..)
+            .map(|(evenement, seq)| fil::Note {
+                seance: "s".into(),
+                seq,
+                instant: "2026-10-31T21:00:00.000Z".into(),
+                origine: "humain".into(),
+                origine_foi: Foi::Declare,
+                evenement: evenement.clone(),
+            })
+            .collect();
+        recu_de(&etat(evenements), &notes, v).mains()
+    };
+    let debut = |main, tentative| Evenement::Debut { vague: v.into(), main, tentative };
+    let coupure = |main, tentative| Evenement::Coupure { vague: v.into(), main, tentative, statut: 529 };
+    let refus = |main| Evenement::Refus {
+        vague: v.into(),
+        main,
+        code: 7007,
+        regle: "règle".into(),
+        preuve: "preuve".into(),
+        correction: "correction".into(),
+        verif: None,
+    };
+    // Sans coupure, la ligne ne change pas : la seconde tentative est une relance.
+    assert_eq!(recu(&[debut(1, 1), debut(1, 2)]), "2 mains, 1 relance, 0 classée");
+    // La tentative qui suit une coupure n'est pas une relance ; une coupure se dit au singulier, puis au pluriel.
+    assert_eq!(recu(&[debut(1, 1), coupure(1, 1), debut(1, 2)]), "2 mains, 0 relance, 0 classée, 1 coupure");
+    let deux = [debut(1, 1), coupure(1, 1), debut(1, 2), coupure(1, 2)];
+    assert_eq!(recu(&deux), "2 mains, 0 relance, 0 classée, 2 coupures");
+    // Une coupure, puis une relance : la tentative 2, qui suit la coupure, n'en est pas une ; la 3 en est une.
+    let relancee = [debut(1, 1), coupure(1, 1), debut(1, 2), debut(1, 3)];
+    assert_eq!(recu(&relancee), "3 mains, 1 relance, 0 classée, 1 coupure");
+    // Une coupure qui n'a pas été suivie d'une tentative ne retire aucune relance à une autre main.
+    let autre = [debut(1, 1), debut(1, 2), debut(2, 1), coupure(2, 1)];
+    assert_eq!(recu(&autre), "3 mains, 1 relance, 0 classée, 1 coupure");
+    // Après les refusées.
+    assert_eq!(recu(&[debut(1, 1), coupure(1, 1), refus(1)]), "1 main, 0 relance, 0 classée, 1 refusée, 1 coupure");
+}
+
+#[test]
 fn le_corps_dit_le_plan_sans_sortie_de_main_ni_chemin() {
     let racine = racine("forge-corps");
     let plan = Plan::lire(

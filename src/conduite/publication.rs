@@ -745,6 +745,9 @@ pub(crate) struct Recu {
     /// Les tentatives, dont les secondes (et au-delà) sont des relances ; les mains classées.
     mains: usize,
     relances: usize,
+    /// Les tentatives qui ont fini sur une coupure de l'API (`main.coupure`). La tentative qui en suit une n'est pas
+    /// une relance.
+    coupures: usize,
     classees: usize,
     /// Les mains qui ont déclaré leur tâche impossible (`IMPOSSIBLE: <raison>`), comptées à part des classées.
     impossibles: usize,
@@ -786,6 +789,13 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
         let mains = vague.mains.values();
         recu.mains += mains.clone().map(|main| main.tentatives.len()).sum::<usize>();
         recu.relances += mains.clone().flat_map(|main| main.tentatives.keys()).filter(|n| **n >= 2).count();
+        // Une tentative qui suit une coupure repart de la même tâche : elle n'est pas une relance.
+        recu.coupures += mains.clone().map(|main| main.coupures.len()).sum::<usize>();
+        let reparties: usize = mains
+            .clone()
+            .map(|main| main.coupures.keys().filter(|n| main.tentatives.contains_key(&(**n + 1))).count())
+            .sum();
+        recu.relances = recu.relances.saturating_sub(reparties);
         recu.classees += mains.clone().filter(|main| matches!(main.verdict, Some((fil::Verdict::Classee, _)))).count();
         recu.impossibles +=
             mains.clone().filter(|main| matches!(main.verdict, Some((fil::Verdict::Impossible, _)))).count();
@@ -833,7 +843,8 @@ impl Recu {
         if self.inconnu { format!("{connu} + inconnu") } else { connu }
     }
 
-    /// `7 mains, 2 relances, 1 classée`, suivi de `, N impossible` et de `, N refusée` seulement quand N > 0.
+    /// `7 mains, 2 relances, 1 classée`, suivi de `, N impossible`, de `, N refusée` et de `, N coupure`
+    /// seulement quand N > 0.
     pub(crate) fn mains(&self) -> String {
         let pluriel = |n: usize, mot: &str| format!("{n} {mot}{}", if n > 1 { "s" } else { "" });
         let (m, r, c) = (self.mains, self.relances, self.classees);
@@ -842,9 +853,13 @@ impl Recu {
             0 => base,
             i => format!("{base}, {}", pluriel(i, "impossible")),
         };
-        match self.refusees {
+        let base = match self.refusees {
             0 => base,
             n => format!("{base}, {}", pluriel(n, "refusée")),
+        };
+        match self.coupures {
+            0 => base,
+            n => format!("{base}, {}", pluriel(n, "coupure")),
         }
     }
 

@@ -8,6 +8,12 @@
 //! main, relance comprise, par ses baux (`bail.rs`) : un résultat périmé est refusé, une tâche n'a jamais deux mains
 //! actives, une main jamais conclue expire seule. Une main tuée à son délai n'est pas relancée.
 //!
+//! Une coupure de l'API (`Echec::Coupure`) n'est pas un échec de la main : la tâche repart une fois, après [`PAUSE`],
+//! sans que cette tentative compte comme une relance (la relance d'une main rouge lui reste). La pause se passe dans
+//! le fil d'exécution de la main qui repart, pas dans la vague, et le bail de cette tentative la couvre. Une seconde
+//! coupure de la même tâche la classe, la cause dite (« coupure de l'API (<statut>) »). Le fil la note après la fin de
+//! la tentative coupée (`main.coupure`).
+//!
 //! Au plus [`MAINS_A_LA_FOIS`] mains tournent ensemble, copies de `--n` comprises : les tâches prêtes qui restent
 //! attendent qu'une main finisse, et partent dans l'ordre du plan. Chaque tâche a son profil, celui de la vague aux
 //! modèles de la tâche (`modele` et `relance` du plan, à défaut ceux du profil), que reçoivent sa main et son
@@ -72,6 +78,8 @@ pub(crate) struct Liens<'a> {
     /// Les leçons du commit de base de la vague dont elle est la suite (relecture, correction, relance de la CI) : elle
     /// les reçoit telles quelles et ne lit rien au commit d'où elle part, qu'un travail de mains a pu faire.
     pub(crate) lecons: Option<&'a [Lecon]>,
+    /// La pause avant qu'une tâche reparte sur une coupure de l'API ; [`PAUSE`] sans elle. Les tests la mettent à zéro.
+    pub(crate) pause: Option<Duration>,
 }
 
 /// Ce que rend une vague partie d'une base donnée ([`lancer_sur`]) : ce que rend [`lancer`], et de quoi la pousser.
@@ -105,6 +113,10 @@ const ATTENTE: Duration = Duration::from_millis(50);
 
 /// Ce que le bail d'une main laisse en plus du délai de la main et de celui de sa preuve.
 const MARGE: Duration = Duration::from_secs(60);
+
+/// La pause d'une tâche avant qu'elle reparte sur une coupure de l'API (une seule fois par tâche). Elle se passe dans
+/// le fil d'exécution de la main qui repart, pas dans la vague, et le bail de cette tentative la couvre.
+const PAUSE: Duration = Duration::from_secs(60);
 
 /// Le début de l'erreur d'une main que Kraken a tuée à son délai, figé : `main_tuee` le reconnaît à ce début.
 const TUEE: &str = "main : temps dépassé";
@@ -202,6 +214,9 @@ pub(crate) fn lancer_avec(
         baux: Baux::new(),
         rangs: (0..).zip(&plan.taches).map(|(rang, tache)| (tache.id.as_str(), rang)).collect(),
         taches: plan.taches.iter().map(|_| Etat::Attente).collect(),
+        pause: liens.pause.unwrap_or(PAUSE),
+        coupures: plan.taches.iter().map(|_| 0).collect(),
+        precedentes: plan.taches.iter().map(|_| None).collect(),
         en_vol: Vec::new(),
         arret: None,
     };
@@ -385,6 +400,14 @@ struct Vague<'a> {
     /// Le rang de chaque tâche dans le plan, par son id.
     rangs: HashMap<&'a str, usize>,
     taches: Vec<Etat>,
+    /// La pause d'une tâche qui repart sur une coupure de l'API ([`PAUSE`]).
+    pause: Duration,
+    /// Le nombre de coupures de l'API de chaque tâche : la première repart, la seconde classe la tâche. Une tentative
+    /// qui suit une coupure n'est pas une relance.
+    coupures: Vec<usize>,
+    /// L'erreur de la tentative d'avant que porte la dernière tentative partie de chaque tâche (`None` à la première) :
+    /// une tentative qui porte une erreur est une relance.
+    precedentes: Vec<Option<String>>,
     /// Les tentatives parties dont le message n'est pas encore arrivé, en (main, tentative).
     en_vol: Vec<(usize, usize)>,
     /// Le refus 7012 qui a arrêté la vague : plus aucune note, ni départ, ni fusion.
@@ -471,7 +494,7 @@ impl<'a> Vague<'a> {
                     self.sauter(k);
                     encore = true;
                 } else if self.en_vol.len() < MAINS_A_LA_FOIS && tache.depend.iter().all(|id| self.assemblee(id)) {
-                    self.depart(s, envoi, k, None);
+                    self.depart(s, envoi, k, None, false);
                 }
             }
         }
@@ -492,11 +515,19 @@ impl<'a> Vague<'a> {
     /// `noter_lancement`), et sa main part dans un fil d'exécution à elle, qui rend un seul message. La main et son
     /// lancement reçoivent le profil de la tâche, celui de la vague aux modèles de la tâche (`Profil::avec_modeles`).
     /// Une note ratée, ou des réglages du bac illisibles, arrêtent la vague, et la main ne part pas. `precedente` est
-    /// l'erreur de la tentative d'avant, que la relance porte en contexte. Une main verte dont la tâche a des
+    /// l'erreur de la tentative d'avant, que la relance porte en contexte. `repartie` : la tentative repart sur une
+    /// coupure de l'API ; sa main attend alors [`PAUSE`] dans son fil d'exécution avant de jouer, et son bail la
+    /// couvre. Une main verte dont la tâche a des
     /// `fichiers` rend une tentative rouge si elle a changé un chemin hors d'eux (`dans_ses_fichiers`). Le juge de la
     /// vague, s'il y en a un, rend le verdict de la main (`tenter`).
-    fn depart<'s>(&mut self, s: &'s Scope<'s, '_>, envoi: &Sender<Message>, k: usize, precedente: Option<String>)
-    where
+    fn depart<'s>(
+        &mut self,
+        s: &'s Scope<'s, '_>,
+        envoi: &Sender<Message>,
+        k: usize,
+        precedente: Option<String>,
+        repartie: bool,
+    ) where
         'a: 's,
     {
         let plan = self.plan;
@@ -547,14 +578,16 @@ impl<'a> Vague<'a> {
             return;
         }
         let (depuis, ms) = (Instant::now(), maintenant());
-        let tentative = match self.baux.ouvrir(k, depuis, self.duree) {
+        let pause = if repartie { self.pause } else { Duration::ZERO };
+        let duree = self.duree + pause;
+        let tentative = match self.baux.ouvrir(k, depuis, duree) {
             Ok(tentative) => tentative,
             Err(refus) => {
                 self.refuser(k, refus, None);
                 return;
             }
         };
-        let echeance = instant(ms.saturating_add(self.duree.as_millis()));
+        let echeance = instant(ms.saturating_add(duree.as_millis()));
         let bail = Evenement::Bail { vague: self.id.clone(), main: k, tentative, echeance: echeance.clone() };
         let debut = Evenement::Debut { vague: self.id.clone(), main: k, tentative };
         // La consigne se note après le lancement (et le fournisseur), avant que la main parte.
@@ -571,7 +604,7 @@ impl<'a> Vague<'a> {
         };
         if !(self.noter(&bail)
             && self.noter(&debut)
-            && self.noter_lancement(&profil, &bac, k, tentative, verifier)
+            && self.noter_lancement(&profil, &bac, k, tentative, verifier, precedente.is_some())
             && self.noter(&note_consigne))
         {
             // La main ne part pas ; son issue garde l'erreur de sa tentative d'avant, s'il y en a une.
@@ -581,6 +614,7 @@ impl<'a> Vague<'a> {
         }
         self.taches[k - 1] = Etat::Partie { bac: bac.clone(), depart: depart.clone(), echeance };
         self.en_vol.push((k, tentative));
+        self.precedentes[k - 1] = precedente.clone();
         let envoi = envoi.clone();
         // Hors du dépôt visé et du bac : la fin de la sortie entre au fil, le fichier s'efface.
         // raccourci : tué en pleine vérification, Kraken laisse le fichier ; monter avec le nœud, qui rangera.
@@ -589,6 +623,10 @@ impl<'a> Vague<'a> {
         // Une tâche de plan sans juge : sa main doit avoir changé un chemin. Les mains qui jugent ont leur contrôle.
         let plan_sans_juge = self.assemblage.is_some() && juge.is_none() && !self.corrige;
         s.spawn(move || {
+            // La pause d'une tentative qui repart sur une coupure de l'API se passe ici, hors de la vague.
+            if !pause.is_zero() {
+                thread::sleep(pause);
+            }
             let rendu = en_message(|| {
                 let (constat, verif, verdict) = tenter(
                     &profil,
@@ -629,7 +667,7 @@ impl<'a> Vague<'a> {
             Ok(Pris { sortie, prouve: false }) => (Couleur::Vert, Foi::Declare, sortie.clone()),
             // La raison d'une main qui déclare l'impossible : rouge, et déclarée, car Kraken n'a rien vu.
             Err(Echec::Impossible(raison)) => (Couleur::Rouge, Foi::Declare, raison.clone()),
-            Err(Echec::Erreur(erreur)) => (Couleur::Rouge, Foi::Constate, erreur.clone()),
+            Err(Echec::Erreur(erreur) | Echec::Coupure(_, erreur)) => (Couleur::Rouge, Foi::Constate, erreur.clone()),
         };
         let vague = self.id.clone();
         // Le jeton : seul se prend un résultat qui porte la tentative du bail ouvert de sa tâche. Un résultat périmé
@@ -664,7 +702,14 @@ impl<'a> Vague<'a> {
         });
         let fin =
             Evenement::Fin { vague: vague.clone(), main: k, tentative, couleur, foi, texte: texte.clone(), verif };
-        let notes: Vec<Evenement> = constat.into_iter().chain(usages).chain(iter::once(fin)).collect();
+        // Une coupure de l'API se note après la fin de la tentative coupée.
+        let coupure = match &verdict {
+            Err(Echec::Coupure(statut, _)) => {
+                Some(Evenement::Coupure { vague: vague.clone(), main: k, tentative, statut: *statut })
+            }
+            _ => None,
+        };
+        let notes: Vec<Evenement> = constat.into_iter().chain(usages).chain(iter::once(fin)).chain(coupure).collect();
         if !notes.iter().all(|note| self.noter(note)) {
             let issue = self.hors_du_fil(&texte);
             self.taches[k - 1] = Etat::Finie(Err(issue));
@@ -680,7 +725,23 @@ impl<'a> Vague<'a> {
                 let issue = if self.noter(&impossible) { erreur } else { self.hors_du_fil(&erreur) };
                 self.taches[k - 1] = Etat::Finie(Err(issue));
             }
-            Err(Echec::Erreur(erreur)) if tentative == 1 => self.relancer(s, envoi, k, bac, erreur),
+            // La première coupure de la tâche repart, après une pause, sans compter comme une relance, avec l'erreur
+            // que portait la tentative coupée ; la seconde la classe, la cause dite.
+            Err(Echec::Coupure(..)) if self.coupures[k - 1] == 0 => {
+                self.coupures[k - 1] = 1;
+                let precedente = self.precedentes[k - 1].clone();
+                self.repartir(s, envoi, k, bac, precedente);
+            }
+            Err(Echec::Coupure(statut, _)) => {
+                let classee = Evenement::Verdict { vague, main: k, verdict: Verdict::Classee, foi: Foi::Constate };
+                let cause = format!("coupure de l'API ({statut})");
+                let issue = if self.noter(&classee) { cause } else { self.hors_du_fil(&cause) };
+                self.taches[k - 1] = Etat::Finie(Err(issue));
+            }
+            // Une relance suit la première tentative de la tâche que ne coupe aucune coupure de l'API.
+            Err(Echec::Erreur(erreur)) if tentative - self.coupures[k - 1] == 1 => {
+                self.relancer(s, envoi, k, bac, erreur);
+            }
             Err(Echec::Erreur(erreur)) => {
                 let classee = Evenement::Verdict { vague, main: k, verdict: Verdict::Classee, foi: Foi::Constate };
                 let issue = if self.noter(&classee) { erreur } else { self.hors_du_fil(&erreur) };
@@ -695,6 +756,24 @@ impl<'a> Vague<'a> {
                     self.taches[k - 1] = Etat::Finie(Err(issue));
                 }
             }
+        }
+    }
+
+    /// Après une première coupure de l'API : la garde du `.claude/` du bac (7006, ou 7009 si git rate), comme avant une
+    /// relance, puis la tentative repart avec `precedente`, l'erreur que portait la tentative coupée, après la pause.
+    fn repartir<'s>(
+        &mut self,
+        s: &'s Scope<'s, '_>,
+        envoi: &Sender<Message>,
+        k: usize,
+        (bac, depart): (&Path, &str),
+        precedente: Option<String>,
+    ) where
+        'a: 's,
+    {
+        match sans_claude(bac, depart) {
+            Ok(()) => self.depart(s, envoi, k, precedente, true),
+            Err(refus) => self.refuser(k, refus, None),
         }
     }
 
@@ -727,7 +806,7 @@ impl<'a> Vague<'a> {
                               neuve.";
             self.refuser(k, Refus::new(Code::MainTuee, preuve, correction), None);
         } else {
-            self.depart(s, envoi, k, Some(erreur));
+            self.depart(s, envoi, k, Some(erreur), false);
         }
     }
 
@@ -910,7 +989,9 @@ impl<'a> Vague<'a> {
         let tache = &self.plan.taches[k - 1];
         let verifier = tache.preuve.as_deref().or(self.plan.preuve.as_deref());
         let profil = self.profil.avec_modeles(tache.modele.as_deref(), tache.relance.as_deref());
-        match profil.demande(bac, verifier, tentative > 1).declaration {
+        // Une relance porte l'erreur d'avant ; une tentative qui repart sur une coupure n'en est pas une.
+        let relance = self.precedentes[k - 1].is_some();
+        match profil.demande(bac, verifier, relance).declaration {
             Some(declaration) => usages_de(&self.id, k, tentative, &declaration.modele, &profil, constat),
             None => Vec::new(),
         }
@@ -941,8 +1022,9 @@ impl<'a> Vague<'a> {
         k: usize,
         tentative: usize,
         verifier: Option<&str>,
+        relance: bool,
     ) -> bool {
-        let Some(declaration) = profil.demande(bac, verifier, tentative > 1).declaration else { return true };
+        let Some(declaration) = profil.demande(bac, verifier, relance).declaration else { return true };
         match reglages_du_bac(bac).map(|reglages| declaration.lancement_selon(&self.id, k, tentative, reglages)) {
             Ok(lancement) => {
                 let fournisseur = declaration.fournisseur(&self.id, k, tentative);
