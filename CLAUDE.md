@@ -1,16 +1,16 @@
 # Lydite
 
-Lydite launches hands (Claude Code sessions, Hermes agents) on work, lets them run, takes back their results and
-handles their failures. Rust; Windows and Linux. This file is the doctrine of the code; the code and its tests are the
-reference, and `README.md` says how to use it.
+Lydite launches hands (Claude Code sessions) on work, lets them run, takes back their results and handles their
+failures. Rust; Windows and Linux. This file is the doctrine of the code; the code and its tests are the reference,
+and `README.md` says how to use it.
 
 ## What holds on its own
 
-A hand runs in a sandbox of its own, with a bounded access lent to it, a filtered network egress, and no root. Its
-proof is the test it runs itself at the end: green is taken, red is a failure to handle. A human decides in five
-cases only: merging into `main`, deploying to a real system, spending beyond a quota, root, publishing. The repository
-is public (MIT): no name of a person, a host or a network in the code, the commits or the pull requests (the `garde`
-workflow looks for them). People are named by their place facing the hands, never by a rank or a job.
+A hand runs in a sandbox of its own, with a bounded access lent to it, a filtered network egress, and no root.
+Its proof is the test that Lydite replays itself at the end: green is taken, red is a failure to handle. A human
+decides in five cases only: merging into `main`, deploying to a real system, spending beyond a quota, root, publishing.
+The repository is public (MIT): no name of a person, a host or a network in the code, the commits or the pull requests
+(the `garde` workflow looks for them). People are named by their place facing the hands, never by a rank or a job.
 
 A change is critical when it changes what Lydite lends, closes, refuses, replays or publishes, or how it reads what a
 hand or the journal gives back: the wall, the forge, the journal, the acceptance of a profile, the reading of plans and
