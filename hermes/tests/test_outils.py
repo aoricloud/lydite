@@ -1,6 +1,7 @@
 """Les outils : la demande vérifiée, le verrou d'approbation, le lancement détaché (avec un faux Lydite, sous
 Linux), l'environnement fermé et la clé du fournisseur."""
 
+import hashlib
 import json
 import os
 import signal
@@ -8,6 +9,7 @@ import sys
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from .chargeur import LINUX, AvecDossier, FauxContexte, plugin, sous_module
@@ -177,6 +179,24 @@ class Demande(AvecOutils):
 
 
 class Verrou(AvecOutils):
+    def compact(self, message):
+        """Le message sans les pliures de l'approbation, pour y retrouver une valeur entière."""
+        return "".join(message.replace("\n" + " " * 9, "").split())
+
+    def bornes(self, message):
+        """Ce que Hermes montre : neuf lignes de 58 caractères au plus."""
+        lignes = message.splitlines()
+        self.assertLessEqual(len(lignes), sous_module("outils").LIGNES_DE_L_APPROBATION, lignes)
+        for ligne in lignes:
+            self.assertLessEqual(len(ligne), sous_module("outils").LARGEUR_DE_L_APPROBATION, ligne)
+
+    def depot_long(self, longueur):
+        """Un dépôt git dont le chemin absolu fait exactement `longueur` caractères."""
+        chemin = self.dossier / ("d" * (longueur - len(str(self.dossier)) - 1))
+        (chemin / ".git").mkdir(parents=True)
+        self.assertEqual(len(str(chemin)), longueur)
+        return chemin
+
     def test_un_autre_outil_passe_sans_question(self):
         self.assertIsNone(self.outils().verrou(tool_name="terminal", args={"command": "ls"}))
         self.assertIsNone(self.outils().verrou(tool_name=sous_module("nom").ETAT, args={}))
@@ -184,21 +204,77 @@ class Verrou(AvecOutils):
     def test_un_lancement_demande_l_approbation_avec_ce_qui_va_partir(self):
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(profil="nautile"))
         self.assertEqual(decision["action"], "approve")
+        message = self.compact(decision["message"])
         for attendu in (str(self.depot), "issue #15", PREUVE, "nautile", "main"):
-            self.assertIn(attendu, decision["message"])
+            self.assertIn(self.compact(attendu), message)
 
-    def test_l_humain_lit_la_preuve_en_entier_sans_retouche(self):
-        preuve = "cargo test\n  && echo " + "a" * 1500 + "\ntrue"
-        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
-        self.assertIn(preuve, decision["message"])
+    def test_les_messages_d_approbation_tiennent_dans_les_bornes(self):
+        cas = (
+            self.demande(),
+            self.demande(issue=None, objectif="ajouter x"),
+            self.demande(issue=None, objectif="ajouter x", observer=True),
+            self.demande_de_plan(),
+        )
+        for args in cas:
+            decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+            self.assertEqual(decision["action"], "approve", decision)
+            self.bornes(decision["message"])
 
-    def test_l_humain_lit_le_plan_en_entier_avec_son_chemin(self):
+    def test_un_depot_de_150_caracteres_tient_dans_les_bornes(self):
+        depot = str(self.depot_long(150))
+        cas = (
+            self.demande(depot=depot),
+            self.demande(issue=None, objectif="ajouter x", depot=depot),
+            self.demande(issue=None, objectif="ajouter x", depot=depot, observer=True),
+            self.demande_de_plan(depot=depot),
+        )
+        for args in cas:
+            decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+            self.assertEqual(decision["action"], "approve", decision)
+            self.bornes(decision["message"])
+
+    def test_une_ligne_de_preuve_de_300_caracteres_tient_dans_les_bornes(self):
+        plan = "plan 1\nobjectif : o\npreuve : " + "p" * 300 + "\n\ntache a\n    faire.\n"
+        args = self.demande_de_plan(texte=plan)
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+        self.assertEqual(decision["action"], "approve")
+        self.bornes(decision["message"])
+
+    def test_un_plan_est_montre_par_son_nom_ses_taches_et_son_empreinte(self):
         args = self.demande_de_plan()
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
         self.assertEqual(decision["action"], "approve")
-        self.assertIn(PLAN.rstrip(), decision["message"])
-        self.assertIn(args["plan"], decision["message"])
-        self.assertIn(str(self.depot), decision["message"])
+        message = decision["message"]
+        lignes = message.splitlines()
+        debut = next(rang for rang, ligne in enumerate(lignes) if ligne.startswith("sha256 : "))
+        empreinte = lignes[debut][len("sha256 : ") :] + lignes[debut + 1].strip()
+        self.assertEqual(empreinte, hashlib.sha256(PLAN.encode("utf-8")).hexdigest())
+        self.assertIn(Path(args["plan"]).name, message)
+        self.assertIn(f"{len(PLAN)} chars", message)
+        self.assertIn("1 tasks", message)
+        self.assertIn("cargo test", message)
+        self.assertNotIn("Écris apercus/LISEZ-MOI.md.", message)
+
+    def test_la_preuve_donnee_se_lit_en_entier_dans_les_bornes(self):
+        preuve = "cargo test " + "a" * 80
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
+        self.assertEqual(decision["action"], "approve")
+        self.assertIn(self.compact(preuve), self.compact(decision["message"]))
+        self.bornes(decision["message"])
+
+    def test_111_caracteres_sont_refuses_et_110_acceptes(self):
+        lancer = sous_module("nom").LANCER
+        outils = self.outils()
+        self.assertEqual(outils.verrou(tool_name=lancer, args=self.demande(preuve="p" * 110))["action"], "approve")
+        self.assertEqual(outils.verrou(tool_name=lancer, args=self.demande(preuve="p" * 111))["action"], "block")
+        self.assertEqual(
+            outils.verrou(tool_name=lancer, args=self.demande(issue=None, objectif="o" * 110))["action"],
+            "approve",
+        )
+        self.assertEqual(
+            outils.verrou(tool_name=lancer, args=self.demande(issue=None, objectif="o" * 111))["action"],
+            "block",
+        )
 
     def test_l_accord_toujours_d_un_plan_ne_vaut_que_pour_ce_texte(self):
         lancer = sous_module("nom").LANCER

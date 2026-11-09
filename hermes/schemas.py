@@ -39,16 +39,18 @@ SCHEMA_LANCER = {
                     "Absolute path of a plan file written by hand (tasks, models, files, and its own `preuve :` line) "
                     "instead of letting Lydite split an issue or objective. Use it when the user gives you the path "
                     "of a plan file to run: pass the path, do not read or execute the plan yourself. Give one of "
-                    "`issue`, `objectif`, `plan`; no `preuve`, no `observer` with it. The human reads the whole plan "
-                    "before approving."
+                    "`issue`, `objectif`, `plan`; no `preuve`, no `observer` with it. Before approving, the human is "
+                    "shown the plan's file name, its SHA-256, its number of tasks and its proof line; Lydite runs "
+                    "exactly those bytes."
                 ),
             },
             "preuve": {
                 "type": "string",
                 "description": (
                     "The command that proves the work done (e.g. 'cargo test && cargo clippy -- -D warnings'). "
-                    "Required with `issue` or `objectif`, not with `plan`. Lydite runs it itself, in each worker's "
-                    "box. It must pass on the untouched base first, or nothing starts."
+                    "Required with `issue` or `objectif`, not with `plan`. It holds in 110 characters; a longer one "
+                    "goes in a script. Lydite runs it itself, in each worker's box. It must pass on the untouched "
+                    "base first, or nothing starts."
                 ),
             },
             "profil": {
