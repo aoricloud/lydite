@@ -5,6 +5,11 @@
 //! le fil ne se lit pas. `lydite etat` y ajoute ses règles : découpage, relecture et CI verte, et le code 0 quand il
 //! n'y a aucune vague, rien n'étant alors affirmé.
 //!
+//! `lydite attendre` attend la fin du lancement qui tient le dossier, puis dit la dernière vague comme `lydite etat`
+//! et en rend le code : 0 si elle est menée à bout et verte ; 1 si elle est rouge, ou finie sans son sceau de fin (un
+//! lancement tué) ; 2 si le fil ne se lit pas ou si un sceau est rompu, et si, faute de dossier tenu comme de vague
+//! neuve en 60 s, il n'y a rien à attendre.
+//!
 //! Un déclaré ne s'affiche jamais comme un fait : il porte toujours son mot (« pris, déclaré : main-… » dans `lancer`,
 //! « prise déclarée, non prouvée » et « mur exigé (déclaré) » dans `lydite etat`), et ne donne jamais le code 0.
 //!
@@ -57,6 +62,7 @@ fn executer() -> Result<ExitCode, Refus> {
         }
         Commande::Accepter(nom) => return accepter_cmd(&nom),
         Commande::Etat => return etat_cmd(),
+        Commande::Attendre => return attendre_cmd(),
         Commande::LirePlan { fichier, decoupe } => return plan_cmd(&fichier, decoupe),
         Commande::LireRemarques { fichier } => return remarques_cmd(&fichier),
         Commande::LireLecons { dossier } => return lecons_cmd(&dossier),
@@ -172,6 +178,11 @@ fn accepter_cmd(nom: &str) -> Result<ExitCode, Refus> {
 
 fn etat_cmd() -> Result<ExitCode, Refus> {
     etat::etat_dans(&dossier::dossier()?)
+}
+
+/// `lydite attendre` : attend la fin du lancement qui tient le dossier, puis dit la dernière vague comme `etat`.
+fn attendre_cmd() -> Result<ExitCode, Refus> {
+    etat::attendre_dans(&dossier::dossier()?, etat::DELAI_D_OUVERTURE, etat::PAUSE_DE_L_ATTENTE)
 }
 
 #[cfg(test)]

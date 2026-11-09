@@ -1348,3 +1348,154 @@ fn le_recu_de_kraken_etat_dit_la_mesure_sur_une_ligne_a_part_quand_un_reglage_es
     let hostile = rendu_de("sans-lecture\n@quelqu'un a dit");
     assert!(hostile.ends_with("\nMeasurement: sans-lecture."), "{hostile}");
 }
+
+// `attendre` : les tests posent le fil et le verrou à la main, et la pause est une fonction qui joue la fin du
+// lancement ; aucun ne dort ni ne dépend d'un fil d'exécution.
+
+/// Un dossier neuf pour `attendre`, vide.
+fn dossier_d_attente(nom: &str) -> std::path::PathBuf {
+    let dossier = env::temp_dir().join(format!("lydite-test-attendre-{nom}-{}", lot()));
+    fs::create_dir_all(&dossier).unwrap();
+    dossier
+}
+
+/// Le verrou qu'un lancement tient sur le dossier, tant que le fichier reste ouvert.
+fn tenu_par_un_lancement(dossier: &Path) -> fs::File {
+    let verrou = dossier.join(crate::branchements::dossier::VERROU);
+    let ouvert = fs::OpenOptions::new().create(true).write(true).truncate(false).open(verrou).unwrap();
+    ouvert.try_lock().unwrap();
+    ouvert
+}
+
+/// Ce qu'un lancement écrit au fil : ces événements, puis, avec `scelle`, le sceau de fin de `V1`.
+fn ecrire_au_fil(dossier: &Path, evenements: &[Evenement], scelle: bool) {
+    let fil = Fil::seance(dossier, "humain");
+    for evenement in evenements {
+        fil.noter(evenement).unwrap();
+    }
+    if scelle {
+        fil.sceller(V1).unwrap();
+    }
+}
+
+/// Une vague d'une main, prise (constatée) ou classée.
+fn vague_d_une_main(verdict_final: (Verdict, Foi)) -> Vec<Evenement> {
+    let couleur = if verdict_final.0 == Verdict::Prise { VERTE } else { ROUGE };
+    vec![
+        ouverture(V1, 1, "Écrire bonjour.txt"),
+        debut(V1, 1, 1),
+        fin(V1, 1, 1, couleur, "fini"),
+        verdict(V1, 1, verdict_final),
+    ]
+}
+
+#[test]
+fn une_vague_qui_finit_pendant_l_attente_fait_sortir_la_commande_avec_son_code() {
+    for (verdict_final, attendu) in [(PRISE, ExitCode::SUCCESS), (CLASSEE, ExitCode::FAILURE)] {
+        let dossier = dossier_d_attente("finit");
+        let mut lancement = Some(tenu_par_un_lancement(&dossier));
+        let mut pauses = 0;
+        // Le lancement tient le dossier, le fil est vide ; il finit pendant la première pause : sa vague et son sceau,
+        // puis le verrou lâché. Aucune pause de grâce n'est donnée (0) : l'attente d'un dossier tenu ne les compte pas.
+        let code = attendre_avec(&dossier, 0, &mut || {
+            pauses += 1;
+            ecrire_au_fil(&dossier, &vague_d_une_main(verdict_final), true);
+            lancement = None;
+        });
+        assert_eq!(code, Ok(attendu), "{verdict_final:?}");
+        assert_eq!(pauses, 1);
+        let _ = fs::remove_dir_all(&dossier);
+    }
+}
+
+#[test]
+fn un_dossier_tenu_longtemps_ne_compte_pas_contre_le_delai_d_ouverture() {
+    let dossier = dossier_d_attente("longtemps");
+    ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), true);
+    let mut lancement = Some(tenu_par_un_lancement(&dossier));
+    let mut pauses = 0;
+    let code = attendre_avec(&dossier, 1, &mut || {
+        pauses += 1;
+        if pauses == 7 {
+            lancement = None;
+        }
+    });
+    assert_eq!(code, Ok(ExitCode::SUCCESS));
+    assert_eq!(pauses, 7, "la sonde attend la fin du lancement, sans compter ses pauses");
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_lancement_tue_sans_sceau_de_fin_rend_1_la_ou_etat_rend_0() {
+    let dossier = dossier_d_attente("tue");
+    let mut lancement = Some(tenu_par_un_lancement(&dossier));
+    // La vague est menée à bout et verte, mais le lancement est mort avant d'écrire son sceau.
+    let code = attendre_avec(&dossier, 0, &mut || {
+        ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), false);
+        lancement = None;
+    });
+    assert_eq!(code, Ok(ExitCode::FAILURE));
+    // C'est le sceau qui manque : `etat` lit le même fil et le dit vert.
+    assert_eq!(etat_dans(&dossier), Ok(ExitCode::SUCCESS));
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_decoupage_observe_sans_sceau_n_est_pas_un_lancement_tue() {
+    let dossier = dossier_d_attente("observe");
+    let mut lancement = Some(tenu_par_un_lancement(&dossier));
+    // `--observer` ne lance aucune vague et ne scelle rien : son découpage pris reste vert.
+    let observe = [decoupeur_pris(PRISE), vec![plan_pris(3)]].concat();
+    let code = attendre_avec(&dossier, 0, &mut || {
+        ecrire_au_fil(&dossier, &observe, false);
+        lancement = None;
+    });
+    assert_eq!(code, Ok(ExitCode::SUCCESS));
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_fil_au_sceau_rompu_rend_2_et_un_fil_illisible_est_un_refus() {
+    let dossier = fil_scelle("attendre-rompu");
+    changer_dans_le_fil(&dossier, "premier", "premiex");
+    let mut lancement = Some(tenu_par_un_lancement(&dossier));
+    let code = attendre_avec(&dossier, 0, &mut || lancement = None);
+    assert_eq!(code, Ok(ExitCode::from(2)));
+    let _ = fs::remove_dir_all(&dossier);
+    // Un fil qu'on ne lit pas (ici un dossier à la place du fichier) : le refus, que `principal` sort en 2.
+    let illisible = dossier_d_attente("illisible");
+    fs::create_dir(illisible.join("fil.jsonl")).unwrap();
+    let refus = attendre_avec(&illisible, 0, &mut || panic!("rien ne s'attend sur un fil illisible")).unwrap_err();
+    assert!(refus.preuve.contains("fil.jsonl"), "{refus}");
+    let _ = fs::remove_dir_all(&illisible);
+}
+
+#[test]
+fn sans_dossier_tenu_ni_vague_neuve_attendre_le_dit_et_sort_en_2() {
+    let dossier = dossier_d_attente("rien");
+    // Une vague d'avant, verte et scellée : ce n'est pas une vague neuve, `attendre` ne la rend pas.
+    ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), true);
+    let mut pauses = 0;
+    let code = attendre_avec(&dossier, 3, &mut || pauses += 1);
+    assert_eq!(code, Ok(ExitCode::from(2)));
+    assert_eq!(pauses, 3, "tout le délai est laissé à une vague pour s'ouvrir");
+    // Sans délai, une seule sonde et pas une pause.
+    assert_eq!(attendre_avec(&dossier, 0, &mut || panic!("pas de pause")), Ok(ExitCode::from(2)));
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn une_vague_qui_s_ouvre_et_finit_pendant_le_delai_est_rendue_sans_avoir_vu_le_dossier_tenu() {
+    let dossier = dossier_d_attente("ouvre");
+    let mut pauses = 0;
+    // Le lancement part et finit entre deux sondes : la sonde ne le voit pas, le fil le montre.
+    let code = attendre_avec(&dossier, 5, &mut || {
+        pauses += 1;
+        if pauses == 2 {
+            ecrire_au_fil(&dossier, &vague_d_une_main(CLASSEE), true);
+        }
+    });
+    assert_eq!(code, Ok(ExitCode::FAILURE));
+    assert_eq!(pauses, 2);
+    let _ = fs::remove_dir_all(&dossier);
+}

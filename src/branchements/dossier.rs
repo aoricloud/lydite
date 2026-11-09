@@ -11,8 +11,8 @@ use std::sync::{Mutex, PoisonError};
 
 use crate::coeur::erreur::{Code, Refus, nommee};
 use crate::coeur::fil::{
-    Base, Evenement, IssueVague, Lecture, SceauVague, ligne_d_issue, ligne_de_note, ligne_de_sceau, lire_octets, lot,
-    origine_lue, premier_sceau_rompu,
+    Base, Evenement, IssueVague, Lecture, SceauLu, SceauVague, ligne_d_issue, ligne_de_note, ligne_de_sceau,
+    lire_octets, lot, origine_lue, premier_sceau_rompu,
 };
 use crate::coeur::profil::{self, Profil, empreinte, integre};
 
@@ -55,6 +55,18 @@ static TENUS: Mutex<Vec<(PathBuf, fs::File)>> = Mutex::new(Vec::new());
 /// Les vagues d'un même lancement le redemandent sans se refuser : un dossier déjà tenu par ce processus est tenu. Un
 /// autre lancement qui le tient est le refus 6032.
 pub(crate) fn tenir(dossier: &Path) -> Result<(), Refus> {
+    tenir_en(dossier, REESSAIS, &mut || std::thread::sleep(PAUSE_DU_REESSAI))
+}
+
+/// Combien de fois un lancement réessaie le verrou avant de refuser en 6032, et la pause entre deux essais : la sonde
+/// de `lydite attendre` ([`sonder`]) le tient un instant, et ne doit jamais faire refuser un lancement. Un autre
+/// lancement qui le tient pour de bon le garde bien plus longtemps que ces 200 ms.
+const REESSAIS: u32 = 10;
+const PAUSE_DU_REESSAI: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// [`tenir`] avec ses réessais en paramètre : `pause` est appelée entre deux essais, au plus `reessais` fois, pour que
+/// les tests n'attendent pas en temps réel.
+fn tenir_en(dossier: &Path, reessais: u32, pause: &mut dyn FnMut()) -> Result<(), Refus> {
     let mut tenus = TENUS.lock().unwrap_or_else(PoisonError::into_inner);
     if tenus.iter().any(|(tenu, _)| tenu == dossier) {
         return Ok(());
@@ -68,19 +80,47 @@ pub(crate) fn tenir(dossier: &Path) -> Result<(), Refus> {
         .truncate(false)
         .open(&chemin)
         .map_err(|e| nommee(e, format!("ouverture du verrou {}", chemin.display())))?;
-    match fichier.try_lock() {
-        Ok(()) => {
-            tenus.push((dossier.to_path_buf(), fichier));
-            Ok(())
+    let mut restants = reessais;
+    loop {
+        match fichier.try_lock() {
+            Ok(()) => {
+                tenus.push((dossier.to_path_buf(), fichier));
+                return Ok(());
+            }
+            Err(fs::TryLockError::WouldBlock) if restants > 0 => {
+                restants -= 1;
+                pause();
+            }
+            Err(fs::TryLockError::WouldBlock) => {
+                return Err(Refus::new(
+                    Code::DossierPris,
+                    format!("un autre lancement tient le dossier {} (verrou {})", dossier.display(), chemin.display()),
+                    "Attends la fin de l'autre lancement, ou prends un autre dossier avec LYDITE_DOSSIER, puis \
+                     relance.",
+                ));
+            }
+            Err(fs::TryLockError::Error(e)) => {
+                return Err(nommee(e, format!("verrou du dossier de Lydite {}", chemin.display())).into());
+            }
         }
-        Err(fs::TryLockError::WouldBlock) => Err(Refus::new(
-            Code::DossierPris,
-            format!("un autre lancement tient le dossier {} (verrou {})", dossier.display(), chemin.display()),
-            "Attends la fin de l'autre lancement, ou prends un autre dossier avec LYDITE_DOSSIER, puis relance.",
-        )),
-        Err(fs::TryLockError::Error(e)) => {
-            Err(nommee(e, format!("verrou du dossier de Lydite {}", chemin.display())).into())
-        }
+    }
+}
+
+/// Un lancement tient-il ce dossier ? Le verrou se sonde un instant, en partage, et se lâche aussitôt : il n'est pas
+/// gardé, et ne crée ni le dossier ni le fichier. Un dossier sans fichier de verrou n'est tenu par personne. Un
+/// lancement qui tombe sur la sonde réessaie ([`tenir`]) avant de refuser.
+pub(crate) fn sonder(dossier: &Path) -> Result<bool, Refus> {
+    let chemin = dossier.join(VERROU);
+    let fichier = match OpenOptions::new().read(true).open(&chemin) {
+        Ok(fichier) => fichier,
+        Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory) => return Ok(false),
+        Err(e) => return Err(nommee(e, format!("ouverture du verrou {}", chemin.display())).into()),
+    };
+    match fichier.try_lock_shared() {
+        // `fichier` se ferme en sortant : le système lâche le verrou.
+        Ok(()) => Ok(false),
+        Err(fs::TryLockError::WouldBlock) => Ok(true),
+        Err(fs::TryLockError::Error(e)) => Err(nommee(e, format!("sonde du verrou {}", chemin.display())).into()),
     }
 }
 
@@ -252,16 +292,27 @@ pub(crate) fn lire_tout(kraken: &Path) -> Result<(Lecture, Vec<IssueVague>), Ref
 /// Le fil lu une fois, comme [`lire_tout`], avec de plus le premier de ses sceaux qui ne tient plus
 /// ([`premier_sceau_rompu`]), `None` si tous tiennent ou s'il n'y en a pas.
 pub(crate) fn lire_scelle(kraken: &Path) -> Result<(Lecture, Vec<IssueVague>, Option<SceauVague>), Refus> {
+    lire_avec_sceaux(kraken).map(|(lecture, issues, _, rompu)| (lecture, issues, rompu))
+}
+
+/// Ce que [`lire_avec_sceaux`] rend : les notes et écarts, les issues, tous les sceaux dans l'ordre du fil, et le
+/// premier sceau rompu.
+pub(crate) type FilScelle = (Lecture, Vec<IssueVague>, Vec<SceauLu>, Option<SceauVague>);
+
+/// Le fil lu une fois, comme [`lire_scelle`], avec de plus tous ses sceaux, dans l'ordre du fil.
+pub(crate) fn lire_avec_sceaux(kraken: &Path) -> Result<FilScelle, Refus> {
     let chemin = kraken.join(FICHIER);
     // `fs::read` ouvre en partage lecture, écriture et effacement : une note passe pendant la lecture.
     let octets = match fs::read(&chemin) {
         Ok(octets) => octets,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((Lecture::default(), Vec::new(), None)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return Ok((Lecture::default(), Vec::new(), Vec::new(), None));
+        }
         Err(e) => return Err(nommee(e, format!("lecture du fil {}", chemin.display())).into()),
     };
     let (lecture, issues, sceaux) = lire_octets(&chemin, &octets)?;
     let rompu = premier_sceau_rompu(&octets, &sceaux).cloned();
-    Ok((lecture, issues, rompu))
+    Ok((lecture, issues, sceaux, rompu))
 }
 
 /// Les sceaux du fil de `kraken`, dans l'ordre du fil, pour les essais.

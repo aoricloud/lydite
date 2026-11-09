@@ -119,7 +119,7 @@ fn assert_regle(refus: &Refus) {
 /// avec ses trois drapeaux.
 fn assert_usage(refus: &Refus) {
     let lancer = r#"lydite lancer <profil> "<objectif>" [--n N] [--verifier "<commande>"] [--depot <chemin>]"#;
-    for morceau in [lancer, "lydite accepter <profil>", "lydite etat"] {
+    for morceau in [lancer, "lydite accepter <profil>", "lydite etat", "lydite attendre"] {
         assert!(refus.correction.contains(morceau), "la correction donne l'usage ({morceau}) : {refus:?}");
     }
 }
@@ -149,6 +149,8 @@ fn toute_sortie_en_2_est_un_refus_en_quatre_lignes() {
     // Pas de commande, une commande sans ses arguments : la ligne se refuse avant toute main.
     assert_eq!(refus(&mut kraken()), "lydite : 1006 contrat.commande_mal_formee");
     assert_eq!(refus(kraken().arg("lancer")), "lydite : 1006 contrat.commande_mal_formee");
+    // `attendre` ne prend aucun argument, comme `etat` : le refus tombe avant toute attente.
+    assert_eq!(refus(kraken().args(["attendre", "x"])), "lydite : 1006 contrat.commande_mal_formee");
     // Un profil inconnu : dans un dépôt et un dossier de Kraken jetables, car le dépôt se lit avant le profil, et le
     // profil dans le dossier de Kraken.
     let (depot, dossier) = (depot_git("quatre-depot"), neuf("quatre-lydite"));

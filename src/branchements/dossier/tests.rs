@@ -34,6 +34,69 @@ fn un_dossier_que_tient_un_autre_est_refuse_en_6032_et_se_prend_des_qu_il_le_lac
     effacer(dir.parent().unwrap());
 }
 
+/// Le verrou d'un autre lancement (ou de la sonde) sur `dir`, que le système tient tant que le fichier reste ouvert.
+fn verrou_d_un_autre(dir: &Path) -> fs::File {
+    let autre = OpenOptions::new().create(true).write(true).truncate(false).open(dir.join(VERROU)).unwrap();
+    autre.try_lock().unwrap();
+    autre
+}
+
+#[test]
+fn un_lancement_qui_tombe_sur_un_verrou_bref_reessaie_et_le_prend() {
+    let dir = racine("reessai").join("kraken");
+    fs::create_dir_all(&dir).unwrap();
+    let mut autre = Some(verrou_d_un_autre(&dir));
+    let mut pauses = 0;
+    // Le verrou se lâche pendant la première pause : la sonde a fini. Le lancement l'a pris, sans refus.
+    tenir_en(&dir, 3, &mut || {
+        pauses += 1;
+        autre = None;
+    })
+    .unwrap();
+    assert_eq!(pauses, 1);
+    // Il le tient bien : une sonde le voit tenu.
+    assert!(sonder(&dir).unwrap());
+    effacer(dir.parent().unwrap());
+}
+
+#[test]
+fn un_verrou_qui_ne_se_lache_pas_est_refuse_en_6032_apres_ses_reessais() {
+    let dir = racine("reessai-vain").join("kraken");
+    fs::create_dir_all(&dir).unwrap();
+    let _autre = verrou_d_un_autre(&dir);
+    let mut pauses = 0;
+    let refus = tenir_en(&dir, 4, &mut || pauses += 1).unwrap_err();
+    assert_eq!(refus.code, Code::DossierPris);
+    assert_eq!(pauses, 4, "un essai de plus que de pauses, puis le refus");
+    effacer(dir.parent().unwrap());
+}
+
+#[test]
+fn la_sonde_dit_le_dossier_tenu_sans_le_garder_ni_rien_creer() {
+    let racine = racine("sonde");
+    let dir = racine.join("kraken");
+    // Ni dossier ni fichier de verrou : personne ne tient, et la sonde ne crée rien.
+    assert!(!sonder(&dir).unwrap());
+    assert!(!dir.exists());
+    fs::create_dir_all(&dir).unwrap();
+    assert!(!sonder(&dir).unwrap());
+    assert!(!dir.join(VERROU).exists(), "la sonde ne crée pas le fichier du verrou");
+    // Un autre lancement le tient : tenu ; lâché : libre.
+    let autre = verrou_d_un_autre(&dir);
+    assert!(sonder(&dir).unwrap());
+    drop(autre);
+    assert!(!sonder(&dir).unwrap());
+    // La sonde ne garde rien : un verrou exclusif se prend aussitôt après, d'un autre fichier.
+    let suivant = verrou_d_un_autre(&dir);
+    drop(suivant);
+    // Une sonde qui tient le verrou en partage fait réessayer `tenir_en`, non refuser : le cas des deux à la fois.
+    let sonde = OpenOptions::new().read(true).open(dir.join(VERROU)).unwrap();
+    sonde.try_lock_shared().unwrap();
+    let mut sonde = Some(sonde);
+    tenir_en(&dir, 1, &mut || sonde = None).unwrap();
+    effacer(&racine);
+}
+
 #[test]
 fn deux_dossiers_se_tiennent_ensemble() {
     let racine = racine("deux-tenus");

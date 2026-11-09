@@ -202,6 +202,18 @@ fn options_lecons_seul() {
 }
 
 #[test]
+fn options_attendre_seul() {
+    assert_eq!(options(&args(&["attendre"])), Ok(Commande::Attendre));
+    // Un mot de plus est le refus 1006, qui nomme ce mot, comme pour `etat`.
+    for mots in [&["attendre", "x"][..], &["attendre", "--n", "1"], &["attendre", "x", "y"]] {
+        let refus = options(&args(mots)).unwrap_err();
+        assert_eq!(refus.code, Code::CommandeMalFormee, "{mots:?}");
+        assert!(refus.preuve.contains(&format!("« {} » le suit", mots[1])), "{refus}");
+    }
+    assert!(USAGE.contains("lydite attendre"), "{USAGE}");
+}
+
+#[test]
 fn options_etat_seul() {
     assert_eq!(options(&args(&["etat"])), Ok(Commande::Etat));
     // Ce qui valait None est le refus 1006 ; l'absence de commande aussi.
