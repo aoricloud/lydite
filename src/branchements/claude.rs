@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 
 use crate::branchements::bac::temporaire_de;
 use crate::branchements::git::IDENTITE;
-use crate::branchements::processus::{SORTIE, attendre, echeance, retire_de_l_env, sans_session, tuer_arbre};
+use crate::branchements::processus::{
+    SORTIE, attendre, echeance, retire_de_l_env, sans_session, tuer_arbre, tuer_les_restes,
+};
 use crate::coeur::erreur::queue;
 use crate::coeur::protocole::{self, Attendu, Constat, DEMANDES, Ligne};
 
@@ -44,6 +46,15 @@ pub(crate) fn jouer(
         None => main.brute(consigne),
         Some(attendu) => main.dialoguer(attendu, consigne, &mut constat),
     });
+    // La main est sortie : ce qu'elle a laissé derrière elle dans son bac meurt. Un échec s'ajoute à son texte, sans
+    // changer son résultat.
+    let jeu = match tuer_les_restes(bac) {
+        Ok(()) => jeu,
+        Err(e) => match jeu {
+            Ok(sortie) => Ok(format!("{sortie} ; mise à mort : {e}")),
+            Err(erreur) => Err(format!("{erreur} ; mise à mort : {e}")),
+        },
+    };
     (attendu.map(|_| constat), jeu)
 }
 
