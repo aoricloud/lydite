@@ -107,6 +107,7 @@ The optional `mesure` key is made for a measurement bench only, never for a real
 
 ```bash
 lydite accepter <name>        # shows the profile and accepts its fingerprint; a changed profile must be accepted again
+lydite profil <name>          # read-only: loads the profile as `lancer` does and says its source, fingerprint, models, wall (required or requested), where the proof is replayed, the per-hand ceiling and the two timeouts
 ```
 
 **Run a wave** on an issue of the repository's `origin`, with your proof, from the repository (or with `--depot`):

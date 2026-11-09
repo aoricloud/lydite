@@ -61,6 +61,7 @@ fn executer() -> Result<ExitCode, Refus> {
             (profil, depot, dossier, lire_plan(&plan, plan::Mode::Main)?.0, pr, None)
         }
         Commande::Accepter(nom) => return accepter_cmd(&nom),
+        Commande::Profil(nom) => return profil_cmd(&nom),
         Commande::Etat => return etat_cmd(),
         Commande::Attendre => return attendre_cmd(),
         Commande::LirePlan { fichier, decoupe } => return plan_cmd(&fichier, decoupe),
@@ -173,6 +174,17 @@ fn lecons_cmd(depot: &Path) -> Result<ExitCode, Refus> {
 fn accepter_cmd(nom: &str) -> Result<ExitCode, Refus> {
     let (texte, empreinte) = dossier::accepter(nom, &dossier::dossier()?)?;
     println!("{}\nempreinte : {empreinte}", texte.trim_end());
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `lydite profil <nom>` : charge le profil comme `lancer` (le fichier ou l'intégré, puis l'empreinte acceptée) et
+/// écrit sur stdout ce que la main recevra, une rangée par ligne. Rien d'autre n'est lu ni écrit.
+fn profil_cmd(nom: &str) -> Result<ExitCode, Refus> {
+    let profil = dossier::charger_dans(nom, &dossier::dossier()?)?;
+    profil.garder_selon(dossier::lire_empreinte)?;
+    for rangee in profil.rangees() {
+        println!("{rangee}");
+    }
     Ok(ExitCode::SUCCESS)
 }
 

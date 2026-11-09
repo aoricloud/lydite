@@ -397,6 +397,36 @@ impl Profil {
         }
     }
 
+    /// Ce que `lydite profil` dit de ce profil, une rangée par ligne, dans l'ordre : le nom et sa source, l'empreinte,
+    /// le modèle et la relance, le mur, la preuve, le plafond par main, les deux délais. Tout vient du profil lu, et
+    /// rien d'autre n'est lu. Une main brute n'a pas de fichier : une seule rangée.
+    pub(crate) fn rangees(&self) -> Vec<String> {
+        let Sorte::Claude(claude) = &self.sorte else { return vec!["main brute : aucun profil à lire".into()] };
+        let source = claude.fichier.as_ref().map_or_else(|| "intégré".to_string(), |f| f.display().to_string());
+        let (mur, preuve) = if claude.exige {
+            (
+                "exigé : les commandes de la main tournent dans le bac à sable de Claude Code",
+                "rejouée par srt, dans le mur",
+            )
+        } else {
+            (
+                "demandé : les commandes de la main peuvent tourner hors du bac à sable, et y voient la clé du \
+                 fournisseur s'il y en a un",
+                "rejouée hors du mur",
+            )
+        };
+        vec![
+            format!("profil : {} ({source})", claude.nom),
+            format!("empreinte : {}", claude.empreinte),
+            format!("modèle : {} ; relance : {}", claude.modele, claude.relance),
+            format!("mur : {mur}"),
+            format!("preuve : {preuve}"),
+            format!("plafond par main : {} $", self.plafond()),
+            format!("délai de la main : {} s", self.delai_main.as_secs()),
+            format!("délai de la preuve : {} s", self.delai_preuve.as_secs()),
+        ]
+    }
+
     /// Les réglages de mesure du profil (clé `mesure`) ; aucun pour une main brute.
     pub(crate) fn mesure(&self) -> Mesure {
         self.mesure

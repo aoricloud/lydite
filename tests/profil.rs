@@ -1021,6 +1021,69 @@ fn git_qui_ne_se_lance_pas_est_refuse_en_6006() {
     essai.nettoyer();
 }
 
+/// Les lignes que `lydite profil` écrit sur stdout, quand il sort en 0 sans rien sur stderr.
+fn rangees_du_profil(essai: &Essai, nom: &str) -> Vec<String> {
+    let sortie = essai.kraken().args(["profil", nom]).output().unwrap();
+    assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
+    assert!(sortie.stderr.is_empty(), "{}", dit(&sortie));
+    String::from_utf8_lossy(&sortie.stdout).lines().map(str::to_string).collect()
+}
+
+#[test]
+fn lydite_profil_dit_le_profil_integre_sans_rien_ecrire() {
+    let essai = Essai::nouveau("profil-integre");
+    let attendu = [
+        "profil : claude (intégré)",
+        "empreinte : 7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5",
+        "modèle : sonnet ; relance : sonnet",
+        "mur : exigé : les commandes de la main tournent dans le bac à sable de Claude Code",
+        "preuve : rejouée par srt, dans le mur",
+        "plafond par main : 20 $",
+        "délai de la main : 3600 s",
+        "délai de la preuve : 300 s",
+    ];
+    assert_eq!(rangees_du_profil(&essai, "claude"), attendu);
+    // Lecture seule : le dossier de Kraken, que l'essai n'a pas créé, n'existe toujours pas (ni profil, ni fil).
+    assert!(!essai.dossier.exists(), "lydite profil a créé {}", essai.dossier.display());
+    essai.nettoyer();
+}
+
+#[test]
+fn lydite_profil_dit_un_mur_demande_et_refuse_comme_lancer() {
+    let essai = Essai::nouveau("profil-demande");
+    let (_, empreinte) = essai.profil_accepte("veille", "plafond = 7.5\n");
+    let fichier = essai.dossier.join("profils").join("veille.profil");
+    let attendu = [
+        format!("profil : veille ({})", fichier.display()),
+        format!("empreinte : {empreinte}"),
+        "modèle : haiku ; relance : sonnet".to_string(),
+        "mur : demandé : les commandes de la main peuvent tourner hors du bac à sable, et y voient la clé du \
+         fournisseur s'il y en a un"
+            .to_string(),
+        "preuve : rejouée hors du mur".to_string(),
+        "plafond par main : 7.5 $".to_string(),
+        "délai de la main : 120 s".to_string(),
+        "délai de la preuve : 60 s".to_string(),
+    ];
+    assert_eq!(rangees_du_profil(&essai, "veille"), attendu);
+    // Un profil inconnu, un nom qui sort de `profils` : les refus de `lancer`.
+    assert_eq!(lire_refus(essai.kraken().args(["profil", "inconnu"])).code, "lydite : 6001 lancer.profil_inconnu");
+    assert_eq!(lire_refus(essai.kraken().args(["profil", "../veille"])).code, "lydite : 6007 lancer.profil_nom_refuse");
+    // Changé depuis son acceptation : le refus 6012, comme `lancer`.
+    let texte = fs::read_to_string(&fichier).unwrap();
+    fs::write(&fichier, format!("{texte}\n")).unwrap();
+    let refus = lire_refus(essai.kraken().args(["profil", "veille"]));
+    assert_eq!(refus.code, "lydite : 6012 lancer.profil_change");
+    assert!(refus.correction.contains("lydite accepter veille"), "{refus:?}");
+    // Un profil sans empreinte acceptée : le refus 6011.
+    fs::remove_file(fichier.with_extension("empreinte")).unwrap();
+    assert_eq!(lire_refus(essai.kraken().args(["profil", "veille"])).code, "lydite : 6011 lancer.profil_non_accepte");
+    // Une ligne mal formée : un nom, rien d'autre.
+    assert_eq!(lire_refus(essai.kraken().arg("profil")).code, "lydite : 1006 contrat.commande_mal_formee");
+    assert_usage(&lire_refus(essai.kraken().args(["profil", "a", "b"])));
+    essai.nettoyer();
+}
+
 #[test]
 fn un_profil_non_accepte_ne_part_pas_puis_part_une_fois_accepte() {
     let essai = Essai::nouveau("accepte");
