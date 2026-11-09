@@ -223,7 +223,7 @@ pub(crate) fn tenter(
 }
 
 /// L'échec d'une main qui a rendu `erreur` : une coupure de l'API si son constat en a lu une (`statut`), sinon une
-/// erreur ordinaire.
+/// erreur ordinaire. Une main tuée à son délai (`ErreurMain::Tuee`) est un `Echec::Tuee` si aucune coupure n'a été lue.
 fn echec_de(erreur: ErreurMain, statut: Option<u16>) -> Echec {
     match (statut, erreur) {
         (Some(statut), erreur) => Echec::Coupure(statut, erreur.texte()),
