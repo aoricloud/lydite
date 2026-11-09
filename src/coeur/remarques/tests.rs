@@ -221,13 +221,65 @@ fn un_bloc_manquant_vide_hors_d_ordre_ou_double_est_refuse_en_7015_a_sa_ligne() 
             "remarques 2\nrejoue\n    a\nfichier : a\n".into(),
             "ligne 4 « fichier : a » : la clé « fichier » ne suit aucune ligne `remarque <n>`",
         ),
-        // En forme 1, les blocs ne sont pas une forme : la ligne est hors de la forme.
-        ("remarques 1\nrejoue\n    a\n".into(), "ligne 2 « rejoue » : elle n'est ni vide"),
+        // En forme 1, les blocs ne se lisent pas : la ligne du bloc dit pourquoi.
+        (
+            "remarques 1\nrejoue\n    a\n".into(),
+            "ligne 2 « rejoue » : les blocs `rejoue` et `non rejoue` ne se lisent que sous `remarques 2`",
+        ),
     ];
     for (brut, bout) in cas {
         let refus = refuse(&brut);
         assert!(refus.preuve.contains(bout), "« {bout} » dans la preuve de {brut:?} : {refus}");
     }
+}
+
+const RAPPEL: &str = "Le chiffre de la première ligne est la forme du fichier, jamais un nombre de remarques";
+const ECRIS_2: &str = "le relecteur écrit `remarques 2` quel que soit le nombre de ses remarques, même aucune";
+
+#[test]
+fn une_premiere_ligne_remarques_et_des_chiffres_autres_que_1_et_2_dit_que_le_chiffre_est_la_forme() {
+    for premiere in ["remarques 0", "remarques 3", "remarques 14"] {
+        let refus = refuse(format!("{premiere}\n"));
+        assert!(refus.preuve.contains(&format!("ligne 1 « {premiere} » : la première ligne")), "{refus}");
+        assert!(refus.correction.contains(RAPPEL), "{refus}");
+        assert!(refus.correction.contains(ECRIS_2), "{refus}");
+        assert!(refus.correction.contains("Écris `remarques 2` seul en première ligne (ou `remarques 1`)"), "{refus}");
+    }
+    // Toute autre première ligne garde son refus d'avant, sans le rappel.
+    for premiere in ["remarques deux", "remarques", "remarques ", "remarques 2a", "remarques -1", "Remarques 3"] {
+        let refus = refuse(format!("{premiere}\n"));
+        assert!(!refus.correction.contains(RAPPEL), "{premiere:?} : {refus}");
+        assert_eq!(
+            refus.correction,
+            "Écris `remarques 2` seul en première ligne (ou `remarques 1`) : Lydite ne lit que ces formes, avant \
+             tout le reste.",
+            "{premiere:?}"
+        );
+    }
+}
+
+#[test]
+fn des_blocs_sous_remarques_1_sont_refuses_a_leur_ligne_en_disant_que_le_chiffre_est_la_forme() {
+    for (brut, ligne) in [
+        ("remarques 1\nrejoue\n    a\n", "ligne 2 « rejoue »"),
+        ("remarques 1\n\nnon rejoue\n    a\n", "ligne 3 « non rejoue »"),
+        ("remarques 1\n\nremarque 1\nfichier : a\nbloquante : non\n    x\nrejoue\n    a\n", "ligne 7 « rejoue »"),
+    ] {
+        let refus = refuse(brut);
+        assert!(refus.preuve.contains(ligne), "{refus}");
+        assert!(refus.preuve.contains("ne se lisent que sous `remarques 2`"), "{refus}");
+        assert!(refus.preuve.contains("la première ligne de ce fichier est `remarques 1`"), "{refus}");
+        assert!(refus.correction.contains("Écris `remarques 2` en première ligne"), "{refus}");
+        assert!(refus.correction.contains(RAPPEL) && refus.correction.contains(ECRIS_2), "{refus}");
+    }
+    // Un fichier de forme 1 sans bloc et un fichier de forme 2 valide se lisent comme avant.
+    let un = lire_fichier(b"remarques 1\n\nremarque 1\nfichier : a\nbloquante : non\n    x\n").unwrap();
+    assert_eq!((un.forme, un.remarques.len(), un.rejoue.is_empty()), (1, 1, true));
+    let deux = lire_fichier(b"remarques 2\nrejoue\n    a\nnon rejoue\n    b\n").unwrap();
+    assert_eq!((deux.forme, deux.rejoue, deux.non_rejoue), (2, vec!["a".to_string()], vec!["b".to_string()]));
+    // Le refus de la forme 1 écartée par le juge du relecteur redit que le chiffre est la forme.
+    let refus = lire_fichier(b"remarques 1\n").unwrap().exiger_la_forme_2().unwrap_err();
+    assert!(refus.correction.contains(RAPPEL) && refus.correction.contains(ECRIS_2), "{refus}");
 }
 
 #[test]

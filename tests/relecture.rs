@@ -473,6 +473,8 @@ fn kraken_remarques_sort_en_2_sur_un_refus_de_quatre_lignes_sans_panique() {
         ("vide", Vec::new(), "7015 vague.remarques_illisibles"),
         ("plan", b"plan 1\n".to_vec(), "7015 vague.remarques_illisibles"),
         ("forme-1", b"remarques 1\n".to_vec(), "7015 vague.remarques_illisibles"),
+        ("forme-zero", b"remarques 0\n".to_vec(), "7015 vague.remarques_illisibles"),
+        ("bloc-sous-1", b"remarques 1\nrejoue\n    a\n".to_vec(), "7015 vague.remarques_illisibles"),
         ("sans-texte", b"remarques 1\nremarque 1\nfichier : a\nbloquante : oui\n".to_vec(), "7015"),
         ("hors-numero", juste.replace("remarque 2", "remarque 3").into_bytes(), "7015"),
         ("hors-ordre", juste.replace("ligne : 3\nbloquante : oui", "bloquante : oui\nligne : 3").into_bytes(), "7015"),

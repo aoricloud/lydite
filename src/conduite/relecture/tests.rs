@@ -63,6 +63,19 @@ fn la_consigne_dit_l_objectif_les_taches_critiques_la_regle_le_format_et_la_preu
 }
 
 #[test]
+fn la_consigne_dit_que_le_2_de_la_premiere_ligne_est_la_forme_et_non_un_compte() {
+    let plan = Plan::lire(PLAN.as_bytes()).unwrap();
+    let critiques: Vec<&Tache> = plan.taches.iter().filter(|tache| tache.critique).collect();
+    let consigne = consigne(&plan.objectif, &critiques, &[]);
+    let phrase = "La première ligne du fichier est exactement `remarques 2`, quel que soit le nombre de remarques \
+                  (aucune, une, dix) : le 2 est la forme du fichier, jamais un nombre de remarques.";
+    let apres_forme = consigne.find(FORME).map(|i| i + FORME.len()).expect("l'exemple");
+    let phrase_a = consigne.find(phrase).expect("la phrase");
+    let numerotation = consigne.find("Les remarques sont numérotées 1, 2, 3…").expect("la numérotation");
+    assert!(apres_forme <= phrase_a && phrase_a < numerotation, "{consigne}");
+}
+
+#[test]
 fn le_relecteur_et_la_correction_partent_sur_leurs_cles_du_profil() {
     let plan = Plan::lire(PLAN.as_bytes()).unwrap();
     let critiques: Vec<&Tache> = plan.taches.iter().filter(|tache| tache.critique).collect();
@@ -316,7 +329,16 @@ fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
         let refus = juge(&bac_f, &depart).unwrap_err();
         assert_eq!(refus.code, Code::RemarquesIllisibles, "{refus}");
         assert!(refus.preuve.contains(bout), "{refus}");
+        if nom == "forme-1" {
+            assert!(refus.correction.contains("Le chiffre de la première ligne est la forme du fichier"), "{refus}");
+        }
     }
+    // Un fichier `remarques 0` : le chiffre est la forme, pas un nombre de remarques.
+    let (bac_z, depart) = bac_neuf(&depot, &kraken, "forme-zero");
+    ecrire(&bac_z, REMARQUES, "remarques 0\n");
+    let refus = juge(&bac_z, &depart).unwrap_err();
+    assert_eq!(refus.code, Code::RemarquesIllisibles, "{refus}");
+    assert!(refus.correction.contains("jamais un nombre de remarques"), "{refus}");
     // Un fichier que le dépôt ignore : 7014, bien qu'il soit seul et se lise.
     commiter(&depot, &[(".gitignore", "ignore/\nREMARQUES.lydite\n")]);
     let (bac_e, depart) = bac_neuf(&depot, &kraken, "ignore");
