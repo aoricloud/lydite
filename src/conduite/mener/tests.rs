@@ -157,6 +157,24 @@ fn le_refus_apres_l_ouverture_scelle_la_vague_ouverte_pendant_l_appel_et_elle_se
 }
 
 #[test]
+fn un_refus_6032_ne_scelle_rien_au_fil_d_un_autre_lancement() {
+    let racine = racine("sceau-refus-6032");
+    let kraken = racine.join("lydite");
+    fs::create_dir_all(&kraken).unwrap();
+    let ouverte =
+        Evenement::Vague { vague: "autre".into(), n: 1, depot: "d".into(), verifier: None, objectif: "o".into() };
+    dossier::Fil::seance(&kraken, "humain").noter(&ouverte).unwrap();
+    let pris = Refus::new(Code::DossierPris, "dossier tenu", "Attends.");
+    assert!(sceller_apres_refus(&kraken, &[], &pris).is_none());
+    assert!(dossier::lire_sceaux(&kraken).is_empty());
+    // Le même fil, pour un autre refus, scelle la vague neuve : la garde ne tient qu'au code.
+    let autre = Refus::new(Code::Sautee, "autre", "Relance.");
+    let sceau = sceller_apres_refus(&kraken, &[], &autre).expect("une vague neuve").expect("le sceau s'écrit");
+    assert_eq!(sceau.vague, "autre");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
 fn chaque_copie_se_dit_prise_refusee_ou_classee() {
     let pris = |prouve| -> Result<Pris, String> { Ok(Pris { sortie: "fait".into(), prouve }) };
     assert_eq!(annonce("main-v-1", &pris(true)), "pris : main-v-1");

@@ -46,16 +46,23 @@ pub(crate) fn jouer(
         None => main.brute(consigne),
         Some(attendu) => main.dialoguer(attendu, consigne, &mut constat),
     });
-    // La main est sortie : ce qu'elle a laissé derrière elle dans son bac meurt. Un échec s'ajoute à son texte, sans
-    // changer son résultat.
-    let jeu = match tuer_les_restes(bac) {
-        Ok(()) => jeu,
-        Err(e) => match jeu {
-            Ok(sortie) => Ok(format!("{sortie} ; mise à mort : {e}")),
-            Err(erreur) => Err(format!("{erreur} ; mise à mort : {e}")),
-        },
-    };
+    // La main est sortie : ce qu'elle a laissé derrière elle dans son bac meurt. Un échec ne change pas son résultat
+    // vert.
+    let jeu = apres_la_mise_a_mort(jeu, tuer_les_restes(bac));
     (attendu.map(|_| constat), jeu)
+}
+
+/// Le jeu de la main, une fois ses restes tués : un échec de la mise à mort s'ajoute à une erreur ; une sortie verte
+/// reste intacte (l'échec se dit sur stderr), car son texte se lit encore pour sa dernière ligne.
+pub(crate) fn apres_la_mise_a_mort(jeu: Result<String, String>, mort: Result<(), String>) -> Result<String, String> {
+    match (jeu, mort) {
+        (jeu, Ok(())) => jeu,
+        (Ok(sortie), Err(e)) => {
+            eprintln!("mise à mort des restes de la main : {e}");
+            Ok(sortie)
+        }
+        (Err(erreur), Err(e)) => Err(format!("{erreur} ; mise à mort : {e}")),
+    }
 }
 
 /// D'où vient une ligne de la main.

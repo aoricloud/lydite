@@ -121,13 +121,23 @@ fn ouvertes_au_fil(dossier: &Path) -> Vec<String> {
 
 /// Scelle la vague ouverte au fil depuis l'appel de `lancer_avec` (absente de `connues`, les ouvertes d'avant) : un
 /// refus qui vient après son ouverture la laisse ouverte. Aucune vague neuve, aucun sceau (`None`).
-// raccourci : la vague à sceller se trouve par différence des `vague.ouverte` du fil. Le verrou du dossier d'état
-// (`dossier::tenir`, 6032) règle le cas d'un autre lancement qui écrirait le même fil : il n'y en a pas. Reste une
+// raccourci : la vague à sceller se trouve par différence des `vague.ouverte` du fil. Un lancement refusé en 6032
+// (`dossier::tenir`) ne tenait pas le dossier : la vague neuve est celle d'un autre lancement, il ne scelle rien
+// (`sceller_apres_refus`). Reste une
 // vague ouverte par ce lancement même que `connues` ne distingue pas ; monter vers l'id que `lancer_avec` rend,
 // même sur un refus, si une seconde vague d'un même lancement pouvait s'ouvrir sans l'être par `lancer_la_vague`.
 fn sceller_la_neuve(dossier: &Path, connues: &[String]) -> Option<std::io::Result<SceauVague>> {
     let neuve = ouvertes_au_fil(dossier).into_iter().find(|id| !connues.contains(id))?;
     Some(dossier::Fil::seance(dossier, "humain").sceller(&neuve))
+}
+
+/// Le sceau d'un refus venu de `lancer_avec` : aucun sur 6032, dont le dossier est tenu par un autre lancement et
+/// dont la vague ouverte au fil n'est pas la nôtre ; sinon celui de `sceller_la_neuve`.
+fn sceller_apres_refus(dossier: &Path, connues: &[String], refus: &Refus) -> Option<std::io::Result<SceauVague>> {
+    if refus.code == Code::DossierPris {
+        return None;
+    }
+    sceller_la_neuve(dossier, connues)
 }
 
 /// Les liens de la vague qui relance une CI rouge : son drapeau `relance_ci`, et les leçons de la vague première.
@@ -163,7 +173,7 @@ pub(crate) fn mener_sur(
     let mut menee = match lancer_la_vague(plan, base, liens) {
         Ok(menee) => menee,
         Err(refus) => {
-            if let Some(Err(e)) = sceller_la_neuve(lieu.dossier, &connues) {
+            if let Some(Err(e)) = sceller_apres_refus(lieu.dossier, &connues, &refus) {
                 eprintln!("le sceau de fin du fil ne s'écrit pas : {e}");
             }
             return Err(refus);
