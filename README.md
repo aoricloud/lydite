@@ -354,8 +354,8 @@ reviewer get the list of all lessons, one line each, the same way.
   prompt file, and the lessons given and set aside. Both texts are kept in `consignes/<SHA-256>.txt`.
 - **A sealed thread.** Before it builds the body of its PR, and again when it ends (on every exit, published or not),
   a wave writes a `vague.sceau` line: the journal's length in bytes and the SHA-256 of those bytes. The PR receipt
-  repeats the first one (`Fil sealed at <bytes> bytes: sha256 <hash>.`). `lydite etat` recomputes every seal,
-  names the first one that no longer matches (its wave, its bytes) on stderr, and exits 2. A seal shows a line changed or
+  repeats the first one (`Fil sealed at <bytes> bytes: sha256 <hash>.`). `lydite etat` recomputes every seal, names
+  the first one that no longer matches (its wave, its bytes) on stderr, and exits 2. A seal shows a line changed or
   removed before it. It does not show a line appended after it, nor a journal rewritten with its seals redone (the
   receipt in the PR, off the machine, keeps its own).
 
