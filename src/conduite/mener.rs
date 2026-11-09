@@ -121,8 +121,10 @@ fn ouvertes_au_fil(dossier: &Path) -> Vec<String> {
 
 /// Scelle la vague ouverte au fil depuis l'appel de `lancer_avec` (absente de `connues`, les ouvertes d'avant) : un
 /// refus qui vient après son ouverture la laisse ouverte. Aucune vague neuve, aucun sceau (`None`).
-// raccourci : la vague à sceller se trouve par différence des `vague.ouverte` du fil, donc un autre lancement dans
-// le même dossier pourrait être scellé à sa place ; monter avec le verrou à bail du dossier d'état.
+// raccourci : la vague à sceller se trouve par différence des `vague.ouverte` du fil. Le verrou du dossier d'état
+// (`dossier::tenir`, 6032) règle le cas d'un autre lancement qui écrirait le même fil : il n'y en a pas. Reste une
+// vague ouverte par ce lancement même que `connues` ne distingue pas ; monter vers l'id que `lancer_avec` rend,
+// même sur un refus, si une seconde vague d'un même lancement pouvait s'ouvrir sans l'être par `lancer_la_vague`.
 fn sceller_la_neuve(dossier: &Path, connues: &[String]) -> Option<std::io::Result<SceauVague>> {
     let neuve = ouvertes_au_fil(dossier).into_iter().find(|id| !connues.contains(id))?;
     Some(dossier::Fil::seance(dossier, "humain").sceller(&neuve))

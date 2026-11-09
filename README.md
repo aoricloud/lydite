@@ -71,6 +71,13 @@ On Windows the archive is `lydite-*-windows-x86_64.zip`, with `lydite.exe` insid
 Or build it: `cargo build --release` (the toolchain is pinned by `rust-toolchain.toml`); the binary is
 `target/release/lydite`.
 
+**One launch per state folder.** The state folder (below) holds the thread, `fil.jsonl`, and the day's quota. One
+`lydite lancer` (with or without `--decouper`) holds the folder alone until its process ends, CI included: a second
+launch on the same folder is refused with 6032 (`lancer.dossier_pris`), and its correction says to wait for the other
+one or to take another folder (`LYDITE_DOSSIER`). The waves of one launch do not refuse each other. The hold is an
+operating-system file lock on `lancer.verrou` in the folder, never on the thread: a process that dies or is killed
+loses it and leaves nothing to clean. `lydite etat` and `lydite accepter` do not take it.
+
 **A profile** is a file, `profils/<name>.profil`, in Lydite's state folder (`$LYDITE_DOSSIER`, else
 `$XDG_STATE_HOME/lydite` or `~/.local/state/lydite`; `%USERPROFILE%\.lydite` on Windows). A human writes it, then
 accepts it:

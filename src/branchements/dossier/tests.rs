@@ -2,7 +2,46 @@
 use super::*;
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::fil::{instant, maintenant};
-use crate::essais::{kraken, racine};
+use crate::essais::{effacer, kraken, racine};
+
+#[test]
+fn tenir_cree_le_dossier_et_son_fichier_a_part_du_fil() {
+    let dir = racine("tenir").join("kraken");
+    assert!(!dir.exists());
+    tenir(&dir).unwrap();
+    assert!(dir.join(VERROU).is_file());
+    assert!(!dir.join(FICHIER).exists(), "le verrou n'est pas le fil");
+    // Un lancement qui redemande son dossier (ses autres vagues) ne se refuse pas.
+    tenir(&dir).unwrap();
+    effacer(dir.parent().unwrap());
+}
+
+#[test]
+fn un_dossier_que_tient_un_autre_est_refuse_en_6032_et_se_prend_des_qu_il_le_lache() {
+    let dir = racine("pris-par-un-autre").join("kraken");
+    fs::create_dir_all(&dir).unwrap();
+    // L'autre lancement : un autre processus tient le même verrou du système, que ce fichier-ci fait de même.
+    let autre = OpenOptions::new().create(true).write(true).truncate(false).open(dir.join(VERROU)).unwrap();
+    autre.try_lock().unwrap();
+    let refus = tenir(&dir).unwrap_err();
+    assert_eq!(refus.code, Code::DossierPris);
+    assert!(refus.preuve.contains(&dir.display().to_string()), "{refus}");
+    assert!(refus.correction.contains("Attends la fin de l'autre lancement"), "{refus}");
+    assert!(!dir.join(FICHIER).exists(), "le refus n'écrit pas au fil");
+    // Il ne reste rien du refus : l'autre fini (ou tué), le dossier se prend.
+    drop(autre);
+    tenir(&dir).unwrap();
+    effacer(dir.parent().unwrap());
+}
+
+#[test]
+fn deux_dossiers_se_tiennent_ensemble() {
+    let racine = racine("deux-tenus");
+    let (a, b) = (racine.join("a"), racine.join("b"));
+    tenir(&a).unwrap();
+    tenir(&b).unwrap();
+    effacer(&racine);
+}
 
 #[test]
 fn kraken_dossier_l_emporte_tel_quel() {

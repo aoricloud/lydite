@@ -41,6 +41,56 @@ pub(crate) fn ecrire_consigne(dossier: &Path, texte: &str, correction: &str) -> 
     Ok(chemin)
 }
 
+/// Le fichier du verrou d'un lancement, dans le dossier de Kraken, à part du fil : il ne porte rien, seul compte le
+/// verrou du système qu'un lancement y tient.
+pub(crate) const VERROU: &str = "lancer.verrou";
+
+/// Les dossiers qu'un lancement de ce processus tient, avec le fichier qui porte le verrou : ils ne se lâchent qu'à la
+/// fin du processus, quand le système rend le verrou, mort ou tué.
+static TENUS: Mutex<Vec<(PathBuf, fs::File)>> = Mutex::new(Vec::new());
+
+/// Un lancement (`lydite lancer`) tient le dossier de Kraken pour lui seul jusqu'à la fin de son processus : le fil et
+/// le quota du jour ne sont écrits et lus que par lui. Le dossier se crée ici s'il manque, avec le fichier
+/// [`VERROU`], dont le verrou est celui du système (`File::try_lock`), que la mort du processus lève sans rien laisser.
+/// Les vagues d'un même lancement le redemandent sans se refuser : un dossier déjà tenu par ce processus est tenu. Un
+/// autre lancement qui le tient est le refus 6032.
+pub(crate) fn tenir(dossier: &Path) -> Result<(), Refus> {
+    let mut tenus = TENUS.lock().unwrap_or_else(PoisonError::into_inner);
+    if tenus.iter().any(|(tenu, _)| tenu == dossier) {
+        return Ok(());
+    }
+    fs::create_dir_all(dossier)
+        .map_err(|e| nommee(e, format!("création du dossier de Lydite {}", dossier.display())))?;
+    let chemin = dossier.join(VERROU);
+    let fichier = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(&chemin)
+        .map_err(|e| nommee(e, format!("ouverture du verrou {}", chemin.display())))?;
+    match fichier.try_lock() {
+        Ok(()) => {
+            tenus.push((dossier.to_path_buf(), fichier));
+            Ok(())
+        }
+        Err(fs::TryLockError::WouldBlock) => Err(Refus::new(
+            Code::DossierPris,
+            format!("un autre lancement tient le dossier {} (verrou {})", dossier.display(), chemin.display()),
+            "Attends la fin de l'autre lancement, ou prends un autre dossier avec LYDITE_DOSSIER, puis relance.",
+        )),
+        Err(fs::TryLockError::Error(e)) => {
+            Err(nommee(e, format!("verrou du dossier de Lydite {}", chemin.display())).into())
+        }
+    }
+}
+
+/// Pour les tests d'un seul processus, qui effacent leur dossier : lâche les dossiers tenus sous `racine`, que le
+/// processus tiendrait sinon jusqu'à sa fin.
+#[cfg(test)]
+pub(crate) fn lacher_sous(racine: &Path) {
+    TENUS.lock().unwrap_or_else(PoisonError::into_inner).retain(|(tenu, _)| !tenu.starts_with(racine));
+}
+
 /// Le dossier de Kraken, qui peut ne pas exister encore. Sans chemin absolu pour le dire, le refus 6004 ou 6005.
 pub(crate) fn dossier() -> Result<PathBuf, Refus> {
     let var = env::var_os;

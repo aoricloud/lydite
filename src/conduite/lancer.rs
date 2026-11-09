@@ -19,7 +19,6 @@
 //! le plan, la vague qu'elle corrige, et celle que relit son relecteur.
 
 use std::collections::HashMap;
-use std::fs;
 use std::iter;
 use std::mem;
 use std::panic::{self, AssertUnwindSafe};
@@ -29,10 +28,10 @@ use std::thread::{self, Scope};
 use std::time::{Duration, Instant};
 
 use crate::branchements::bac::{bac, reglages_du_bac, sans_claude};
-use crate::branchements::dossier::{Fil, depense_du_jour, ecrire_consigne, lire_quota};
+use crate::branchements::dossier::{Fil, depense_du_jour, ecrire_consigne, lire_quota, tenir};
 use crate::branchements::git::{faire, geste, lecons_du_commit};
 use crate::coeur::bail::Baux;
-use crate::coeur::erreur::{Code, Refus, nommee};
+use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::fil::{Base, Couleur, Evenement, Foi, IssueVague, Verdict};
 use crate::coeur::fil::{Role, instant, lot, maintenant, refus_en_clair};
 use crate::coeur::lecons::{self, Lecon};
@@ -158,8 +157,8 @@ pub(crate) fn lancer_avec(
         Some(donnees) => donnees.to_vec(),
         None => lecons_du_commit(depot, base)?,
     };
-    fs::create_dir_all(dossier)
-        .map_err(|e| nommee(e, format!("création du dossier de Lydite {}", dossier.display())))?;
+    // Le dossier se crée ici, et le lancement le tient pour lui seul (6032) ; ses autres vagues le trouvent tenu.
+    tenir(dossier)?;
     // Une vague par lancement, nommée par son lot : les ids de ses mains et de ses bacs en sont faits.
     let id = lot();
     let assemblage = match &plan.preuve {

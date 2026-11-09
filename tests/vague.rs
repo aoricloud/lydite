@@ -4,7 +4,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// Une racine neuve et vide, à ce test, dans le dossier temporaire du système : le dépôt visé (`depot`), le dossier de
 /// Kraken (`kraken`, que rien ne crée avant un plan juste) et les plans y vivent côte à côte, hors de ce dépôt-ci.
@@ -100,6 +102,139 @@ fn rien_n_est_parti(racine: &Path) {
     assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "", "ni branche");
     assert_eq!(git(&depot, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "ni worktree");
     assert_eq!(git(&depot, &["status", "--porcelain"]), "");
+}
+
+/// Une preuve qui tient un lancement en vie sans rien attendre du temps : elle pose la marque `marques/demarre`, puis
+/// attend que le test pose `marques/libre`. Elle ne joue qu'après que le lancement a pris son dossier et avant qu'il
+/// n'écrive au fil. Son plafond (une minute) n'est qu'un garde-fou contre une preuve orpheline : le test pose `libre`
+/// à sa fin. Rend la commande de la preuve.
+fn preuve_qui_attend(racine: &Path) -> String {
+    let marques = racine.join("marques");
+    fs::create_dir_all(&marques).unwrap();
+    let (demarre, libre) = (marques.join("demarre"), marques.join("libre"));
+    if cfg!(windows) {
+        let bat = racine.join("attendre.bat");
+        let lignes = [
+            "@echo off".to_string(),
+            format!("echo x> \"{}\"", demarre.display()),
+            "set /a n=0".to_string(),
+            ":boucle".to_string(),
+            format!("if exist \"{}\" exit /b 0", libre.display()),
+            "set /a n+=1".to_string(),
+            "if %n% geq 60 exit /b 1".to_string(),
+            "ping -n 2 127.0.0.1 >nul".to_string(),
+            "goto boucle".to_string(),
+        ];
+        script(&bat, &lignes);
+        bat.display().to_string()
+    } else {
+        let sh = racine.join("attendre.sh");
+        let lignes = [
+            format!("touch '{}'", demarre.display()),
+            "n=0".to_string(),
+            format!("while [ ! -f '{}' ]; do", libre.display()),
+            "  n=$((n + 1))".to_string(),
+            "  [ \"$n\" -ge 600 ] && exit 1".to_string(),
+            "  sleep 0.1".to_string(),
+            "done".to_string(),
+        ];
+        script(&sh, &lignes);
+        format!("sh {}", sh.display())
+    }
+}
+
+/// Un plan d'une tâche, de preuve `preuve`.
+fn plan_de_preuve(racine: &Path, nom: &str, preuve: &str) -> PathBuf {
+    plan(racine, nom, &["plan 1", "objectif : o", &format!("preuve : {preuve}"), "", "tache a", "    Écrire a.txt"])
+}
+
+/// Lance le plan et rend l'enfant dès que sa preuve a posé `marques/demarre` : le lancement tient alors son dossier,
+/// et n'a encore rien écrit au fil. L'attente est celle d'une marque, jamais d'un délai ; son plafond n'est qu'un
+/// garde-fou, et un enfant déjà sorti est dit avec sa sortie.
+fn lancer_et_attendre_sa_preuve(racine: &Path, plan: &Path) -> Child {
+    let mut enfant = commande_du_plan(racine, plan).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let (marque, debut) = (racine.join("marques").join("demarre"), Instant::now());
+    while !marque.exists() {
+        if let Some(statut) = enfant.try_wait().unwrap() {
+            let sortie = enfant.wait_with_output().unwrap();
+            panic!("le lancement est sorti ({statut}) avant sa preuve : {}", String::from_utf8_lossy(&sortie.stderr));
+        }
+        assert!(debut.elapsed() < Duration::from_secs(60), "la preuve n'a jamais démarré");
+        thread::sleep(Duration::from_millis(20));
+    }
+    enfant
+}
+
+/// Libère la preuve qui attend.
+fn liberer(racine: &Path) {
+    fs::write(racine.join("marques").join("libre"), "").unwrap();
+}
+
+#[test]
+fn un_second_lancement_pendant_un_premier_est_refuse_en_6032_sans_rien_ecrire_au_fil() {
+    let racine = racine("pris");
+    depot(&racine);
+    let attend = plan_de_preuve(&racine, "attend.txt", &preuve_qui_attend(&racine));
+    let rapide = plan_de_preuve(&racine, "rapide.txt", "git status");
+    let premier = lancer_et_attendre_sa_preuve(&racine, &attend);
+    // Le premier tient le dossier et n'a pas encore ouvert sa vague : le fil n'existe pas.
+    let fil = racine.join("lydite").join("fil.jsonl");
+    assert!(!fil.exists());
+    let refus = lire_refus(&lancer_le_plan(&racine, &rapide));
+    assert_eq!(refus.code, "lydite : 6032 lancer.dossier_pris");
+    assert!(refus.preuve.contains(&racine.join("lydite").display().to_string()), "{}", refus.preuve);
+    assert!(refus.correction.contains("Attends la fin de l'autre lancement"), "{}", refus.correction);
+    assert!(refus.correction.contains("LYDITE_DOSSIER"), "{}", refus.correction);
+    assert!(!fil.exists(), "le lancement refusé n'a rien écrit au fil");
+    // Le premier finit sans être gêné : sa vague est la seule du fil, et il n'a pas été refusé.
+    liberer(&racine);
+    let fin = premier.wait_with_output().unwrap();
+    let erreur = String::from_utf8_lossy(&fin.stderr);
+    assert_eq!(fin.status.code(), Some(1), "la tâche, sans claude, est classée : {erreur}");
+    assert!(!erreur.contains("6032"), "{erreur}");
+    let fil = fs::read_to_string(&fil).unwrap();
+    assert_eq!(fil.matches(r#""type":"vague.ouverte""#).count(), 1, "{fil}");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn deux_lancements_sur_deux_dossiers_passent() {
+    let racine = racine("deux-dossiers");
+    depot(&racine);
+    let attend = plan_de_preuve(&racine, "attend.txt", &preuve_qui_attend(&racine));
+    let rapide = plan_de_preuve(&racine, "rapide.txt", "git status");
+    let premier = lancer_et_attendre_sa_preuve(&racine, &attend);
+    // Le second prend un autre dossier pendant que le premier tient le sien : il va jusqu'au bout.
+    let autre = racine.join("autre");
+    let second = commande_du_plan(&racine, &rapide).env("LYDITE_DOSSIER", &autre).output().unwrap();
+    let erreur = String::from_utf8_lossy(&second.stderr);
+    assert_eq!(second.status.code(), Some(1), "la tâche, sans claude, est classée : {erreur}");
+    assert!(!erreur.contains("6032"), "{erreur}");
+    assert!(autre.join("fil.jsonl").is_file(), "le second a écrit son fil : {erreur}");
+    assert!(!racine.join("lydite").join("fil.jsonl").exists(), "le premier n'a rien reçu du second");
+    liberer(&racine);
+    let fin = premier.wait_with_output().unwrap();
+    assert_eq!(fin.status.code(), Some(1), "{}", String::from_utf8_lossy(&fin.stderr));
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn un_lancement_tue_laisse_le_dossier_libre_et_le_suivant_part() {
+    let racine = racine("tue");
+    depot(&racine);
+    let attend = plan_de_preuve(&racine, "attend.txt", &preuve_qui_attend(&racine));
+    let rapide = plan_de_preuve(&racine, "rapide.txt", "git status");
+    let mut premier = lancer_et_attendre_sa_preuve(&racine, &attend);
+    premier.kill().unwrap();
+    premier.wait().unwrap();
+    // La preuve orpheline, si elle survit à son lancement, finit d'elle-même.
+    liberer(&racine);
+    let suivant = lancer_le_plan(&racine, &rapide);
+    let erreur = String::from_utf8_lossy(&suivant.stderr);
+    assert_eq!(suivant.status.code(), Some(1), "la tâche, sans claude, est classée : {erreur}");
+    assert!(!erreur.contains("6032"), "{erreur}");
+    assert!(racine.join("lydite").join("fil.jsonl").is_file(), "le suivant a écrit son fil : {erreur}");
+    let _ = fs::remove_dir_all(&racine);
 }
 
 #[test]
