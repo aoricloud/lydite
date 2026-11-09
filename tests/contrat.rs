@@ -119,7 +119,7 @@ fn assert_regle(refus: &Refus) {
 /// avec ses trois drapeaux.
 fn assert_usage(refus: &Refus) {
     let lancer = r#"lydite lancer <profil> "<objectif>" [--n N] [--verifier "<commande>"] [--depot <chemin>]"#;
-    for morceau in [lancer, "lydite accepter <profil>", "lydite etat", "lydite attendre"] {
+    for morceau in [lancer, "lydite accepter <profil>", "lydite profil <profil>", "lydite etat", "lydite attendre"] {
         assert!(refus.correction.contains(morceau), "la correction donne l'usage ({morceau}) : {refus:?}");
     }
 }
