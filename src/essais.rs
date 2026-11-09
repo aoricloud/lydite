@@ -27,6 +27,18 @@ pub(crate) fn racine(nom: &str) -> PathBuf {
     dir
 }
 
+/// Le texte d'un profil d'essai qui ne porte pas sur le mur : sans ligne `mur`, le mur serait exigé, et la main
+/// partirait sous srt. On y ajoute `mur = demande` ; un texte qui dit déjà son mur reste tel quel (une clé redite est
+/// refusée).
+pub(crate) fn avec_mur_demande(texte: &str) -> String {
+    let dit = texte.lines().any(|ligne| ligne.split('=').next().is_some_and(|cle| cle.trim() == "mur"));
+    match (dit, texte.ends_with('\n') || texte.is_empty()) {
+        (true, _) => texte.to_string(),
+        (false, true) => format!("{texte}mur = demande\n"),
+        (false, false) => format!("{texte}\nmur = demande\n"),
+    }
+}
+
 /// Un chemin neuf et unique dans le dossier temporaire du système : il n'existe pas encore.
 pub(crate) fn neuf(nom: &str) -> PathBuf {
     env::temp_dir().join(format!("lydite-test-bac-{nom}-{}", lot()))

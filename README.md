@@ -7,7 +7,7 @@ provider. You launch it from Claude Code or from Hermes, whatever model your Her
 
 You give it an issue (or an objective) and **the command that proves the work done**: the agents' word is never the
 proof. It is a small harness written in Rust, with no dependencies, for Linux and Windows; its workers are called
-*hands*. On Windows the wall is asked for, not held (see **Windows** below).
+*hands*. The wall is required everywhere; on Windows it does not hold (see **Windows** below).
 
 > **Status: early.** Lydite builds itself, and runs on a public test bench, [Mycelium Lab](https://github.com/aoricloud/mycelium-lab)
 > (a simulator whose code its hands write from reviewed issues). The interface is French (commands, messages, docs)
@@ -140,7 +140,7 @@ hand), and gives each task hand (a plan task, the correction, the CI retry) one 
 `<Lydite folder>/consignes/<SHA-256 of the text>.txt` passed by `--append-system-prompt-file`; the splitter and the
 reviewer get the list of all lessons, one line each, the same way.
 
-**Windows.** The wall (the sandbox) is not held under Windows: a profile asks for it there, it does not require it.
+**Windows.** The wall (the sandbox) is required everywhere, Windows included: a profile with no `mur` line, and the built-in `claude` profile, require it. But Claude Code's sandbox and srt do not hold under Windows, so the wall check fails there (6028) before any hand. To launch anyway, knowingly, write `mur = demande` in the profile (for the built-in profile, a file `profils/claude.profil` that repeats its text with `mur = demande`), then `lydite accepter <name>`. Under a requested wall the hand's commands may run outside Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed outside the wall.
 
 ## Claude Code and your accounts
 

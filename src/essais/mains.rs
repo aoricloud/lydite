@@ -37,7 +37,8 @@ pub(crate) fn arbre(dir: &Path) -> Vec<String> {
 /// de connexion de Claude, fictifs, de `dir` : `config` pour `CLAUDE_CONFIG_DIR`, `personnel` pour le dossier
 /// personnel.
 pub(crate) fn profil_borne(texte: &str, dir: &Path) -> Profil {
-    let mut profil = crate::coeur::profil::lire("essai", texte, None, None).unwrap();
+    let texte = crate::essais::avec_mur_demande(texte);
+    let mut profil = crate::coeur::profil::lire("essai", &texte, None, None).unwrap();
     let (config, personnel) = (dir.join("config"), dir.join("personnel"));
     profil.borner(&dir.join("lydite"), &dir.join("depot").join(".git"), Some(&config), Some(&personnel)).unwrap();
     profil

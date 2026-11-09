@@ -151,7 +151,7 @@ fn tenter_ne_rend_de_constat_que_d_une_main_declaree() {
     let journal = dir.join("journal.tmp");
     // Une main Claude que `borner` n'a pas bornée ne part pas, et ne déclare rien : pas de constat, et rien n'est
     // créé à côté de son bac.
-    let libre = crate::coeur::profil::lire("essai", "sorte = claude\n", None, None).unwrap();
+    let libre = crate::coeur::profil::lire("essai", "sorte = claude\nmur = demande\n", None, None).unwrap();
     let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, None, &journal, None, None);
     assert_eq!(constat, None);
     assert!(erreur(verdict).starts_with("main : aucun programme à lancer"));

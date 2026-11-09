@@ -579,9 +579,12 @@ impl Essai {
     /// Écrit le profil `nom` : la fausse claude pour programme, Haiku puis Sonnet, le réseau d'`exemple.test`, des
     /// délais qui bornent un essai qui se perdrait, puis `plus`. Rend son texte.
     fn profil(&self, nom: &str, plus: &str) -> String {
+        // Sans ligne `mur`, le mur est exigé : ces essais ne portent pas sur lui, ils le demandent (une clé redite
+        // est refusée).
+        let mur = if plus.lines().any(|ligne| ligne.trim_start().starts_with("mur")) { "" } else { "mur = demande\n" };
         let texte = format!(
             "# La main d'essai : la fausse claude, Haiku puis Sonnet.\nsorte = claude\nprogramme = {}\nmodele = haiku\n\
-             relance = sonnet\nreseau = exemple.test\ndelai_main = 120\ndelai_preuve = 60\n{plus}",
+             relance = sonnet\nreseau = exemple.test\ndelai_main = 120\ndelai_preuve = 60\n{mur}{plus}",
             self.fausse_claude().display()
         );
         fs::create_dir_all(self.dossier.join("profils")).unwrap();
@@ -1820,9 +1823,9 @@ fn kraken_etat_dit_le_mur() {
 }
 
 /// Le SHA-256 du texte du profil intégré, écrit ici à la main : sa seule source est le texte du fichier de profil.rs.
-/// printf 'sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = demande\ndelai_main = 3600\ndelai_preuve = 300\n' |
+/// printf 'sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = exige\ndelai_main = 3600\ndelai_preuve = 300\n' |
 /// sha256sum
-const EMPREINTE_INTEGREE: &str = "ee807c6e2a903e1409af8950a3e9adfc9ee30326360b0bec5b8f4c5d485e6704";
+const EMPREINTE_INTEGREE: &str = "7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5";
 
 #[test]
 fn le_profil_integre_part_sur_sonnet_et_s_inscrit_sans_etre_garde() {
@@ -1832,19 +1835,19 @@ fn le_profil_integre_part_sur_sonnet_et_s_inscrit_sans_etre_garde() {
     // réseau.
     let (allow, deny) = regles(&essai, &[], &[], &PRET);
     for (n, resultat) in [(1, ECHEC), (2, REUSSITE)] {
-        essai.repondre(n, &reponses("claude-sonnet-5-5", false, &EXCLUES, false, &allow, &deny));
+        essai.repondre(n, &reponses("claude-sonnet-5-5", true, &[], true, &allow, &deny));
         essai.conclure(n, "claude-sonnet-5-5", resultat);
     }
     let lancer = ["lancer", "claude", OBJECTIF, "--verifier", VERIFIER];
     let sortie = essai.kraken().env("LYDITE_CLAUDE", essai.fausse_claude()).args(lancer).output().unwrap();
     assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
-    let reglages = essai.reglages_attendus(false, &EXCLUES, &[], &allow, &deny);
+    let reglages = essai.reglages_attendus(true, &[], &[], &allow, &deny);
     assert_eq!(essai.argv_recus(), [argv_attendu("sonnet", None, &reglages), argv_attendu("sonnet", None, &reglages)]);
     // Le lancement inscrit le profil intégré avec l'empreinte de son texte, jamais gardée : aucun profil n'a été écrit.
     let fil = essai.fil();
     let lancements = lignes_de(&fil, "main.lancement");
     assert_eq!(lancements.len(), 2);
-    let integre = format!(r#""profil":"claude","empreinte":"{EMPREINTE_INTEGREE}","modele":"sonnet","mur":"demande""#);
+    let integre = format!(r#""profil":"claude","empreinte":"{EMPREINTE_INTEGREE}","modele":"sonnet","mur":"exige""#);
     for ligne in lancements {
         assert!(ligne.contains(&integre), "{ligne}");
     }
