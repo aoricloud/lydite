@@ -87,6 +87,8 @@ pub(crate) struct Constat {
     pub(crate) usage: Usage,
     /// `apiKeySource` de l'ouverture : `none` est la connexion de l'abonnement, une autre valeur une clé.
     pub(crate) source_cle: Option<String>,
+    /// Le statut de la coupure de l'API que dit la ligne `result` ([`coupure`]), `None` sinon.
+    pub(crate) coupure: Option<u16>,
 }
 
 /// Les jetons d'une main, ou d'un de ses modèles.
@@ -272,7 +274,8 @@ pub(crate) fn juger_ouverture(attendu: &Attendu, ouverture: &Json) -> (Option<St
 
 /// La sortie de la main : le texte `result` de sa ligne de résultat, vide s'il manque. Un résultat en erreur
 /// (`is_error` vrai, ou un `subtype` autre que `success`) rend `main : résultat en erreur (<subtype>) : <result>`,
-/// sans ` : <result>` s'il n'a pas de texte.
+/// sans ` : <result>` s'il n'a pas de texte. Une coupure de l'API ([`coupure`]) est une erreur de ce texte aussi :
+/// `jouer` la reconnaît à part, dans le constat, pour que la vague la relance sans la compter.
 pub(crate) fn resultat(ligne: &Json) -> Result<String, String> {
     let sortie = texte_de(ligne, "result").unwrap_or_default();
     let en_erreur = champ(ligne, "is_error") == Some(&Json::Booleen(true));
@@ -282,6 +285,23 @@ pub(crate) fn resultat(ligne: &Json) -> Result<String, String> {
     let subtype = texte_de(ligne, "subtype").map_or_else(|| montre(champ(ligne, "subtype")), str::to_string);
     let texte = if sortie.is_empty() { String::new() } else { format!(" : {sortie}") };
     Err(format!("main : résultat en erreur ({subtype}){texte}"))
+}
+
+/// Un statut HTTP d'API qui est une coupure : 408, 429, ou 500 et plus. Un autre statut (400, 401…) est une erreur.
+pub(crate) fn statut_de_coupure(statut: u64) -> bool {
+    matches!(statut, 408 | 429) || statut >= 500
+}
+
+/// Le statut de la coupure de l'API que dit une ligne `result`, `None` si elle n'en dit pas. Une coupure est un
+/// résultat en erreur (`is_error` vrai) dont `api_error_status` (Claude Code 2.1.317) est un statut de
+/// [`statut_de_coupure`] : le fournisseur surchargé, une limite de débit, une erreur 5xx. Un autre statut, `null` ou
+/// absent reste une erreur, que [`resultat`] rend de même dans les deux cas.
+pub(crate) fn coupure(ligne: &Json) -> Option<u16> {
+    if champ(ligne, "is_error") != Some(&Json::Booleen(true)) {
+        return None;
+    }
+    let Some(Json::Nombre(nombre)) = champ(ligne, "api_error_status") else { return None };
+    nombre.parse::<u16>().ok().filter(|statut| statut_de_coupure(u64::from(*statut)))
 }
 
 /// `apiKeySource` de l'ouverture : `none` est la connexion de l'abonnement, une autre valeur une clé.

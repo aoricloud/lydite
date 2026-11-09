@@ -371,6 +371,7 @@ impl Partie {
                         constat.usage.duree_ms = usage.duree_ms;
                         constat.usage.tours = usage.tours;
                     }
+                    constat.coupure = protocole::coupure(&resultat);
                     return self.finir(protocole::resultat(&resultat));
                 }
                 _ => {}

@@ -277,6 +277,15 @@ fn erreur(verdict: Result<Pris, Echec>) -> String {
 }
 
 #[test]
+fn une_coupure_lue_au_constat_est_l_echec_de_la_tentative() {
+    assert_eq!(
+        echec_de("main : résultat en erreur".into(), Some(529)),
+        Echec::Coupure(529, "main : résultat en erreur".into())
+    );
+    assert_eq!(echec_de("main : résultat en erreur".into(), None), Echec::Erreur("main : résultat en erreur".into()));
+}
+
+#[test]
 fn la_consigne_garde_ses_octets() {
     // Sans vérification, la main joue elle-même sa preuve et finit sur PREUVE.
     assert_eq!(

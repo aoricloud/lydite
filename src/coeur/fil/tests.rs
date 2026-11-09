@@ -1219,6 +1219,14 @@ fn chaque_type_fait_l_aller_retour() {
                 r#"lhost:8443","foi":"declare""#,
             ),
         ),
+        (
+            Evenement::Coupure { vague: "v".into(), main: 2, tentative: 1, statut: 529 },
+            r#""type":"main.coupure","vague":"v","main":2,"tentative":1,"statut":529"#,
+        ),
+        (
+            Evenement::Coupure { vague: "v".into(), main: 2, tentative: 2, statut: 429 },
+            r#""type":"main.coupure","vague":"v","main":2,"tentative":2,"statut":429"#,
+        ),
     ];
     let dir = dossier("types");
     let fil = Fil::seance(&dir, "humain");
@@ -1505,6 +1513,89 @@ fn un_usage_hors_domaine_est_mal_forme() {
     }
     let Evenement::Usage { modele, micro_dollars, base, .. } = &notes[0].evenement else { panic!("{notes:?}") };
     assert_eq!((modele.as_str(), *micro_dollars, *base), ("deepseek-flash", 6, Base::Estime));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Une ligne `main.coupure` bien formée, écrite à la main, de la séance `seance` au `seq` donné.
+fn coupure(seance: &str, seq: u64) -> String {
+    format!(
+        concat!(
+            r#"{{"v":2,"seance":"{seance}","seq":{seq},"instant":"2026-10-31T21:03:00.123Z","or"#,
+            r#"igine":"humain","origine_foi":"declare","type":"main.coupure","vague":"v","main""#,
+            r#":1,"tentative":1,"statut":529}}"#,
+        ),
+        seance = seance,
+        seq = seq,
+    )
+}
+
+#[test]
+fn une_coupure_hors_domaine_est_mal_formee() {
+    let dir = dossier("coupure-hors-domaine");
+    let change = |de: &str, par: &str| {
+        let ligne = coupure("s", 0);
+        assert!(ligne.contains(de), "{de} ne s'y trouve pas : {ligne}");
+        ligne.replace(de, par)
+    };
+    // Le statut d'une coupure est 408, 429, ou 500 et plus, sur 16 bits ; rien de plus ne s'écrit.
+    let mauvaises = [
+        (change(r#""statut":529"#, r#""statut":400"#), "statut"),
+        (change(r#""statut":529"#, r#""statut":499"#), "statut"),
+        (change(r#""statut":529"#, r#""statut":70000"#), "statut"),
+        (change(r#""statut":529"#, r#""statut":"529""#), "statut"),
+        (change(r#""statut":529"#, r#""statut":null"#), "statut"),
+        (change(r#""statut":529"#, r#""statut":529.5"#), "statut"),
+        (change(r#","statut":529"#, ""), "statut"),
+        (change(r#""tentative":1"#, r#""tentative":0"#), "tentative"),
+        (change(r#""statut":529"#, r#""statut":529,"foi":"constate""#), "foi"),
+    ];
+    let lignes: Vec<String> = std::iter::once(coupure("s", 0))
+        .chain(mauvaises.iter().map(|(ligne, _)| ligne.clone()))
+        .chain([change(r#""statut":529"#, r#""statut":408"#), change(r#""statut":529"#, r#""statut":599"#)])
+        .enumerate()
+        .map(|(i, ligne)| ligne.replacen(r#""seq":0,"#, &format!(r#""seq":{},"#, i + 1), 1))
+        .collect();
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert_eq!(seqs(&notes), [1, (lignes.len() - 1) as u64, lignes.len() as u64]);
+    assert_eq!(codes(&ecarts), (2..lignes.len() - 1).map(|ligne| (ligne, 1009)).collect::<Vec<_>>(), "et aucun 1010");
+    for ((_, refus), (_, champ)) in ecarts.iter().zip(&mauvaises) {
+        assert!(refus.preuve.contains(&format!("« {champ} »")), "{champ} attendu : {}", refus.preuve);
+    }
+    let statuts: Vec<u16> = notes
+        .iter()
+        .map(|note| match note.evenement {
+            Evenement::Coupure { statut, .. } => statut,
+            ref autre => panic!("{autre:?}"),
+        })
+        .collect();
+    assert_eq!(statuts, [529, 408, 599]);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn le_rejeu_garde_les_coupures_de_chaque_tentative_et_un_fil_sans_elles_se_lit() {
+    let dir = dossier("coupure-rejeu");
+    // Sans `main.coupure`, un fil se lit et ne dit aucune coupure : l'exemple d'avant en est un.
+    poser(&dir, EXEMPLE);
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(ecarts.is_empty(), "{ecarts:?}");
+    let avant: Vec<Evenement> = notes.into_iter().map(|note| note.evenement).collect();
+    assert!(etat(&avant).iter().flat_map(|vague| vague.mains.values()).all(|main| main.coupures.is_empty()));
+    // Avec, la coupure se range sous sa main et sa tentative, avec son statut.
+    let fin = |tentative| Evenement::Fin {
+        vague: "v".into(),
+        main: 1,
+        tentative,
+        couleur: Couleur::Rouge,
+        foi: Foi::Constate,
+        texte: "main : résultat en erreur".into(),
+        verif: None,
+    };
+    let coupee = |tentative, statut| Evenement::Coupure { vague: "v".into(), main: 1, tentative, statut };
+    let evenements = [fin(1), coupee(1, 529), fin(2), coupee(2, 429)];
+    let vague = etat(&evenements).remove(0);
+    assert_eq!(vague.mains[&1].coupures.iter().map(|(t, s)| (*t, *s)).collect::<Vec<_>>(), [(1, 529), (2, 429)]);
     let _ = fs::remove_dir_all(&dir);
 }
 

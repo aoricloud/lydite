@@ -802,7 +802,8 @@ pub(crate) fn lancer(
 }
 /// La variante de [`lancer`] sur une base donnée : la vague part de `base`, un sha du dépôt visé, et non de son `HEAD`.
 /// Tout le reste est celui de `lancer`, à partir du refus 6006 du dossier de Kraken. Rend aussi l'id de la vague, la
-/// tête de son assemblage quand elle finit, et si elle s'est arrêtée (7012).
+/// tête de son assemblage quand elle finit, et si elle s'est arrêtée (7012). La pause d'une tâche qui repart sur une
+/// coupure de l'API y est nulle : un test n'attend pas 60 s.
 #[cfg(test)]
 pub(crate) fn lancer_sur(
     depot: &Path,
@@ -812,7 +813,7 @@ pub(crate) fn lancer_sur(
     bail: Duration,
     base: &str,
 ) -> Result<Menee, Refus> {
-    lancer_avec(depot, dossier, profil, plan, bail, base, Liens::default())
+    lancer_avec(depot, dossier, profil, plan, bail, base, Liens { pause: Some(Duration::ZERO), ..Liens::default() })
 }
 
 /// La première vague des essais de `lydite etat` et de la borne de `--n`.

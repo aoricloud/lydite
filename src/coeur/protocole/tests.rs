@@ -416,6 +416,41 @@ fn le_resultat_donne_la_sortie() {
 }
 
 #[test]
+fn une_coupure_de_l_api_se_reconnait_a_son_statut() {
+    let avec = |is_error: &str, statut: &str| {
+        let ligne = format!(
+            concat!(
+                r#"{{"type":"result","subtype":"success","is_error":{is_error},"api_error_status":{statut},"#,
+                r#""num_turns":1,"result":"API Error"}}"#,
+            ),
+            is_error = is_error,
+            statut = statut,
+        );
+        ligne_json(&ligne)
+    };
+    // Le fournisseur surchargé, une limite de débit, une erreur 5xx, le délai de la requête : des coupures.
+    for statut in [408u16, 429, 500, 503, 529, 599] {
+        let ligne = avec("true", &statut.to_string());
+        assert_eq!(coupure(&ligne), Some(statut), "{statut}");
+        // C'est aussi un résultat en erreur, que `resultat` dit comme avant.
+        assert_eq!(resultat(&ligne), Err("main : résultat en erreur (success) : API Error".into()), "{statut}");
+    }
+    // Un autre statut, ou aucun, reste une erreur.
+    for statut in ["400", "401", "403", "404", "407", "499", "null", "\"529\"", "-1", "529.5"] {
+        assert_eq!(coupure(&avec("true", statut)), None, "{statut}");
+    }
+    assert_eq!(
+        coupure(&ligne_json(&RESULTAT.replace(r#""is_error":false"#, r#""is_error":true"#))),
+        None,
+        "sans statut"
+    );
+    assert_eq!(coupure(&ligne_json(SANS_MUR)), None, "sans statut");
+    // Sans `is_error`, un statut ne fait pas une coupure.
+    assert_eq!(coupure(&avec("false", "529")), None);
+    assert_eq!(coupure(&ligne_json(RESULT_ABONNEMENT)), None, "la ligne réelle d'une main qui réussit");
+}
+
+#[test]
 fn chaque_ligne_se_range() {
     // Les réponses, par l'id de leur demande, avec leur objet `response` ; l'ouverture et les résultats, entiers.
     for (juste, id) in JUSTES.iter().zip(DEMANDES) {

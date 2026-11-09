@@ -576,6 +576,30 @@ fn une_main_qui_sort_en_erreur_apres_son_resultat_est_rouge() {
 }
 
 #[test]
+fn un_resultat_en_erreur_de_l_api_est_une_coupure_dans_le_constat() {
+    let (dir, bac) = bac_jetable("coupure");
+    let en_erreur = |statut: &str| {
+        RESULTAT
+            .replace(r#""is_error":false"#, &format!(r#""is_error":true,"api_error_status":{statut}"#))
+            .replace("fait\\nPREUVE: vert", "API Error")
+    };
+    // 529 (le fournisseur surchargé) est une coupure, quel que soit le code de sortie de la main ; 401 reste une
+    // erreur.
+    for (statut, code, coupure) in [("529", 0, Some(529)), ("429", 3, Some(429)), ("401", 0, None), ("null", 0, None)] {
+        let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(&en_erreur(statut)), Geste::Sortir(code)];
+        let (constat, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
+        assert_eq!(sortie, Err("main : résultat en erreur (success) : API Error".into()), "{statut} code {code}");
+        assert_eq!(constat.unwrap().coupure, coupure, "{statut} code {code}");
+    }
+    // Une main qui réussit n'a pas de coupure.
+    let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(RESULTAT)];
+    let (constat, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
+    assert_eq!(sortie, Ok("fait\nPREUVE: vert".into()));
+    assert_eq!(constat.unwrap().coupure, None);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn une_main_qui_ne_sort_pas_apres_son_resultat_est_tuee_et_son_resultat_compte() {
     // Après `result`, la main a 10 s pour sortir ; sinon son arbre meurt, et le résultat compte.
     let (dir, bac) = bac_jetable("ne-sort-pas");
