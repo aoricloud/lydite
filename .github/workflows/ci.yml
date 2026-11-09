@@ -15,6 +15,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# `cargo test --no-fail-fast` : un binaire de tests rouge n'arrête pas les suivants, et une PR montre d'un coup tous ses
+# échecs, au lieu d'un par tour de CI (vu sur les PR 23, 24, 28 et 29 : une CI Windows rouge par échec caché).
 jobs:
   linux:
     runs-on: ubuntu-latest
@@ -24,7 +26,7 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install --no-self-update
       - run: cargo fmt --check
-      - run: cargo test
+      - run: cargo test --no-fail-fast
       - run: cargo clippy --all-targets -- -D warnings
   windows:
     runs-on: windows-latest
@@ -34,7 +36,7 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install --no-self-update
       - run: cargo fmt --check
-      - run: cargo test
+      - run: cargo test --no-fail-fast
       - run: cargo clippy --all-targets -- -D warnings
   # Les essais de la garde et du contrôle de fusion : un nom à eux, pour ne pas se confondre avec les workflows garde et
   # tete dans les contrôles d'une PR.
