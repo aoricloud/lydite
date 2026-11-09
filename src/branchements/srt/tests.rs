@@ -193,6 +193,16 @@ fn un_mur_exige_que_srt_ne_tient_pas_est_refuse_et_rien_ne_reste() {
         assert_eq!(refus.code, Code::MurRefuse, "{refus}");
         assert!(refus.preuve.starts_with("le mur est exigé, et srt ne joue pas `true` : "), "{refus}");
         assert_eq!(fs::read_dir(kraken.join("bacs")).unwrap().count(), 0);
+        // Le texte du refus est celui du système qui joue le test : seul celui de Windows parle de Windows et du
+        // moyen de lancer quand même.
+        assert_eq!(refus.correction.contains("Sous Windows"), cfg!(windows), "{refus}");
+        assert_eq!(refus.correction.contains("mur = demande"), cfg!(windows), "{refus}");
+        if cfg!(windows) {
+            assert!(refus.correction.contains("profils/claude.profil"), "{refus}");
+            assert!(refus.correction.contains("lydite accepter"), "{refus}");
+        } else {
+            assert!(refus.correction.contains("LYDITE_SRT"), "{refus}");
+        }
     }
     let restes: Vec<_> = fs::read_dir(&kraken).unwrap().map(|e| e.unwrap().file_name()).collect();
     assert_eq!(restes, ["bacs"], "ni réglages ni journal ne restent");

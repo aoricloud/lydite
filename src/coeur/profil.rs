@@ -1,6 +1,8 @@
 //! Le profil d'une main : sa sorte, son modèle, ce qu'on lui prête et ce qu'on lui ferme, et le temps qu'on lui laisse.
 //! C'est un fichier du dossier de Kraken, que l'humain écrit puis accepte (`lydite accepter <nom>`), et que son
-//! empreinte garde avant chaque lancement. Aucun budget : il rendrait la main sous-productive.
+//! empreinte garde avant chaque lancement. Aucun budget : il rendrait la main sous-productive. Un plafond de dépense
+//! par main (`plafond`), non un budget : haut par défaut, il ne bride pas une main normale ; il arrête une main qui
+//! s'emballe et rend la décision à l'humain.
 //!
 //! Le format :
 //!
@@ -43,7 +45,10 @@
 //!     `[A-Za-z0-9_-]`), ce dernier avec `mcp` seulement ;
 //!   - `mcp` : une configuration MCP, un objet JSON sur la ligne, sans clé redite, qui porte l'objet `mcpServers`,
 //!     dont les clés nomment les serveurs : passé tel quel à `--mcp-config` ;
-//!   - `mur`, le bac à sable de Claude Code : `demande` (par défaut) ou `exige` ;
+//!   - `mur`, le bac à sable de Claude Code : `exige` (par défaut, Windows compris) ou `demande`.
+//!     Sous un mur demandé, les commandes de la main peuvent tourner hors du bac à sable de Claude Code, y voient la
+//!     clé du fournisseur, et la preuve se rejoue hors du mur ; `demande` ne vaut que si un profil l'écrit. Le profil
+//!     intégré écrit `mur = exige` ;
 //!   - `reseau` : les domaines que la main joint, en `[A-Za-z0-9.-]`, sans joker ni port ;
 //!   - `lecture` : ce que les commandes de la main lisent hors du bac, des chemins absolus ou en `~/…`, sans `..` ni
 //!     joker (`* ? [ ] { }`), qui ne recouvrent ni le dossier de Kraken ni un dossier de connexion de Claude
@@ -62,7 +67,12 @@
 //!     tâche perd ses deux phrases fixes d'honnêteté et de périmètre). Une autre valeur, ou un réglage redit, est un
 //!     refus de profil. Le fil les note (`main.consigne.mesure`) et le reçu les dit : « Measurement: <réglages>. » ;
 //!   - `delai_main` (3600 par défaut) et `delai_preuve` (300), en secondes, des entiers positifs : au premier, Kraken
-//!     tue la main ; au second, la preuve qu'il rejoue.
+//!     tue la main ; au second, la preuve qu'il rejoue ;
+//!   - `plafond` (20 par défaut) : le plafond de dépense de chaque main, en dollars, un décimal positif de deux
+//!     décimales au plus (`plafond = 7.5`). Chaque main Claude reçoit `--max-budget-usd <plafond>` : passé le plafond,
+//!     Claude Code l'arrête, et sa tâche est refusée sans relance (7019). Un plafond, non un budget : haut, il ne
+//!     bride pas une main normale ; il arrête une main qui s'emballe, sous-agents compris, et rend la décision à
+//!     l'humain. Une valeur nulle, négative ou mal formée est un refus de profil.
 //! - L'empreinte d'un profil est le SHA-256 des octets de son fichier. `lydite accepter <nom>` l'écrit dans
 //!   `<dossier de Kraken>/profils/<nom>.empreinte`, en 64 hexadécimaux minuscules ; `lydite lancer` refuse un profil
 //!   dont l'empreinte n'est pas celle-là. Le profil intégré a l'empreinte de son texte : elle s'inscrit au fil, sans
@@ -94,13 +104,16 @@ use crate::coeur::plan::hors_forme;
 const DELAI_MAIN: Duration = Duration::from_secs(3600);
 const DELAI_PREUVE: Duration = Duration::from_secs(300);
 
+/// Le plafond de dépense d'une main qui ne le dit pas, en centimes de dollar : 20 dollars.
+const PLAFOND_MAIN: u64 = 2000;
+
 /// Le profil `claude` intégré, au format du fichier. Sonnet, et non le défaut du compte (Opus) : `--model` s'écrit
 /// toujours.
 const INTEGRE: &str =
-    "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = demande\ndelai_main = 3600\ndelai_preuve = 300\n";
+    "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = exige\ndelai_main = 3600\ndelai_preuve = 300\n";
 
 /// Les clés d'un profil, et aucune autre.
-const CLES: [&str; 18] = [
+const CLES: [&str; 19] = [
     "sorte",
     "programme",
     "modele",
@@ -118,6 +131,7 @@ const CLES: [&str; 18] = [
     "proteges",
     "delai_main",
     "delai_preuve",
+    "plafond",
     "mesure",
 ];
 
@@ -217,6 +231,8 @@ pub(crate) struct Profil {
     sorte: Sorte,
     delai_main: Duration,
     delai_preuve: Duration,
+    /// Le plafond de dépense de chaque main, en centimes de dollar (`plafond`).
+    plafond: u64,
     /// Les chemins que nulle main ne change : [`LECONS`] d'abord, toujours, puis ceux de `proteges`, de la forme des
     /// `fichiers` d'une tâche.
     proteges: Vec<String>,
@@ -371,6 +387,46 @@ impl Profil {
         self.delai_main
     }
 
+    /// Le plafond de dépense de chaque main, en dollars, tel que la ligne de commande le porte : `20`, `7.5`, `0.25`.
+    pub(crate) fn plafond(&self) -> String {
+        let (dollars, centimes) = (self.plafond / 100, self.plafond % 100);
+        match centimes {
+            0 => dollars.to_string(),
+            c if c % 10 == 0 => format!("{dollars}.{}", c / 10),
+            c => format!("{dollars}.{c:02}"),
+        }
+    }
+
+    /// Ce que `lydite profil` dit de ce profil, une rangée par ligne, dans l'ordre : le nom et sa source, l'empreinte,
+    /// le modèle et la relance, le mur, la preuve, le plafond par main, les deux délais. Tout vient du profil lu, et
+    /// rien d'autre n'est lu. Une main brute n'a pas de fichier : une seule rangée.
+    pub(crate) fn rangees(&self) -> Vec<String> {
+        let Sorte::Claude(claude) = &self.sorte else { return vec!["main brute : aucun profil à lire".into()] };
+        let source = claude.fichier.as_ref().map_or_else(|| "intégré".to_string(), |f| f.display().to_string());
+        let (mur, preuve) = if claude.exige {
+            (
+                "exigé : les commandes de la main tournent dans le bac à sable de Claude Code",
+                "rejouée par srt, dans le mur",
+            )
+        } else {
+            (
+                "demandé : les commandes de la main peuvent tourner hors du bac à sable, et y voient la clé du \
+                 fournisseur s'il y en a un",
+                "rejouée hors du mur",
+            )
+        };
+        vec![
+            format!("profil : {} ({source})", claude.nom),
+            format!("empreinte : {}", claude.empreinte),
+            format!("modèle : {} ; relance : {}", claude.modele, claude.relance),
+            format!("mur : {mur}"),
+            format!("preuve : {preuve}"),
+            format!("plafond par main : {} $", self.plafond()),
+            format!("délai de la main : {} s", self.delai_main.as_secs()),
+            format!("délai de la preuve : {} s", self.delai_preuve.as_secs()),
+        ]
+    }
+
     /// Les réglages de mesure du profil (clé `mesure`) ; aucun pour une main brute.
     pub(crate) fn mesure(&self) -> Mesure {
         self.mesure
@@ -472,6 +528,7 @@ impl Profil {
             sorte: Sorte::Brute(main),
             delai_main: DELAI_MAIN,
             delai_preuve,
+            plafond: PLAFOND_MAIN,
             proteges: vec![LECONS.to_string()],
             mesure: Mesure::default(),
         }
@@ -684,8 +741,9 @@ impl Profil {
     ///
     /// `<programme> -p --input-format stream-json --output-format stream-json --verbose --permission-mode acceptEdits
     /// --permission-prompts none --strict-mcp-config [--mcp-config <mcp>] --setting-sources user --model <m>
-    /// --settings <json>`
+    /// --settings <json> --max-budget-usd <plafond>`
     ///
+    /// - `--max-budget-usd` porte le `plafond` du profil : passé ce plafond, Claude Code arrête la main ;
     /// - `<m>` vaut `modele`, ou `relance` à la relance ; il s'écrit toujours, car sans lui la main tourne sur Opus ;
     /// - `--permission-mode acceptEdits` l'emporte sur un `defaultMode` de `--settings` ou du dépôt visé, et garde les
     ///   outils de fichiers au bac ; avec `--permission-prompts none`, ce qui demanderait une permission est refusé,
@@ -830,6 +888,10 @@ impl Profil {
         }
         argv.extend(["--setting-sources", "user", "--model"].map(String::from));
         argv.extend([modele.clone(), "--settings".to_string(), reglages.clone()]);
+        // raccourci : pour un profil qui nomme un autre fournisseur (`api`), Claude Code compte la dépense aux prix
+        // qu'il connaît, peut-être nuls ; le plafond peut alors ne jamais jouer. Monter vers un compte de Lydite au
+        // prix du profil (`prix`) si un banc le montre.
+        argv.extend(["--max-budget-usd".to_string(), self.plafond()]);
         if let Some(consigne) = consigne {
             argv.extend(["--append-system-prompt-file".to_string(), consigne.to_string_lossy().into_owned()]);
         }
@@ -923,7 +985,7 @@ pub(crate) fn lire(
         relecteur: "opus".into(),
         fournisseur: None,
         prix: Vec::new(),
-        exige: false,
+        exige: true,
         outils: Vec::new(),
         mcp: None,
         reseau: Vec::new(),
@@ -935,6 +997,7 @@ pub(crate) fn lire(
     let lieu = claude.lieu();
     let refusee = |n: usize, ligne: &str, regle: &str| ligne_refusee(&lieu, nom, n, ligne, regle);
     let (mut delai_main, mut delai_preuve, mut sorte) = (DELAI_MAIN, DELAI_PREUVE, false);
+    let mut plafond = PLAFOND_MAIN;
     let mut vues: Vec<&str> = Vec::new();
     let mut ligne_outils = (0, "");
     // `api` (sa ligne, sa valeur, son hôte) et `cle` (sa ligne, sa valeur), réunies après la lecture.
@@ -1062,6 +1125,10 @@ pub(crate) fn lire(
                 }
                 proteges = std::iter::once(LECONS.to_string()).chain(liste()).collect();
             }
+            "plafond" => match centimes(valeur) {
+                Some(centimes) => plafond = centimes,
+                None => return refus("un plafond est un nombre positif de dollars, deux décimales au plus"),
+            },
             _ => {
                 // `delai_main` ou `delai_preuve` : des chiffres seuls, sans signe, et plus que zéro.
                 let secondes = valeur.bytes().all(|c| c.is_ascii_digit()).then(|| valeur.parse::<u64>().ok());
@@ -1113,7 +1180,7 @@ pub(crate) fn lire(
             format!("Ajoute la ligne « sorte = claude » à {lieu}, puis accepte le profil : lydite accepter {nom}."),
         ));
     }
-    Ok(Profil { sorte: Sorte::Claude(Box::new(claude)), delai_main, delai_preuve, proteges, mesure })
+    Ok(Profil { sorte: Sorte::Claude(Box::new(claude)), delai_main, delai_preuve, plafond, proteges, mesure })
 }
 
 /// Le chemin absolu en forme POSIX d'une règle de permission de Claude Code : `//` puis le chemin, `C:\x` donnant
@@ -1222,6 +1289,19 @@ fn prix_de(element: &str) -> Option<(&str, Prix)> {
     let cache_lu = mots.next().map(micro_dollars).unwrap_or(Some(entree))?;
     let cache_ecrit = mots.next().map(micro_dollars).unwrap_or(Some(entree))?;
     mots.next().is_none().then_some((modele, Prix { entree, sortie, cache_lu, cache_ecrit }))
+}
+
+/// Un plafond : un décimal strictement positif, sans signe ni exposant, deux décimales au plus, en centimes.
+fn centimes(nombre: &str) -> Option<u64> {
+    let (entier, fraction) = nombre.split_once('.').unwrap_or((nombre, ""));
+    let chiffres = |s: &str| s.bytes().all(|c| c.is_ascii_digit());
+    let permis = !entier.is_empty() && chiffres(entier) && chiffres(fraction) && fraction.len() <= 2;
+    if !permis || (nombre.contains('.') && fraction.is_empty()) {
+        return None;
+    }
+    let fraction: u64 = format!("{fraction:0<2}").parse().ok()?;
+    let total = entier.parse::<u64>().ok()?.checked_mul(100)?.checked_add(fraction)?;
+    (total > 0).then_some(total)
 }
 
 /// Un décimal positif ou nul, sans signe ni exposant, six décimales au plus, en millionièmes.

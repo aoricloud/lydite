@@ -57,11 +57,17 @@ pub(crate) fn rejouer(
 }
 
 /// La correction d'un mur exigé que srt ne tient pas (6028).
-const MUR_REFUSE: &str = "La cause la plus probable : srt, ou le programme d'isolation qu'il lance, est installé sous \
-                          un dossier que le mur ferme (le dossier personnel), et rend 127 ; installe-le hors de ce \
-                          dossier, ou pose LYDITE_SRT au chemin d'un srt qui y joue `srt --settings <fichier> sh -c \
-                          true`. Sous Windows, le mur exigé n'est pas tenu : passe le profil à « mur = demande » et \
-                          accepte-le : lydite accepter <profil>. Puis relance.";
+const MUR_REFUSE: &str = if cfg!(windows) {
+    "Sous Windows, le bac à sable de Claude Code et srt ne tiennent pas, donc un mur exigé n'y tient pas. Pour lancer \
+     quand même, en connaissance de cause : écris `mur = demande` dans le profil (pour le profil intégré, un fichier \
+     `profils/claude.profil` qui reprend son texte avec `mur = demande`), puis lydite accepter <profil>. Sous un mur \
+     demandé, les commandes de la main tournent hors du bac à sable et y voient la clé du fournisseur s'il y en a un, \
+     et la preuve se rejoue hors du mur. Puis relance."
+} else {
+    "La cause la plus probable : srt, ou le programme d'isolation qu'il lance, est installé sous un dossier que le mur \
+     ferme (le dossier personnel), et rend 127 ; installe-le hors de ce dossier, ou pose LYDITE_SRT au chemin d'un srt \
+     qui y joue `srt --settings <fichier> sh -c true`. Puis relance."
+};
 
 /// L'épreuve du mur : sous un mur exigé, avant toute main et avant l'épreuve de la base, `true` se rejoue par srt
 /// comme une preuve ([`rejouer`]), dans un dossier neuf du dossier de Kraken, `bacs/mur-<lot>`, retiré ensuite avec son

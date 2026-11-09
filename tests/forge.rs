@@ -77,6 +77,25 @@ fn faux_gh(racine: &Path) -> PathBuf {
     chemin
 }
 
+/// Le faux srt des essais, que `LYDITE_SRT` nomme : le profil intégré exige le mur, et ces essais ne portent pas sur
+/// lui. Il saute `--settings <fichier>`, puis joue la preuve ; `true`, l'épreuve du mur, sort en 0. Un `.cmd` sous
+/// Windows, un script `sh` ailleurs.
+fn faux_srt(racine: &Path) -> PathBuf {
+    let (chemin, texte) = if cfg!(windows) {
+        let texte = "@echo off\r\nif \"%~5\"==\"true\" exit /b 0\r\n%~5\r\nexit /b %errorlevel%\r\n";
+        (racine.join("faux-srt.cmd"), texte)
+    } else {
+        (racine.join("faux-srt.sh"), "#!/bin/sh\nshift 2\nexec \"$@\"\n")
+    };
+    fs::write(&chemin, texte).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&chemin, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    chemin
+}
+
 /// Les appels du faux `gh`, un par ligne, sans les guillemets que Windows ajoute à certains.
 fn appels(racine: &Path) -> Vec<String> {
     let texte = fs::read_to_string(racine.join("gh-appels.txt")).unwrap_or_default();
@@ -95,6 +114,7 @@ fn kraken(racine: &Path, args: &[&str]) -> Output {
         .env("LYDITE_DOSSIER", racine.join("lydite"))
         .env("LYDITE_CLAUDE", racine.join("claude-absent"))
         .env("LYDITE_GH", faux_gh(racine))
+        .env("LYDITE_SRT", faux_srt(racine))
         .env("USERPROFILE", &personnel)
         .env("HOME", personnel)
         .env("CLAUDE_CONFIG_DIR", racine.join("config"))
@@ -129,7 +149,10 @@ fn rien_n_est_parti(racine: &Path) {
     let restes: Vec<_> = fs::read_dir(&kraken)
         .map(|entrees| entrees.map(|entree| entree.unwrap().file_name()).collect())
         .unwrap_or_default();
-    assert!(restes.is_empty(), "le dossier de Lydite reste vide : {restes:?}");
+    // Le dossier `bacs/` vide que laisse l'épreuve du mur est toléré.
+    assert!(restes.is_empty() || restes == ["bacs"], "le dossier de Lydite reste vide : {restes:?}");
+    let bacs = fs::read_dir(kraken.join("bacs")).map_or(0, Iterator::count);
+    assert_eq!(bacs, 0, "aucun bac ne reste");
     assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "", "ni branche");
     assert_eq!(git(&depot, &["for-each-ref", "refs/lydite"]), "", "ni ref à Lydite");
     assert!(!depot.join(".git").join("FETCH_HEAD").exists(), "Lydite n'écrit pas FETCH_HEAD");

@@ -1318,7 +1318,8 @@ fn un_fil_injoignable_garde_la_sortie_de_chaque_main() {
 /// `preparer` en fait. Sans `programme` écrit, c'est `claude` ou `LYDITE_CLAUDE` : les textes de ces tests nomment un
 /// programme qui n'existe pas, car aucun test ne lance un vrai `claude`.
 fn profil_declare(texte: &str, kraken: &Path, depot: &Path) -> Profil {
-    let mut profil = crate::coeur::profil::lire("essai", texte, None, None).unwrap();
+    let texte = crate::essais::avec_mur_demande(texte);
+    let mut profil = crate::coeur::profil::lire("essai", &texte, None, None).unwrap();
     let (config, personnel) = (kraken.with_file_name("config"), kraken.with_file_name("personnel"));
     profil.borner(kraken, &depot.join(".git"), Some(&config), Some(&personnel)).unwrap();
     profil
@@ -4091,6 +4092,34 @@ mod coupure {
         assert!(joue.issue.is_ok(), "{:?}", joue.issue);
         assert_eq!(joue.recu, "2 mains, 1 relance, 0 classée");
         assert!(joue.consigne.contains("Tentative précédente échouée :\nmain : temps dépassé (1 s) : dit"));
+    }
+
+    const DEPENSE: &str = "main : résultat en erreur (error_max_budget_usd)";
+
+    #[test]
+    fn une_main_au_plafond_de_depense_est_refusee_sans_relance() {
+        // Un `Echec::Plafond` à la première tentative est refusé en 7019, sans relance : une seule main.
+        let joue = jouer("plafond-refuse", vec![Some(Echec::Plafond(DEPENSE.into()))]);
+        let texte = joue.issue.as_ref().err().unwrap_or_else(|| panic!("refusée : {:?}", joue.issue));
+        assert!(texte.starts_with("refusée (7019) : "), "{texte}");
+        assert!(texte.contains(DEPENSE), "la preuve dit l'erreur de la main : {texte}");
+        assert!(texte.contains("plafond de dépense, 20 dollars"), "la preuve nomme le plafond : {texte}");
+        assert!(texte.contains("main-") && texte.contains("(1)"), "la preuve nomme la main et sa tâche : {texte}");
+        assert_eq!(histoire(&joue.evenements), ["bail 1", "début 1", "fin 1 Rouge Constate", "refus 7019"]);
+        // Le texte ne décide pas : une erreur ordinaire qui dit le même texte est relancée.
+        let ordinaire = Some(Echec::Erreur(DEPENSE.into()));
+        let joue = jouer("plafond-en-texte", vec![ordinaire]);
+        assert!(joue.issue.is_ok(), "{:?}", joue.issue);
+        assert_eq!(joue.recu, "2 mains, 1 relance, 0 classée");
+    }
+
+    #[test]
+    fn une_main_au_plafond_de_depense_a_la_relance_est_refusee_aussi() {
+        let joue = jouer("plafond-relance", vec![rouge(), Some(Echec::Plafond(DEPENSE.into()))]);
+        let texte = joue.issue.as_ref().err().unwrap_or_else(|| panic!("refusée : {:?}", joue.issue));
+        assert!(texte.starts_with("refusée (7019) : "), "{texte}");
+        let attendu = ["bail 1", "début 1", "fin 1 Rouge Constate", "bail 2", "début 2", "fin 2 Rouge Constate"];
+        assert_eq!(histoire(&joue.evenements), [&attendu[..], &["refus 7019"]].concat());
     }
 
     #[test]

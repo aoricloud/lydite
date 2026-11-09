@@ -1,7 +1,7 @@
 use super::*;
 use crate::branchements::dossier::charger_dans;
 use crate::coeur::fil::lot;
-use crate::essais::{kraken, racine};
+use crate::essais::{avec_mur_demande, kraken, racine};
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -13,7 +13,7 @@ fn absolu(chemin: &str) -> PathBuf {
 
 /// Le profil de ce texte, lu comme le fichier `essai.profil` d'un dossier de Kraken fictif, sans `LYDITE_CLAUDE`.
 fn lu(texte: &str) -> Result<Profil, Refus> {
-    lire("essai", texte, Some(&absolu("k").join("profils").join("essai.profil")), None)
+    lire("essai", &avec_mur_demande(texte), Some(&absolu("k").join("profils").join("essai.profil")), None)
 }
 
 /// Les leurres des dossiers de connexion de Claude, fictifs, jamais lus ni créés : la valeur de `CLAUDE_CONFIG_DIR`,
@@ -168,19 +168,30 @@ fn lu_programme(texte: &str, kraken_claude: Option<&str>) -> String {
 }
 
 #[test]
+fn un_profil_sans_ligne_mur_exige_le_mur_et_demande_ne_vaut_que_ecrit() {
+    // `lire` direct : `lu` ajouterait `mur = demande`.
+    let sans = lire("essai", "sorte = claude\n", None, None).unwrap();
+    assert!(claude(&sans).exige && sans.exige());
+    let demande = lire("essai", "sorte = claude\nmur = demande\n", None, None).unwrap();
+    assert!(!claude(&demande).exige && !demande.exige());
+    let exige = lire("essai", "sorte = claude\nmur = exige\n", None, None).unwrap();
+    assert!(exige.exige());
+}
+
+#[test]
 fn sans_fichier_claude_est_le_profil_integre() {
     let dossier = kraken("integre");
     let profil = charger_dans("claude", &dossier).unwrap();
     let integre = claude(&profil);
     assert_eq!((integre.nom.as_str(), integre.fichier.as_ref()), ("claude", None));
-    // Le texte intégré, au format du fichier, et son empreinte : sonnet aux deux tentatives, le mur demandé, les
+    // Le texte intégré, au format du fichier, et son empreinte : sonnet aux deux tentatives, le mur exigé, les
     // délais par défaut, sans outils, mcp, reseau ni lecture.
     assert_eq!(
         INTEGRE,
-        "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = demande\ndelai_main = 3600\ndelai_preuve = 300\n"
+        "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = exige\ndelai_main = 3600\ndelai_preuve = 300\n"
     );
     assert_eq!(integre.empreinte, hex(&sha256(INTEGRE.as_bytes())));
-    assert_eq!((integre.modele.as_str(), integre.relance.as_str(), integre.exige), ("sonnet", "sonnet", false));
+    assert_eq!((integre.modele.as_str(), integre.relance.as_str(), integre.exige), ("sonnet", "sonnet", true));
     assert!(integre.outils.is_empty() && integre.mcp.is_none() && integre.reseau.is_empty());
     assert!(integre.lecture.is_empty());
     assert_eq!((profil.delai_main(), profil.delai_preuve()), (Duration::from_secs(3600), Duration::from_secs(300)));
@@ -237,7 +248,7 @@ fn la_cle_mesure_liste_un_ou_deux_reglages_et_aucun_par_defaut() {
     assert!(refus.preuve.contains("sans-lecture, sans-a1"), "{refus}");
     // Elle s'accepte avec le profil, comme toute clé : l'empreinte est celle du fichier.
     let texte = "sorte = claude\nmesure = sans-a1\n";
-    assert_eq!(claude(&lu(texte).unwrap()).empreinte, empreinte(texte));
+    assert_eq!(claude(&lu(texte).unwrap()).empreinte, empreinte(&avec_mur_demande(texte)));
 }
 
 #[test]
@@ -264,6 +275,16 @@ fn un_profil_faux_est_refuse_avec_sa_ligne() {
         ("delai_preuve = +5", "un entier positif"),
         ("delai_preuve = 99999999999999999999", "un entier positif"),
         ("delai_preuve = 5 s", "un entier positif"),
+        ("plafond = 0", "un plafond est un nombre positif de dollars"),
+        ("plafond = 0.00", "un plafond est un nombre positif de dollars"),
+        ("plafond = -5", "ni vide ni en « - »"),
+        ("plafond = +5", "un plafond est un nombre positif de dollars"),
+        ("plafond = 5.", "un plafond est un nombre positif de dollars"),
+        ("plafond = .5", "un plafond est un nombre positif de dollars"),
+        ("plafond = 1.234", "deux décimales au plus"),
+        ("plafond = 1e3", "un plafond est un nombre positif de dollars"),
+        ("plafond = 20 dollars", "un plafond est un nombre positif de dollars"),
+        ("plafond = 99999999999999999999", "un plafond est un nombre positif de dollars"),
         ("reseau = *.exemple.test", "un domaine s'écrit en [A-Za-z0-9.-], sans joker ni port"),
         ("reseau = exemple.test:443", "sans joker ni port"),
         ("reseau = exemple.test/chemin", "sans joker ni port"),
@@ -351,7 +372,8 @@ fn un_profil_faux_est_refuse_avec_sa_ligne() {
     assert_eq!(claude(&profil).modele, "opus");
     assert_eq!(claude(&profil).reseau, ["a.test", "b.test"]);
     let bom = "\u{feff}sorte = claude\r\n";
-    assert_eq!(claude(&lu(bom).unwrap()).empreinte, hex(&sha256(bom.as_bytes())), "le BOM est empreint");
+    let empreint = hex(&sha256(avec_mur_demande(bom).as_bytes()));
+    assert_eq!(claude(&lu(bom).unwrap()).empreinte, empreint, "le BOM est empreint");
     // Un fichier qui n'est pas de l'UTF-8, ou qui ne se lit pas : le refus 6008, qui nomme son chemin.
     let dossier = kraken("illisible");
     let utf16 = dossier.join("profils").join("utf16.profil");
@@ -558,7 +580,7 @@ fn le_fournisseur_ne_change_ni_la_ligne_de_commande_ni_les_reglages_et_la_cle_n_
 fn l_empreinte_porte_le_nom_de_la_variable_jamais_sa_valeur() {
     // L'empreinte est celle des octets du fichier : `api` et le nom de la variable y sont, la clé n'y est pas, et
     // deux clés différentes sous le même nom donnent la même empreinte, dans le profil comme dans sa déclaration.
-    let attendue = hex(&sha256(FOURNISSEUR.as_bytes()));
+    let attendue = hex(&sha256(avec_mur_demande(FOURNISSEUR).as_bytes()));
     for valeur in [LEURRE, "une-autre-cle"] {
         let profil = fourni(FOURNISSEUR, valeur);
         assert_eq!(claude(&profil).empreinte, attendue, "{valeur}");
@@ -819,6 +841,31 @@ fn une_copie_prend_les_modeles_de_sa_tache_et_garde_le_reste() {
 }
 
 #[test]
+fn le_plafond_se_lit_avec_son_defaut_et_part_sur_la_ligne_de_commande() {
+    // Vingt dollars par défaut, au profil intégré comme à un profil qui ne le dit pas.
+    assert_eq!(lire("essai", "sorte = claude\n", None, None).unwrap().plafond(), "20");
+    // Une valeur écrite, sans zéro de trop : entière, à une décimale, à deux.
+    for (ecrit, porte) in [("7.5", "7.5"), ("7.50", "7.5"), ("100", "100"), ("0.25", "0.25"), ("3.05", "3.05")] {
+        let profil = lire("essai", &format!("sorte = claude\nplafond = {ecrit}\n"), None, None).unwrap();
+        assert_eq!(profil.plafond(), porte, "{ecrit}");
+    }
+    // Chaque main part avec le plafond du profil, à la première tentative comme à la relance.
+    let profil = borne("sorte = claude\nplafond = 7.5\n");
+    for relance in [false, true] {
+        let argv = profil.demande(&absolu("bac"), None, relance).argv;
+        let i = argv.iter().position(|arg| arg == "--max-budget-usd").expect("le drapeau");
+        assert_eq!(argv[i + 1], "7.5", "relance {relance}");
+        assert_eq!(argv.iter().filter(|arg| *arg == "--max-budget-usd").count(), 1);
+    }
+    // La copie aux modèles de la tâche garde le plafond.
+    let copie = profil.avec_modeles(Some("opus"), None);
+    let argv = copie.demande(&absolu("bac"), None, false).argv;
+    assert!(argv.ends_with(&["--max-budget-usd".into(), "7.5".into()]), "{argv:?}");
+    // Une clé écrite deux fois est refusée comme les autres.
+    assert!(lire("essai", "sorte = claude\nplafond = 5\nplafond = 6\n", None, None).is_err());
+}
+
+#[test]
 fn l_argv_parle_en_stream_json() {
     let profil = borne("sorte = claude\n");
     let Demande { argv, declaration } = profil.demande(&absolu("bac"), None, false);
@@ -843,11 +890,15 @@ fn l_argv_parle_en_stream_json() {
         "--settings",
     ];
     assert_eq!(argv[..attendu.len()], attendu);
-    assert_eq!(argv[attendu.len()..], [declaration.reglages.as_str()], "le JSON exact, en chaîne, à la fin");
+    assert_eq!(
+        argv[attendu.len()..],
+        [declaration.reglages.as_str(), "--max-budget-usd", "20"],
+        "le JSON exact, en chaîne, puis le plafond de dépense, à la fin"
+    );
     assert!(!argv.iter().any(|arg| arg == "--tools" || arg == "--mcp-config"), "{argv:?}");
     // La déclaration : le profil, son empreinte, le modèle, le mur demandé, sans mcp.
     assert_eq!((declaration.profil.as_str(), declaration.mur, declaration.mcp), ("essai", false, None));
-    assert_eq!(declaration.empreinte, hex(&sha256(b"sorte = claude\n")));
+    assert_eq!(declaration.empreinte, hex(&sha256(avec_mur_demande("sorte = claude\n").as_bytes())));
     // Le programme du profil en tête.
     let programme = absolu("outils").join("claude").display().to_string();
     let nomme = borne(&format!("sorte = claude\nprogramme = {programme}\n"));
@@ -967,7 +1018,7 @@ fn les_reglages_disent_le_mur_du_profil() {
     let Demande { argv, declaration } = exige.demande(Path::new(bac), None, false);
     let declaration = declaration.unwrap();
     assert_eq!(declaration.reglages, attendu);
-    assert_eq!(argv.last(), Some(&attendu));
+    assert_eq!(argv[argv.len() - 3..], [attendu.as_str(), "--max-budget-usd", "20"]);
     assert!(declaration.mur, "le mur exigé");
     // Le même profil, le mur demandé : seul failIfUnavailable change.
     let mut demande = lu(&texte.replace("mur = exige", "mur = demande")).unwrap();
@@ -1475,10 +1526,10 @@ fn le_programme_du_fichier_l_emporte_sur_kraken_claude() {
 #[test]
 fn l_empreinte_du_profil_integre_est_celle_de_son_texte_ecrite_a_la_main() {
     // Le SHA-256 du texte intégré, calculé hors du code : printf 'sorte = claude\nmodele = sonnet\nrelance = sonnet\n
-    // mur = demande\ndelai_main = 3600\ndelai_preuve = 300\n' | sha256sum. Elle s'inscrit au fil, jamais gardée.
+    // mur = exige\ndelai_main = 3600\ndelai_preuve = 300\n' | sha256sum. Elle s'inscrit au fil, jamais gardée.
     let dossier = kraken("integre-empreinte");
     let profil = charger_dans("claude", &dossier).unwrap();
-    let attendue = "ee807c6e2a903e1409af8950a3e9adfc9ee30326360b0bec5b8f4c5d485e6704";
+    let attendue = "7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5";
     assert_eq!(claude(&profil).empreinte, attendue);
     assert_eq!(profil.garder(), Ok(()), "le profil intégré n'a rien à garder");
     assert!(!dossier.join("profils").join("claude.empreinte").exists());

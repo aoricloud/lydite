@@ -7,7 +7,7 @@ provider. You launch it from Claude Code or from Hermes, whatever model your Her
 
 You give it an issue (or an objective) and **the command that proves the work done**: the agents' word is never the
 proof. It is a small harness written in Rust, with no dependencies, for Linux and Windows; its workers are called
-*hands*. On Windows the wall is asked for, not held (see **Windows** below).
+*hands*. The wall is required everywhere; on Windows it does not hold (see **Windows** below).
 
 > **Status: early.** Lydite builds itself, and runs on a public test bench, [Mycelium Lab](https://github.com/aoricloud/mycelium-lab)
 > (a simulator whose code its hands write from reviewed issues). The interface is French (commands, messages, docs)
@@ -101,10 +101,13 @@ delai_preuve = 300
 
 The optional `proteges` key lists repository paths (files, or folders ending in `/`) that no hand may change, whatever the `fichiers` of its task, and the hand never runs `git commit`: Lydite commits its work itself. The lessons folder `.agents/skills/` is always protected, with or without the key: a hand never changes a lesson (a change there turns its attempt red, and at the freeze the task is refused with 7018), only the human does. A neighbouring path such as `.agents/other` stays free.
 
+The optional `plafond` key caps what each hand may spend, in dollars (20 by default; a positive number with two decimals at most, for example `plafond = 7.5`). Every Claude hand is started with `--max-budget-usd <plafond>`; a hand that reaches it is stopped and not retried: its task is refused with 7019, the rest of the wave goes on, and the decision comes back to the human (raise `plafond` in the profile, accept it with `lydite accepter`, then rerun the task in a new wave, or leave it). It is a ceiling, not a budget: high enough not to hold back a normal hand, it only stops a hand that runs away, sub-agents included. For a profile that names another provider (`api`), Claude Code counts the spend at the prices it knows, possibly zero, so the ceiling may never trigger.
+
 The optional `mesure` key is made for a measurement bench only, never for a real wave. It lists one or two settings, `sans-lecture` and `sans-a1`, to measure the effect of a lesson: `sans-lecture` keeps the lessons block in the system prompt but drops the reading instruction; `sans-a1` drops the two fixed sentences (honesty and perimeter) from a task hand's instruction, and keeps its list of files and everything else. Any other value is refused like any unknown profile value. The thread notes the active settings in `main.consigne.mesure`, and the receipt (the PR body and `lydite etat`) says so on a line of its own, `Measurement: <settings>.`, so a real wave is never weakened without saying it.
 
 ```bash
 lydite accepter <name>        # shows the profile and accepts its fingerprint; a changed profile must be accepted again
+lydite profil <name>          # read-only: loads the profile as `lancer` does and says its source, fingerprint, models, wall (required or requested), where the proof is replayed, the per-hand ceiling and the two timeouts
 ```
 
 **Run a wave** on an issue of the repository's `origin`, with your proof, from the repository (or with `--depot`):
@@ -140,7 +143,7 @@ hand), and gives each task hand (a plan task, the correction, the CI retry) one 
 `<Lydite folder>/consignes/<SHA-256 of the text>.txt` passed by `--append-system-prompt-file`; the splitter and the
 reviewer get the list of all lessons, one line each, the same way.
 
-**Windows.** The wall (the sandbox) is not held under Windows: a profile asks for it there, it does not require it.
+**Windows.** The wall (the sandbox) is required everywhere, Windows included: a profile with no `mur` line, and the built-in `claude` profile, require it. But Claude Code's sandbox and srt do not hold under Windows, so the wall check fails there (6028) before any hand. To launch anyway, knowingly, write `mur = demande` in the profile (for the built-in profile, a file `profils/claude.profil` that repeats its text with `mur = demande`), then `lydite accepter <name>`. Under a requested wall the hand's commands may run outside Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed outside the wall.
 
 ## Claude Code and your accounts
 

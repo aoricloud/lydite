@@ -19,6 +19,7 @@ const USAGE: &str = concat!(
     " ou lydite remarques <fichier>",
     " ou lydite lecons <dossier>",
     " ou lydite accepter <profil>",
+    " ou lydite profil <profil>",
     " ou lydite etat",
     " ou lydite attendre",
 );
@@ -43,6 +44,8 @@ pub(crate) enum Commande {
     Plan { profil: String, plan: PathBuf, depot: Option<PathBuf>, pr: Option<String> },
     /// Le nom du profil dont le fichier s'accepte.
     Accepter(String),
+    /// Le nom du profil que `lydite profil` dit, en lecture seule.
+    Profil(String),
     /// La dernière vague du fil.
     Etat,
     /// Attend la fin du lancement qui tient le dossier, puis dit la dernière vague comme `Etat`.
@@ -138,6 +141,12 @@ pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
         (Some("accepter"), []) => Err(refus_de_ligne(Code::CommandeMalFormee, "`accepter` : il manque le profil")),
         (Some("accepter"), [_, autre, ..]) => {
             let preuve = format!("`accepter` ne prend que le nom du profil, et {} le suit", mot(autre));
+            Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
+        }
+        (Some("profil"), [nom]) => Ok(Commande::Profil(texte(nom, "le profil")?)),
+        (Some("profil"), []) => Err(refus_de_ligne(Code::CommandeMalFormee, "`profil` : il manque le profil")),
+        (Some("profil"), [_, autre, ..]) => {
+            let preuve = format!("`profil` ne prend que le nom du profil, et {} le suit", mot(autre));
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
         }
         (Some("lancer"), reste) if contient(reste, "--plan") && contient(reste, "--decouper") => {

@@ -119,7 +119,7 @@ fn assert_regle(refus: &Refus) {
 /// avec ses trois drapeaux.
 fn assert_usage(refus: &Refus) {
     let lancer = r#"lydite lancer <profil> "<objectif>" [--n N] [--verifier "<commande>"] [--depot <chemin>]"#;
-    for morceau in [lancer, "lydite accepter <profil>", "lydite etat", "lydite attendre"] {
+    for morceau in [lancer, "lydite accepter <profil>", "lydite profil <profil>", "lydite etat", "lydite attendre"] {
         assert!(refus.correction.contains(morceau), "la correction donne l'usage ({morceau}) : {refus:?}");
     }
 }
@@ -389,10 +389,11 @@ fn accepter_garde_l_empreinte_que_lancer_exige_et_note_au_fil() {
     fs::create_dir(&profils).unwrap();
     // Un profil dont le programme n'existe pas : la main se déclare et ne part pas. Son empreinte est le SHA-256 de ses
     // octets (printf '…' | sha256sum), avec ou sans la ligne vide ajoutée plus bas.
-    let texte = "# la main de veille\nsorte = claude\nprogramme = lydite-claude-introuvable\nmodele = haiku\n";
+    let texte =
+        "# la main de veille\nsorte = claude\nprogramme = lydite-claude-introuvable\nmodele = haiku\nmur = demande\n";
     let (empreinte, autre) = (
-        "37849dc3ce500b5fdefd2be31521bb1ee101de575a7f59050f8ff7dbe1b03418",
-        "8c558c59eebb935b3e0081d2bc0d557d659b0788515e0d99590764de53185cab",
+        "b124a44f5b06b4956bf6be45f6912d818a4cce4cf0a050d68aecc06e35841964",
+        "7115b63925d912523588bee3c181ef064f8150d4ae023cb9d2d51b81f4418d42",
     );
     let (fichier, garde) = (profils.join("veille.profil"), profils.join("veille.empreinte"));
     fs::write(&fichier, texte).unwrap();

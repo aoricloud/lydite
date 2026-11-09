@@ -248,6 +248,9 @@ codes! {
         "Des remarques bloquantes valent une seule correction ; non assemblée, rien ne se pousse.";
     CheminProtege = 7018, "vague.chemin_protege",
         "A hand changes no path that its profile protects (proteges), neither by an edit nor by a command.";
+    PlafondAtteint = 7019, "vague.plafond_atteint",
+        "Une main qui atteint son plafond de dépense est arrêtée et pas relancée ; sa tâche est refusée, et la \
+         suite revient à l'humain.";
     // --- 8000 : forge ---
     DistantIllisible = 8001, "forge.distant_illisible",
         "Avec `--pr`, le dépôt visé a un distant `origin` dont l'URL nomme un hôte, un propriétaire et un dépôt.";

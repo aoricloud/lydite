@@ -151,7 +151,7 @@ fn tenter_ne_rend_de_constat_que_d_une_main_declaree() {
     let journal = dir.join("journal.tmp");
     // Une main Claude que `borner` n'a pas bornée ne part pas, et ne déclare rien : pas de constat, et rien n'est
     // créé à côté de son bac.
-    let libre = crate::coeur::profil::lire("essai", "sorte = claude\n", None, None).unwrap();
+    let libre = crate::coeur::profil::lire("essai", "sorte = claude\nmur = demande\n", None, None).unwrap();
     let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, None, &journal, None, None);
     assert_eq!(constat, None);
     assert!(erreur(verdict).starts_with("main : aucun programme à lancer"));
@@ -291,19 +291,30 @@ fn erreur(verdict: Result<Pris, Echec>) -> String {
 #[test]
 fn une_coupure_lue_au_constat_est_l_echec_de_la_tentative() {
     let autre = || ErreurMain::Autre("main : résultat en erreur".into());
-    assert_eq!(echec_de(autre(), Some(529)), Echec::Coupure(529, "main : résultat en erreur".into()));
-    assert_eq!(echec_de(autre(), None), Echec::Erreur("main : résultat en erreur".into()));
+    assert_eq!(echec_de(autre(), Some(529), false), Echec::Coupure(529, "main : résultat en erreur".into()));
+    assert_eq!(echec_de(autre(), None, false), Echec::Erreur("main : résultat en erreur".into()));
+}
+
+#[test]
+fn un_plafond_lu_au_constat_est_l_echec_de_la_tentative_et_l_emporte() {
+    let erreur = || ErreurMain::Autre("main : résultat en erreur (error_max_budget_usd)".into());
+    let attendu = Echec::Plafond("main : résultat en erreur (error_max_budget_usd)".into());
+    assert_eq!(echec_de(erreur(), None, true), attendu);
+    // Il l'emporte sur une coupure lue et sur une main tuée à son délai.
+    assert_eq!(echec_de(erreur(), Some(529), true), attendu);
+    let tuee = ErreurMain::Tuee("main : résultat en erreur (error_max_budget_usd)".into());
+    assert_eq!(echec_de(tuee, None, true), attendu);
 }
 
 #[test]
 fn une_main_tuee_a_son_delai_est_un_echec_tuee_par_son_type() {
     let tuee = || ErreurMain::Tuee("main : temps dépassé (1 s)".into());
-    assert_eq!(echec_de(tuee(), None), Echec::Tuee("main : temps dépassé (1 s)".into()));
+    assert_eq!(echec_de(tuee(), None, false), Echec::Tuee("main : temps dépassé (1 s)".into()));
     // Une coupure lue au constat l'emporte, comme pour toute autre erreur.
-    assert_eq!(echec_de(tuee(), Some(529)), Echec::Coupure(529, "main : temps dépassé (1 s)".into()));
+    assert_eq!(echec_de(tuee(), Some(529), false), Echec::Coupure(529, "main : temps dépassé (1 s)".into()));
     // Le texte ne décide pas : le même texte, dit par une erreur ordinaire, reste une erreur ordinaire.
     let ordinaire = ErreurMain::Autre("main : temps dépassé (1 s)".into());
-    assert_eq!(echec_de(ordinaire, None), Echec::Erreur("main : temps dépassé (1 s)".into()));
+    assert_eq!(echec_de(ordinaire, None, false), Echec::Erreur("main : temps dépassé (1 s)".into()));
 }
 
 #[test]

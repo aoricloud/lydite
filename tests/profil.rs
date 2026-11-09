@@ -430,13 +430,19 @@ fn argv_de_windows(ligne: &str) -> Vec<String> {
 
 /// L'argv d'une tentative de la fausse claude, tel que Kraken le lui passe après son nom : `-p`, les formats, le mode,
 /// `--strict-mcp-config`, `--mcp-config` si le profil a un `mcp`, `--setting-sources user`, `--model`, puis
-/// `--settings` et le JSON en dernier. Jamais de `--tools`.
+/// `--settings` et le JSON, puis `--max-budget-usd 20`, le plafond par défaut, en dernier. Jamais de `--tools`.
 fn argv_attendu(modele: &str, mcp: Option<&str>, reglages: &str) -> Vec<String> {
     let debut = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"];
     let mode = ["--permission-mode", "acceptEdits", "--permission-prompts", "none", "--strict-mcp-config"];
-    let fin = ["--setting-sources", "user", "--model", modele, "--settings", reglages];
+    let fin = ["--setting-sources", "user", "--model", modele, "--settings", reglages, "--max-budget-usd", "20"];
     let mcp = mcp.into_iter().flat_map(|mcp| ["--mcp-config", mcp]);
     debut.into_iter().chain(mode).chain(mcp).chain(fin).map(String::from).collect()
+}
+
+/// Le JSON de `--settings` d'un argv reçu par la fausse claude.
+fn reglages_de(argv: &[String]) -> &String {
+    let i = argv.iter().position(|arg| arg == "--settings").expect("--settings s'écrit toujours");
+    &argv[i + 1]
 }
 
 /// Les lignes du fil qui sont de ce type, dans l'ordre du fil.
@@ -579,9 +585,12 @@ impl Essai {
     /// Écrit le profil `nom` : la fausse claude pour programme, Haiku puis Sonnet, le réseau d'`exemple.test`, des
     /// délais qui bornent un essai qui se perdrait, puis `plus`. Rend son texte.
     fn profil(&self, nom: &str, plus: &str) -> String {
+        // Sans ligne `mur`, le mur est exigé : ces essais ne portent pas sur lui, ils le demandent (une clé redite
+        // est refusée).
+        let mur = if plus.lines().any(|ligne| ligne.trim_start().starts_with("mur")) { "" } else { "mur = demande\n" };
         let texte = format!(
             "# La main d'essai : la fausse claude, Haiku puis Sonnet.\nsorte = claude\nprogramme = {}\nmodele = haiku\n\
-             relance = sonnet\nreseau = exemple.test\ndelai_main = 120\ndelai_preuve = 60\n{plus}",
+             relance = sonnet\nreseau = exemple.test\ndelai_main = 120\ndelai_preuve = 60\n{mur}{plus}",
             self.fausse_claude().display()
         );
         fs::create_dir_all(self.dossier.join("profils")).unwrap();
@@ -692,7 +701,7 @@ impl Essai {
 
     /// Les `--settings` que Kraken a passés, un par tentative.
     fn reglages_recus(&self) -> Vec<String> {
-        self.argv_recus().into_iter().map(|argv| argv.last().cloned().unwrap()).collect()
+        self.argv_recus().iter().map(|argv| reglages_de(argv).clone()).collect()
     }
 
     /// Ce que la fausse claude a lu sur son entrée, tentative après tentative, une ligne par élément (voir `recoller`).
@@ -1012,6 +1021,69 @@ fn git_qui_ne_se_lance_pas_est_refuse_en_6006() {
     essai.nettoyer();
 }
 
+/// Les lignes que `lydite profil` écrit sur stdout, quand il sort en 0 sans rien sur stderr.
+fn rangees_du_profil(essai: &Essai, nom: &str) -> Vec<String> {
+    let sortie = essai.kraken().args(["profil", nom]).output().unwrap();
+    assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
+    assert!(sortie.stderr.is_empty(), "{}", dit(&sortie));
+    String::from_utf8_lossy(&sortie.stdout).lines().map(str::to_string).collect()
+}
+
+#[test]
+fn lydite_profil_dit_le_profil_integre_sans_rien_ecrire() {
+    let essai = Essai::nouveau("profil-integre");
+    let attendu = [
+        "profil : claude (intégré)",
+        "empreinte : 7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5",
+        "modèle : sonnet ; relance : sonnet",
+        "mur : exigé : les commandes de la main tournent dans le bac à sable de Claude Code",
+        "preuve : rejouée par srt, dans le mur",
+        "plafond par main : 20 $",
+        "délai de la main : 3600 s",
+        "délai de la preuve : 300 s",
+    ];
+    assert_eq!(rangees_du_profil(&essai, "claude"), attendu);
+    // Lecture seule : le dossier de Kraken, que l'essai n'a pas créé, n'existe toujours pas (ni profil, ni fil).
+    assert!(!essai.dossier.exists(), "lydite profil a créé {}", essai.dossier.display());
+    essai.nettoyer();
+}
+
+#[test]
+fn lydite_profil_dit_un_mur_demande_et_refuse_comme_lancer() {
+    let essai = Essai::nouveau("profil-demande");
+    let (_, empreinte) = essai.profil_accepte("veille", "plafond = 7.5\n");
+    let fichier = essai.dossier.join("profils").join("veille.profil");
+    let attendu = [
+        format!("profil : veille ({})", fichier.display()),
+        format!("empreinte : {empreinte}"),
+        "modèle : haiku ; relance : sonnet".to_string(),
+        "mur : demandé : les commandes de la main peuvent tourner hors du bac à sable, et y voient la clé du \
+         fournisseur s'il y en a un"
+            .to_string(),
+        "preuve : rejouée hors du mur".to_string(),
+        "plafond par main : 7.5 $".to_string(),
+        "délai de la main : 120 s".to_string(),
+        "délai de la preuve : 60 s".to_string(),
+    ];
+    assert_eq!(rangees_du_profil(&essai, "veille"), attendu);
+    // Un profil inconnu, un nom qui sort de `profils` : les refus de `lancer`.
+    assert_eq!(lire_refus(essai.kraken().args(["profil", "inconnu"])).code, "lydite : 6001 lancer.profil_inconnu");
+    assert_eq!(lire_refus(essai.kraken().args(["profil", "../veille"])).code, "lydite : 6007 lancer.profil_nom_refuse");
+    // Changé depuis son acceptation : le refus 6012, comme `lancer`.
+    let texte = fs::read_to_string(&fichier).unwrap();
+    fs::write(&fichier, format!("{texte}\n")).unwrap();
+    let refus = lire_refus(essai.kraken().args(["profil", "veille"]));
+    assert_eq!(refus.code, "lydite : 6012 lancer.profil_change");
+    assert!(refus.correction.contains("lydite accepter veille"), "{refus:?}");
+    // Un profil sans empreinte acceptée : le refus 6011.
+    fs::remove_file(fichier.with_extension("empreinte")).unwrap();
+    assert_eq!(lire_refus(essai.kraken().args(["profil", "veille"])).code, "lydite : 6011 lancer.profil_non_accepte");
+    // Une ligne mal formée : un nom, rien d'autre.
+    assert_eq!(lire_refus(essai.kraken().arg("profil")).code, "lydite : 1006 contrat.commande_mal_formee");
+    assert_usage(&lire_refus(essai.kraken().args(["profil", "a", "b"])));
+    essai.nettoyer();
+}
+
 #[test]
 fn un_profil_non_accepte_ne_part_pas_puis_part_une_fois_accepte() {
     let essai = Essai::nouveau("accepte");
@@ -1101,7 +1173,7 @@ fn une_fausse_claude_recoit_ses_drapeaux_tentative_par_tentative() {
         for drapeau in ["--tools", "--mcp-config"] {
             assert!(!argv.iter().any(|arg| arg == drapeau), "{drapeau} ne part pas : {argv:?}");
         }
-        let json = argv.last().unwrap();
+        let json = reglages_de(argv);
         let attendu = ["WebFetch(domain:exemple.test)", "Bash(git status)", "PowerShell(git status)", "ListAgents"];
         for dedans in attendu.into_iter().chain([r#""autoMemoryEnabled":false"#]) {
             assert!(json.contains(dedans), "{dedans} manque dans les réglages : {json}");
@@ -1161,7 +1233,7 @@ fn le_decoupeur_part_sur_la_cle_decoupeur_a_ses_deux_tentatives() {
         for argv in &recus {
             let i = argv.iter().position(|arg| arg == "--model").expect("--model s'écrit toujours");
             assert_eq!(argv[i + 1], modele, "{argv:?}");
-            assert!(argv.last().unwrap().contains(&format!("Bash({DECOUPE})")), "{argv:?}");
+            assert!(reglages_de(argv).contains(&format!("Bash({DECOUPE})")), "{argv:?}");
         }
         let fil = essai.fil();
         let lancements = lignes_de(&fil, "main.lancement");
@@ -1820,9 +1892,9 @@ fn kraken_etat_dit_le_mur() {
 }
 
 /// Le SHA-256 du texte du profil intégré, écrit ici à la main : sa seule source est le texte du fichier de profil.rs.
-/// printf 'sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = demande\ndelai_main = 3600\ndelai_preuve = 300\n' |
+/// printf 'sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = exige\ndelai_main = 3600\ndelai_preuve = 300\n' |
 /// sha256sum
-const EMPREINTE_INTEGREE: &str = "ee807c6e2a903e1409af8950a3e9adfc9ee30326360b0bec5b8f4c5d485e6704";
+const EMPREINTE_INTEGREE: &str = "7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5";
 
 #[test]
 fn le_profil_integre_part_sur_sonnet_et_s_inscrit_sans_etre_garde() {
@@ -1832,19 +1904,19 @@ fn le_profil_integre_part_sur_sonnet_et_s_inscrit_sans_etre_garde() {
     // réseau.
     let (allow, deny) = regles(&essai, &[], &[], &PRET);
     for (n, resultat) in [(1, ECHEC), (2, REUSSITE)] {
-        essai.repondre(n, &reponses("claude-sonnet-5-5", false, &EXCLUES, false, &allow, &deny));
+        essai.repondre(n, &reponses("claude-sonnet-5-5", true, &[], true, &allow, &deny));
         essai.conclure(n, "claude-sonnet-5-5", resultat);
     }
     let lancer = ["lancer", "claude", OBJECTIF, "--verifier", VERIFIER];
     let sortie = essai.kraken().env("LYDITE_CLAUDE", essai.fausse_claude()).args(lancer).output().unwrap();
     assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
-    let reglages = essai.reglages_attendus(false, &EXCLUES, &[], &allow, &deny);
+    let reglages = essai.reglages_attendus(true, &[], &[], &allow, &deny);
     assert_eq!(essai.argv_recus(), [argv_attendu("sonnet", None, &reglages), argv_attendu("sonnet", None, &reglages)]);
     // Le lancement inscrit le profil intégré avec l'empreinte de son texte, jamais gardée : aucun profil n'a été écrit.
     let fil = essai.fil();
     let lancements = lignes_de(&fil, "main.lancement");
     assert_eq!(lancements.len(), 2);
-    let integre = format!(r#""profil":"claude","empreinte":"{EMPREINTE_INTEGREE}","modele":"sonnet","mur":"demande""#);
+    let integre = format!(r#""profil":"claude","empreinte":"{EMPREINTE_INTEGREE}","modele":"sonnet","mur":"exige""#);
     for ligne in lancements {
         assert!(ligne.contains(&integre), "{ligne}");
     }

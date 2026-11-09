@@ -121,6 +121,21 @@ fn options_accepter() {
 }
 
 #[test]
+fn options_profil() {
+    assert_eq!(options(&args(&["profil", "veille"])), Ok(Commande::Profil("veille".into())));
+    for (mots, dit) in [
+        (&["profil"][..], "`profil` : il manque le profil"),
+        (&["profil", "a", "b"], "`profil` ne prend que le nom du profil, et « b » le suit"),
+    ] {
+        let refus = options(&args(mots)).unwrap_err();
+        assert_eq!(refus.code, Code::CommandeMalFormee, "{mots:?}");
+        assert!(refus.preuve.contains(dit), "{mots:?} : {refus}");
+        assert!(refus.correction.contains(USAGE), "{refus}");
+    }
+    assert!(USAGE.contains("lydite profil <profil>"), "{USAGE}");
+}
+
+#[test]
 fn options_plan_seul() {
     // `plan <fichier>`, ou `plan --decoupe <fichier>` : le chemin garde son `OsString`.
     let lu = |fichier: &str, decoupe| Ok(Commande::LirePlan { fichier: fichier.into(), decoupe });
