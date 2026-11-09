@@ -632,6 +632,26 @@ fn un_resultat_en_erreur_de_l_api_est_une_coupure_dans_le_constat() {
 }
 
 #[test]
+fn un_resultat_au_plafond_de_depense_est_lu_au_constat() {
+    let (dir, bac) = bac_jetable("plafond");
+    let depense = RESULTAT.replace(r#""subtype":"success""#, r#""subtype":"error_max_budget_usd""#);
+    let depense = depense.replace(r#""is_error":false"#, r#""is_error":true"#);
+    for code in [0, 1] {
+        let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(&depense), Geste::Sortir(code)];
+        let (constat, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
+        assert!(sortie.is_err(), "code {code} : {sortie:?}");
+        let constat = constat.unwrap();
+        assert!(constat.plafond, "code {code}");
+        assert_eq!(constat.coupure, None, "code {code}");
+    }
+    // Une main qui réussit n'a pas atteint son plafond.
+    let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(RESULTAT)];
+    let (constat, _) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
+    assert!(!constat.unwrap().plafond);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn une_main_qui_ne_sort_pas_apres_son_resultat_est_tuee_et_son_resultat_compte() {
     // Après `result`, la main a 10 s pour sortir ; sinon son arbre meurt, et le résultat compte.
     let (dir, bac) = bac_jetable("ne-sort-pas");

@@ -43,6 +43,9 @@ pub(crate) enum Echec {
     /// Kraken a tué la main à son délai (`ErreurMain::Tuee`) ; le texte de son erreur. Refusée sans relance à la
     /// première tentative.
     Tuee(String),
+    /// La main a atteint son plafond de dépense (`protocole::plafond_atteint`) ; le texte de son erreur. Refusée sans
+    /// relance, à toute tentative : la suite revient à l'humain.
+    Plafond(String),
     /// Toute autre erreur, dite en texte. Suit la relance.
     Erreur(String),
 }
@@ -203,7 +206,8 @@ pub(crate) fn tenter(
         Ok(_) => jouer(&argv, bac, consigne, profil.delai_main(), attendu.as_ref(), juge.is_some(), fournisseur),
     };
     let coupure = constat.as_ref().and_then(|constat| constat.coupure);
-    let verdict = jeu.map_err(|erreur| echec_de(erreur, coupure)).and_then(|sortie| {
+    let plafond = constat.as_ref().is_some_and(|constat| constat.plafond);
+    let verdict = jeu.map_err(|erreur| echec_de(erreur, coupure, plafond)).and_then(|sortie| {
         // Une main de tâche qui déclare l'impossible : rien n'est rejoué, et l'échec le dit pour que la vague classe.
         let declaree = if juge.is_none() { declare_impossible(&sortie) } else { None };
         if let Some(raison) = declaree {
@@ -223,12 +227,14 @@ pub(crate) fn tenter(
 }
 
 /// L'échec d'une main qui a rendu `erreur` : une coupure de l'API si son constat en a lu une (`statut`), sinon une
-/// erreur ordinaire. Une main tuée à son délai (`ErreurMain::Tuee`) est un `Echec::Tuee` si aucune coupure n'a été lue.
-fn echec_de(erreur: ErreurMain, statut: Option<u16>) -> Echec {
-    match (statut, erreur) {
-        (Some(statut), erreur) => Echec::Coupure(statut, erreur.texte()),
-        (None, ErreurMain::Tuee(texte)) => Echec::Tuee(texte),
-        (None, ErreurMain::Autre(texte)) => Echec::Erreur(texte),
+/// erreur ordinaire. Une main qui a atteint son plafond de dépense (`plafond`) est un `Echec::Plafond`, avant toute
+/// autre lecture. Une main tuée à son délai (`ErreurMain::Tuee`) est un `Echec::Tuee` si aucune coupure n'a été lue.
+fn echec_de(erreur: ErreurMain, statut: Option<u16>, plafond: bool) -> Echec {
+    match (plafond, statut, erreur) {
+        (true, _, erreur) => Echec::Plafond(erreur.texte()),
+        (false, Some(statut), erreur) => Echec::Coupure(statut, erreur.texte()),
+        (false, None, ErreurMain::Tuee(texte)) => Echec::Tuee(texte),
+        (false, None, ErreurMain::Autre(texte)) => Echec::Erreur(texte),
     }
 }
 
