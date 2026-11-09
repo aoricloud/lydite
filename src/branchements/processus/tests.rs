@@ -43,6 +43,34 @@ fn tuer_arbre_tue_les_petits_enfants() {
 }
 
 #[test]
+fn tuer_et_attendre_tue_un_enfant_qui_dort_et_ne_rend_aucun_echec() {
+    let (dir, bac) = bac_jetable("tuer-attendre");
+    let argv = arbre(&dir);
+    let mut enfant = Command::new(&argv[0])
+        .args(&argv[1..])
+        .current_dir(&bac)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    marque(&bac, ARBRE);
+    assert_eq!(tuer_et_attendre(&mut enfant), Ok(()));
+    assert!(enfant.try_wait().unwrap().is_some(), "l'enfant est sorti");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn tuer_et_attendre_rend_l_echec_de_la_mise_a_mort_d_un_enfant_deja_sorti() {
+    let mut enfant =
+        coquille("exit 0").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    assert!(attendre(&mut enfant, Instant::now() + SORTIE).unwrap().is_some(), "l'enfant sort");
+    // Son pid est rendu : on ne le tue plus.
+    let echec = tuer_et_attendre(&mut enfant).unwrap_err();
+    assert!(!echec.is_empty(), "l'échec de la mise à mort se dit");
+}
+
+#[test]
 fn la_preuve_rejouee_perd_la_connexion_que_la_main_garde() {
     // La connexion de la main à Claude, son dossier de réglages et ses variables `ANTHROPIC_*`, n'est pas celle de sa
     // preuve : la main les reçoit, la preuve que Kraken rejoue ne les reçoit pas, quelle que soit la casse.
