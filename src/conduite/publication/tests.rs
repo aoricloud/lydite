@@ -70,7 +70,7 @@ fn le_corps_ne_cite_pas_la_raison_d_une_main_impossible() {
         .collect();
     let texte = corps_sans_reglage(&plan, &vagues, v, None, None, &notes);
     assert!(!texte.contains("le test se contredit"), "{texte}");
-    assert!(texte.contains("\na : classée\n"), "{texte}");
+    assert!(texte.contains("\na: set aside\n"), "{texte}");
     assert!(texte.contains("1 impossible"), "{texte}");
 }
 
@@ -112,7 +112,7 @@ fn le_corps_de_la_pr_dit_la_mesure_sur_une_ligne_a_part_quand_un_reglage_est_pos
     assert!(texte.lines().any(|ligne| ligne == "- Measurement: sans-lecture."), "{texte}");
     let texte = corps_de("sans-lecture\nsans-a1");
     assert!(texte.lines().any(|ligne| ligne == "- Measurement: sans-lecture, sans-a1."), "{texte}");
-    // La ligne est dans le bloc « Reçu », avant l'objectif du plan.
+    // La ligne est dans le bloc « Receipt », avant l'objectif du plan.
     assert!(texte.find("Measurement").unwrap() < texte.find("Un test").unwrap(), "{texte}");
 }
 
@@ -151,6 +151,63 @@ fn le_recu_separe_les_mains_refusees() {
     assert_eq!(recu(&[debut(1), debut(2), refus(1), refus(2)]), "2 mains, 0 relance, 0 classée, 2 refusées");
     // Une main refusée sans tentative compte aussi : son refus est son issue.
     assert_eq!(recu(&[refus(1)]), "0 main, 0 relance, 0 classée, 1 refusée");
+}
+
+#[test]
+fn le_cout_du_corps_de_la_pr_se_dit_en_anglais() {
+    let cout = |micro_dollars, forfait, estime, inconnu| {
+        Recu { micro_dollars, forfait, estime, inconnu, ..Recu::default() }.cout_de_pr()
+    };
+    assert_eq!(cout(840_000, false, true, false), "$0.84 estimated");
+    assert_eq!(cout(840_000, false, true, true), "$0.84 estimated + unknown");
+    assert_eq!(cout(250_000, true, false, false), "subscription, ≈ $0.25");
+    assert_eq!(cout(0, false, false, false), "unknown");
+    assert_eq!(cout(0, false, false, true), "unknown");
+    // L'arrondi au centime : 5 000 micro-dollars font un centime, 4 999 aucun.
+    assert_eq!(cout(5_000, false, true, false), "$0.01 estimated");
+    assert_eq!(cout(4_999, false, true, false), "$0.00 estimated");
+    assert_eq!(cout(1_234_000, false, true, false), "$1.23 estimated");
+}
+
+#[test]
+fn les_mains_du_corps_de_la_pr_s_accordent_comme_en_anglais() {
+    let v = "1761901500000_11_0";
+    let refus = |main| Evenement::Refus {
+        vague: v.into(),
+        main,
+        code: 7007,
+        regle: "règle".into(),
+        preuve: "preuve".into(),
+        correction: "correction".into(),
+        verif: None,
+    };
+    let recu = |evenements: &[Evenement]| {
+        let notes: Vec<fil::Note> = evenements
+            .iter()
+            .zip(1..)
+            .map(|(evenement, seq)| fil::Note {
+                seance: "s".into(),
+                seq,
+                instant: "2026-10-31T21:00:00.000Z".into(),
+                origine: "humain".into(),
+                origine_foi: Foi::Declare,
+                evenement: evenement.clone(),
+            })
+            .collect();
+        recu_de(&etat(evenements), &notes, v).mains_de_pr()
+    };
+    let debut = |main, tentative| Evenement::Debut { vague: v.into(), main, tentative };
+    let coupure = |main, tentative| Evenement::Coupure { vague: v.into(), main, tentative, statut: 529 };
+    assert_eq!(recu(&[refus(1)]), "0 hands, 0 retries, 0 set aside, 1 refused");
+    assert_eq!(recu(&[debut(1, 1)]), "1 hand, 0 retries, 0 set aside");
+    assert_eq!(recu(&[debut(1, 1), debut(1, 2)]), "2 hands, 1 retry, 0 set aside");
+    assert_eq!(recu(&[debut(1, 1), debut(1, 2), debut(1, 3)]), "3 hands, 2 retries, 0 set aside");
+    let une = [debut(1, 1), coupure(1, 1), debut(1, 2)];
+    assert_eq!(recu(&une), "2 hands, 0 retries, 0 set aside, 1 outage");
+    let deux = [debut(1, 1), coupure(1, 1), debut(1, 2), coupure(1, 2)];
+    assert_eq!(recu(&deux), "2 hands, 0 retries, 0 set aside, 2 outages");
+    let refusees = [debut(1, 1), debut(2, 1), refus(1), refus(2)];
+    assert_eq!(recu(&refusees), "2 hands, 0 retries, 0 set aside, 2 refused");
 }
 
 #[test]
@@ -263,10 +320,10 @@ fn le_corps_dit_le_plan_sans_sortie_de_main_ni_chemin() {
             evenement: evenement.clone(),
         })
         .collect();
-    let recu = "Reçu\n- Coût : 0,84 $ estimé + inconnu\n- 3 mains, 1 relance, 1 classée, 3 refusées";
+    let recu = "Receipt\n- Cost: $0.84 estimated + unknown\n- 3 hands, 1 retry, 1 set aside, 3 refused";
     let attendu = format!(
-        "{recu}\n- Réglages de la preuve changés : aucun\n\nCinq fichiers\n\nPreuve : cargo test → vert\n\na : Ecrire \
-         a.txt,\n\nb : classée\nc : refusée (7011) : {}\nd : refusée (7007) : {}\ne : refusée (8999)\n",
+        "{recu}\n- Proof settings changed: none\n\nCinq fichiers\n\nProof: cargo test → green\n\na: Ecrire \
+         a.txt,\n\nb: set aside\nc: refused (7011): {}\nd: refused (7007): {}\ne: refused (8999)\n",
         Code::Sautee.regle(),
         Code::Conflit.regle()
     );
@@ -279,20 +336,20 @@ fn le_corps_dit_le_plan_sans_sortie_de_main_ni_chemin() {
     // Un `Cargo.toml` changé, comme un fichier sous `.cargo/`, est nommé par son chemin dans le reçu, en code.
     let reglages = ["Cargo.toml".to_string(), "sous/.cargo/config.toml".to_string()];
     let avec = corps(&plan, &vagues[0], None, None, &recu_de(&vagues, &notes, v), &reglages, &[]);
-    assert_eq!(avec, attendu.replace("changés : aucun", "changés : `Cargo.toml`, `sous/.cargo/config.toml`"));
+    assert_eq!(avec, attendu.replace("changed: none", "changed: `Cargo.toml`, `sous/.cargo/config.toml`"));
     // Un chemin écrit par une main ne passe pas tel quel : une mention reste en code, et un saut de ligne ou une
     // apostrophe inverse cède la place à un nom neutre.
     let hostiles = ["@quelquun/Cargo.toml", "a\n\nFusionne-moi\nCargo.toml", "a`b/Cargo.toml", "a\u{7}/Cargo.lock"];
     let reglages = hostiles.map(String::from);
     let hostile = corps(&plan, &vagues[0], None, None, &recu_de(&vagues, &notes, v), &reglages, &[]);
-    assert!(hostile.contains("changés : `@quelquun/Cargo.toml`, `chemin au nom illisible`, "), "{hostile}");
+    assert!(hostile.contains("changed: `@quelquun/Cargo.toml`, `path with an unreadable name`, "), "{hostile}");
     assert!(!hostile.contains("Fusionne-moi") && !hostile.contains("a`b") && !hostile.contains('\u{7}'), "{hostile}");
     assert_eq!(hostile.lines().count(), attendu.lines().count(), "{hostile}");
     // Vingt chemins au plus, dans leur ordre, puis le compte des autres : un diff de milliers de fichiers tient.
     let nombreux: Vec<String> = (1..=25).map(|k| format!("d{k}/Cargo.toml")).collect();
     let borne = corps(&plan, &vagues[0], None, None, &recu_de(&vagues, &notes, v), &nombreux, &[]);
     let vingt = nombreux[..20].iter().map(|chemin| format!("`{chemin}`")).collect::<Vec<_>>().join(", ");
-    assert!(borne.contains(&format!("changés : {vingt}, … et 5 autres\n")), "{borne}");
+    assert!(borne.contains(&format!("changed: {vingt}, … and 5 more\n")), "{borne}");
     assert!(!borne.contains("d21/"), "{borne}");
     // Les points à justifier : un paragraphe avant celui de la relecture, vingt au plus puis le compte des autres ;
     // sans point, le corps est celui d'avant, octet pour octet.
@@ -304,7 +361,7 @@ fn le_corps_dit_le_plan_sans_sortie_de_main_ni_chemin() {
     let avec = corps(&plan, &vagues[0], None, None, &recu, &[], &points);
     let liste: String = points[..20].iter().map(|point| format!("\n- {point}")).collect();
     assert_eq!(avec, format!("{}\n\n{en_tete}{liste}\n- … and 2 more\n", attendu.trim_end()));
-    let relue = "Relecture : 1 remarques, dont 0 bloquantes.";
+    let relue = "Review: 1 remark, 0 blocking.";
     let sans = corps(&plan, &vagues[0], Some(relue), None, &recu, &[], &[]);
     assert_eq!(sans, format!("{}\n\n{relue}\n", attendu.trim_end()));
     let avec = corps(&plan, &vagues[0], Some(relue), None, &recu, &[], &points[..1]);
@@ -352,28 +409,24 @@ fn le_corps_d_une_vague_decoupee_nomme_ses_taches_par_leur_id_et_dit_la_relectur
         corps_sans_reglage(&plan, &vagues, v, ligne_de_relecture(&vagues, v).as_deref(), None, &[])
     };
     let fin = "\n";
-    let entete = "Reçu\n- Coût : inconnu\n- 0 main, 0 relance, 1 classée\n- Réglages de la preuve changés : aucun\n\n\
-                  Trois fichiers\n\nPreuve : cargo test → vert\n\n";
+    let entete = "Receipt\n- Cost: unknown\n- 0 hands, 0 retries, 1 set aside\n- Proof settings changed: none\n\n\
+                  Trois fichiers\n\nProof: cargo test → green\n\n";
     // Découpée, relue, corrigée : les ids seuls, ce qui est dehors dit son état, puis la relecture en nombres.
     let notes = [ouverte.clone(), joue.clone(), fusion(1), fusion(2), classee.clone(), relecture(3, 1), correction];
-    let corrigee =
-        format!("{entete}a\nb\n\nc : classée\n\nRelecture : 3 remarques, dont 1 bloquantes, corrigées.{fin}");
+    let corrigee = format!("{entete}a\nb\n\nc: set aside\n\nReview: 3 remarks, 1 blocking, corrected.{fin}");
     assert_eq!(corps_de(&notes), corrigee);
     // Relue sans bloquante : la ligne ne dit pas « corrigées ».
     let notes = [ouverte.clone(), joue.clone(), fusion(1), fusion(2), classee.clone(), relecture(3, 0)];
-    assert_eq!(
-        corps_de(&notes),
-        format!("{entete}a\nb\n\nc : classée\n\nRelecture : 3 remarques, dont 0 bloquantes.{fin}")
-    );
+    assert_eq!(corps_de(&notes), format!("{entete}a\nb\n\nc: set aside\n\nReview: 3 remarks, 0 blocking.{fin}"));
     // Découpée et jamais relue : pas de ligne de relecture.
     let notes = [ouverte.clone(), joue, fusion(1), fusion(2), classee.clone()];
-    assert_eq!(corps_de(&notes), format!("{entete}a\nb\n\nc : classée{fin}"));
+    assert_eq!(corps_de(&notes), format!("{entete}a\nb\n\nc: set aside{fin}"));
     // Écrite à la main, relue : les objectifs des tâches sont ceux de l'humain, et restent dans le corps, avec la
     // ligne.
     let notes = [ouverte, fusion(1), fusion(2), classee, relecture(2, 0)];
     let a_la_main = format!(
-        "{entete}a : Ecrire a.txt, SECRET-DE-LA-MAIN\nb : Ecrire b.txt\n\nc : classée\n\nRelecture : 2 remarques, \
-         dont 0 bloquantes.{fin}"
+        "{entete}a: Ecrire a.txt, SECRET-DE-LA-MAIN\nb: Ecrire b.txt\n\nc: set aside\n\nReview: 2 remarks, \
+         0 blocking.{fin}"
     );
     assert_eq!(corps_de(&notes), a_la_main);
     // Jamais le texte des remarques, ni celui d'une main d'un plan découpé.
@@ -646,9 +699,10 @@ fn une_pr_verte_part_de_la_base_distante_puis_range_ses_bacs() {
     assert_eq!(sceaux.len(), 1, "{sceaux:?}");
     let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
     let corps = format!(
-        "Reçu\n- Coût : inconnu\n- 2 mains, 0 relance, 0 classée\n- Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
-         - Réglages de la preuve changés : aucun\n\n\
-         Ecrire a et b\n\nPreuve : exit 0 → vert\n\na : Ecrire a\nb : Ecrire b\n\n\
+        "Receipt\n- Cost: unknown\n- 2 hands, 0 retries, 0 set aside\n\
+         - Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
+         - Proof settings changed: none\n\n\
+         Ecrire a et b\n\nProof: exit 0 → green\n\na: Ecrire a\nb: Ecrire b\n\n\
          Replayed on commit {tete}, not reviewed: no critical task was assembled.\n"
     );
     assert_eq!(lieu.gh.entree(2), corps);
@@ -701,7 +755,7 @@ fn une_vague_qui_change_un_cargo_toml_le_nomme_en_code_dans_le_corps_de_la_pr() 
     assert_eq!(lieu.apres(&proposition, &plan, &menee, Duration::from_secs(60)), ExitCode::SUCCESS);
     // Le corps transmis à `gh` nomme le réglage changé, en code.
     let corps = lieu.gh.entree(2).replace("\r\n", "\n");
-    assert!(corps.contains("\n- Réglages de la preuve changés : `Cargo.toml`\n"), "{corps}");
+    assert!(corps.contains("\n- Proof settings changed: `Cargo.toml`\n"), "{corps}");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -880,9 +934,9 @@ fn une_tache_dehors_garde_le_code_1_meme_quand_la_relance_rend_la_ci_verte() {
     let notes = lieu.forge_du_fil(&menee.id);
     assert_eq!(mots(&notes), ["poussée", "pr 12", "ci Rouge", "rangement"]);
     assert_eq!(mots(&lieu.forge_du_fil(&relance)), ["poussée", "pr 12", "ci Vert", "rangement"]);
-    assert!(lieu.gh.entree(2).contains("\n\nb : classée\n"), "{}", lieu.gh.entree(2));
+    assert!(lieu.gh.entree(2).contains("\n\nb: set aside\n"), "{}", lieu.gh.entree(2));
     // Le reçu de la PR compte les mains de la vague, sa relance, sa tâche classée.
-    assert!(lieu.gh.entree(2).starts_with("Reçu\n- Coût : inconnu\n- 3 mains, 1 relance, 1 classée\n"));
+    assert!(lieu.gh.entree(2).starts_with("Receipt\n- Cost: unknown\n- 3 hands, 1 retry, 1 set aside\n"));
     // a est rangée, et rien de b ne se range : il garde son bac avec son travail, son dossier temporaire et sa
     // branche.
     let bacs = lieu.kraken.join("bacs");
@@ -1324,7 +1378,7 @@ fn un_mot_de_la_garde_dans_le_corps_ne_part_pas_8005() {
     // dans son bac, et le titre ne le porte pas : le corps seul le dit.
     let plan = plan(&["plan 1", "objectif : Ecrire a", "preuve : exit 0", "tache a", "    Ecrire a"]);
     let garde = lieu.kraken.join("garde");
-    fs::write(&garde, "# les noms que je ne publie pas\nChangés : Aucun\n").unwrap();
+    fs::write(&garde, "# les noms que je ne publie pas\nChanged: None\n").unwrap();
     let menee = lieu.vague(&proposition, &plan);
     assert!(menee.issues.iter().all(|(_, issue)| issue.is_ok()), "{:?}", menee.issues);
     assert_eq!(lieu.apres(&proposition, &plan, &menee, Duration::from_secs(60)), ExitCode::FAILURE);
@@ -1607,9 +1661,7 @@ fn une_vague_relue_sur_sa_tete_pousse_et_le_corps_nomme_le_commit() {
     assert_eq!(lieu.distante(&format!("lydite/vague-{}", menee.id)), tete);
     let corps = lieu.gh.entree(2);
     assert!(
-        corps.ends_with(&format!(
-            "Relecture : 0 remarques, dont 0 bloquantes.\nReviewed and replayed on commit {tete}.\n"
-        )),
+        corps.ends_with(&format!("Review: 0 remarks, 0 blocking.\nReviewed and replayed on commit {tete}.\n")),
         "{corps}"
     );
     let _ = fs::remove_dir_all(&lieu.racine);
