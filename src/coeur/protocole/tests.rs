@@ -451,6 +451,22 @@ fn une_coupure_de_l_api_se_reconnait_a_son_statut() {
 }
 
 #[test]
+fn le_plafond_de_depense_se_reconnait_a_son_subtype() {
+    let depense = ligne_json(
+        r#"{"type":"result","subtype":"error_max_budget_usd","is_error":true,"num_turns":3,"total_cost_usd":1.2}"#,
+    );
+    assert!(plafond_atteint(&depense));
+    // Un résultat en erreur que `resultat` dit comme les autres, et qui n'est pas une coupure de l'API.
+    assert_eq!(resultat(&depense), Err("main : résultat en erreur (error_max_budget_usd)".into()));
+    assert_eq!(coupure(&depense), None);
+    // Une main qui réussit, un autre résultat en erreur, ou un autre mot dans le texte, ne sont pas un plafond.
+    assert!(!plafond_atteint(&ligne_json(RESULTAT)));
+    assert!(!plafond_atteint(&ligne_json(SANS_MUR)));
+    let texte = RESULTAT.replace("fait", "error_max_budget_usd");
+    assert!(!plafond_atteint(&ligne_json(&texte)), "le texte du résultat ne décide pas");
+}
+
+#[test]
 fn chaque_ligne_se_range() {
     // Les réponses, par l'id de leur demande, avec leur objet `response` ; l'ouverture et les résultats, entiers.
     for (juste, id) in JUSTES.iter().zip(DEMANDES) {

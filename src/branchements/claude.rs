@@ -426,6 +426,7 @@ impl Partie {
                         constat.usage.tours = usage.tours;
                     }
                     constat.coupure = protocole::coupure(&resultat);
+                    constat.plafond = protocole::plafond_atteint(&resultat);
                     return self.finir(protocole::resultat(&resultat)).map_err(ErreurMain::Autre);
                 }
                 _ => {}

@@ -657,7 +657,7 @@ impl<'a> Vague<'a> {
             Ok(Pris { sortie, prouve: false }) => (Couleur::Vert, Foi::Declare, sortie.clone()),
             // La raison d'une main qui déclare l'impossible : rouge, et déclarée, car Kraken n'a rien vu.
             Err(Echec::Impossible(raison)) => (Couleur::Rouge, Foi::Declare, raison.clone()),
-            Err(Echec::Erreur(erreur) | Echec::Coupure(_, erreur) | Echec::Tuee(erreur)) => {
+            Err(Echec::Erreur(erreur) | Echec::Coupure(_, erreur) | Echec::Tuee(erreur) | Echec::Plafond(erreur)) => {
                 (Couleur::Rouge, Foi::Constate, erreur.clone())
             }
         };
@@ -716,6 +716,21 @@ impl<'a> Vague<'a> {
                 let erreur = format!("{IMPOSSIBLE}{raison}");
                 let issue = if self.noter(&impossible) { erreur } else { self.hors_du_fil(&erreur) };
                 self.taches[k - 1] = Etat::Finie(Err(issue));
+            }
+            // Une main qui atteint son plafond de dépense, à toute tentative : refusée sans relance (7019), la vague
+            // continue pour ses autres tâches.
+            Err(Echec::Plafond(erreur)) => {
+                let preuve = format!(
+                    "{} ({}) a atteint son plafond de dépense, {} dollars : {}",
+                    self.main(k),
+                    self.plan.taches[k - 1].id,
+                    self.profil.plafond(),
+                    erreur.lines().next().unwrap_or_default()
+                );
+                let correction = "La tâche est refusée sans relance, car la main a atteint son plafond de dépense : \
+                                  relève `plafond` dans le profil, accepte-le (`lydite accepter`), puis relance la \
+                                  tâche dans une vague neuve, ou laisse-la.";
+                self.refuser(k, Refus::new(Code::PlafondAtteint, preuve, correction), None);
             }
             // La première coupure de la tâche repart, après une pause, sans compter comme une relance, avec l'erreur
             // que portait la tentative coupée ; la seconde la classe, la cause dite.

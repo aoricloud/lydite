@@ -430,13 +430,19 @@ fn argv_de_windows(ligne: &str) -> Vec<String> {
 
 /// L'argv d'une tentative de la fausse claude, tel que Kraken le lui passe après son nom : `-p`, les formats, le mode,
 /// `--strict-mcp-config`, `--mcp-config` si le profil a un `mcp`, `--setting-sources user`, `--model`, puis
-/// `--settings` et le JSON en dernier. Jamais de `--tools`.
+/// `--settings` et le JSON, puis `--max-budget-usd 20`, le plafond par défaut, en dernier. Jamais de `--tools`.
 fn argv_attendu(modele: &str, mcp: Option<&str>, reglages: &str) -> Vec<String> {
     let debut = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"];
     let mode = ["--permission-mode", "acceptEdits", "--permission-prompts", "none", "--strict-mcp-config"];
-    let fin = ["--setting-sources", "user", "--model", modele, "--settings", reglages];
+    let fin = ["--setting-sources", "user", "--model", modele, "--settings", reglages, "--max-budget-usd", "20"];
     let mcp = mcp.into_iter().flat_map(|mcp| ["--mcp-config", mcp]);
     debut.into_iter().chain(mode).chain(mcp).chain(fin).map(String::from).collect()
+}
+
+/// Le JSON de `--settings` d'un argv reçu par la fausse claude.
+fn reglages_de(argv: &[String]) -> &String {
+    let i = argv.iter().position(|arg| arg == "--settings").expect("--settings s'écrit toujours");
+    &argv[i + 1]
 }
 
 /// Les lignes du fil qui sont de ce type, dans l'ordre du fil.
@@ -695,7 +701,7 @@ impl Essai {
 
     /// Les `--settings` que Kraken a passés, un par tentative.
     fn reglages_recus(&self) -> Vec<String> {
-        self.argv_recus().into_iter().map(|argv| argv.last().cloned().unwrap()).collect()
+        self.argv_recus().iter().map(|argv| reglages_de(argv).clone()).collect()
     }
 
     /// Ce que la fausse claude a lu sur son entrée, tentative après tentative, une ligne par élément (voir `recoller`).
@@ -1104,7 +1110,7 @@ fn une_fausse_claude_recoit_ses_drapeaux_tentative_par_tentative() {
         for drapeau in ["--tools", "--mcp-config"] {
             assert!(!argv.iter().any(|arg| arg == drapeau), "{drapeau} ne part pas : {argv:?}");
         }
-        let json = argv.last().unwrap();
+        let json = reglages_de(argv);
         let attendu = ["WebFetch(domain:exemple.test)", "Bash(git status)", "PowerShell(git status)", "ListAgents"];
         for dedans in attendu.into_iter().chain([r#""autoMemoryEnabled":false"#]) {
             assert!(json.contains(dedans), "{dedans} manque dans les réglages : {json}");
@@ -1164,7 +1170,7 @@ fn le_decoupeur_part_sur_la_cle_decoupeur_a_ses_deux_tentatives() {
         for argv in &recus {
             let i = argv.iter().position(|arg| arg == "--model").expect("--model s'écrit toujours");
             assert_eq!(argv[i + 1], modele, "{argv:?}");
-            assert!(argv.last().unwrap().contains(&format!("Bash({DECOUPE})")), "{argv:?}");
+            assert!(reglages_de(argv).contains(&format!("Bash({DECOUPE})")), "{argv:?}");
         }
         let fil = essai.fil();
         let lancements = lignes_de(&fil, "main.lancement");

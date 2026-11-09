@@ -275,6 +275,16 @@ fn un_profil_faux_est_refuse_avec_sa_ligne() {
         ("delai_preuve = +5", "un entier positif"),
         ("delai_preuve = 99999999999999999999", "un entier positif"),
         ("delai_preuve = 5 s", "un entier positif"),
+        ("plafond = 0", "un plafond est un nombre positif de dollars"),
+        ("plafond = 0.00", "un plafond est un nombre positif de dollars"),
+        ("plafond = -5", "ni vide ni en « - »"),
+        ("plafond = +5", "un plafond est un nombre positif de dollars"),
+        ("plafond = 5.", "un plafond est un nombre positif de dollars"),
+        ("plafond = .5", "un plafond est un nombre positif de dollars"),
+        ("plafond = 1.234", "deux décimales au plus"),
+        ("plafond = 1e3", "un plafond est un nombre positif de dollars"),
+        ("plafond = 20 dollars", "un plafond est un nombre positif de dollars"),
+        ("plafond = 99999999999999999999", "un plafond est un nombre positif de dollars"),
         ("reseau = *.exemple.test", "un domaine s'écrit en [A-Za-z0-9.-], sans joker ni port"),
         ("reseau = exemple.test:443", "sans joker ni port"),
         ("reseau = exemple.test/chemin", "sans joker ni port"),
@@ -831,6 +841,31 @@ fn une_copie_prend_les_modeles_de_sa_tache_et_garde_le_reste() {
 }
 
 #[test]
+fn le_plafond_se_lit_avec_son_defaut_et_part_sur_la_ligne_de_commande() {
+    // Vingt dollars par défaut, au profil intégré comme à un profil qui ne le dit pas.
+    assert_eq!(lire("essai", "sorte = claude\n", None, None).unwrap().plafond(), "20");
+    // Une valeur écrite, sans zéro de trop : entière, à une décimale, à deux.
+    for (ecrit, porte) in [("7.5", "7.5"), ("7.50", "7.5"), ("100", "100"), ("0.25", "0.25"), ("3.05", "3.05")] {
+        let profil = lire("essai", &format!("sorte = claude\nplafond = {ecrit}\n"), None, None).unwrap();
+        assert_eq!(profil.plafond(), porte, "{ecrit}");
+    }
+    // Chaque main part avec le plafond du profil, à la première tentative comme à la relance.
+    let profil = borne("sorte = claude\nplafond = 7.5\n");
+    for relance in [false, true] {
+        let argv = profil.demande(&absolu("bac"), None, relance).argv;
+        let i = argv.iter().position(|arg| arg == "--max-budget-usd").expect("le drapeau");
+        assert_eq!(argv[i + 1], "7.5", "relance {relance}");
+        assert_eq!(argv.iter().filter(|arg| *arg == "--max-budget-usd").count(), 1);
+    }
+    // La copie aux modèles de la tâche garde le plafond.
+    let copie = profil.avec_modeles(Some("opus"), None);
+    let argv = copie.demande(&absolu("bac"), None, false).argv;
+    assert!(argv.ends_with(&["--max-budget-usd".into(), "7.5".into()]), "{argv:?}");
+    // Une clé écrite deux fois est refusée comme les autres.
+    assert!(lire("essai", "sorte = claude\nplafond = 5\nplafond = 6\n", None, None).is_err());
+}
+
+#[test]
 fn l_argv_parle_en_stream_json() {
     let profil = borne("sorte = claude\n");
     let Demande { argv, declaration } = profil.demande(&absolu("bac"), None, false);
@@ -855,7 +890,11 @@ fn l_argv_parle_en_stream_json() {
         "--settings",
     ];
     assert_eq!(argv[..attendu.len()], attendu);
-    assert_eq!(argv[attendu.len()..], [declaration.reglages.as_str()], "le JSON exact, en chaîne, à la fin");
+    assert_eq!(
+        argv[attendu.len()..],
+        [declaration.reglages.as_str(), "--max-budget-usd", "20"],
+        "le JSON exact, en chaîne, puis le plafond de dépense, à la fin"
+    );
     assert!(!argv.iter().any(|arg| arg == "--tools" || arg == "--mcp-config"), "{argv:?}");
     // La déclaration : le profil, son empreinte, le modèle, le mur demandé, sans mcp.
     assert_eq!((declaration.profil.as_str(), declaration.mur, declaration.mcp), ("essai", false, None));
@@ -979,7 +1018,7 @@ fn les_reglages_disent_le_mur_du_profil() {
     let Demande { argv, declaration } = exige.demande(Path::new(bac), None, false);
     let declaration = declaration.unwrap();
     assert_eq!(declaration.reglages, attendu);
-    assert_eq!(argv.last(), Some(&attendu));
+    assert_eq!(argv[argv.len() - 3..], [attendu.as_str(), "--max-budget-usd", "20"]);
     assert!(declaration.mur, "le mur exigé");
     // Le même profil, le mur demandé : seul failIfUnavailable change.
     let mut demande = lu(&texte.replace("mur = exige", "mur = demande")).unwrap();

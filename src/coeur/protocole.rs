@@ -89,6 +89,8 @@ pub(crate) struct Constat {
     pub(crate) source_cle: Option<String>,
     /// Le statut de la coupure de l'API que dit la ligne `result` ([`coupure`]), `None` sinon.
     pub(crate) coupure: Option<u16>,
+    /// La ligne `result` dit que la main a atteint son plafond de dépense ([`plafond_atteint`]).
+    pub(crate) plafond: bool,
 }
 
 /// Les jetons d'une main, ou d'un de ses modèles.
@@ -302,6 +304,12 @@ pub(crate) fn coupure(ligne: &Json) -> Option<u16> {
     }
     let Some(Json::Nombre(nombre)) = champ(ligne, "api_error_status") else { return None };
     nombre.parse::<u16>().ok().filter(|statut| statut_de_coupure(u64::from(*statut)))
+}
+
+/// Une ligne `result` dit que la main a atteint son plafond de dépense (`--max-budget-usd`) : son `subtype` est
+/// `error_max_budget_usd` (Claude Code 2.1.317), un résultat en erreur que [`resultat`] rend de même.
+pub(crate) fn plafond_atteint(ligne: &Json) -> bool {
+    texte_de(ligne, "subtype") == Some("error_max_budget_usd")
 }
 
 /// `apiKeySource` de l'ouverture : `none` est la connexion de l'abonnement, une autre valeur une clé.
