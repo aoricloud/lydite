@@ -34,7 +34,8 @@ Have all of these. If one is missing, ask the user for it; do not invent it.
 
 1. **The repository**: the absolute path of a git checkout on this machine.
 2. **The work**: an issue number of that checkout's `origin`, or a one-line objective, or the absolute path of a plan
-   file the user gives you. Pass the path as it is; do not read the plan or run it yourself.
+   file the user gives you. Pass the path as it is; do not read the plan or run it yourself. When the user gives a
+   plan file, tell them its path and that the approval will show its SHA-256.
 3. **The proof**: the command that shows the work done, for example `cargo test && cargo clippy -- -D warnings`.
    It is the user's command, not yours. It must pass on the untouched base, or Lydite starts nothing. A plan carries
    its own `preuve :` line, so no proof is given with a plan.
@@ -46,9 +47,12 @@ Have all of these. If one is missing, ask the user for it; do not invent it.
 Call `lydite_lancer` with `depot` and one of `issue`, `objectif` or `plan` (and `preuve` for the first two). Add
 `observer: true` first if the user wants to see the plan before anything runs.
 
-Hermes shows the user the repository, the work, the proof and the profile, and waits for their approval. Wait for it.
-Do not answer that prompt for them, do not change Hermes' approval settings, and do not launch the same job again
-while the first one is pending. If the approval is refused, or cannot be asked, say so and stop.
+Hermes shows at most ten rows of an approval, and the plugin's message holds in nine: the repository, the work, the
+proof, the profile and the target branch. A plan file is shown by its name, its size, its number of tasks, its proof
+line and the SHA-256 of its bytes; Lydite runs those exact bytes, and the launch is refused if the file changed since
+it was shown. The user reads the plan file itself before approving, and can check it with `sha256sum <file>`. Wait for
+the approval. Do not answer that prompt for them, do not change Hermes' approval settings, and do not launch the same
+job again while the first one is pending. If the approval is refused, or cannot be asked, say so and stop.
 
 The call returns at once with an `id`. The wave runs in the background and takes minutes to hours.
 

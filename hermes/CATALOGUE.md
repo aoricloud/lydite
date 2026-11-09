@@ -36,7 +36,7 @@ capabilities:
 | 9. No core override | `no core override — no runtime rebinds of Hermes core`. |
 | 10. Dependencies | None (standard library only). |
 | 11. Credentials through Hermes | `get_secret("LYDITE_CLE_FOURNISSEUR")` from `agent.secret_scope`; no `.env`, no `auth.json`; a test forbids those strings and `os.getenv` / `os.environ[`. |
-| 12. Approvals respected | `pre_tool_call` returns `approve` for every launch (repository, work, proof and profile shown); nothing bypasses a guard; no Hermes child process is spawned; no shell. `lydite_lecons` starts nothing and writes nothing, so it asks no approval; |
+| 12. Approvals respected | `pre_tool_call` returns `approve` for every launch, showing the repository, the work, the proof, the profile and the target branch in at most nine rows; a plan is shown by its file name, its size, its number of tasks, its proof line and the SHA-256 of its bytes, not its text. Nothing bypasses a guard; no Hermes child process is spawned; no shell. `lydite_lecons` starts nothing and writes nothing, so it asks no approval; |
 | 13. Risky behavior disclosed | See "Disclosures" below and the README. |
 | 14. Truthful metadata | `requires_hermes: ">=0.23.0"` (the release it was validated on), same in `plugin.yaml`; `version` is the pinned code's. |
 | 17. No unscannable executables | No binary, no `.pyc` in the repository (a test checks the file headers). The Lydite binary is **not** shipped nor downloaded: it must already be on the machine. Lydite's own release binaries, when published, are built by the repository's GitHub Actions with a build attestation. |
@@ -54,10 +54,13 @@ capabilities:
   its log under the plugin's data folder; the last 20 launches are kept.
 - **Stored credentials.** None stored by the plugin. The optional provider key lives in Hermes' own `.env`
   (`hermes config set`) and is handed to the Lydite process through one environment variable.
-- **File reads.** The plan file named in a launch call, to show it in full for approval and to copy it (mode 0600,
-  under the plugin's data folder; Lydite reads the copy), and the lesson files of the repository named in a
-  `lydite_lecons` call (`.agents/skills/*/SKILL.md`, 4096 bytes each at most, never following a link out of that
-  folder). Nothing else outside the plugin's own folder.
+- **File reads.** The plan file named in a launch call, to fingerprint its bytes, show its name, size, task count,
+  proof line and SHA-256 for approval, and copy it (mode 0600, under the plugin's data folder; Lydite reads the copy),
+  and the lesson files of the repository named in a `lydite_lecons` call (`.agents/skills/*/SKILL.md`, 4096 bytes each
+  at most, never following a link out of that folder). Nothing else outside the plugin's own folder.
+
+  Read the plan file before you approve: Hermes shows its name and its SHA-256, not its text. A human can check it
+  with `sha256sum <file>`.
 - **Telemetry.** None.
 - **Platforms.** Linux only; the tools hide themselves elsewhere.
 - **Honest limit.** A worker runs with `--permission-mode acceptEdits --permission-prompts none` inside Lydite's wall, so what it may do is what the

@@ -63,10 +63,13 @@ ATTENTE_DU_REFUS = 3.0
 LANCEMENTS_GARDES = 20
 OCTETS_DU_JOURNAL = 4000
 
-# L'humain approuve ce qu'il lit en entier : ni la preuve ni l'objectif ne sont tronqués dans l'approbation, donc ils
-# ne dépassent pas une taille qu'on lit d'un coup d'œil.
-LIMITE_DE_LA_PREUVE = 2000
-LIMITE_DE_L_OBJECTIF = 500
+# Ce que Hermes montre d'une approbation : dix lignes au plus, et un repli vers 60 colonnes. Le message du verrou
+# tient donc en neuf lignes de 58 caractères. `LIMITE_DE_LA_PREUVE` et `LIMITE_DE_L_OBJECTIF` bornent ce qu'un appel
+# peut donner ; `LIMITE_DU_PLAN` ne borne plus que la taille d'un fichier de plan.
+LIGNES_DE_L_APPROBATION = 9
+LARGEUR_DE_L_APPROBATION = 58
+LIMITE_DE_LA_PREUVE = 110
+LIMITE_DE_L_OBJECTIF = 110
 LIMITE_DU_PLAN = 8000
 
 # Un nom de profil ne commence jamais par un tiret : Lydite y verrait un drapeau.
@@ -269,8 +272,8 @@ class Outils:
 
     @staticmethod
     def _lire_le_plan(plan: str):
-        """Le chemin et les octets d'un fichier de plan, que l'humain lira en entier avant d'approuver : un fichier
-        qui se lit, en UTF-8, d'une taille qu'on lit d'un coup d'œil."""
+        """Le chemin et les octets d'un fichier de plan, que Lydite lira : un fichier qui se lit, en UTF-8, d'une
+        taille qu'on peut vérifier par son empreinte."""
         chemin = Path(plan.strip()).expanduser()
         if not chemin.is_absolute():
             raise Refus(f"`plan` must be an absolute path, not {plan!r}")
@@ -282,8 +285,19 @@ class Outils:
         except (OSError, UnicodeDecodeError) as exc:
             raise Refus(f"`plan` {str(chemin)!r} cannot be read as UTF-8 text: {exc}") from exc
         if not texte.strip() or len(texte) > LIMITE_DU_PLAN:
-            raise Refus(f"`plan` must hold between 1 and {LIMITE_DU_PLAN} characters, so that it can be read in full")
+            raise Refus(f"`plan` must hold between 1 and {LIMITE_DU_PLAN} characters")
         return str(chemin), octets
+
+    @staticmethod
+    def _preuve_du_plan(texte: str) -> str:
+        """La commande de la ligne `preuve :` de l'en-tête du plan, ou de quoi le dire si elle manque."""
+        for ligne in texte.splitlines():
+            if ligne == "tache" or ligne.startswith(("tache ", "tache\t")):
+                break
+            cle, separateur, valeur = ligne.partition(":")
+            if separateur and cle.strip() == "preuve":
+                return valeur.strip()
+        return "no `preuve :` line in the plan header"
 
     @staticmethod
     def _commande(binaire: str, demande: dict) -> list:
@@ -307,33 +321,114 @@ class Outils:
 
     # --- le verrou d'approbation ----------------------------------------------------------------------------------
 
+    @staticmethod
+    def _plier(etiquette: str, valeur: str, couper: str = "fin", lignes: int = 2) -> list:
+        """Plie une valeur sous son libellé : le libellé puis la valeur sur la première ligne, et au plus
+        `lignes - 1` lignes de continuation indentées de neuf espaces. Une valeur qui reste trop longue est coupée au
+        début (`couper` vaut "debut", pour un chemin dont on garde la fin) ou à la fin, avec `…` pour le montrer."""
+        prefixe = f"{etiquette:<7}: "
+        largeur = LARGEUR_DE_L_APPROBATION - len(prefixe)
+        valeur = valeur.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+        capacite = largeur * lignes
+        if len(valeur) > capacite:
+            if couper == "debut":
+                valeur = "…" + valeur[-(capacite - 1) :]
+            else:
+                valeur = valeur[: capacite - 1] + "…"
+        rendues = [prefixe + valeur[:largeur]]
+        for debut in range(largeur, len(valeur), largeur):
+            rendues.append(" " * len(prefixe) + valeur[debut : debut + largeur])
+        return rendues
+
+    @staticmethod
+    def _lignes_voulues(etiquette: str, valeur: str) -> int:
+        """Le nombre de rangées qu'il faut à une valeur pour paraître en entier, trois au plus."""
+        largeur = LARGEUR_DE_L_APPROBATION - len(f"{etiquette:<7}: ")
+        longueur = len(valeur.replace("\r\n", " ").replace("\n", " ").replace("\r", " "))
+        return max(1, min(3, -(-longueur // largeur)))
+
+    @classmethod
+    def _place_des_entrees(cls, entrees: list, place: int) -> dict:
+        """Les rangées accordées à chaque entrée : une au moins, puis les rangées restantes vont d'abord au travail
+        et à la preuve, dont l'humain approuve le texte exact, puis au dépôt et au profil ; trois au plus chacune."""
+        accordees = {etiquette: 1 for etiquette, _, _ in entrees}
+        valeurs = {etiquette: valeur for etiquette, valeur, _ in entrees}
+        priorite = ("work", "proof", "repo", "profile")
+        for etiquette in sorted(valeurs, key=lambda nom: priorite.index(nom) if nom in priorite else len(priorite)):
+            prises = min(cls._lignes_voulues(etiquette, valeurs[etiquette]) - 1, place)
+            accordees[etiquette] += prises
+            place -= prises
+        return accordees
+
+    @classmethod
+    def _plier_selon_budget(cls, etiquette: str, valeur: str, couper: str, place: int):
+        """Plie une entrée en continuant sa valeur si elle en a besoin et si le message garde la place ; rend ses
+        lignes et la place qui reste."""
+        rendues = cls._plier(etiquette, valeur, couper, 2 if place > 0 else 1)
+        return rendues, place - (len(rendues) - 1)
+
+    def _message_de_l_approbation(self, demande: dict, empreinte: str) -> str:
+        """Le message que Hermes montre à l'humain : neuf lignes de 58 caractères au plus. Un plan n'y paraît pas par
+        son texte, mais par son nom, sa taille, son nombre de tâches et l'empreinte des octets que Lydite lance."""
+        lignes = ["Lydite wave, in the background, on this machine"]
+        if demande["plan"]:
+            texte = demande["plan_octets"].decode("utf-8")
+            nom = Path(demande["plan"]).name
+            taches = sum(1 for ligne in texte.splitlines() if ligne.startswith("tache "))
+            avant = [
+                ("repo", demande["depot"], "debut"),
+                ("plan", f"{nom} · {taches} tasks · {len(texte)} chars", "debut"),
+            ]
+            apres = [
+                ("proof", self._preuve_du_plan(texte), "fin"),
+                ("profile", f"{demande['profil']} · pull request against {demande['pr']}", "fin"),
+            ]
+            # L'en-tête, les deux lignes du SHA-256 et la phrase finale ne bougent pas.
+            place = LIGNES_DE_L_APPROBATION - 4 - len(avant) - len(apres)
+        else:
+            travail = f"issue #{demande['issue']}" if demande["issue"] else f"objective: {demande['objectif']}"
+            cible = "plan only" if demande["observer"] else f"pull request against {demande['pr']}"
+            avant = [
+                ("repo", demande["depot"], "debut"),
+                ("work", travail, "fin"),
+                ("proof", demande["preuve"], "fin"),
+                ("profile", f"{demande['profil']} · {cible}", "fin"),
+            ]
+            apres = []
+            place = LIGNES_DE_L_APPROBATION - 1 - len(avant)
+        if demande["plan"]:
+            for etiquette, valeur, couper in avant:
+                rendues, place = self._plier_selon_budget(etiquette, valeur, couper, place)
+                lignes.extend(rendues)
+        else:
+            # Le travail et la preuve d'abord : jusqu'à trois rangées chacun, pour qu'une preuve ou un objectif de
+            # 110 caractères paraisse en entier sans que le message dépasse neuf lignes.
+            accordees = self._place_des_entrees(avant, place)
+            for etiquette, valeur, couper in avant:
+                lignes.extend(self._plier(etiquette, valeur, couper, accordees[etiquette]))
+        if demande["plan"]:
+            lignes.extend([f"sha256 : {empreinte[:32]}", " " * 9 + empreinte[32:]])
+        for etiquette, valeur, couper in apres:
+            rendues, place = self._plier_selon_budget(etiquette, valeur, couper, place)
+            lignes.extend(rendues)
+        if demande["plan"]:
+            lignes.append("Read the plan file first: Lydite runs these bytes.")
+        return "\n".join(lignes)
+
     def verrou(self, tool_name="", args=None, **_):
         """Le crochet `pre_tool_call` : tout lancement passe par l'approbation de l'humain, qui voit le dépôt, le
-        travail et la preuve exacts. Une demande qui sera refusée de toute façon est rendue au modèle, sans
-        déranger l'humain."""
+        travail, la preuve, le profil et la branche cible dans ce que Hermes montre. Une demande qui sera refusée de
+        toute façon est rendue au modèle, sans déranger l'humain."""
         if tool_name != LANCER:
             return None
         try:
             demande = self._demande(args if isinstance(args, dict) else {})
         except Refus as refus:
             return {"action": "block", "message": _json({"erreur": str(refus)})}
+        empreinte = _empreinte(demande["plan_octets"]) if demande["plan"] else ""
         if demande["plan"]:
-            texte = demande["plan_octets"].decode("utf-8")
-            montre = (demande["depot"], demande["profil"], demande["plan"])
-            self._plans_montres[montre] = _empreinte(demande["plan_octets"])
-            quoi = f"the plan file {demande['plan']}, shown in full below: Lydite runs exactly this text"
-            preuve = f"the `preuve :` line of the plan\n--- plan ---\n{texte.rstrip()}\n--- end of plan ---"
-        else:
-            quoi = f"issue #{demande['issue']}" if demande["issue"] else f"objective: {demande['objectif']}"
-            preuve = demande["preuve"]
-        message = (
-            f"Start a Lydite wave in the background on this machine.\n"
-            f"  repository : {demande['depot']}\n"
-            f"  work       : {quoi}\n"
-            f"  proof      : {preuve}\n"
-            f"  profile    : {demande['profil']} (its model, wall and provider decide what the workers can do)\n"
-            f"  pull request against: {demande['pr']}{' (plan only, nothing is built)' if demande['observer'] else ''}"
-        )
+            self._plans_montres[(demande["depot"], demande["profil"], demande["plan"])] = empreinte
+        message = self._message_de_l_approbation(demande, empreinte)
         # L'accord « toujours » ne vaut que pour ce dépôt, ce profil et cette preuve (ou ce plan) exactement.
         corps = demande["plan_octets"].decode("utf-8") if demande["plan"] else demande["preuve"]
         cle = _empreinte("\0".join([demande["depot"], demande["profil"], corps]).encode("utf-8"))
