@@ -1,6 +1,6 @@
 """Ce que le modèle lit de chaque outil : son nom, quand l'employer, ses paramètres."""
 
-from .nom import ETAT, LANCER
+from .nom import ETAT, LANCER, LECONS
 
 SCHEMA_LANCER = {
     "name": LANCER,
@@ -39,16 +39,18 @@ SCHEMA_LANCER = {
                     "Absolute path of a plan file written by hand (tasks, models, files, and its own `preuve :` line) "
                     "instead of letting Lydite split an issue or objective. Use it when the user gives you the path "
                     "of a plan file to run: pass the path, do not read or execute the plan yourself. Give one of "
-                    "`issue`, `objectif`, `plan`; no `preuve`, no `observer` with it. The human reads the whole plan "
-                    "before approving."
+                    "`issue`, `objectif`, `plan`; no `preuve`, no `observer` with it. Before approving, the human is "
+                    "shown the plan's file name, its SHA-256, its number of tasks and its proof line; Lydite runs "
+                    "exactly those bytes."
                 ),
             },
             "preuve": {
                 "type": "string",
                 "description": (
                     "The command that proves the work done (e.g. 'cargo test && cargo clippy -- -D warnings'). "
-                    "Required with `issue` or `objectif`, not with `plan`. Lydite runs it itself, in each worker's "
-                    "box. It must pass on the untouched base first, or nothing starts."
+                    "Required with `issue` or `objectif`, not with `plan`. It holds in 110 characters; a longer one "
+                    "goes in a script. Lydite runs it itself, in each worker's box. It must pass on the untouched "
+                    "base first, or nothing starts."
                 ),
             },
             "profil": {
@@ -85,5 +87,29 @@ SCHEMA_ETAT = {
             },
         },
         "required": [],
+    },
+}
+
+SCHEMA_LECONS = {
+    "name": LECONS,
+    "description": (
+        "The written rules Lydite learned on this repository and gives to its workers. Call this tool before "
+        "planning or doing any work in a repository Lydite works on, follow the lessons, and cite a lesson by its "
+        "name. Without `nom` it returns the list (name, rule, files); with `nom`, the full text of that lesson. It is "
+        "read-only (only a human changes a lesson), and Lydite itself checks every lesson first."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "depot": {
+                "type": "string",
+                "description": "Absolute path of the git checkout on this machine whose lessons to read.",
+            },
+            "nom": {
+                "type": "string",
+                "description": "Name of one lesson to read in full. Omit for the list of all lessons.",
+            },
+        },
+        "required": ["depot"],
     },
 }

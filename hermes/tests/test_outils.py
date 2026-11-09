@@ -1,6 +1,7 @@
 """Les outils : la demande vérifiée, le verrou d'approbation, le lancement détaché (avec un faux Lydite, sous
 Linux), l'environnement fermé et la clé du fournisseur."""
 
+import hashlib
 import json
 import os
 import signal
@@ -8,6 +9,7 @@ import sys
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from .chargeur import LINUX, AvecDossier, FauxContexte, plugin, sous_module
@@ -59,15 +61,19 @@ class AvecOutils(AvecDossier):
         chemin.write_text(texte, encoding="utf-8", newline="\n")
         return self.demande(issue=None, preuve=None, plan=str(chemin), **champs)
 
-    def faux_lydite(self, suite="", code_etat=0, texte_etat="aucune vague"):
-        """Un faux Lydite : il note ses arguments et son environnement, répond à `etat`, puis fait `suite`."""
+    def faux_lydite(self, suite="", code_etat=0, texte_etat="aucune vague", code_lecons=0, texte_lecons=""):
+        """Un faux Lydite : il note ses arguments et son environnement, répond à `etat` et à `lecons`, puis fait
+        `suite`."""
         dossier = self.dossier / "bin"
         dossier.mkdir(exist_ok=True)
         chemin = dossier / "lydite"
         chemin.write_text(
-            f"#!/bin/sh\nif [ \"$1\" = etat ]; then echo '{texte_etat}'; exit {code_etat}; fi\n"
+            f"#!/bin/sh\n"
+            f"if [ \"$1\" = etat ]; then echo '{texte_etat}'; exit {code_etat}; fi\n"
             f"for a in \"$@\"; do printf '%s\\n' \"$a\"; done > '{self.sortie}/argv'\n"
-            f"env > '{self.sortie}/env'\n{suite}\n",
+            f"env > '{self.sortie}/env'\n"
+            f"if [ \"$1\" = lecons ]; then printf '%s' '{texte_lecons}' >&2; exit {code_lecons}; fi\n"
+            f"{suite}\n",
             encoding="utf-8",
         )
         chemin.chmod(0o755)
@@ -173,6 +179,24 @@ class Demande(AvecOutils):
 
 
 class Verrou(AvecOutils):
+    def compact(self, message):
+        """Le message sans les pliures de l'approbation, pour y retrouver une valeur entière."""
+        return "".join(message.replace("\n" + " " * 9, "").split())
+
+    def bornes(self, message):
+        """Ce que Hermes montre : neuf lignes de 58 caractères au plus."""
+        lignes = message.splitlines()
+        self.assertLessEqual(len(lignes), sous_module("outils").LIGNES_DE_L_APPROBATION, lignes)
+        for ligne in lignes:
+            self.assertLessEqual(len(ligne), sous_module("outils").LARGEUR_DE_L_APPROBATION, ligne)
+
+    def depot_long(self, longueur):
+        """Un dépôt git dont le chemin absolu fait exactement `longueur` caractères."""
+        chemin = self.dossier / ("d" * (longueur - len(str(self.dossier)) - 1))
+        (chemin / ".git").mkdir(parents=True)
+        self.assertEqual(len(str(chemin)), longueur)
+        return chemin
+
     def test_un_autre_outil_passe_sans_question(self):
         self.assertIsNone(self.outils().verrou(tool_name="terminal", args={"command": "ls"}))
         self.assertIsNone(self.outils().verrou(tool_name=sous_module("nom").ETAT, args={}))
@@ -180,21 +204,96 @@ class Verrou(AvecOutils):
     def test_un_lancement_demande_l_approbation_avec_ce_qui_va_partir(self):
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(profil="nautile"))
         self.assertEqual(decision["action"], "approve")
+        message = self.compact(decision["message"])
         for attendu in (str(self.depot), "issue #15", PREUVE, "nautile", "main"):
-            self.assertIn(attendu, decision["message"])
+            self.assertIn(self.compact(attendu), message)
 
-    def test_l_humain_lit_la_preuve_en_entier_sans_retouche(self):
-        preuve = "cargo test\n  && echo " + "a" * 1500 + "\ntrue"
-        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
-        self.assertIn(preuve, decision["message"])
+    def test_les_messages_d_approbation_tiennent_dans_les_bornes(self):
+        cas = (
+            self.demande(),
+            self.demande(issue=None, objectif="ajouter x"),
+            self.demande(issue=None, objectif="ajouter x", observer=True),
+            self.demande_de_plan(),
+        )
+        for args in cas:
+            decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+            self.assertEqual(decision["action"], "approve", decision)
+            self.bornes(decision["message"])
 
-    def test_l_humain_lit_le_plan_en_entier_avec_son_chemin(self):
+    def test_un_depot_de_150_caracteres_tient_dans_les_bornes(self):
+        depot = str(self.depot_long(150))
+        cas = (
+            self.demande(depot=depot),
+            self.demande(issue=None, objectif="ajouter x", depot=depot),
+            self.demande(issue=None, objectif="ajouter x", depot=depot, observer=True),
+            self.demande_de_plan(depot=depot),
+        )
+        for args in cas:
+            decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+            self.assertEqual(decision["action"], "approve", decision)
+            self.bornes(decision["message"])
+
+    def test_une_ligne_de_preuve_de_300_caracteres_tient_dans_les_bornes(self):
+        plan = "plan 1\nobjectif : o\npreuve : " + "p" * 300 + "\n\ntache a\n    faire.\n"
+        args = self.demande_de_plan(texte=plan)
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+        self.assertEqual(decision["action"], "approve")
+        self.bornes(decision["message"])
+
+    def test_un_plan_est_montre_par_son_nom_ses_taches_et_son_empreinte(self):
         args = self.demande_de_plan()
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
         self.assertEqual(decision["action"], "approve")
-        self.assertIn(PLAN.rstrip(), decision["message"])
-        self.assertIn(args["plan"], decision["message"])
-        self.assertIn(str(self.depot), decision["message"])
+        message = decision["message"]
+        lignes = message.splitlines()
+        debut = next(rang for rang, ligne in enumerate(lignes) if ligne.startswith("sha256 : "))
+        empreinte = lignes[debut][len("sha256 : ") :] + lignes[debut + 1].strip()
+        self.assertEqual(empreinte, hashlib.sha256(PLAN.encode("utf-8")).hexdigest())
+        self.assertIn(Path(args["plan"]).name, message)
+        self.assertIn(f"{len(PLAN)} chars", message)
+        self.assertIn("1 tasks", message)
+        self.assertIn("cargo test", message)
+        self.assertNotIn("Écris apercus/LISEZ-MOI.md.", message)
+
+    def test_la_preuve_donnee_se_lit_en_entier_dans_les_bornes(self):
+        preuve = "cargo test " + "a" * 80
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
+        self.assertEqual(decision["action"], "approve")
+        self.assertIn(self.compact(preuve), self.compact(decision["message"]))
+        self.bornes(decision["message"])
+
+    def test_111_caracteres_sont_refuses_et_110_acceptes(self):
+        lancer = sous_module("nom").LANCER
+        outils = self.outils()
+        self.assertEqual(outils.verrou(tool_name=lancer, args=self.demande(preuve="p" * 110))["action"], "approve")
+        self.assertEqual(outils.verrou(tool_name=lancer, args=self.demande(preuve="p" * 111))["action"], "block")
+        self.assertEqual(
+            outils.verrou(tool_name=lancer, args=self.demande(issue=None, objectif="o" * 110))["action"],
+            "approve",
+        )
+        self.assertEqual(
+            outils.verrou(tool_name=lancer, args=self.demande(issue=None, objectif="o" * 111))["action"],
+            "block",
+        )
+
+    def test_la_preuve_et_l_objectif_de_110_caracteres_paraissent_en_entier(self):
+        lancer = sous_module("nom").LANCER
+        preuve = "cargo test " + "a" * 99
+        objectif = "o" * 110
+        self.assertEqual(len(preuve), 110)
+        self.assertEqual(len(objectif), 110)
+        for args in (
+            self.demande(preuve=preuve),
+            self.demande(issue=None, objectif=objectif),
+            self.demande(issue=None, objectif=objectif, preuve=preuve),
+        ):
+            decision = self.outils().verrou(tool_name=lancer, args=args)
+            self.assertEqual(decision["action"], "approve", decision)
+            message = self.compact(decision["message"])
+            self.assertIn(self.compact(args["preuve"]), message)
+            if args.get("objectif"):
+                self.assertIn(self.compact(f"objective: {objectif}"), message)
+            self.bornes(decision["message"])
 
     def test_l_accord_toujours_d_un_plan_ne_vaut_que_pour_ce_texte(self):
         lancer = sous_module("nom").LANCER
@@ -519,6 +618,161 @@ class Etat(AvecOutils):
         self.assertNotIn("id000", outils._lancements())
         self.assertFalse((journaux / "0.log").exists())
         self.assertTrue((journaux / f"{garde + 2}.log").exists())
+
+
+@unittest.skipUnless(LINUX, "the fake Lydite is a shell script: Linux only")
+class Lecons(AvecOutils):
+    """Les leçons que Lydite vérifie, et les fichiers qu'on refuse de suivre."""
+
+    def ecrire_lecon(self, nom, regle="A lesson rule.", fichiers=("src/", "tests/")):
+        """Une leçon complète, avec ses six sections et sa section `## Files`."""
+        dossier = self.depot / ".agents" / "skills" / nom
+        dossier.mkdir(parents=True, exist_ok=True)
+        texte = (
+            f"---\nname: {nom}\ndescription: {regle}\n---\n\n"
+            "## What happened\nA.\n\n## Why\nB.\n\n## How it is checked\nC.\n\n"
+            "## Pitfall\nD.\n\n## Files\n" + "".join(f"- {chemin}\n" for chemin in fichiers) + "\n## Falls when\nE.\n"
+        )
+        (dossier / "SKILL.md").write_text(texte, encoding="utf-8")
+        return texte
+
+    def appeler(self, **champs):
+        return json.loads(self.outils().lecons({"depot": str(self.depot), **champs}))
+
+    def lien(self, source, cible):
+        try:
+            os.symlink(source, cible)
+        except (OSError, NotImplementedError):
+            self.skipTest("this system has no symbolic links")
+
+    def test_la_liste_est_triee_avec_la_regle_et_les_fichiers(self):
+        self.ecrire_lecon("zebre", "Keep the tests free of sleeps.", ("z/",))
+        self.ecrire_lecon("alpha", "Write the proof first.", ("src/", "tests/"))
+        self.faux_lydite()
+        rendu = self.appeler()
+        self.assertEqual(rendu["depot"], str(self.depot))
+        self.assertEqual(rendu["nombre"], 2)
+        self.assertEqual([lecon["nom"] for lecon in rendu["lecons"]], ["alpha", "zebre"])
+        self.assertEqual(rendu["lecons"][0]["regle"], "Write the proof first.")
+        self.assertEqual(rendu["lecons"][0]["fichiers"], ["src/", "tests/"])
+        self.assertNotIn("texte", rendu["lecons"][0])
+        self.assertIn("read-only", rendu["lecture"])
+
+    def test_le_programme_recoit_lecons_et_le_depot_et_un_environnement_ferme(self):
+        self.ecrire_lecon("alpha")
+        self.faux_lydite()
+        with faux_secrets():
+            self.outils(cle_nom="CLE_DEEPSEEK").lecons({"depot": str(self.depot)})
+        self.assertEqual(self.lu("argv").splitlines(), ["lecons", str(self.depot)])
+        env = self.lu("env")
+        self.assertNotIn("HERMES_YOLO_MODE", env)
+        self.assertNotIn("OPENAI_API_KEY", env)
+        self.assertNotIn("CLE_DEEPSEEK", env)
+        self.assertNotIn(SECRET, env)
+
+    def test_une_lecon_par_nom_rend_le_fichier_entier(self):
+        self.ecrire_lecon("alpha", "Write the proof first.", ("src/",))
+        self.faux_lydite()
+        rendu = self.appeler(nom="alpha")
+        fichier = self.depot / ".agents" / "skills" / "alpha" / "SKILL.md"
+        self.assertEqual(rendu["nom"], "alpha")
+        self.assertEqual(rendu["regle"], "Write the proof first.")
+        self.assertEqual(rendu["fichiers"], ["src/"])
+        self.assertEqual(rendu["texte"].encode("utf-8"), fichier.read_bytes())
+        self.assertIn("cite a lesson by its name", rendu["lecture"])
+
+    def test_un_refus_de_lydite_ne_sert_aucune_lecon(self):
+        self.ecrire_lecon("alpha")
+        self.faux_lydite(code_lecons=2, texte_lecons="refus 42 : lesson alpha is wrong")
+        rendu = self.appeler()
+        self.assertEqual(rendu["lecons"], [])
+        self.assertEqual(rendu["code"], 2)
+        self.assertIn("refus 42", rendu["refus"])
+        self.assertNotIn("texte", rendu)
+
+    def test_un_nom_qui_n_est_pas_un_nom_de_lecon_est_refuse(self):
+        self.ecrire_lecon("alpha")
+        self.faux_lydite()
+        for mauvais in ("../x", "Abc", "", "a" * 65):
+            rendu = self.appeler(nom=mauvais)
+            self.assertIn("erreur", rendu, mauvais)
+            self.assertIn("not a lesson name", rendu["erreur"], mauvais)
+            self.assertNotIn("noms", rendu, mauvais)
+
+    def test_un_nom_inconnu_donne_les_noms_qui_existent(self):
+        self.ecrire_lecon("zebre")
+        self.ecrire_lecon("alpha")
+        self.faux_lydite()
+        rendu = self.appeler(nom="absent")
+        self.assertIn("erreur", rendu)
+        self.assertIn("alpha", rendu["erreur"])
+        self.assertIn("zebre", rendu["erreur"])
+        self.assertEqual(rendu["noms"], ["alpha", "zebre"])
+
+    def test_un_skill_md_symlink_vers_l_exterieur_n_est_pas_servi(self):
+        exterieur = self.dossier / "hors-depot.md"
+        exterieur.write_text("---\nname: alpha\ndescription: Outside.\n---\n\n## Files\n- src/\n", encoding="utf-8")
+        dossier = self.depot / ".agents" / "skills" / "alpha"
+        dossier.mkdir(parents=True)
+        self.lien(exterieur, dossier / "SKILL.md")
+        self.ecrire_lecon("zebre")
+        self.faux_lydite()
+        rendu = self.appeler()
+        self.assertEqual([lecon["nom"] for lecon in rendu["lecons"]], ["zebre"])
+        self.assertIn("erreur", self.appeler(nom="alpha"))
+
+    def test_un_dossier_de_lecon_symlink_n_est_pas_servi(self):
+        exterieur = self.dossier / "hors-depot"
+        exterieur.mkdir()
+        (exterieur / "SKILL.md").write_text(
+            "---\nname: alpha\ndescription: Outside.\n---\n\n## Files\n- src/\n", encoding="utf-8"
+        )
+        skills = self.depot / ".agents" / "skills"
+        skills.mkdir(parents=True)
+        self.lien(exterieur, skills / "alpha")
+        self.ecrire_lecon("zebre")
+        self.faux_lydite()
+        rendu = self.appeler()
+        self.assertEqual([lecon["nom"] for lecon in rendu["lecons"]], ["zebre"])
+
+    def test_un_fichier_de_4097_octets_n_est_pas_servi(self):
+        self.ecrire_lecon("petite", "Small.", ("src/",))
+        texte = self.ecrire_lecon("grande", "Big.", ("src/",))
+        octets = texte.encode("utf-8")
+        octets += b"x" * (4097 - len(octets))
+        self.assertEqual(len(octets), 4097)
+        (self.depot / ".agents" / "skills" / "grande" / "SKILL.md").write_bytes(octets)
+        self.faux_lydite()
+        rendu = self.appeler()
+        self.assertEqual([lecon["nom"] for lecon in rendu["lecons"]], ["petite"])
+
+    def test_un_depot_sans_dossier_de_lecons_rend_une_liste_vide(self):
+        self.faux_lydite()
+        rendu = self.appeler()
+        self.assertEqual(rendu["lecons"], [])
+        self.assertEqual(rendu["nombre"], 0)
+        self.assertIn("no lesson yet", rendu["lecture"])
+
+    def test_un_binaire_absent_est_dit_sous_lydite_sans_lecon(self):
+        self.ecrire_lecon("alpha")
+        self.reglages["binaire"] = str(self.dossier / "absent")
+        rendu = self.appeler()
+        self.assertEqual(rendu["lecons"], [])
+        self.assertIn("not an executable", rendu["lydite"])
+
+    def test_un_depot_relatif_ou_qui_n_est_pas_un_depot_git_donne_le_refus_de_lancer(self):
+        self.faux_lydite()
+        with self.assertRaises(sous_module("outils").Refus) as contexte:
+            self.outils()._demande({"depot": "depot"})
+        relatif = json.loads(self.outils().lecons({"depot": "depot"}))
+        self.assertIn("erreur", relatif)
+        self.assertIn(str(contexte.exception), relatif["erreur"])
+        pas_git = json.loads(self.outils().lecons({"depot": str(self.dossier)}))
+        self.assertIn("erreur", pas_git)
+        self.assertIn("not a git checkout", pas_git["erreur"])
+        vide = json.loads(self.outils().lecons({"depot": ""}))
+        self.assertIn("erreur", vide)
+        self.assertIn("required", vide["erreur"])
 
 
 if __name__ == "__main__":

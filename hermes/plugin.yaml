@@ -8,6 +8,7 @@ requires_hermes: ">=0.23.0"
 provides_tools:
   - lydite_lancer
   - lydite_etat
+  - lydite_lecons
 provides_hooks:
   - pre_tool_call
 config_schema:

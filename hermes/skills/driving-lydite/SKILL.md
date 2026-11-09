@@ -2,7 +2,7 @@
 name: driving-lydite
 description: Hand a coding job to Lydite and report what it recorded. Use when the user asks to give Lydite an issue, an objective or a plan file, or asks where a Lydite wave stands. Lydite runs isolated Claude Code workers, replays the user's proof command itself and opens a pull request.
 license: MIT
-compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer and lydite_etat; anywhere else the same steps are the commands lydite lancer and lydite etat.
+compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat and lydite_lecons; anywhere else the same steps are the commands lydite lancer, lydite etat and lydite lecons.
 ---
 
 # Driving Lydite
@@ -17,13 +17,25 @@ you do not rewrite its plan, and you never merge: the pull request is for a huma
 - The user asks where a Lydite wave stands.
 - Not for a quick edit or a question about code: do those yourself.
 
+## Lessons
+
+A repository that Lydite works on may keep lessons: the written rules Lydite learned there from past mistakes and
+gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Call `lydite_lecons` with the checkout
+path before you plan, review or do any work in such a repository. Follow the lessons, and when one shapes what you do
+or say, cite it by its name. Call it again with `nom` to read one lesson in full.
+
+The lessons are read-only for you: never create, edit, rename or delete a file under `.agents/skills/`, and never copy
+a lesson into your own skills or memory as if you had written it: only a human changes a lesson. If Lydite refuses the
+lessons (one is malformed), give the refusal as written and go on without them.
+
 ## Before you launch
 
 Have all of these. If one is missing, ask the user for it; do not invent it.
 
 1. **The repository**: the absolute path of a git checkout on this machine.
 2. **The work**: an issue number of that checkout's `origin`, or a one-line objective, or the absolute path of a plan
-   file the user gives you. Pass the path as it is; do not read the plan or run it yourself.
+   file the user gives you. Pass the path as it is; do not read the plan or run it yourself. When the user gives a
+   plan file, tell them its path and that the approval will show its SHA-256.
 3. **The proof**: the command that shows the work done, for example `cargo test && cargo clippy -- -D warnings`.
    It is the user's command, not yours. It must pass on the untouched base, or Lydite starts nothing. A plan carries
    its own `preuve :` line, so no proof is given with a plan.
@@ -35,9 +47,12 @@ Have all of these. If one is missing, ask the user for it; do not invent it.
 Call `lydite_lancer` with `depot` and one of `issue`, `objectif` or `plan` (and `preuve` for the first two). Add
 `observer: true` first if the user wants to see the plan before anything runs.
 
-Hermes shows the user the repository, the work, the proof and the profile, and waits for their approval. Wait for it.
-Do not answer that prompt for them, do not change Hermes' approval settings, and do not launch the same job again
-while the first one is pending. If the approval is refused, or cannot be asked, say so and stop.
+Hermes shows at most ten rows of an approval, and the plugin's message holds in nine: the repository, the work, the
+proof, the profile and the target branch. A plan file is shown by its name, its size, its number of tasks, its proof
+line and the SHA-256 of its bytes; Lydite runs those exact bytes, and the launch is refused if the file changed since
+it was shown. The user reads the plan file itself before approving, and can check it with `sha256sum <file>`. Wait for
+the approval. Do not answer that prompt for them, do not change Hermes' approval settings, and do not launch the same
+job again while the first one is pending. If the approval is refused, or cannot be asked, say so and stop.
 
 The call returns at once with an `id`. The wave runs in the background and takes minutes to hours.
 
@@ -77,6 +92,8 @@ From Claude Code or a shell, the steps are the same, with the commands:
 lydite lancer <profile> --issue 15 --decouper --verifier "<proof>" --pr main
 lydite lancer <profile> --plan <file> --pr main
 lydite etat
+lydite lecons <repository folder>
 ```
 
-`lydite plan <file>` checks a plan without running anything. Accepting a profile, and merging, stay with the human.
+`lydite plan <file>` checks a plan without running anything. `lydite lecons <repository folder>` checks the lessons of
+a repository and prints nothing when all are right. Accepting a profile, and merging, stay with the human.
