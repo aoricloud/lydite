@@ -1,6 +1,6 @@
 use super::*;
 use crate::branchements::bac::temporaire_de;
-use crate::branchements::claude::apres_la_mise_a_mort;
+use crate::branchements::claude::{ErreurMain, apres_la_mise_a_mort};
 
 #[test]
 fn une_sortie_verte_suivie_d_une_mise_a_mort_ratee_passe_encore_annonce_vert() {
@@ -290,11 +290,20 @@ fn erreur(verdict: Result<Pris, Echec>) -> String {
 
 #[test]
 fn une_coupure_lue_au_constat_est_l_echec_de_la_tentative() {
-    assert_eq!(
-        echec_de("main : résultat en erreur".into(), Some(529)),
-        Echec::Coupure(529, "main : résultat en erreur".into())
-    );
-    assert_eq!(echec_de("main : résultat en erreur".into(), None), Echec::Erreur("main : résultat en erreur".into()));
+    let autre = || ErreurMain::Autre("main : résultat en erreur".into());
+    assert_eq!(echec_de(autre(), Some(529)), Echec::Coupure(529, "main : résultat en erreur".into()));
+    assert_eq!(echec_de(autre(), None), Echec::Erreur("main : résultat en erreur".into()));
+}
+
+#[test]
+fn une_main_tuee_a_son_delai_est_un_echec_tuee_par_son_type() {
+    let tuee = || ErreurMain::Tuee("main : temps dépassé (1 s)".into());
+    assert_eq!(echec_de(tuee(), None), Echec::Tuee("main : temps dépassé (1 s)".into()));
+    // Une coupure lue au constat l'emporte, comme pour toute autre erreur.
+    assert_eq!(echec_de(tuee(), Some(529)), Echec::Coupure(529, "main : temps dépassé (1 s)".into()));
+    // Le texte ne décide pas : le même texte, dit par une erreur ordinaire, reste une erreur ordinaire.
+    let ordinaire = ErreurMain::Autre("main : temps dépassé (1 s)".into());
+    assert_eq!(echec_de(ordinaire, None), Echec::Erreur("main : temps dépassé (1 s)".into()));
 }
 
 #[test]
