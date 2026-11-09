@@ -316,7 +316,16 @@ fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
         let refus = juge(&bac_f, &depart).unwrap_err();
         assert_eq!(refus.code, Code::RemarquesIllisibles, "{refus}");
         assert!(refus.preuve.contains(bout), "{refus}");
+        if nom == "forme-1" {
+            assert!(refus.correction.contains("Le chiffre de la première ligne est la forme du fichier"), "{refus}");
+        }
     }
+    // Un fichier `remarques 0` : le chiffre est la forme, pas un nombre de remarques.
+    let (bac_z, depart) = bac_neuf(&depot, &kraken, "forme-zero");
+    ecrire(&bac_z, REMARQUES, "remarques 0\n");
+    let refus = juge(&bac_z, &depart).unwrap_err();
+    assert_eq!(refus.code, Code::RemarquesIllisibles, "{refus}");
+    assert!(refus.correction.contains("jamais un nombre de remarques"), "{refus}");
     // Un fichier que le dépôt ignore : 7014, bien qu'il soit seul et se lise.
     commiter(&depot, &[(".gitignore", "ignore/\nREMARQUES.lydite\n")]);
     let (bac_e, depart) = bac_neuf(&depot, &kraken, "ignore");
