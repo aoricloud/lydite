@@ -628,10 +628,11 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     let sceaux = crate::branchements::dossier::lire_sceaux(&essai.kraken);
     let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
     let attendu = format!(
-        "Reçu\n- Coût : inconnu\n- 3 mains, 0 relance, 0 classée\n- Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
-         - Réglages de la preuve changés : aucun\n\n\
-         Ecrire deux fichiers\n\nPreuve : exit 0 → vert\n\na : Ecrire le fichier critique\nb : Ecrire \
-         l'autre fichier\n\nRelecture : 1 remarques, dont 0 bloquantes.\nReviewed and replayed on commit {t}.\n\
+        "Receipt\n- Cost: unknown\n- 3 hands, 0 retries, 0 set aside\n\
+         - Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
+         - Proof settings changed: none\n\n\
+         Ecrire deux fichiers\n\nProof: exit 0 → green\n\na: Ecrire le fichier critique\nb: Ecrire \
+         l'autre fichier\n\nReview: 1 remark, 0 blocking.\nReviewed and replayed on commit {t}.\n\
          Not replayed (from the review):\n- `Le réseau n'est pas joué.`\n- `Windows n'est pas joué.`\n"
     );
     assert_eq!(essai.corps(), attendu);
@@ -784,7 +785,7 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     // Le texte des remarques n'est ni dans le corps de la PR, ni dans un commit poussé : il n'y reste que les nombres.
     let corps = essai.corps();
     let ligne = format!(
-        "Relecture : 2 remarques, dont 1 bloquantes, corrigées.\nReviewed on commit {t}, corrected in {t2} without a \
+        "Review: 2 remarks, 1 blocking, corrected.\nReviewed on commit {t}, corrected in {t2} without a \
          second review, and replayed on commit {t2}.\nNot replayed (from the review):\n- `Le réseau n'est pas joué.`\n"
     );
     assert!(corps.ends_with(&format!("\n\n{ligne}")), "{corps}");

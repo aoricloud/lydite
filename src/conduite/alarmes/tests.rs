@@ -138,8 +138,8 @@ fn un_chemin_hostile_reste_en_code() {
     assert_eq!(
         points(diff),
         [
-            "`chemin au nom illisible`: a test of the base changed (1 lines removed)",
-            "`chemin au nom illisible`, line 1: an assertion removed or changed"
+            "`path with an unreadable name`: a test of the base changed (1 lines removed)",
+            "`path with an unreadable name`, line 1: an assertion removed or changed"
         ]
     );
 }
