@@ -20,6 +20,7 @@ const USAGE: &str = concat!(
     " ou lydite lecons <dossier>",
     " ou lydite accepter <profil>",
     " ou lydite etat",
+    " ou lydite attendre",
 );
 
 /// Les drapeaux de `lancer` qui prennent une valeur, chacun une fois : `--pr` et `--issue` n'y vont qu'avec
@@ -44,6 +45,8 @@ pub(crate) enum Commande {
     Accepter(String),
     /// La dernière vague du fil.
     Etat,
+    /// Attend la fin du lancement qui tient le dossier, puis dit la dernière vague comme `Etat`.
+    Attendre,
     /// Le plan du fichier, lu comme `--plan` le lit, ou en plan découpé, sans rien lancer. Le chemin garde son
     /// `OsString`.
     LirePlan { fichier: PathBuf, decoupe: bool },
@@ -121,6 +124,11 @@ pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
         (Some("etat"), []) => Ok(Commande::Etat),
         (Some("etat"), [autre, ..]) => {
             let preuve = format!("`etat` ne prend aucun argument, et {} le suit", mot(autre));
+            Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
+        }
+        (Some("attendre"), []) => Ok(Commande::Attendre),
+        (Some("attendre"), [autre, ..]) => {
+            let preuve = format!("`attendre` ne prend aucun argument, et {} le suit", mot(autre));
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
         }
         (Some("plan"), reste) => options_lire_plan(reste),
