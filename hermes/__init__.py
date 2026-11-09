@@ -1,4 +1,5 @@
-"""Lydite pour Hermes : deux outils (`<préfixe>_lancer`, `<préfixe>_etat`) et le verrou d'approbation du lancement.
+"""Lydite pour Hermes : trois outils (`<préfixe>_lancer`, `<préfixe>_etat`, `<préfixe>_lecons`) et le verrou
+d'approbation du lancement.
 
 Le plugin ne fait que lancer le binaire de Lydite déjà présent sur la machine et lire ce que Lydite a constaté. Les
 mains sont des sessions Claude Code que Lydite lance lui-même derrière son mur ; ce ne sont jamais des agents Hermes.
@@ -8,9 +9,9 @@ Voir README.md.
 import re
 from pathlib import Path
 
-from .nom import ETAT, LANCER, PREFIXE
+from .nom import ETAT, LANCER, LECONS, PREFIXE
 from .outils import Outils
-from .schemas import SCHEMA_ETAT, SCHEMA_LANCER
+from .schemas import SCHEMA_ETAT, SCHEMA_LANCER, SCHEMA_LECONS
 
 # La skill de pilotage, au format ouvert `SKILL.md` : Hermes la rend sous `lydite:driving-lydite`. Sa description est
 # celle de son fichier, lue ici (une seule ligne) pour n'être écrite qu'une fois.
@@ -19,7 +20,7 @@ FICHIER_SKILL = Path(__file__).resolve().parent / "skills" / SKILL / "SKILL.md"
 
 
 def register(ctx):
-    """Enregistre ce que `plugin.yaml` déclare (deux outils et un crochet `pre_tool_call`) et la skill de pilotage."""
+    """Enregistre ce que `plugin.yaml` déclare (trois outils et un crochet `pre_tool_call`) et la skill de pilotage."""
     outils = Outils(ctx)
     ctx.register_tool(
         name=LANCER,
@@ -37,6 +38,15 @@ def register(ctx):
         handler=outils.etat,
         check_fn=outils.disponible,
         description="Where Lydite stands",
+        emoji="🐙",
+    )
+    ctx.register_tool(
+        name=LECONS,
+        toolset=PREFIXE,
+        schema=SCHEMA_LECONS,
+        handler=outils.lecons,
+        check_fn=outils.disponible,
+        description="The lessons Lydite learned on this repository",
         emoji="🐙",
     )
     ctx.register_hook("pre_tool_call", outils.verrou)

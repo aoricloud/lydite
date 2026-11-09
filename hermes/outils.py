@@ -1,7 +1,8 @@
-"""Les deux outils du plugin et le verrou d'approbation du lancement.
+"""Les trois outils du plugin et le verrou d'approbation du lancement.
 
 `lancer` démarre `lydite lancer ...` en arrière-plan, détaché, et rend la main au bout de quelques secondes avec un
 identifiant. `etat` rend `lydite etat` (ce que Lydite a lui-même constaté) et l'état des lancements faits d'ici.
+`lecons` rend les leçons que Lydite garde pour un dépôt, après que Lydite les a lui-même vérifiées.
 
 Ce que le plugin fait, et ne fait pas :
 - il lance un seul programme, le binaire de Lydite, par une liste d'arguments (jamais par un shell) ;
@@ -19,6 +20,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -71,6 +73,12 @@ LIMITE_DU_PLAN = 8000
 _PROFIL = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,63}")
 _BRANCHE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}")
 _VARIABLE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+# Le nom d'une leçon est celui de son dossier sous `.agents/skills/`.
+_NOM_DE_LECON = re.compile(r"[a-z0-9-]{1,64}")
+
+# La taille d'un `SKILL.md`, et les derniers octets d'un refus de Lydite qu'on rend au modèle.
+TAILLE_DE_LA_LECON = 4096
+LIMITE_DU_REFUS = 2000
 
 # Ce que veut dire le code de sortie de `lydite lancer` (voir le README de Lydite).
 SORTIES = {
@@ -185,8 +193,9 @@ class Outils:
 
     # --- la demande -----------------------------------------------------------------------------------------------
 
-    def _demande(self, args: dict) -> dict:
-        """Lit et vérifie les paramètres de `lancer` ; chaque refus dit ce qu'il faut corriger."""
+    @staticmethod
+    def _depot(args: dict) -> str:
+        """Le dépôt d'une demande : un chemin absolu, un dossier existant, un dépôt git, et son texte de refus."""
         depot = args.get("depot")
         if not isinstance(depot, str) or not depot.strip():
             raise Refus("`depot` is required: the absolute path of the git checkout to work on")
@@ -195,6 +204,11 @@ class Outils:
             raise Refus(f"`depot` must be an absolute path, not {depot!r}")
         if not chemin.is_dir() or not (chemin / ".git").exists():
             raise Refus(f"`depot` {str(chemin)!r} is not a git checkout on this machine")
+        return str(chemin)
+
+    def _demande(self, args: dict) -> dict:
+        """Lit et vérifie les paramètres de `lancer` ; chaque refus dit ce qu'il faut corriger."""
+        depot = self._depot(args)
 
         issue, objectif, plan = args.get("issue"), args.get("objectif"), args.get("plan")
         if isinstance(issue, str) and issue.strip().isdigit():
@@ -242,7 +256,7 @@ class Outils:
             raise Refus(f"`pr` {pr!r} is not a branch name")
 
         return {
-            "depot": str(chemin),
+            "depot": depot,
             "issue": issue if issue_donnee else None,
             "objectif": objectif if objectif_donne else None,
             "preuve": preuve.strip(),
@@ -478,6 +492,176 @@ class Outils:
             else:
                 rendu["journal"] = _fin_du_journal(choisi["journal"])
         return rendu
+
+    # --- leçons ---------------------------------------------------------------------------------------------------
+
+    def lecons(self, args, **_):
+        """Les leçons que Lydite garde pour un dépôt, rendues en JSON quoi qu'il arrive."""
+        try:
+            return _json(self._lecons(args if isinstance(args, dict) else {}))
+        except Exception as exc:  # noqa: BLE001 (Hermes veut du JSON, jamais une exception)
+            return _json({"erreur": f"unexpected {type(exc).__name__}: {exc}"})
+
+    def _lecons(self, args: dict) -> dict:
+        try:
+            depot = self._depot(args)
+        except Refus as refus:
+            return {"erreur": str(refus)}
+
+        try:
+            fin = subprocess.run(
+                [self._binaire(), "lecons", depot],
+                check=False,
+                env=self._env(avec_cle=False),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+        except Refus as refus:
+            return {"lecons": [], "lydite": str(refus)}
+        except subprocess.TimeoutExpired:
+            return {"lecons": [], "lydite": "`lydite lecons` did not answer in 30 s"}
+        if fin.returncode != 0:
+            # Lydite refuse : aucune leçon n'est servie, même si des fichiers valides sont sur le disque.
+            return {"lecons": [], "code": fin.returncode, "refus": (fin.stderr + fin.stdout)[-LIMITE_DU_REFUS:]}
+
+        nom = args.get("nom")
+        if nom is not None and (not isinstance(nom, str) or not _NOM_DE_LECON.fullmatch(nom)):
+            return {"erreur": f"`nom` {nom!r} is not a lesson name (lowercase letters, digits and '-', 1 to 64)"}
+
+        dossier = self._dossier_des_lecons(depot)
+        lecons = self._lire_les_lecons(dossier) if dossier is not None else []
+        if dossier is None:
+            lecture = (
+                "This repository has no lesson yet: Lydite has not learned any rule there, so there is nothing to "
+                "follow."
+            )
+        else:
+            lecture = (
+                "These are the rules Lydite learned on this repository and gives to its workers: follow them when "
+                "working there and cite a lesson by its name; they are read-only, only a human changes a lesson, and "
+                "they are read from the checkout as it is on disk."
+            )
+
+        if nom is not None:
+            choisie = next((lecon for lecon in lecons if lecon["nom"] == nom), None)
+            if choisie is None:
+                noms = [lecon["nom"] for lecon in lecons]
+                liste = ", ".join(noms) if noms else "none"
+                return {"erreur": f"no lesson {nom!r}; this repository has: {liste}", "noms": noms}
+            return {
+                "nom": choisie["nom"],
+                "regle": choisie["regle"],
+                "fichiers": choisie["fichiers"],
+                "texte": choisie["texte"],
+                "lecture": lecture,
+            }
+
+        return {
+            "depot": depot,
+            "nombre": len(lecons),
+            "lecons": [
+                {"nom": lecon["nom"], "regle": lecon["regle"], "fichiers": lecon["fichiers"]} for lecon in lecons
+            ],
+            "lecture": lecture,
+        }
+
+    @staticmethod
+    def _dossier_des_lecons(depot: str):
+        """Le dossier des leçons d'un dépôt, s'il reste dans le dépôt et n'est pas lui-même un lien."""
+        base = Path(depot) / ".agents" / "skills"
+        try:
+            reel = base.resolve(strict=True)
+            depot_reel = Path(depot).resolve(strict=True)
+        except OSError:
+            return None
+        if base.is_symlink() or not reel.is_dir():
+            return None
+        if reel != depot_reel and depot_reel not in reel.parents:
+            return None
+        return reel
+
+    @staticmethod
+    def _lire_les_lecons(dossier: Path) -> list:
+        """Les leçons valides d'un dossier : ni lien, ni fichier hors du dossier, ni en-tête manquant."""
+        lecons = []
+        try:
+            with os.scandir(dossier) as entrees:
+                candidates = sorted(entrees, key=lambda entree: entree.name)
+        except OSError:
+            return lecons
+        for entree in candidates:
+            if not _NOM_DE_LECON.fullmatch(entree.name):
+                continue
+            if entree.is_symlink() or not entree.is_dir(follow_symlinks=False):
+                continue
+            dossier_lecon = Path(entree.path)
+            fichier = dossier_lecon / "SKILL.md"
+            try:
+                if dossier not in dossier_lecon.resolve(strict=True).parents:
+                    continue
+                etat = fichier.lstat()
+            except OSError:
+                continue
+            if not stat.S_ISREG(etat.st_mode) or etat.st_size > TAILLE_DE_LA_LECON:
+                continue
+            try:
+                with os.fdopen(os.open(fichier, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)), "rb") as flux:
+                    octets = flux.read(TAILLE_DE_LA_LECON + 1)
+            except OSError:
+                continue
+            if len(octets) > TAILLE_DE_LA_LECON:
+                continue
+            try:
+                texte = octets.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            entete = Outils._entete_de_lecon(texte)
+            if entete is None or entete[0] != entree.name:
+                continue
+            lecons.append(
+                {
+                    "nom": entete[0],
+                    "regle": entete[1],
+                    "fichiers": Outils._fichiers_de_lecon(texte),
+                    "texte": texte,
+                }
+            )
+        return lecons
+
+    @staticmethod
+    def _entete_de_lecon(texte: str):
+        """`(nom, règle)` de l'en-tête d'une leçon, ou None s'il ne porte pas exactement ces deux champs."""
+        trouve = re.match(r"---\r?\n(.*?)\r?\n---\r?\n", texte, re.DOTALL)
+        if trouve is None:
+            return None
+        champs = {}
+        for ligne in trouve.group(1).splitlines():
+            champ = re.fullmatch(r"(name|description): (.+)", ligne)
+            if champ is None or champ.group(1) in champs:
+                return None
+            champs[champ.group(1)] = champ.group(2)
+        if set(champs) != {"name", "description"}:
+            return None
+        return champs["name"], champs["description"]
+
+    @staticmethod
+    def _fichiers_de_lecon(texte: str) -> list:
+        """Les chemins de la section `## Files` d'une leçon, et rien des autres sections."""
+        fichiers = []
+        dans = False
+        for ligne in texte.splitlines():
+            if ligne.startswith("## "):
+                dans = ligne.strip() == "## Files"
+                continue
+            if dans and ligne.startswith("- "):
+                chemin = ligne[2:].strip()
+                if chemin:
+                    fichiers.append(chemin)
+        return fichiers
 
     # --- la mémoire des lancements --------------------------------------------------------------------------------
 

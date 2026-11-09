@@ -1,6 +1,6 @@
 """Ce que le modèle lit de chaque outil : son nom, quand l'employer, ses paramètres."""
 
-from .nom import ETAT, LANCER
+from .nom import ETAT, LANCER, LECONS
 
 SCHEMA_LANCER = {
     "name": LANCER,
@@ -85,5 +85,29 @@ SCHEMA_ETAT = {
             },
         },
         "required": [],
+    },
+}
+
+SCHEMA_LECONS = {
+    "name": LECONS,
+    "description": (
+        "The written rules Lydite learned on this repository and gives to its workers. Call this tool before "
+        "planning or doing any work in a repository Lydite works on, follow the lessons, and cite a lesson by its "
+        "name. Without `nom` it returns the list (name, rule, files); with `nom`, the full text of that lesson. It is "
+        "read-only (only a human changes a lesson), and Lydite itself checks every lesson first."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "depot": {
+                "type": "string",
+                "description": "Absolute path of the git checkout on this machine whose lessons to read.",
+            },
+            "nom": {
+                "type": "string",
+                "description": "Name of one lesson to read in full. Omit for the list of all lessons.",
+            },
+        },
+        "required": ["depot"],
     },
 }
