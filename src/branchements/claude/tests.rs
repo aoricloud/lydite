@@ -150,6 +150,30 @@ fn la_main_trop_lente_est_tuee_avec_ses_enfants() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn ce_que_la_main_verte_laisse_dans_son_bac_meurt_et_le_reste_vit() {
+    let (dir, bac) = bac_jetable("main-orpheline");
+    // Une fausse main qui laisse un `sleep` en arrière-plan dans son bac, détaché de ses tuyaux, et sort verte.
+    let script = dir.join("orpheline.sh");
+    fs::write(&script, "sleep 30 </dev/null >/dev/null 2>&1 &\necho $! > marque\necho fait\n").unwrap();
+    // Un processus du même compte hors du bac : un frère du bac, dans `dir`.
+    let mut dehors = Command::new("sleep").arg("30").current_dir(&dir).spawn().unwrap();
+    let argv = vec!["sh".to_string(), script.to_string_lossy().into_owned()];
+    let sortie = jouer(&argv, &bac, "", DELAI, None, false, None).1;
+    assert_eq!(sortie.as_deref(), Ok("fait\n"), "la main reste verte");
+    let pid = marque(&bac, Duration::ZERO);
+    assert!(meurt(pid), "le sleep {pid} laissé dans le bac survit à la fin de la tentative");
+    assert!(
+        fs::metadata(format!("/proc/{}", dehors.id())).is_ok(),
+        "le processus hors du bac a été tué avec les restes"
+    );
+    assert!(dehors.try_wait().unwrap().is_none(), "le processus hors du bac est sorti");
+    dehors.kill().unwrap();
+    dehors.wait().unwrap();
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn une_main_sans_programme_est_une_erreur() {
     let (dir, bac) = bac_jetable("sans-programme");

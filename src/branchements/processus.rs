@@ -4,6 +4,9 @@
 use std::env;
 use std::fs;
 use std::io;
+#[cfg(target_os = "linux")]
+use std::path;
+use std::path::Path;
 use std::process::{Child, Command, ExitStatus};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -62,6 +65,75 @@ pub(crate) fn tuer_arbre(pid: u32) -> Result<(), String> {
     }
     let (erreur, texte) = (String::from_utf8_lossy(&sortie.stderr), String::from_utf8_lossy(&sortie.stdout));
     Err(format!("{nom} ({}) : {}{}", sortie.status, erreur.trim(), texte.trim()))
+}
+
+/// Tue, une fois la main sortie, tout processus du compte de Lydite dont le dossier courant est dans `bac` : ce que la
+/// main a laissé derrière elle (un `cargo test` lancé en arrière-plan) survit à `tuer_arbre`, car un orphelin n'est
+/// plus un descendant. Le bac est à la main seule. Lydite lui-même n'est jamais visé, et les autres mains, qui
+/// travaillent dans d'autres bacs, non plus. Sous Windows, comme ailleurs que sous Linux, rien ne change : `Ok`.
+// raccourci : un orphelin qui a quitté le bac (`cd`) ou né entre le relevé et la mise à mort survit ; monter vers un
+// cgroup avec le nœud
+pub(crate) fn tuer_les_restes(bac: &Path) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let bac = fs::canonicalize(bac).or_else(|_| path::absolute(bac));
+        let bac = bac.map_err(|e| format!("bac illisible : {e}"))?;
+        // La racine du système n'est le bac de personne : tout processus y serait « dans le bac ».
+        if bac.file_name().is_none() {
+            return Ok(());
+        }
+        let proc = fs::read_dir("/proc").map_err(|e| format!("/proc illisible : {e}"))?;
+        let compte = fs::metadata("/proc/self").map_err(|e| format!("/proc/self illisible : {e}"))?.uid();
+        let moi = std::process::id();
+        let pids: Vec<u32> = proc
+            .filter_map(|entree| {
+                let chemin = entree.ok()?.path();
+                let pid: u32 = chemin.file_name()?.to_str()?.parse().ok()?;
+                let du_compte = fs::metadata(&chemin).ok()?.uid() == compte;
+                let ici = dans_le_bac(&fs::read_link(chemin.join("cwd")).ok()?, &bac);
+                (pid != moi && du_compte && ici).then_some(pid)
+            })
+            .collect();
+        if pids.is_empty() {
+            return Ok(());
+        }
+        let noms: Vec<String> = pids.iter().map(u32::to_string).collect();
+        let sortie = Command::new("kill")
+            .arg("-KILL")
+            .args(&noms)
+            .output()
+            .map_err(|e| format!("kill -KILL {} impossible : {e}", noms.join(" ")))?;
+        // Un processus mort entre le relevé et le coup n'est pas un échec ; un qui vit encore en est un.
+        let vivants: Vec<&String> = noms.iter().filter(|pid| vivant(pid)).collect();
+        if sortie.status.success() || vivants.is_empty() {
+            return Ok(());
+        }
+        let (erreur, texte) = (String::from_utf8_lossy(&sortie.stderr), String::from_utf8_lossy(&sortie.stdout));
+        Err(format!("kill -KILL {} ({}) : {}{}", noms.join(" "), sortie.status, erreur.trim(), texte.trim()))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = bac;
+        Ok(())
+    }
+}
+
+/// Le dossier courant `cwd` d'un processus est dans `bac`, lui compris. Le dossier d'un bac effacé sous le processus se
+/// lit avec le suffixe ` (deleted)`.
+#[cfg(target_os = "linux")]
+fn dans_le_bac(cwd: &Path, bac: &Path) -> bool {
+    let efface = cwd.to_string_lossy();
+    cwd.starts_with(bac) || efface.strip_suffix(" (deleted)").is_some_and(|c| Path::new(c).starts_with(bac))
+}
+
+/// Le processus de ce pid tourne encore, sans être zombie.
+#[cfg(target_os = "linux")]
+fn vivant(pid: &str) -> bool {
+    fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
+        let etat = stat.rsplit_once(')').and_then(|(_, reste)| reste.split_whitespace().next());
+        !matches!(etat, Some("Z" | "X"))
+    })
 }
 
 /// Le processus d'une ligne de `/proc/<pid>/stat` et son parent, `(pid, ppid)`. Le nom du programme, entre parenthèses,
