@@ -167,8 +167,9 @@ fn lire_ignore_les_reglages_de_prefixe_du_depot() {
     git(&depot, &["config", "diff.noprefix", "true"]);
     assert_eq!(lire(&depot, &base, &tete, None).unwrap(), attendu);
     git(&depot, &["config", "--unset", "diff.noprefix"]);
-    git(&depot, &["config", "diff.srcPrefix", "x/"]);
-    git(&depot, &["config", "diff.dstPrefix", "y/"]);
+    // Pas deux caractères : un préfixe de deux se couperait comme `a/` et `b/`, et le test ne pourrait pas échouer.
+    git(&depot, &["config", "diff.srcPrefix", "avant/"]);
+    git(&depot, &["config", "diff.dstPrefix", "apres/"]);
     assert_eq!(lire(&depot, &base, &tete, None).unwrap(), attendu);
     let _ = fs::remove_dir_all(&racine);
 }
