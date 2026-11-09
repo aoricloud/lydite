@@ -143,6 +143,8 @@ fn la_main_trop_lente_est_tuee_avec_ses_enfants() {
     let (dir, bac) = bac_jetable("main-lente");
     let (constat, sortie) = jouer(&arbre(&dir), &bac, "consigne", Duration::from_secs(20), None, false, None);
     let erreur = sortie.unwrap_err();
+    assert!(matches!(erreur, ErreurMain::Tuee(_)), "tuée à son délai, par son type : {erreur:?}");
+    let erreur = erreur.texte();
     assert!(erreur.starts_with("main : temps dépassé (20 s)"), "{erreur}");
     assert_eq!(constat, None, "une main brute ne rend pas de constat");
     let pid = marque(&bac, Duration::ZERO);
@@ -181,6 +183,8 @@ fn une_main_sans_programme_est_une_erreur() {
     for attendu in [None, Some(&demande)] {
         let (constat, sortie) = jouer(&[], &bac, "consigne", DELAI, attendu, false, None);
         let erreur = sortie.unwrap_err();
+        assert!(matches!(erreur, ErreurMain::Autre(_)), "une main qui ne part pas n'est pas tuée : {erreur:?}");
+        let erreur = erreur.texte();
         assert!(erreur.starts_with("main : aucun programme à lancer"), "{erreur}");
         assert_eq!(constat, attendu.map(|_| Constat::default()), "rien ne s'est lu");
     }
@@ -219,7 +223,7 @@ fn la_main_a_son_dossier_temporaire_a_cote_de_son_bac() {
     assert_eq!(fs::read_dir(&bac).unwrap().count(), 0, "rien n'est créé dans le bac");
     // Un bac absent reste une erreur : la main n'y part pas, et ni lui ni son dossier temporaire ne se créent.
     let absent = dir.join("absent");
-    let erreur = jouer(&main, &absent, "consigne", DELAI, None, false, None).1.unwrap_err();
+    let erreur = jouer(&main, &absent, "consigne", DELAI, None, false, None).1.unwrap_err().texte();
     assert!(erreur.starts_with("lancement impossible de "), "{erreur}");
     assert!(!absent.exists() && !temporaire_de(&absent).unwrap().exists());
     let _ = fs::remove_dir_all(&dir);
@@ -348,7 +352,7 @@ fn une_main_claude_dont_les_reglages_n_ont_pas_pris_est_tuee_avant_la_consigne()
     gestes.extend([Geste::Recopier, Geste::Dire(OUVERTURE), Geste::Dire(RESULTAT)]);
     let (constat, sortie) =
         jouer(&fausse_claude(&dir, &gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
-    let erreur = sortie.unwrap_err();
+    let erreur = sortie.unwrap_err().texte();
     let ecart = "main : réglages non pris : get_settings : effective.disableAllHooks false, déclaré true";
     assert!(erreur.starts_with(ecart), "{erreur}");
     assert_eq!(
@@ -375,7 +379,7 @@ fn une_main_claude_a_l_ouverture_fautive_est_tuee() {
     let ecart = r#"main : réglages non pris : à l'ouverture, permissionMode "default", déclaré "acceptEdits""#;
     // Sous Windows, `taskkill /T` tue d'abord les enfants (ici `ping`) : la racine peut sortir d'elle-même avant son
     // tour, et le code 255 de taskkill ajoute alors « ; mise à mort : … » à l'erreur, alors que l'arbre est mort.
-    let erreur = sortie.unwrap_err();
+    let erreur = sortie.unwrap_err().texte();
     assert!(erreur == ecart || erreur.starts_with(&format!("{ecart} ; mise à mort : ")), "{erreur}");
     assert_eq!(
         constat,
@@ -395,7 +399,7 @@ fn une_main_claude_qui_sort_avant_ses_reponses_le_dit() {
         jouer(&fausse_claude(&dir, &gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
     let statut = if cfg!(windows) { "exit code: 1" } else { "exit status: 1" };
     let dit = format!("main : sortie avant ses réponses de contrôle ({statut}) : {plainte}");
-    assert_eq!(sortie, Err(dit));
+    assert_eq!(sortie, Err(ErreurMain::Autre(dit)));
     assert_eq!(constat, Some(Constat::default()), "rien ne s'est lu");
     let _ = fs::remove_dir_all(&dir);
 }
@@ -408,6 +412,8 @@ fn une_main_claude_muette_est_tuee_a_la_borne() {
     let debut = Instant::now();
     let (constat, sortie) = jouer(&main, &bac, "consigne", Duration::from_secs(1), Some(&attendu()), false, None);
     let erreur = sortie.unwrap_err();
+    assert!(matches!(erreur, ErreurMain::Tuee(_)), "tuée au délai, par son type : {erreur:?}");
+    let erreur = erreur.texte();
     assert!(erreur.starts_with("main : temps dépassé (1 s)"), "{erreur}");
     assert_eq!(constat, Some(Constat::default()));
     assert!(debut.elapsed() < Duration::from_secs(20), "tuée au délai, pas au bout de son sommeil");
@@ -478,7 +484,7 @@ fn les_reglages_d_un_vrai_profil_se_jugent_pris_par_une_main_fidele() {
     gestes.extend([settings.as_str(), regles.as_str(), GET_HOOKS_LISTING, mur.as_str()].map(Geste::Dire));
     gestes.extend([Geste::Recopier, Geste::Dire(OUVERTURE), Geste::Dire(RESULTAT)]);
     let (_, sortie) = jouer(&fausse_claude(&dir, &gestes), &bac, "consigne", DELAI, Some(&attendu), false, None);
-    let erreur = sortie.unwrap_err();
+    let erreur = sortie.unwrap_err().texte();
     assert!(erreur.starts_with("main : réglages non pris : list_permission_rules : deny \"Edit("), "{erreur}");
     assert!(erreur.contains("fil.jsonl)\" déclarée, absente"), "{erreur}");
     let _ = fs::remove_dir_all(&dir);
@@ -493,7 +499,7 @@ fn une_main_qui_sort_en_erreur_rend_son_statut_et_sa_sortie() {
         vec!["sh".into(), "-c".into(), "echo sortie; echo erreur >&2; exit 3".into()]
     };
     let (dir, bac) = bac_jetable("erreur");
-    let erreur = jouer(&main, &bac, "consigne", DELAI, None, false, None).1.unwrap_err();
+    let erreur = jouer(&main, &bac, "consigne", DELAI, None, false, None).1.unwrap_err().texte();
     let statut = if cfg!(windows) { "exit code: 3" } else { "exit status: 3" };
     assert_eq!(erreur.replace("\r\n", "\n"), format!("{statut} ; erreur\nsortie\n"));
     let _ = fs::remove_dir_all(&dir);
@@ -518,7 +524,7 @@ fn un_bac_sans_nom_n_a_pas_de_dossier_temporaire() {
     let demande = attendu();
     for attendu in [None, Some(&demande)] {
         let (constat, sortie) = jouer(&rapide(), &racine, "consigne", DELAI, attendu, false, None);
-        assert_eq!(sortie.unwrap_err(), erreur);
+        assert_eq!(sortie.unwrap_err().texte(), erreur);
         assert_eq!(constat, attendu.map(|_| Constat::default()), "rien ne s'est lu");
     }
 }
@@ -537,7 +543,7 @@ fn l_erreur_du_delai_garde_son_debut_malgre_une_longue_erreur() {
     let demande = attendu();
     for attendu in [None, Some(&demande)] {
         let (_, sortie) = jouer(&main, &bac, "consigne", ARBRE, attendu, false, None);
-        let erreur = sortie.unwrap_err();
+        let erreur = sortie.unwrap_err().texte();
         assert!(erreur.starts_with("main : temps dépassé (10 s)"), "{}", &erreur[..erreur.len().min(80)]);
         let longueur = erreur.chars().count();
         assert!((4000..=4040).contains(&longueur), "la fin de ses erreurs, coupée à 4000 : {longueur} caractères");
@@ -579,7 +585,7 @@ fn une_main_qui_sort_en_erreur_apres_son_resultat_est_rouge() {
     // Un résultat juste, puis le code 3 et une plainte : la main est rouge, et dit son statut et sa plainte.
     let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(RESULTAT), Geste::Plaindre("boum"), Geste::Sortir(3)];
     let (constat, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
-    assert_eq!(sortie, Err(format!("main : sortie en erreur ({statut}) : boum")));
+    assert_eq!(sortie, Err(ErreurMain::Autre(format!("main : sortie en erreur ({statut}) : boum"))));
     assert_eq!(
         constat,
         Some(Constat {
@@ -594,7 +600,8 @@ fn une_main_qui_sort_en_erreur_apres_son_resultat_est_rouge() {
     for code in [0, 3] {
         let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(&en_erreur), Geste::Sortir(code)];
         let (_, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
-        assert_eq!(sortie, Err("main : résultat en erreur (success) : fait\nPREUVE: vert".into()), "code {code}");
+        let dit = ErreurMain::Autre("main : résultat en erreur (success) : fait\nPREUVE: vert".into());
+        assert_eq!(sortie, Err(dit), "code {code}");
     }
     let _ = fs::remove_dir_all(&dir);
 }
@@ -612,7 +619,8 @@ fn un_resultat_en_erreur_de_l_api_est_une_coupure_dans_le_constat() {
     for (statut, code, coupure) in [("529", 0, Some(529)), ("429", 3, Some(429)), ("401", 0, None), ("null", 0, None)] {
         let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(&en_erreur(statut)), Geste::Sortir(code)];
         let (constat, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
-        assert_eq!(sortie, Err("main : résultat en erreur (success) : API Error".into()), "{statut} code {code}");
+        let dit = ErreurMain::Autre("main : résultat en erreur (success) : API Error".into());
+        assert_eq!(sortie, Err(dit), "{statut} code {code}");
         assert_eq!(constat.unwrap().coupure, coupure, "{statut} code {code}");
     }
     // Une main qui réussit n'a pas de coupure.
@@ -654,7 +662,7 @@ fn avant_son_ouverture_une_ligne_illisible_tue_la_main_et_ensuite_elle_s_ignore(
     let debut = Instant::now();
     let (constat, sortie) =
         jouer(&fausse_claude(&dir, &gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
-    let erreur = sortie.unwrap_err();
+    let erreur = sortie.unwrap_err().texte();
     assert!(erreur.starts_with("main : réglages non pris : ligne illisible : "), "{erreur}");
     assert_eq!(constat, Some(Constat::default()));
     assert!(debut.elapsed() < Duration::from_secs(20), "tuée à sa ligne, pas au bout de son sommeil");

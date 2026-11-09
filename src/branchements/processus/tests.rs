@@ -43,6 +43,63 @@ fn tuer_arbre_tue_les_petits_enfants() {
 }
 
 #[test]
+fn tuer_et_attendre_tue_un_enfant_qui_dort_et_ne_rend_aucun_echec() {
+    let (dir, bac) = bac_jetable("tuer-attendre");
+    let argv = arbre(&dir);
+    let mut enfant = Command::new(&argv[0])
+        .args(&argv[1..])
+        .current_dir(&bac)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    marque(&bac, ARBRE);
+    assert_eq!(tuer_et_attendre(&mut enfant), Ok(()));
+    assert!(enfant.try_wait().unwrap().is_some(), "l'enfant est sorti");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+// Sous Windows, un enfant déjà sorti donne `Ok(())` : `taskkill` ne trouve plus la racine et rend un code non nul, mais
+// la racine est sortie, et c'est ce qui compte. Le test n'a donc de sens que sous Linux.
+#[cfg(not(windows))]
+#[test]
+fn tuer_et_attendre_rend_l_echec_de_la_mise_a_mort_d_un_enfant_deja_sorti() {
+    let mut enfant =
+        coquille("exit 0").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    assert!(attendre(&mut enfant, Instant::now() + SORTIE).unwrap().is_some(), "l'enfant sort");
+    // Son pid est rendu : on ne le tue plus.
+    let echec = tuer_et_attendre(&mut enfant).unwrap_err();
+    assert!(!echec.is_empty(), "l'échec de la mise à mort se dit");
+}
+
+// Joué sous Windows seul : un `cmd` qui lance sans cesse des `cmd /c exit` fait sortir des descendants pendant que
+// `taskkill /T` arrête l'arbre, et `taskkill` rend alors un code non nul alors que la racine est morte.
+#[cfg(windows)]
+#[test]
+fn tuer_et_attendre_ne_rend_pas_d_echec_quand_un_descendant_sort_pendant_la_mise_a_mort() {
+    let (dir, bac) = bac_jetable("tuer-descendants-qui-sortent");
+    let script = dir.join("boucle.cmd");
+    fs::write(&script, "@echo off\r\n:boucle\r\ncmd /c exit\r\ngoto boucle\r\n").unwrap();
+    for tour in 0..20 {
+        let mut enfant = Command::new("cmd")
+            .arg("/c")
+            .arg(&script)
+            .current_dir(&bac)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        // Laisse la boucle lancer des descendants avant de tuer.
+        thread::sleep(Duration::from_millis(200));
+        assert_eq!(tuer_et_attendre(&mut enfant), Ok(()), "tour {tour}");
+        assert!(enfant.try_wait().unwrap().is_some(), "tour {tour} : la racine est sortie");
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn la_preuve_rejouee_perd_la_connexion_que_la_main_garde() {
     // La connexion de la main à Claude, son dossier de réglages et ses variables `ANTHROPIC_*`, n'est pas celle de sa
     // preuve : la main les reçoit, la preuve que Kraken rejoue ne les reçoit pas, quelle que soit la casse.

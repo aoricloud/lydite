@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::branchements::claude::{jouer, temporaire};
+use crate::branchements::claude::{ErreurMain, jouer, temporaire};
 use crate::branchements::srt::rejouer;
 use crate::coeur::erreur::queue;
 use crate::coeur::profil::{Demande, Profil};
@@ -40,6 +40,9 @@ pub(crate) enum Echec {
     /// Une coupure de l'API (`protocole::coupure`) : son statut HTTP, puis l'erreur de la main en texte. Elle repart
     /// une fois, sans compter comme une relance.
     Coupure(u16, String),
+    /// Kraken a tué la main à son délai (`ErreurMain::Tuee`) ; le texte de son erreur. Refusée sans relance à la
+    /// première tentative.
+    Tuee(String),
     /// Toute autre erreur, dite en texte. Suit la relance.
     Erreur(String),
 }
@@ -196,32 +199,36 @@ pub(crate) fn tenter(
     let fournisseur = profil.fournisseur().zip(profil.variable_de_la_cle()).map(|((api, cle), nom)| (api, cle, nom));
     // Sous un mur exigé seul, le dossier temporaire est recréé vide avant la main ([`temporaire`]).
     let (constat, jeu) = match profil.exige().then(|| temporaire(bac, true)).transpose() {
-        Err(erreur) => (attendu.as_ref().map(|_| Constat::default()), Err(erreur)),
+        Err(erreur) => (attendu.as_ref().map(|_| Constat::default()), Err(ErreurMain::Autre(erreur))),
         Ok(_) => jouer(&argv, bac, consigne, profil.delai_main(), attendu.as_ref(), juge.is_some(), fournisseur),
     };
     let coupure = constat.as_ref().and_then(|constat| constat.coupure);
-    let verdict = jeu.map_err(|erreur| echec_de(erreur, coupure)).and_then(|sortie| match (juge, verifier) {
+    let verdict = jeu.map_err(|erreur| echec_de(erreur, coupure)).and_then(|sortie| {
         // Une main de tâche qui déclare l'impossible : rien n'est rejoué, et l'échec le dit pour que la vague classe.
-        (None, _) if declare_impossible(&sortie).is_some() => {
-            Err(Echec::Impossible(queue(declare_impossible(&sortie).unwrap_or_default())))
+        let declaree = if juge.is_none() { declare_impossible(&sortie) } else { None };
+        if let Some(raison) = declaree {
+            return Err(Echec::Impossible(queue(raison)));
         }
-        (Some(juge), _) => juge(bac).map(|()| Pris { sortie, prouve: true }).map_err(Echec::Erreur),
-        (None, Some(commande)) => {
-            let (fin, rejeu) = rejouer(profil, commande, bac, journal);
-            verif = fin;
-            rejeu.map(|()| Pris { sortie, prouve: true }).map_err(Echec::Erreur)
+        match (juge, verifier) {
+            (Some(juge), _) => juge(bac).map(|()| Pris { sortie, prouve: true }).map_err(Echec::Erreur),
+            (None, Some(commande)) => {
+                let (fin, rejeu) = rejouer(profil, commande, bac, journal);
+                verif = fin;
+                rejeu.map(|()| Pris { sortie, prouve: true }).map_err(Echec::Erreur)
+            }
+            (None, None) => annonce_vert(sortie).map(|sortie| Pris { sortie, prouve: false }).map_err(Echec::Erreur),
         }
-        (None, None) => annonce_vert(sortie).map(|sortie| Pris { sortie, prouve: false }).map_err(Echec::Erreur),
     });
     (constat, verif, verdict)
 }
 
 /// L'échec d'une main qui a rendu `erreur` : une coupure de l'API si son constat en a lu une (`statut`), sinon une
-/// erreur ordinaire.
-fn echec_de(erreur: String, statut: Option<u16>) -> Echec {
-    match statut {
-        Some(statut) => Echec::Coupure(statut, erreur),
-        None => Echec::Erreur(erreur),
+/// erreur ordinaire. Une main tuée à son délai (`ErreurMain::Tuee`) est un `Echec::Tuee` si aucune coupure n'a été lue.
+fn echec_de(erreur: ErreurMain, statut: Option<u16>) -> Echec {
+    match (statut, erreur) {
+        (Some(statut), erreur) => Echec::Coupure(statut, erreur.texte()),
+        (None, ErreurMain::Tuee(texte)) => Echec::Tuee(texte),
+        (None, ErreurMain::Autre(texte)) => Echec::Erreur(texte),
     }
 }
 

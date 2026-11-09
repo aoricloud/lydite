@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use crate::branchements::bac::temporaire_de;
 use crate::branchements::git::IDENTITE;
 use crate::branchements::processus::{
-    SORTIE, attendre, echeance, retire_de_l_env, sans_session, tuer_arbre, tuer_les_restes,
+    SORTIE, attendre, echeance, retire_de_l_env, sans_session, tuer_et_attendre, tuer_les_restes,
 };
 use crate::coeur::erreur::queue;
 use crate::coeur::protocole::{self, Attendu, Constat, DEMANDES, Ligne};
@@ -40,16 +40,49 @@ pub(crate) fn jouer(
     attendu: Option<&Attendu>,
     kraken: bool,
     fournisseur: Option<(&str, &str, &str)>,
-) -> (Option<Constat>, Result<String, String>) {
+) -> (Option<Constat>, Result<String, ErreurMain>) {
     let mut constat = Constat::default();
-    let jeu = partir(argv, bac, delai, kraken, fournisseur).and_then(|mut main| match attendu {
-        None => main.brute(consigne),
-        Some(attendu) => main.dialoguer(attendu, consigne, &mut constat),
-    });
+    let jeu =
+        partir(argv, bac, delai, kraken, fournisseur).map_err(ErreurMain::Autre).and_then(|mut main| match attendu {
+            None => main.brute(consigne),
+            Some(attendu) => main.dialoguer(attendu, consigne, &mut constat),
+        });
     // La main est sortie : ce qu'elle a laissé derrière elle dans son bac meurt. Un échec ne change pas son résultat
-    // vert.
-    let jeu = apres_la_mise_a_mort(jeu, tuer_les_restes(bac));
+    // vert, ni la nature de son erreur.
+    let (tuee, jeu) = match jeu {
+        Ok(sortie) => (false, Ok(sortie)),
+        Err(ErreurMain::Tuee(texte)) => (true, Err(texte)),
+        Err(ErreurMain::Autre(texte)) => (false, Err(texte)),
+    };
+    let jeu = apres_la_mise_a_mort(jeu, tuer_les_restes(bac)).map_err(|texte| match tuee {
+        true => ErreurMain::Tuee(texte),
+        false => ErreurMain::Autre(texte),
+    });
     (attendu.map(|_| constat), jeu)
+}
+
+/// L'erreur d'une main : son texte, et par son type si Kraken l'a tuée à son délai. Aucune décision ne lit le texte.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ErreurMain {
+    /// Kraken a tué l'arbre de la main à son délai : « main : temps dépassé (N s) », puis la suite.
+    Tuee(String),
+    /// Toute autre erreur.
+    Autre(String),
+}
+
+impl ErreurMain {
+    /// Le texte de l'erreur, quelle qu'elle soit.
+    pub(crate) fn texte(self) -> String {
+        match self {
+            Self::Tuee(texte) | Self::Autre(texte) => texte,
+        }
+    }
+}
+
+impl From<String> for ErreurMain {
+    fn from(texte: String) -> Self {
+        Self::Autre(texte)
+    }
 }
 
 /// Le jeu de la main, une fois ses restes tués : un échec de la mise à mort s'ajoute à une erreur ; une sortie verte
@@ -264,34 +297,37 @@ impl Partie {
 
     /// Son statut, attendu jusqu'à la fin de son délai, puis la fin de ses voies, 10 s au plus. Au délai, son arbre
     /// meurt.
-    fn statut(&mut self) -> Result<ExitStatus, String> {
+    fn statut(&mut self) -> Result<ExitStatus, ErreurMain> {
         match attendre(&mut self.enfant, self.fin) {
             Ok(Some(statut)) => {
                 self.vider(Instant::now() + SORTIE);
                 Ok(statut)
             }
             Ok(None) => Err(self.temps_depasse()),
-            Err(e) => Err(format!("attente impossible : {e}")),
+            Err(e) => Err(format!("attente impossible : {e}").into()),
         }
     }
 
-    /// Tue son arbre, avant tout `wait`, puis attend sa sortie et la fin de ses voies, 10 s au plus chacune. Rend ce
-    /// qui suit l'erreur : rien, ou l'échec de la mise à mort.
-    fn tuer(&mut self) -> String {
-        let tuee = tuer_arbre(self.enfant.id());
-        let _ = self.enfant.kill();
+    /// Tue son arbre, avant tout `wait`, puis attend sa sortie (`MORT`) et la fin de ses voies ([`SORTIE`]), 10 s au
+    /// plus chacune. Rend l'échec de la mise à mort, s'il y en a un.
+    fn tuer(&mut self) -> Result<(), String> {
+        let mort = tuer_et_attendre(&mut self.enfant);
         self.entree = None;
-        let _ = attendre(&mut self.enfant, Instant::now() + SORTIE);
         self.vider(Instant::now() + SORTIE);
-        tuee.err().map_or_else(String::new, |e| format!(" ; mise à mort : {e}"))
+        mort
+    }
+
+    /// [`Self::tuer`], dit comme la suite d'une erreur : rien, ou « ; mise à mort : <e> ».
+    fn tuer_en_texte(&mut self) -> String {
+        self.tuer().err().map_or_else(String::new, |e| format!(" ; mise à mort : {e}"))
     }
 
     /// L'erreur d'une main tuée au délai : « main : temps dépassé (N s) », hors de la coupe de `queue`, puis la fin de
     /// ses erreurs et l'échec de sa mise à mort, s'il y en a.
-    fn temps_depasse(&mut self) -> String {
-        let mise_a_mort = self.tuer();
+    fn temps_depasse(&mut self) -> ErreurMain {
+        let mise_a_mort = self.tuer_en_texte();
         let suite = self.avec_erreurs(String::new()) + &mise_a_mort;
-        format!("main : temps dépassé ({} s){}", self.delai.as_secs_f32(), queue(&suite))
+        ErreurMain::Tuee(format!("main : temps dépassé ({} s){}", self.delai.as_secs_f32(), queue(&suite)))
     }
 
     fn avec_erreurs(&self, debut: String) -> String {
@@ -302,7 +338,7 @@ impl Partie {
 
     /// La main brute : sa consigne en texte sur son entrée, qui se ferme derrière elle, puis toute sa sortie.
     /// Ok(sortie) si elle sort sans erreur, sinon Err(son statut, ses erreurs puis sa sortie).
-    fn brute(&mut self, consigne: &str) -> Result<String, String> {
+    fn brute(&mut self, consigne: &str) -> Result<String, ErreurMain> {
         if let Some(entree) = self.entree.take() {
             let _ = entree.send(consigne.into());
         }
@@ -318,7 +354,7 @@ impl Partie {
         let texte = String::from_utf8_lossy(&sortie).into_owned();
         if !statut.success() {
             let erreur = String::from_utf8_lossy(&self.erreurs);
-            return Err(queue(&format!("{statut} ; {erreur}{texte}")));
+            return Err(queue(&format!("{statut} ; {erreur}{texte}")).into());
         }
         Ok(texte)
     }
@@ -327,7 +363,7 @@ impl Partie {
     /// ouverture jugée dès qu'elle arrive, puis son résultat. Les réponses, puis l'ouverture, ont chacune [`BORNE`] au
     /// plus, jamais plus que ce qui reste du délai. Au moindre écart, son arbre meurt, et sa consigne ne part pas si
     /// elle n'est pas encore partie. `constat` garde ce qui s'est lu d'elle, même sur un écart.
-    fn dialoguer(&mut self, attendu: &Attendu, consigne: &str, constat: &mut Constat) -> Result<String, String> {
+    fn dialoguer(&mut self, attendu: &Attendu, consigne: &str, constat: &mut Constat) -> Result<String, ErreurMain> {
         if let Some(entree) = &self.entree {
             let _ = entree.send(protocole::demandes());
         }
@@ -343,7 +379,7 @@ impl Partie {
                 Ok(None) => {
                     let statut = self.statut()?;
                     let quoi = if partie { "aucun résultat" } else { "sortie avant ses réponses de contrôle" };
-                    return Err(queue(&self.avec_erreurs(format!("main : {quoi} ({statut})"))));
+                    return Err(queue(&self.avec_erreurs(format!("main : {quoi} ({statut})"))).into());
                 }
                 // Le délai tombe avant la borne : c'est l'erreur du délai.
                 Err(Echue) if borne.is_some_and(|borne| borne < self.fin) => {
@@ -353,13 +389,13 @@ impl Partie {
                         let ids: Vec<&str> = DEMANDES.into_iter().filter(|id| !reponses.contains_key(*id)).collect();
                         format!("aucune réponse de contrôle en {} s : {}", BORNE.as_secs(), ids.join(", "))
                     };
-                    return Err(format!("main : {manque}{}", self.tuer()));
+                    return Err(format!("main : {manque}{}", self.tuer_en_texte()).into());
                 }
                 Err(Echue) => return Err(self.temps_depasse()),
             };
             match protocole::lire_ligne(ligne.strip_suffix(b"\n").unwrap_or(&ligne)) {
                 // Avant l'ouverture, une ligne illisible est un écart ; après, seule compte la ligne du résultat.
-                Err(ecart) if !ouverte => return Err(format!("{ecart}{}", self.tuer())),
+                Err(ecart) if !ouverte => return Err(format!("{ecart}{}", self.tuer_en_texte()).into()),
                 Ok(Ligne::Reponse(id, reponse)) if !partie => {
                     reponses.insert(id, reponse);
                 }
@@ -368,7 +404,7 @@ impl Partie {
                     constat.version = version;
                     constat.source_cle = protocole::source_cle(&ouverture);
                     if let Err(ecart) = jugement {
-                        return Err(format!("{ecart}{}", self.tuer()));
+                        return Err(format!("{ecart}{}", self.tuer_en_texte()).into());
                     }
                     ouverte = true;
                     if partie {
@@ -390,7 +426,7 @@ impl Partie {
                         constat.usage.tours = usage.tours;
                     }
                     constat.coupure = protocole::coupure(&resultat);
-                    return self.finir(protocole::resultat(&resultat));
+                    return self.finir(protocole::resultat(&resultat)).map_err(ErreurMain::Autre);
                 }
                 _ => {}
             }
@@ -398,7 +434,7 @@ impl Partie {
                 let (mur_actif, jugement) = protocole::juger_reponses(attendu, &reponses);
                 constat.mur_actif = mur_actif;
                 if let Err(ecart) = jugement {
-                    return Err(format!("{ecart}{}", self.tuer()));
+                    return Err(format!("{ecart}{}", self.tuer_en_texte()).into());
                 }
                 // La consigne part, et l'entrée se ferme derrière elle.
                 if let Some(entree) = self.entree.take() {
@@ -411,23 +447,25 @@ impl Partie {
     }
 
     /// La fin d'une main qui a rendu son résultat : 10 s pour sortir, sinon son arbre meurt, et le résultat compte. Une
-    /// main qui sort d'elle-même en erreur est rouge.
+    /// main qui sort d'elle-même en erreur est rouge. L'échec de la mise à mort, ou une erreur de `attendre` (« attente
+    /// impossible : <e> », après quoi l'arbre est tué comme au délai), passe par [`apres_la_mise_a_mort`].
     fn finir(&mut self, resultat: Result<String, String>) -> Result<String, String> {
-        let statut = match attendre(&mut self.enfant, Instant::now() + SORTIE) {
-            Ok(Some(statut)) => Some(statut),
-            _ => {
-                let _ = self.tuer();
-                None
+        let (statut, mort) = match attendre(&mut self.enfant, Instant::now() + SORTIE) {
+            Ok(Some(statut)) => (Some(statut), Ok(())),
+            Ok(None) => (None, self.tuer()),
+            Err(e) => {
+                let attente = format!("attente impossible : {e}");
+                (None, self.tuer().map_err(|m| format!("{attente} ; mise à mort : {m}")).and(Err(attente)))
             }
         };
         self.vider(Instant::now() + SORTIE);
-        let sortie = resultat.map_err(|erreur| queue(&erreur))?;
-        match statut {
+        let jeu = resultat.map_err(|erreur| queue(&erreur)).and_then(|sortie| match statut {
             Some(statut) if !statut.success() => {
                 Err(queue(&self.avec_erreurs(format!("main : sortie en erreur ({statut})"))))
             }
             _ => Ok(sortie),
-        }
+        });
+        apres_la_mise_a_mort(jeu, mort)
     }
 }
 

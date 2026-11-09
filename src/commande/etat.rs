@@ -10,6 +10,7 @@ use crate::coeur::fil::{
     self, Evenement, Foi, Lecture, Main, Note, SceauLu, Vague, Verdict, correction_de, etat, relecture_de,
 };
 use crate::conduite::publication::recu_de;
+use crate::conduite::tentative::IMPOSSIBLE;
 
 /// `lydite etat` dans ce dossier de Kraken : les écarts du fil sur stderr, un refus chacun, puis la chaîne de la
 /// dernière vague sur stdout (voir `montrees`), vue à l'heure de la lecture. Un fil absent est un fil vide. Le premier
@@ -320,7 +321,7 @@ fn etat_de(main: Option<&Main>, assemblees: Option<&std::collections::HashSet<&s
             let clair = fil::refus_en_clair(*code, regle, preuve, correction);
             clair.lines().next().unwrap_or_default().to_string()
         }
-        (_, Some((Verdict::Impossible, _))) => format!("impossible (déclarée) : {}", derniere_ligne(main.texte())),
+        (_, Some((Verdict::Impossible, _))) => format!("{IMPOSSIBLE}{}", derniere_ligne(main.texte())),
         (_, Some((Verdict::Classee, foi))) => format!("classée{} : {}", declaree(foi), derniere_ligne(main.texte())),
         (_, Some((Verdict::Prise, foi))) => {
             let attente = if assemblees.is_some() { ", en attente d'assemblage" } else { "" };

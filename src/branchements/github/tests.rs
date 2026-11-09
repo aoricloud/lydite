@@ -1,5 +1,5 @@
 use super::*;
-use crate::branchements::processus::coquille;
+use crate::branchements::processus::{coquille, tuer_arbre};
 use crate::essais::forge::{
     KRAKEN, Lieu, PR, TETE, lieu, pr_vue, rendre_ci, run, run_le, sur, sur_par, tour_de_ci, vue_pr,
 };
