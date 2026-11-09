@@ -417,10 +417,11 @@ fn avec_pr_la_vague_d_un_plan_decoupe_va_jusqu_a_sa_pr() {
     assert_eq!(sceaux.len(), 2, "{sceaux:?}");
     let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
     let recu = format!(
-        "Reçu\n- Coût : inconnu\n- 3 mains, 0 relance, 0 classée\n- Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
-         - Réglages de la preuve changés : aucun\n\n"
+        "Receipt\n- Cost: unknown\n- 3 hands, 0 retries, 0 set aside\n\
+         - Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
+         - Proof settings changed: none\n\n"
     );
-    assert!(corps.starts_with(&format!("{recu}{OBJECTIF}\n\nPreuve : {VERIFIER} → vert\n")), "{corps}");
+    assert!(corps.starts_with(&format!("{recu}{OBJECTIF}\n\nProof: {VERIFIER} → green\n")), "{corps}");
     assert!(!corps.contains("La fusion reste un geste humain"), "{corps}");
     // La branche de la vague est poussée sur sa tête, que la PR porte ; au fil, la PR et sa CI verte.
     assert_eq!(git(&essai.racine.join("distant.git"), &["rev-parse", &format!("refs/heads/{branche}")]), tete);

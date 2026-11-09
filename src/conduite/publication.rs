@@ -62,12 +62,13 @@ fn plan_de_relance(plan: &Plan, numero: u64, contexte: &str) -> Plan {
     Plan { objectif: format!("Rendre verte la CI de la PR {numero}"), preuve: plan.preuve.clone(), taches: vec![tache] }
 }
 
-/// Le corps de la PR, public : d'abord le bloc « Reçu », écrit à l'ouverture de la PR : le coût jusque-là, les mains,
-/// relances et classées (`recu`, voir `Recu`), et les fichiers de réglage de la preuve que le diff de la base à la tête
-/// change (`reglages`, voir [`reglages_changes`] : chaque chemin écrit en code, ou `chemin au nom illisible` s'il porte
-/// un caractère de contrôle ou une apostrophe inverse ; vingt au plus, puis « … et <k> autres »), ou « aucun » ; puis
-/// l'objectif du plan ; `Preuve : <preuve de la vague> → vert` ; les tâches assemblées,
-/// `<id> : <première ligne de son objectif>` ; les tâches dehors, `<id> : classée` ou `<id> : refusée (<code>) :
+/// Le corps de la PR, public, écrit en anglais : d'abord le bloc « Receipt », écrit à l'ouverture de la PR : le coût
+/// jusque-là, les mains, relances et classées (`recu`, voir `Recu`), et les fichiers de réglage de la preuve que le
+/// diff de la base à la tête change (`reglages`, voir [`reglages_changes`] : chaque chemin écrit en code, ou
+/// `path with an unreadable name` s'il porte un caractère de contrôle ou une apostrophe inverse ; vingt au plus, puis
+/// « … and <k> more »), ou « none » ; puis
+/// l'objectif du plan ; `Proof: <preuve de la vague> → green` ; les tâches assemblées,
+/// `<id>: <première ligne de son objectif>` ; les tâches dehors, `<id>: set aside` ou `<id>: refused (<code>):
 /// <règle>` ; puis la ligne de la relecture, `relecture`, si la vague a été relue, et sous elle la ligne du commit
 /// relu et rejoué ([`controler_la_tete`]), que `relecture` porte aussi, dont `rejouee` fait un texte de deux lignes.
 /// La fusion suit la règle du dépôt, et
@@ -100,28 +101,28 @@ pub(crate) fn corps(
             Some(fil::Issue::Assemblee) if decoupee => assemblees.push(id.clone()),
             Some(fil::Issue::Assemblee) => {
                 let premiere = tache.objectif.lines().map(str::trim).find(|ligne| !ligne.is_empty());
-                assemblees.push(format!("{id} : {}", premiere.unwrap_or_default()));
+                assemblees.push(format!("{id}: {}", premiere.unwrap_or_default()));
             }
             Some(fil::Issue::Refusee { code, .. }) => dehors.push(match Code::de_numero(*code) {
-                Some(code) => format!("{id} : refusée ({}) : {}", code.numero(), code.regle()),
-                None => format!("{id} : refusée ({code})"),
+                Some(code) => format!("{id}: refused ({}): {}", code.numero(), code.regle()),
+                None => format!("{id}: refused ({code})"),
             }),
-            None => dehors.push(format!("{id} : classée")),
+            None => dehors.push(format!("{id}: set aside")),
         }
     }
-    let preuve = format!("Preuve : {} → vert", plan.preuve.as_deref().unwrap_or_default());
+    let preuve = format!("Proof: {} → green", plan.preuve.as_deref().unwrap_or_default());
     let relue = relecture.unwrap_or_default().to_string();
     let changes = if reglages.is_empty() {
-        "aucun".to_string()
+        "none".to_string()
     } else {
         let mut noms: Vec<String> = reglages.iter().take(REGLAGES_NOMMES).map(|chemin| en_code(chemin)).collect();
         if reglages.len() > REGLAGES_NOMMES {
-            noms.push(format!("… et {} autres", reglages.len() - REGLAGES_NOMMES));
+            noms.push(format!("… and {} more", reglages.len() - REGLAGES_NOMMES));
         }
         noms.join(", ")
     };
     let lignes = recu.lignes_de_pr().join("\n");
-    let recu = format!("Reçu\n{lignes}\n- Réglages de la preuve changés : {changes}");
+    let recu = format!("Receipt\n{lignes}\n- Proof settings changed: {changes}");
     let a_justifier = if points.is_empty() {
         String::new()
     } else {
@@ -150,7 +151,7 @@ const POINTS_NOMMES: usize = 20;
 /// d'effet. Un chemin qui porte un caractère de contrôle ou une apostrophe inverse y est remplacé par un nom neutre.
 pub(crate) fn en_code(chemin: &str) -> String {
     if chemin.chars().any(|c| c.is_control() || c == '`') {
-        "`chemin au nom illisible`".to_string()
+        "`path with an unreadable name`".to_string()
     } else {
         format!("`{chemin}`")
     }
@@ -179,13 +180,14 @@ fn reglages_changes<'a>(chemins: impl IntoIterator<Item = &'a str>) -> Vec<Strin
 }
 
 /// La ligne du corps de la PR qui dit la relecture de la vague `id`, d'après les vagues que le fil rejoue :
-/// `Relecture : <n> remarques, dont <b> bloquantes, corrigées.` si le fil note une correction de la vague, sans
-/// `, corrigées` sinon ; `None` si la vague n'a pas été relue. Rien que des nombres : le texte des remarques n'est
+/// `Review: <n> remarks, <b> blocking, corrected.` si le fil note une correction de la vague, sans
+/// `, corrected` sinon ; `None` si la vague n'a pas été relue. Rien que des nombres : le texte des remarques n'est
 /// jamais publié.
 fn ligne_de_relecture(vagues: &[Vague], id: &str) -> Option<String> {
     let relecture = relecture_de(vagues, id)?;
-    let corrigees = if correction_de(vagues, id).is_some() { ", corrigées" } else { "" };
-    Some(format!("Relecture : {} remarques, dont {} bloquantes{corrigees}.", relecture.n, relecture.bloquantes))
+    let corrigees = if correction_de(vagues, id).is_some() { ", corrected" } else { "" };
+    let remarques = if relecture.n == 1 { "remark" } else { "remarks" };
+    Some(format!("Review: {} {remarques}, {} blocking{corrigees}.", relecture.n, relecture.bloquantes))
 }
 
 /// Le nombre de lignes du bloc `non rejoue` que le corps de la PR montre, et leur longueur, en caractères.
@@ -843,6 +845,44 @@ impl Recu {
         if self.inconnu { format!("{connu} + inconnu") } else { connu }
     }
 
+    /// Le coût du corps d'une PR, en anglais : `$0.84 estimated`, `subscription, ≈ $0.84` ou `unknown`, suivi de
+    /// ` + unknown` s'il a de plus une part inconnue.
+    pub(crate) fn cout_de_pr(&self) -> String {
+        let dollars = dollars_de_pr(self.micro_dollars);
+        let connu = if self.estime {
+            format!("${dollars} estimated")
+        } else if self.forfait {
+            format!("subscription, ≈ ${dollars}")
+        } else {
+            return "unknown".into();
+        };
+        if self.inconnu { format!("{connu} + unknown") } else { connu }
+    }
+
+    /// Les mains du corps d'une PR, en anglais : `7 hands, 2 retries, 1 set aside`, suivi de `, N impossible`, de
+    /// `, N refused` et de `, N outage(s)` seulement quand N > 0.
+    pub(crate) fn mains_de_pr(&self) -> String {
+        let nombre = |n: usize, un: &str, plusieurs: &str| format!("{n} {}", if n == 1 { un } else { plusieurs });
+        let base = format!(
+            "{}, {}, {} set aside",
+            nombre(self.mains, "hand", "hands"),
+            nombre(self.relances, "retry", "retries"),
+            self.classees
+        );
+        let base = match self.impossibles {
+            0 => base,
+            n => format!("{base}, {n} impossible"),
+        };
+        let base = match self.refusees {
+            0 => base,
+            n => format!("{base}, {n} refused"),
+        };
+        match self.coupures {
+            0 => base,
+            n => format!("{base}, {}", nombre(n, "outage", "outages")),
+        }
+    }
+
     /// `7 mains, 2 relances, 1 classée`, suivi de `, N impossible`, de `, N refusée` et de `, N coupure`
     /// seulement quand N > 0.
     pub(crate) fn mains(&self) -> String {
@@ -887,11 +927,11 @@ impl Recu {
         (!self.mesure.is_empty()).then(|| format!("Measurement: {}.", self.mesure.join(", ")))
     }
 
-    /// Les lignes du bloc « Reçu » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la durée ;
-    /// puis, si des réglages de mesure sont posés, `- Measurement: <réglages>.` ; puis, si le reçu porte un sceau,
-    /// `- Fil sealed at <octets> bytes: sha256 <empreinte>.`
+    /// Les lignes du bloc « Receipt » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la
+    /// durée ; puis, si des réglages de mesure sont posés, `- Measurement: <réglages>.` ; puis, si le reçu porte un
+    /// sceau, `- Fil sealed at <octets> bytes: sha256 <empreinte>.`
     pub(crate) fn lignes_de_pr(&self) -> Vec<String> {
-        let mut lignes = vec![format!("- Coût : {}", self.cout()), format!("- {}", self.mains())];
+        let mut lignes = vec![format!("- Cost: {}", self.cout_de_pr()), format!("- {}", self.mains_de_pr())];
         lignes.extend(self.ligne_de_mesure().map(|ligne| format!("- {ligne}")));
         lignes
             .extend(self.sceau.iter().map(|s| format!("- Fil sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)));
@@ -899,10 +939,21 @@ impl Recu {
     }
 }
 
+/// Des micro-dollars en centimes, arrondis au centime.
+fn centimes(micro: u64) -> u64 {
+    micro / 10_000 + u64::from(micro % 10_000 >= 5_000)
+}
+
 /// Des micro-dollars en dollars à la virgule, arrondis au centime : `0,84`.
 fn dollars(micro: u64) -> String {
-    let centimes = micro / 10_000 + u64::from(micro % 10_000 >= 5_000);
+    let centimes = centimes(micro);
     format!("{},{:02}", centimes / 100, centimes % 100)
+}
+
+/// Des micro-dollars en dollars au point, arrondis au centime : `0.84`.
+fn dollars_de_pr(micro: u64) -> String {
+    let centimes = centimes(micro);
+    format!("{}.{:02}", centimes / 100, centimes % 100)
 }
 
 /// Les millisecondes de l'époque Unix d'un instant que le fil écrit (`2026-10-31T21:03:00.123Z`), `None` s'il n'est pas
