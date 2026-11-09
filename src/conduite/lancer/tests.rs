@@ -1788,15 +1788,6 @@ fn le_bail_couvre_la_main_sa_preuve_et_une_marge() {
 }
 
 #[test]
-fn seule_une_main_tuee_a_son_delai_perd_sa_relance() {
-    // Le texte de M2, en tête de l'erreur d'une main qu'il a tuée à son délai : elle n'est pas relancée.
-    assert!(main_tuee("main : temps dépassé (1 s)"));
-    // Dit ailleurs, par la sortie de la main ou par une preuve trop lente, il n'empêche pas la relance.
-    assert!(!main_tuee("exit code: 1 ; main : temps dépassé"));
-    assert!(!main_tuee("vérification « x » : temps dépassé (1 s)"));
-}
-
-#[test]
 fn une_main_tuee_a_son_delai_n_est_pas_relancee() {
     let racine = racine("tuee");
     let (depot, kraken) = (depot(&racine), racine.join("lydite"));
@@ -4082,6 +4073,42 @@ mod coupure {
         assert!(joue.issue.is_ok(), "{:?}", joue.issue);
         assert_eq!(joue.recu, "3 mains, 1 relance, 0 classée, 1 coupure");
         assert!(joue.consigne.contains("Tentative précédente échouée :\nla preuve est rouge"), "{}", joue.consigne);
+    }
+
+    const TEMPS: &str = "main : temps dépassé (1 s)";
+
+    #[test]
+    fn seule_une_main_tuee_a_son_delai_perd_sa_relance() {
+        // Un `Echec::Tuee` à la première tentative est refusé en 7005, sans relance : une seule main.
+        let joue = jouer("tuee-refusee", vec![Some(Echec::Tuee(TEMPS.into()))]);
+        let texte = joue.issue.as_ref().err().unwrap_or_else(|| panic!("refusée : {:?}", joue.issue));
+        assert!(texte.starts_with("refusée (7005) : "), "{texte}");
+        assert!(texte.contains(TEMPS), "la preuve dit le temps dépassé : {texte}");
+        assert_eq!(histoire(&joue.evenements), ["bail 1", "début 1", "fin 1 Rouge Constate", "refus 7005"]);
+        // Le texte ne décide pas : une erreur ordinaire qui commence par le même texte est relancée.
+        let ordinaire = Some(Echec::Erreur(format!("{TEMPS} : dit par la main")));
+        let joue = jouer("tuee-en-texte", vec![ordinaire]);
+        assert!(joue.issue.is_ok(), "{:?}", joue.issue);
+        assert_eq!(joue.recu, "2 mains, 1 relance, 0 classée");
+        assert!(joue.consigne.contains("Tentative précédente échouée :\nmain : temps dépassé (1 s) : dit"));
+    }
+
+    #[test]
+    fn une_main_tuee_a_une_tentative_suivante_est_classee() {
+        // Après une première erreur relancée, une main tuée à son délai est classée comme toute autre erreur.
+        let joue = jouer("erreur-tuee", vec![rouge(), Some(Echec::Tuee(TEMPS.into()))]);
+        assert_eq!(joue.issue.unwrap_err(), TEMPS);
+        assert_eq!(joue.recu, "2 mains, 1 relance, 1 classée");
+        let attendu = [
+            "bail 1",
+            "début 1",
+            "fin 1 Rouge Constate",
+            "bail 2",
+            "début 2",
+            "fin 2 Rouge Constate",
+            "verdict Classee Constate",
+        ];
+        assert_eq!(histoire(&joue.evenements), attendu);
     }
 
     #[test]

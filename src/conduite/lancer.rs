@@ -118,9 +118,6 @@ const MARGE: Duration = Duration::from_secs(60);
 /// le fil d'exécution de la main qui repart, pas dans la vague, et le bail de cette tentative la couvre.
 const PAUSE: Duration = Duration::from_secs(60);
 
-/// Le début de l'erreur d'une main que Kraken a tuée à son délai, figé : `main_tuee` le reconnaît à ce début.
-const TUEE: &str = "main : temps dépassé";
-
 /// La correction du refus 7012, qui arrête la vague.
 const ARRET: &str = "La vague s'arrête : plus aucune note, ni départ, ni fusion, et ses mains en cours finissent. \
                      Rends le fil inscriptible, ou lisibles les réglages que la preuve nomme, puis relance dans une \
@@ -270,13 +267,6 @@ fn ouverture(
         notes.extend(liens.relit.map(relit));
     }
     notes
-}
-
-/// La main a été tuée à son délai : son erreur commence par `main : temps dépassé`, le texte que Kraken écrit en tête
-/// quand il tue l'arbre d'une main à `delai_main`. Il se lit en tête de l'erreur, jamais dans la sortie de la main, qui
-/// pourrait l'écrire.
-fn main_tuee(erreur: &str) -> bool {
-    erreur.starts_with(TUEE)
 }
 
 /// Joue la main et rend ce qu'elle rend ; une main qui panique rend une fin rouge qui le dit. La panique ne fait pas
@@ -667,7 +657,9 @@ impl<'a> Vague<'a> {
             Ok(Pris { sortie, prouve: false }) => (Couleur::Vert, Foi::Declare, sortie.clone()),
             // La raison d'une main qui déclare l'impossible : rouge, et déclarée, car Kraken n'a rien vu.
             Err(Echec::Impossible(raison)) => (Couleur::Rouge, Foi::Declare, raison.clone()),
-            Err(Echec::Erreur(erreur) | Echec::Coupure(_, erreur)) => (Couleur::Rouge, Foi::Constate, erreur.clone()),
+            Err(Echec::Erreur(erreur) | Echec::Coupure(_, erreur) | Echec::Tuee(erreur)) => {
+                (Couleur::Rouge, Foi::Constate, erreur.clone())
+            }
         };
         let vague = self.id.clone();
         // Le jeton : seul se prend un résultat qui porte la tentative du bail ouvert de sa tâche. Un résultat périmé
@@ -740,9 +732,12 @@ impl<'a> Vague<'a> {
             }
             // Une relance suit la première tentative de la tâche que ne coupe aucune coupure de l'API.
             Err(Echec::Erreur(erreur)) if tentative - self.coupures[k - 1] == 1 => {
-                self.relancer(s, envoi, k, bac, erreur);
+                self.relancer(s, envoi, k, bac, erreur, false);
             }
-            Err(Echec::Erreur(erreur)) => {
+            Err(Echec::Tuee(erreur)) if tentative - self.coupures[k - 1] == 1 => {
+                self.relancer(s, envoi, k, bac, erreur, true);
+            }
+            Err(Echec::Erreur(erreur) | Echec::Tuee(erreur)) => {
                 let classee = Evenement::Verdict { vague, main: k, verdict: Verdict::Classee, foi: Foi::Constate };
                 let issue = if self.noter(&classee) { erreur } else { self.hors_du_fil(&erreur) };
                 self.taches[k - 1] = Etat::Finie(Err(issue));
@@ -787,12 +782,13 @@ impl<'a> Vague<'a> {
         k: usize,
         (bac, depart): (&Path, &str),
         erreur: String,
+        tuee: bool,
     ) where
         'a: 's,
     {
         if let Err(refus) = sans_claude(bac, depart) {
             self.refuser(k, refus, None);
-        } else if main_tuee(&erreur) {
+        } else if tuee {
             // raccourci : une main tuée à son délai est refusée sans relance ; monter vers une relance quand le nœud
             // prouvera la mort de l'arbre
             let preuve = format!(
