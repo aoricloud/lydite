@@ -700,7 +700,7 @@ fn une_pr_verte_part_de_la_base_distante_puis_range_ses_bacs() {
     let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
     let corps = format!(
         "Receipt\n- Cost: unknown\n- 2 hands, 0 retries, 0 set aside\n\
-         - Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
+         - Thread sealed at {octets} bytes: sha256 {empreinte}.\n\
          - Proof settings changed: none\n\n\
          Ecrire a et b\n\nProof: exit 0 → green\n\na: Ecrire a\nb: Ecrire b\n\n\
          Replayed on commit {tete}, not reviewed: no critical task was assembled.\n"
