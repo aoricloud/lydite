@@ -929,12 +929,13 @@ impl Recu {
 
     /// Les lignes du bloc « Receipt » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la
     /// durée ; puis, si des réglages de mesure sont posés, `- Measurement: <réglages>.` ; puis, si le reçu porte un
-    /// sceau, `- Fil sealed at <octets> bytes: sha256 <empreinte>.`
+    /// sceau, `- Thread sealed at <octets> bytes: sha256 <empreinte>.`
     pub(crate) fn lignes_de_pr(&self) -> Vec<String> {
         let mut lignes = vec![format!("- Cost: {}", self.cout_de_pr()), format!("- {}", self.mains_de_pr())];
         lignes.extend(self.ligne_de_mesure().map(|ligne| format!("- {ligne}")));
-        lignes
-            .extend(self.sceau.iter().map(|s| format!("- Fil sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)));
+        lignes.extend(
+            self.sceau.iter().map(|s| format!("- Thread sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)),
+        );
         lignes
     }
 }

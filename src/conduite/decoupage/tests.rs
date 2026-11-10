@@ -418,7 +418,7 @@ fn avec_pr_la_vague_d_un_plan_decoupe_va_jusqu_a_sa_pr() {
     let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
     let recu = format!(
         "Receipt\n- Cost: unknown\n- 3 hands, 0 retries, 0 set aside\n\
-         - Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
+         - Thread sealed at {octets} bytes: sha256 {empreinte}.\n\
          - Proof settings changed: none\n\n"
     );
     assert!(corps.starts_with(&format!("{recu}{OBJECTIF}\n\nProof: {VERIFIER} → green\n")), "{corps}");
