@@ -96,6 +96,7 @@ use std::str;
 
 use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::fil::NOMBRE_MAX;
+use crate::coeur::texte;
 
 /// Ce qu'un plan pèse au plus : 1 Mo.
 pub(crate) const TAILLE_MAX: usize = 1_000_000;
@@ -229,7 +230,7 @@ pub(crate) struct Attente {
 /// caractères de contrôle s'écrivent (`\u{1b}`), pour ne pas piéger un terminal.
 impl fmt::Display for Attente {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} attend {} : elles partagent {}", self.tache, self.attend, sans_controle(&self.chemin))
+        write!(f, "{} attend {} : elles partagent {}", self.tache, self.attend, texte::en_ligne(&self.chemin))
     }
 }
 
@@ -842,28 +843,6 @@ fn ajouter(siens: &mut [u64], les_siens: &[u64], rang: usize) {
         *mot |= autre;
     }
     siens[rang / 64] |= 1 << (rang % 64);
-}
-
-/// Le texte, ses caractères de contrôle écrits (`\t`, `\u{1b}`) : il vient d'un fichier, et peut piéger un terminal.
-fn sans_controle(texte: &str) -> String {
-    ecrire_controles(texte, false)
-}
-
-/// Comme `sans_controle`, mais le saut de ligne et la tabulation restent tels quels : le plan se montre sur stdout.
-pub(crate) fn sans_controle_en_lignes(texte: &str) -> String {
-    ecrire_controles(texte, true)
-}
-
-fn ecrire_controles(texte: &str, garder_lignes: bool) -> String {
-    let mut sortie = String::with_capacity(texte.len());
-    for c in texte.chars() {
-        if c.is_control() && !(garder_lignes && matches!(c, '\n' | '\t')) {
-            sortie.extend(c.escape_default());
-        } else {
-            sortie.push(c);
-        }
-    }
-    sortie
 }
 
 /// Le texte du plan : ses octets en UTF-8, le BOM de tête ôté. Une marque UTF-16 ou un octet hors de l'UTF-8 est le

@@ -1602,9 +1602,11 @@ pub(crate) fn refus_en_clair(code: u16, regle: &str, preuve: &str, correction: &
 }
 
 /// Le texte sur une seule ligne : ses lignes, rognées et non vides, mises bout à bout. La même mise bout à bout que
-/// celle du refus de `erreur.rs`.
+/// celle du refus de `erreur.rs`, et tout autre caractère de contrôle y est écrit (`coeur::texte`).
 fn sur_une_ligne(texte: &str) -> String {
-    texte.split(['\r', '\n']).map(str::trim).filter(|ligne| !ligne.is_empty()).collect::<Vec<_>>().join(" ; ")
+    let bout_a_bout =
+        texte.split(['\r', '\n']).map(str::trim).filter(|ligne| !ligne.is_empty()).collect::<Vec<_>>().join(" ; ");
+    crate::coeur::texte::en_ligne(&bout_a_bout)
 }
 
 impl Evenement {

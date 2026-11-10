@@ -220,6 +220,17 @@ fn nommee_garde_son_kind_et_nomme_ce_qu_elle_visait() {
 }
 
 #[test]
+fn un_refus_affiche_n_a_aucun_caractere_de_controle() {
+    let refus = Refus::new(Code::Conflit, "a\u{1b}[31m\tb\u{202e}\nc", "d\u{7}\r\ne");
+    let affiche = refus.to_string();
+    assert!(affiche.contains("  preuve : a\\u{1b}[31m\\tb\\u{202e} ; c\n"), "{affiche:?}");
+    assert!(affiche.ends_with("  correction : d\\u{7} ; e"), "{affiche:?}");
+    assert!(!affiche.chars().any(|c| c.is_control() && c != '\n'), "{affiche:?}");
+    // Le refus garde ses champs bruts.
+    assert!(refus.preuve.contains('\u{1b}'));
+}
+
+#[test]
 fn la_queue_garde_les_4000_derniers_caracteres() {
     // Des caractères de deux octets : la coupe compte des caractères, pas des octets. Un assert! dit les longueurs :
     // un assert_eq! imprimerait deux textes de 4000 caractères.

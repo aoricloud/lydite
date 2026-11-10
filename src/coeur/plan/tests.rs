@@ -1,7 +1,7 @@
 #[test]
 fn le_plan_montre_echappe_ses_controles_sauf_lignes_et_tabulations() {
     let texte = "tache a\n\tfichiers : x\u{1b}[31m\r\n";
-    assert_eq!(super::sans_controle_en_lignes(texte), "tache a\n\tfichiers : x\\u{1b}[31m\\r\n");
+    assert_eq!(crate::coeur::texte::en_lignes_du_plan(texte), "tache a\n\tfichiers : x\\u{1b}[31m\\r\n");
 }
 
 use super::*;

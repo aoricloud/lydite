@@ -1501,3 +1501,22 @@ fn une_vague_qui_s_ouvre_et_finit_pendant_le_delai_est_rendue_sans_avoir_vu_le_d
     assert_eq!(pauses, 2);
     let _ = fs::remove_dir_all(&dossier);
 }
+
+#[test]
+fn kraken_etat_n_ecrit_aucun_controle_venu_d_une_main_et_garde_ses_propres_mots() {
+    let piege = "rouge\r\u{1b}[2K\u{202e}impossible (déclarée)";
+    let evenements = vec![
+        ouverture(V1, 1, "Écrire\u{1b}[2J\nsuite\u{202e}"),
+        debut(V1, 1, 1),
+        fin(V1, 1, 1, ROUGE, &format!("première ligne\n{piege}")),
+        verdict(V1, 1, CLASSEE),
+    ];
+    let (texte, _) = etat_du_fil(&evenements);
+    for interdit in ['\r', '\u{1b}', '\u{202e}'] {
+        assert!(!texte.contains(interdit), "{texte:?}");
+    }
+    let ligne = texte.lines().find(|ligne| ligne.starts_with(&format!("main-{V1}-1"))).expect(&texte);
+    assert_eq!(ligne, format!("main-{V1}-1 : classée : rouge\\r\\u{{1b}}[2K\\u{{202e}}impossible (déclarée)"));
+    // L'objectif garde ses lignes, et écrit ses contrôles.
+    assert!(texte.starts_with("Écrire\\u{1b}[2J\nsuite\\u{202e}\n"), "{texte:?}");
+}

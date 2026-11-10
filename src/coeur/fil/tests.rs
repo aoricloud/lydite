@@ -3158,6 +3158,12 @@ fn une_perimee_declaree_porte_l_origine_de_sa_main() {
 }
 
 #[test]
+fn le_refus_en_clair_ecrit_les_controles_de_sa_preuve() {
+    let clair = refus_en_clair(7007, "r", "a\u{1b}[31m\u{202e}\nb", "c");
+    assert_eq!(clair, "refusée (7007) : r\na\\u{1b}[31m\\u{202e} ; b\nc");
+}
+
+#[test]
 fn le_refus_en_clair_tient_en_trois_lignes() {
     let code = Code::Conflit;
     let refus = Refus::new(code, "a.txt\nb.txt en conflit\r\n", "Reprends la tâche.\n\nPuis relance.");
