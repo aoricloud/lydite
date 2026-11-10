@@ -9,6 +9,7 @@ use crate::coeur::erreur::Refus;
 use crate::coeur::fil::{
     self, Evenement, Foi, Lecture, Main, Note, SceauLu, Vague, Verdict, correction_de, etat, relecture_de,
 };
+use crate::coeur::texte;
 use crate::conduite::publication::recu_de;
 use crate::conduite::tentative::IMPOSSIBLE;
 
@@ -196,7 +197,9 @@ fn bloc(vague: &Vague, vagues: &[Vague], notes: &[Note], maintenant: &str) -> St
         },
         None => format!("Découpage : {id} · absent du fil"),
     });
-    let entete = vague.assemblage.iter().map(|(branche, preuve)| format!("branche : {branche} · preuve : {preuve}"));
+    let entete = vague.assemblage.iter().map(|(branche, preuve)| {
+        format!("branche : {} · preuve : {}", texte::en_ligne(branche), texte::en_ligne(preuve))
+    });
     let relecture = match (relecture_de(vagues, &vague.id), relecteur_de(vagues, &vague.id)) {
         (Some(relecture), _) => {
             Some(format!("Relecture : {} remarques, dont {} bloquantes", relecture.n, relecture.bloquantes))
@@ -213,14 +216,14 @@ fn bloc(vague: &Vague, vagues: &[Vague], notes: &[Note], maintenant: &str) -> St
             Some(fil::Couleur::Rouge) => "CI rouge (constatée)",
             None => "CI en attente",
         };
-        let pr = forge.pr.iter().map(move |pr| format!("PR {} · {} · {ci}", pr.numero, pr.url));
-        let refus = forge.refus.iter().map(|clair| clair.lines().next().unwrap_or_default().to_string());
+        let pr = forge.pr.iter().map(move |pr| format!("PR {} · {} · {ci}", pr.numero, texte::en_ligne(&pr.url)));
+        let refus = forge.refus.iter().map(|clair| texte::en_ligne(clair.lines().next().unwrap_or_default()));
         pr.chain(refus)
     });
     // L'objectif d'une vague née d'une issue est `Issue #<n>` ; sans ouverture au fil, son `vague.issue` le redit.
     let objectif = match vague.issue {
         Some(numero) if vague.objectif.is_empty() => format!("Issue #{numero}"),
-        _ => vague.objectif.clone(),
+        _ => texte::en_lignes(&vague.objectif),
     };
     let toutes = decoupage.chain(std::iter::once(objectif)).chain(entete);
     let toutes = toutes.chain(lignes_des_mains(vague, maintenant)).chain(relecture).chain(correction).chain(forge);
@@ -302,7 +305,7 @@ fn mot_du_mur(main: Option<&Main>) -> String {
 fn mot_du_fournisseur(main: Option<&Main>) -> String {
     let derniere = main.and_then(|main| main.tentatives.last_key_value());
     let fournisseur = derniere.and_then(|(_, tentative)| tentative.fournisseur.as_deref());
-    fournisseur.map_or_else(String::new, |hote| format!(" · fournisseur {hote} (déclaré)"))
+    fournisseur.map_or_else(String::new, |hote| format!(" · fournisseur {} (déclaré)", texte::en_ligne(hote)))
 }
 
 /// Ce qu'une main affiche, dans cet ordre de préséance : « assemblée » ; son refus, par la première ligne de
@@ -319,7 +322,7 @@ fn etat_de(main: Option<&Main>, assemblees: Option<&std::collections::HashSet<&s
         (Some(fil::Issue::Assemblee), _) if assemblees.is_some() => "assemblée".into(),
         (Some(fil::Issue::Refusee { code, regle, preuve, correction }), _) => {
             let clair = fil::refus_en_clair(*code, regle, preuve, correction);
-            clair.lines().next().unwrap_or_default().to_string()
+            texte::en_ligne(clair.lines().next().unwrap_or_default())
         }
         (_, Some((Verdict::Impossible, _))) => format!("{IMPOSSIBLE}{}", derniere_ligne(main.texte())),
         (_, Some((Verdict::Classee, foi))) => format!("classée{} : {}", declaree(foi), derniere_ligne(main.texte())),
@@ -345,8 +348,9 @@ fn etat_de(main: Option<&Main>, assemblees: Option<&std::collections::HashSet<&s
     }
 }
 
-fn derniere_ligne(texte: &str) -> &str {
-    texte.lines().map(str::trim).rfind(|ligne| !ligne.is_empty()).unwrap_or_default()
+/// La dernière ligne non vide d'un texte venu d'une main, ses contrôles écrits (`coeur::texte`).
+fn derniere_ligne(brut: &str) -> String {
+    texte::en_ligne(brut.lines().map(str::trim).rfind(|ligne| !ligne.is_empty()).unwrap_or_default())
 }
 
 /// Toutes les mains de la vague ont pris, et chaque prise est constatée : la vague en compte n, de 1 à n, et chacune a
