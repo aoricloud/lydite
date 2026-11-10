@@ -1,8 +1,9 @@
-"""Les trois outils du plugin et le verrou d'approbation du lancement.
+"""Les quatre outils du plugin et le verrou d'approbation du lancement.
 
 `lancer` démarre `lydite lancer ...` en arrière-plan, détaché, et rend la main au bout de quelques secondes avec un
 identifiant. `etat` rend `lydite etat` (ce que Lydite a lui-même constaté) et l'état des lancements faits d'ici.
-`lecons` rend les leçons que Lydite garde pour un dépôt, après que Lydite les a lui-même vérifiées.
+`lecons` rend les leçons que Lydite garde pour un dépôt, après que Lydite les a lui-même vérifiées. `plan` rend ce que
+`lydite plan` accepte ou refuse d'un fichier de plan, sans rien lancer.
 
 Ce que le plugin fait, et ne fait pas :
 - il lance un seul programme, le binaire de Lydite, par une liste d'arguments (jamais par un shell) ;
@@ -82,6 +83,17 @@ _NOM_DE_LECON = re.compile(r"[a-z0-9-]{1,64}")
 # La taille d'un `SKILL.md`, et les derniers octets d'un refus de Lydite qu'on rend au modèle.
 TAILLE_DE_LA_LECON = 4096
 LIMITE_DU_REFUS = 2000
+
+PLAN_ACCEPTE = (
+    "Lydite accepts this plan as written; nothing was started. `added_dependencies` lists the tasks Lydite "
+    "will run one after the other because they share a file. A launch still asks the human's approval, which "
+    "shows this same SHA-256 if the file has not changed."
+)
+PLAN_REFUSE = (
+    "Lydite refuses this plan; nothing was started. The refusal gives its code, the rule, what was seen and "
+    "the fix (`correction`), in French. Show it to the user as written, agree on the change with them, and "
+    "check the plan again before any launch."
+)
 
 # Ce que veut dire le code de sortie de `lydite lancer` (voir le README de Lydite).
 SORTIES = {
@@ -322,13 +334,39 @@ class Outils:
     # --- le verrou d'approbation ----------------------------------------------------------------------------------
 
     @staticmethod
-    def _plier(etiquette: str, valeur: str, couper: str = "fin", lignes: int = 2) -> list:
+    def _sur_une_ligne(valeur: str) -> str:
+        """La valeur sans ses retours à la ligne, chacun rendu par un espace."""
+        return valeur.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+
+    @staticmethod
+    def _plier_entre_les_mots(valeur: str, largeur: int) -> list:
+        """Les lignes d'une valeur pliée entre ses mots, ou une liste vide si elle ne s'y prête pas : un mot plus
+        long que la ligne, ou des espaces qui ne sont pas un seul espace entre deux mots. Une pliure vaut donc
+        exactement un espace, et rien de la valeur n'est perdu."""
+        mots = valeur.split(" ")
+        if "" in mots or any(len(mot) > largeur for mot in mots):
+            return []
+        rendues = [mots[0]]
+        for mot in mots[1:]:
+            if len(rendues[-1]) + 1 + len(mot) <= largeur:
+                rendues[-1] += " " + mot
+            else:
+                rendues.append(mot)
+        return rendues
+
+    @classmethod
+    def _plier(cls, etiquette: str, valeur: str, couper: str = "fin", lignes: int = 2) -> list:
         """Plie une valeur sous son libellé : le libellé puis la valeur sur la première ligne, et au plus
-        `lignes - 1` lignes de continuation indentées de neuf espaces. Une valeur qui reste trop longue est coupée au
-        début (`couper` vaut "debut", pour un chemin dont on garde la fin) ou à la fin, avec `…` pour le montrer."""
+        `lignes - 1` lignes de continuation indentées de neuf espaces. La pliure tombe entre deux mots quand la
+        valeur tient ainsi dans ses lignes ; sinon elle tombe tous les `largeur` caractères. Une valeur qui reste
+        trop longue est coupée au début (`couper` vaut "debut", pour un chemin dont on garde la fin) ou à la fin,
+        avec `…` pour le montrer."""
         prefixe = f"{etiquette:<7}: "
         largeur = LARGEUR_DE_L_APPROBATION - len(prefixe)
-        valeur = valeur.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+        valeur = cls._sur_une_ligne(valeur)
+        entre_les_mots = cls._plier_entre_les_mots(valeur, largeur)
+        if 1 < len(entre_les_mots) <= lignes:
+            return [prefixe + entre_les_mots[0]] + [" " * len(prefixe) + suite for suite in entre_les_mots[1:]]
         capacite = largeur * lignes
         if len(valeur) > capacite:
             if couper == "debut":
@@ -340,24 +378,34 @@ class Outils:
             rendues.append(" " * len(prefixe) + valeur[debut : debut + largeur])
         return rendues
 
-    @staticmethod
-    def _lignes_voulues(etiquette: str, valeur: str) -> int:
+    @classmethod
+    def _lignes_voulues(cls, etiquette: str, valeur: str) -> int:
         """Le nombre de rangées qu'il faut à une valeur pour paraître en entier, trois au plus."""
         largeur = LARGEUR_DE_L_APPROBATION - len(f"{etiquette:<7}: ")
-        longueur = len(valeur.replace("\r\n", " ").replace("\n", " ").replace("\r", " "))
+        longueur = len(cls._sur_une_ligne(valeur))
         return max(1, min(3, -(-longueur // largeur)))
 
     @classmethod
     def _place_des_entrees(cls, entrees: list, place: int) -> dict:
         """Les rangées accordées à chaque entrée : une au moins, puis les rangées restantes vont d'abord au travail
-        et à la preuve, dont l'humain approuve le texte exact, puis au dépôt et au profil ; trois au plus chacune."""
+        et à la preuve, dont l'humain approuve le texte exact, puis au dépôt et au profil ; trois au plus chacune.
+        Ce qui reste ensuite sert à plier entre les mots : une valeur qui paraît déjà en entier, mais dont la pliure
+        tomberait au milieu d'un mot, reçoit la rangée qui lui manque. Aucune entrée n'y perd une rangée."""
         accordees = {etiquette: 1 for etiquette, _, _ in entrees}
         valeurs = {etiquette: valeur for etiquette, valeur, _ in entrees}
         priorite = ("work", "proof", "repo", "profile")
-        for etiquette in sorted(valeurs, key=lambda nom: priorite.index(nom) if nom in priorite else len(priorite)):
+        ordre = sorted(valeurs, key=lambda nom: priorite.index(nom) if nom in priorite else len(priorite))
+        for etiquette in ordre:
             prises = min(cls._lignes_voulues(etiquette, valeurs[etiquette]) - 1, place)
             accordees[etiquette] += prises
             place -= prises
+        for etiquette in ordre:
+            largeur = LARGEUR_DE_L_APPROBATION - len(f"{etiquette:<7}: ")
+            entre_les_mots = cls._plier_entre_les_mots(cls._sur_une_ligne(valeurs[etiquette]), largeur)
+            manque = len(entre_les_mots) - accordees[etiquette]
+            if 0 < manque <= place and len(entre_les_mots) <= 3:
+                accordees[etiquette] += manque
+                place -= manque
         return accordees
 
     @classmethod
@@ -375,9 +423,10 @@ class Outils:
             texte = demande["plan_octets"].decode("utf-8")
             nom = Path(demande["plan"]).name
             taches = sum(1 for ligne in texte.splitlines() if ligne.startswith("tache "))
+            compte = "1 task" if taches == 1 else f"{taches} tasks"
             avant = [
                 ("repo", demande["depot"], "debut"),
-                ("plan", f"{nom} · {taches} tasks · {len(texte)} chars", "debut"),
+                ("plan", f"{nom} · {compte} · {len(texte)} chars", "debut"),
             ]
             apres = [
                 ("proof", self._preuve_du_plan(texte), "fin"),
@@ -424,7 +473,7 @@ class Outils:
         try:
             demande = self._demande(args if isinstance(args, dict) else {})
         except Refus as refus:
-            return {"action": "block", "message": _json({"erreur": str(refus)})}
+            return {"action": "block", "message": _json({"error": str(refus)})}
         empreinte = _empreinte(demande["plan_octets"]) if demande["plan"] else ""
         if demande["plan"]:
             self._plans_montres[(demande["depot"], demande["profil"], demande["plan"])] = empreinte
@@ -440,9 +489,9 @@ class Outils:
         try:
             return _json(self._lancer(args if isinstance(args, dict) else {}))
         except Refus as refus:
-            return _json({"erreur": str(refus)})
+            return _json({"error": str(refus)})
         except Exception as exc:  # noqa: BLE001 (Hermes veut du JSON, jamais une exception)
-            return _json({"erreur": f"unexpected {type(exc).__name__}: {exc}"})
+            return _json({"error": f"unexpected {type(exc).__name__}: {exc}"})
 
     def _lancer(self, args: dict) -> dict:
         if not self.disponible():
@@ -507,20 +556,20 @@ class Outils:
         )
         if code is not None:
             return {
-                "lance": False,
+                "started": False,
                 "id": identifiant,
-                "sortie": code,
-                "signification": SORTIES.get(code, "unknown code"),
-                "journal": str(journal),
-                "fin_du_journal": _fin_du_journal(str(journal)),
+                "exit_code": code,
+                "meaning": SORTIES.get(code, "unknown code"),
+                "log": str(journal),
+                "log_tail": _fin_du_journal(str(journal)),
             }
         return {
-            "lance": True,
+            "started": True,
             "id": identifiant,
             "pid": enfant.pid,
-            "journal": str(journal),
-            "profil": demande["profil"],
-            "suite": f"running in the background; follow it with {ETAT} (id {identifiant})",
+            "log": str(journal),
+            "profile": demande["profil"],
+            "next": f"running in the background; follow it with {ETAT} (id {identifiant})",
         }
 
     def _copier_le_plan(self, demande: dict, journal: Path) -> str:
@@ -541,7 +590,7 @@ class Outils:
         try:
             return _json(self._etat(args if isinstance(args, dict) else {}))
         except Exception as exc:  # noqa: BLE001 (Hermes veut du JSON, jamais une exception)
-            return _json({"erreur": f"unexpected {type(exc).__name__}: {exc}"})
+            return _json({"error": f"unexpected {type(exc).__name__}: {exc}"})
 
     def _etat(self, args: dict) -> dict:
         rendu: dict = {}
@@ -557,35 +606,35 @@ class Outils:
                 errors="replace",
                 timeout=30,
             )
-            rendu["etat"] = fin.stdout.strip()
+            rendu["state"] = fin.stdout.strip()
             rendu["code"] = fin.returncode
-            rendu["lecture"] = "0: last wave finished (or none); 1: it is not (running or failed); 2: thread unreadable"
+            rendu["note"] = "0: last wave finished (or none); 1: it is not (running or failed); 2: thread unreadable"
             if fin.stderr.strip():
-                rendu["ecarts"] = fin.stderr.strip()[-2000:]
+                rendu["stderr"] = fin.stderr.strip()[-2000:]
         except Refus as refus:
-            rendu["lydite"] = str(refus)
+            rendu["lydite_error"] = str(refus)
         except subprocess.TimeoutExpired:
-            rendu["lydite"] = "`lydite etat` did not answer in 30 s"
+            rendu["lydite_error"] = "`lydite etat` did not answer in 30 s"
 
         tous = sorted(self._lancements().values(), key=lambda lancement: lancement["debut"], reverse=True)
         demande = args.get("id")
-        rendu["lancements"] = [
+        rendu["launches"] = [
             {
                 "id": lancement["id"],
-                "debut": lancement["debut"],
-                "objet": lancement["objet"],
-                "depot": lancement["depot"],
-                "profil": lancement["profil"],
-                "en_cours": self._en_cours_de(lancement),
+                "started_at": lancement["debut"],
+                "work": lancement["objet"],
+                "repo": lancement["depot"],
+                "profile": lancement["profil"],
+                "running": self._en_cours_de(lancement),
             }
             for lancement in tous[:5]
         ]
         if isinstance(demande, str) and demande:
             choisi = self._lancements().get(demande)
             if choisi is None:
-                rendu["journal"] = f"no launch {demande!r} (ids come from {LANCER})"
+                rendu["log_tail"] = f"no launch {demande!r} (ids come from {LANCER})"
             else:
-                rendu["journal"] = _fin_du_journal(choisi["journal"])
+                rendu["log_tail"] = _fin_du_journal(choisi["journal"])
         return rendu
 
     # --- leçons ---------------------------------------------------------------------------------------------------
@@ -595,13 +644,13 @@ class Outils:
         try:
             return _json(self._lecons(args if isinstance(args, dict) else {}))
         except Exception as exc:  # noqa: BLE001 (Hermes veut du JSON, jamais une exception)
-            return _json({"erreur": f"unexpected {type(exc).__name__}: {exc}"})
+            return _json({"error": f"unexpected {type(exc).__name__}: {exc}"})
 
     def _lecons(self, args: dict) -> dict:
         try:
             depot = self._depot(args)
         except Refus as refus:
-            return {"erreur": str(refus)}
+            return {"error": str(refus)}
 
         try:
             fin = subprocess.run(
@@ -616,16 +665,16 @@ class Outils:
                 timeout=30,
             )
         except Refus as refus:
-            return {"lecons": [], "lydite": str(refus)}
+            return {"lessons": [], "lydite_error": str(refus)}
         except subprocess.TimeoutExpired:
-            return {"lecons": [], "lydite": "`lydite lecons` did not answer in 30 s"}
+            return {"lessons": [], "lydite_error": "`lydite lecons` did not answer in 30 s"}
         if fin.returncode != 0:
             # Lydite refuse : aucune leçon n'est servie, même si des fichiers valides sont sur le disque.
-            return {"lecons": [], "code": fin.returncode, "refus": (fin.stderr + fin.stdout)[-LIMITE_DU_REFUS:]}
+            return {"lessons": [], "code": fin.returncode, "refusal": (fin.stderr + fin.stdout)[-LIMITE_DU_REFUS:]}
 
         nom = args.get("nom")
         if nom is not None and (not isinstance(nom, str) or not _NOM_DE_LECON.fullmatch(nom)):
-            return {"erreur": f"`nom` {nom!r} is not a lesson name (lowercase letters, digits and '-', 1 to 64)"}
+            return {"error": f"`nom` {nom!r} is not a lesson name (lowercase letters, digits and '-', 1 to 64)"}
 
         dossier = self._dossier_des_lecons(depot)
         lecons = self._lire_les_lecons(dossier) if dossier is not None else []
@@ -646,22 +695,20 @@ class Outils:
             if choisie is None:
                 noms = [lecon["nom"] for lecon in lecons]
                 liste = ", ".join(noms) if noms else "none"
-                return {"erreur": f"no lesson {nom!r}; this repository has: {liste}", "noms": noms}
+                return {"error": f"no lesson {nom!r}; this repository has: {liste}", "names": noms}
             return {
-                "nom": choisie["nom"],
-                "regle": choisie["regle"],
-                "fichiers": choisie["fichiers"],
-                "texte": choisie["texte"],
-                "lecture": lecture,
+                "name": choisie["nom"],
+                "rule": choisie["regle"],
+                "files": choisie["fichiers"],
+                "text": choisie["texte"],
+                "note": lecture,
             }
 
         return {
-            "depot": depot,
-            "nombre": len(lecons),
-            "lecons": [
-                {"nom": lecon["nom"], "regle": lecon["regle"], "fichiers": lecon["fichiers"]} for lecon in lecons
-            ],
-            "lecture": lecture,
+            "repo": depot,
+            "count": len(lecons),
+            "lessons": [{"name": lecon["nom"], "rule": lecon["regle"], "files": lecon["fichiers"]} for lecon in lecons],
+            "note": lecture,
         }
 
     @staticmethod
@@ -757,6 +804,58 @@ class Outils:
                 if chemin:
                     fichiers.append(chemin)
         return fichiers
+
+    # --- plan -----------------------------------------------------------------------------------------------------
+
+    def plan(self, args, **_):
+        """Ce que Lydite dit d'un fichier de plan, sans rien lancer, rendu en JSON quoi qu'il arrive."""
+        try:
+            return _json(self._plan(args if isinstance(args, dict) else {}))
+        except Exception as exc:  # noqa: BLE001 (Hermes veut du JSON, jamais une exception)
+            return _json({"error": f"unexpected {type(exc).__name__}: {exc}"})
+
+    def _plan(self, args: dict) -> dict:
+        plan = args.get("plan")
+        if not isinstance(plan, str) or not plan.strip():
+            return {"error": "`plan` is required: the absolute path of the plan file to check"}
+        try:
+            # Les bornes d'un lancement : un plan que cet outil accepte, `lancer` le prend aussi.
+            chemin, octets = self._lire_le_plan(plan)
+            binaire = self._binaire()
+        except Refus as refus:
+            return {"error": str(refus)}
+        texte = octets.decode("utf-8")
+        try:
+            # raccourci : Lydite relit le fichier ; s'il change entre les deux lectures, l'empreinte rendue
+            # n'est pas celle des octets lus par Lydite. Sans conséquence : le lancement part d'une copie.
+            fin = subprocess.run(
+                [binaire, "plan", chemin],
+                check=False,
+                env=self._env(avec_cle=False),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return {"error": "`lydite plan` did not answer in 30 s"}
+        rendu = {
+            "accepted": fin.returncode == 0,
+            "plan": chemin,
+            "sha256": _empreinte(octets),
+            "tasks": sum(1 for ligne in texte.splitlines() if ligne.startswith("tache ")),
+            "proof": self._preuve_du_plan(texte),
+        }
+        if fin.returncode == 0:
+            rendu["added_dependencies"] = [ligne for ligne in fin.stdout.splitlines() if ligne.strip()]
+            rendu["note"] = PLAN_ACCEPTE
+        else:
+            rendu["code"] = fin.returncode
+            rendu["refusal"] = (fin.stderr + fin.stdout)[-LIMITE_DU_REFUS:]
+            rendu["note"] = PLAN_REFUSE
+        return rendu
 
     # --- la mémoire des lancements --------------------------------------------------------------------------------
 

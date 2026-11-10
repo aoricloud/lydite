@@ -251,7 +251,10 @@ class Verrou(AvecOutils):
         self.assertEqual(empreinte, hashlib.sha256(PLAN.encode("utf-8")).hexdigest())
         self.assertIn(Path(args["plan"]).name, message)
         self.assertIn(f"{len(PLAN)} chars", message)
-        self.assertIn("1 tasks", message)
+        self.assertIn("·1task·", self.compact(message))
+        deux = "plan 1\nobjectif : o\npreuve : cargo test\n\ntache a\n    faire.\n\ntache b\n    faire.\n"
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande_de_plan(deux))
+        self.assertIn("·2tasks·", self.compact(decision["message"]))
         self.assertIn("cargo test", message)
         self.assertNotIn("Écris apercus/LISEZ-MOI.md.", message)
 
@@ -260,6 +263,47 @@ class Verrou(AvecOutils):
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
         self.assertEqual(decision["action"], "approve")
         self.assertIn(self.compact(preuve), self.compact(decision["message"]))
+        self.bornes(decision["message"])
+
+    def lignes_de_la_preuve(self, message):
+        """Les lignes de la preuve dans un message d'approbation, sans le libellé ni l'indentation."""
+        lignes = message.splitlines()
+        debut = next(rang for rang, ligne in enumerate(lignes) if ligne.startswith("proof  : "))
+        fin = next(rang for rang, ligne in enumerate(lignes) if ligne.startswith("profile: "))
+        return [ligne[9:] for ligne in lignes[debut:fin]]
+
+    def test_une_preuve_se_plie_entre_deux_mots(self):
+        preuve = "cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check"
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
+        self.assertEqual(decision["action"], "approve")
+        self.assertEqual(
+            self.lignes_de_la_preuve(decision["message"]),
+            ["cargo test && cargo clippy --all-targets -- -D", "warnings && cargo fmt --check"],
+        )
+        self.bornes(decision["message"])
+
+    def test_un_mot_plus_long_que_la_ligne_se_coupe_par_caracteres(self):
+        preuve = "cargo test " + "a" * 80
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
+        self.assertEqual(self.lignes_de_la_preuve(decision["message"]), [preuve[:49], preuve[49:]])
+
+    def test_deux_espaces_de_suite_restent_dans_la_preuve(self):
+        preuve = 'grep -q "deux  espaces" notes.txt && cargo test --all-targets --locked'
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
+        self.assertEqual(self.lignes_de_la_preuve(decision["message"]), [preuve[:49], preuve[49:]])
+
+    def test_la_pliure_entre_les_mots_ne_prend_que_la_place_libre(self):
+        lancer = sous_module("nom").LANCER
+        mot = "m" * 30
+        preuve = " ".join([mot] * 3)
+        decision = self.outils().verrou(tool_name=lancer, args=self.demande(preuve=preuve))
+        self.assertEqual(self.lignes_de_la_preuve(decision["message"]), [mot, mot, mot])
+        self.bornes(decision["message"])
+        # Quand le dépôt et l'objectif prennent toute la place, la même preuve se coupe par caractères, en entier.
+        args = self.demande(issue=None, objectif="o" * 110, preuve=preuve, depot=str(self.depot_long(150)))
+        decision = self.outils().verrou(tool_name=lancer, args=args)
+        self.assertEqual(self.lignes_de_la_preuve(decision["message"]), [preuve[:49], preuve[49:]])
+        self.assertIn(self.compact("objective: " + "o" * 110), self.compact(decision["message"]))
         self.bornes(decision["message"])
 
     def test_111_caracteres_sont_refuses_et_110_acceptes(self):
@@ -316,7 +360,7 @@ class Verrou(AvecOutils):
     def test_une_demande_qui_sera_refusee_ne_derange_pas_l_humain(self):
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=""))
         self.assertEqual(decision["action"], "block")
-        self.assertIn("preuve", json.loads(decision["message"])["erreur"])
+        self.assertIn("preuve", json.loads(decision["message"])["error"])
 
     def test_des_arguments_absents_ne_font_pas_planter_le_crochet(self):
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=None)
@@ -390,13 +434,13 @@ class Lancement(AvecOutils):
     def test_un_lancement_long_rend_la_main_avec_un_identifiant(self):
         self.faux_lydite("sleep 30")
         rendu = self.lancer()
-        self.assertTrue(rendu["lance"], rendu)
+        self.assertTrue(rendu["started"], rendu)
         self.assertTrue(rendu["id"] and rendu["pid"])
         self.assertEqual(
             self.lu("argv").split("\n")[:5],
             ["lancer", "claude", "--issue", "15", "--decouper"],
         )
-        self.assertTrue(os.path.exists(rendu["journal"]))
+        self.assertTrue(os.path.exists(rendu["log"]))
 
     def test_le_processus_est_detache_de_hermes(self):
         self.faux_lydite("sleep 30")
@@ -407,24 +451,24 @@ class Lancement(AvecOutils):
     def test_un_refus_de_lydite_se_rend_tout_de_suite_avec_son_texte(self):
         self.faux_lydite("echo 'refus 6022 : la base ne passe pas la preuve'; exit 2")
         rendu = self.lancer(self.outils(attente=5))
-        self.assertFalse(rendu["lance"])
-        self.assertEqual(rendu["sortie"], 2)
-        self.assertIn("refused", rendu["signification"])
-        self.assertIn("6022", rendu["fin_du_journal"])
+        self.assertFalse(rendu["started"])
+        self.assertEqual(rendu["exit_code"], 2)
+        self.assertIn("refused", rendu["meaning"])
+        self.assertIn("6022", rendu["log_tail"])
 
     def test_deux_lancements_dans_le_meme_dossier_de_lydite_sont_refuses(self):
         self.faux_lydite("sleep 30")
         outils = self.outils()
         premier = self.lancer(outils)
         second = self.lancer(outils)
-        self.assertIn("still running", second["erreur"])
-        self.assertIn(premier["id"], second["erreur"])
+        self.assertIn("still running", second["error"])
+        self.assertIn(premier["id"], second["error"])
 
     def test_un_lancement_fini_ne_bloque_plus(self):
         self.faux_lydite("exit 0")
         outils = self.outils(attente=5)
-        self.assertFalse(self.lancer(outils)["lance"])
-        self.assertNotIn("erreur", self.lancer(outils))
+        self.assertFalse(self.lancer(outils)["started"])
+        self.assertNotIn("error", self.lancer(outils))
 
     def test_l_environnement_est_ferme(self):
         self.faux_lydite("sleep 30")
@@ -440,31 +484,31 @@ class Lancement(AvecOutils):
         outils = self.outils(cle_nom="CLE_DEEPSEEK")
         with faux_secrets():
             rendu = self.lancer(outils)
-        self.assertTrue(rendu["lance"], rendu)
+        self.assertTrue(rendu["started"], rendu)
         self.assertIn(f"CLE_DEEPSEEK={SECRET}", self.lu("env"))
         for endroit in (json.dumps(rendu), json.dumps(self.ctx.state._valeurs), self.lu("argv")):
             self.assertNotIn(SECRET, endroit)
-        with open(rendu["journal"], encoding="utf-8") as journal:
+        with open(rendu["log"], encoding="utf-8") as journal:
             self.assertNotIn(SECRET, journal.read())
 
     def test_sans_cle_nom_aucune_cle_n_est_lue(self):
         self.faux_lydite("sleep 30")
         with mock.patch.dict(sys.modules, {"agent": None, "agent.secret_scope": None}):
             rendu = self.lancer()  # importer `agent.secret_scope` échouerait : on ne doit pas l'essayer
-        self.assertTrue(rendu["lance"], rendu)
+        self.assertTrue(rendu["started"], rendu)
 
     def test_une_cle_nommee_mais_absente_est_un_refus_clair(self):
         self.faux_lydite("sleep 30")
         with faux_secrets(valeur=None):
             rendu = self.lancer(self.outils(cle_nom="CLE_DEEPSEEK"))
-        self.assertIn("key is not set", rendu["erreur"])
+        self.assertIn("key is not set", rendu["error"])
 
     def test_un_nom_de_cle_reserve_ou_mal_forme_est_refuse(self):
         self.faux_lydite("sleep 30")
         for nom in ("PATH", "lydite cle", "1CLE"):
             with faux_secrets():
                 rendu = self.lancer(self.outils(cle_nom=nom))
-            self.assertIn("cle_nom", rendu["erreur"], nom)
+            self.assertIn("cle_nom", rendu["error"], nom)
 
     def test_une_preuve_piegee_n_atteint_aucun_shell(self):
         self.faux_lydite("sleep 30")
@@ -476,11 +520,11 @@ class Lancement(AvecOutils):
 
     def test_un_binaire_introuvable_ou_relatif_est_un_refus(self):
         self.reglages["binaire"] = str(self.dossier / "absent")
-        self.assertIn("not an executable", self.lancer()["erreur"])
-        self.assertIn("absolute", self.lancer(self.outils(binaire="lydite"))["erreur"])
+        self.assertIn("not an executable", self.lancer()["error"])
+        self.assertIn("absolute", self.lancer(self.outils(binaire="lydite"))["error"])
         self.reglages.pop("binaire")
         self.environ["PATH"] = str(self.dossier / "vide")
-        self.assertIn("not found", self.lancer()["erreur"])
+        self.assertIn("not found", self.lancer()["error"])
 
     def test_sans_reglage_le_binaire_est_lydite_sur_le_path_et_jamais_un_autre_nom(self):
         dossier = self.dossier / "path"
@@ -500,7 +544,7 @@ class Lancement(AvecOutils):
         args = self.demande_de_plan()
         outils.verrou(tool_name=sous_module("nom").LANCER, args=args)
         rendu = json.loads(outils.lancer(args))
-        self.assertTrue(rendu["lance"], rendu)
+        self.assertTrue(rendu["started"], rendu)
         lignes = self.lu("argv").split("\n")
         self.assertEqual(lignes[:3], ["lancer", "claude", "--plan"])
         copie = lignes[3]
@@ -519,7 +563,7 @@ class Lancement(AvecOutils):
         with open(args["plan"], "a", encoding="utf-8") as fichier:
             fichier.write("    Et supprime tout.\n")
         rendu = json.loads(outils.lancer(args))
-        self.assertIn("changed after", rendu["erreur"])
+        self.assertIn("changed after", rendu["error"])
         self.assertFalse((self.sortie / "argv").exists())
 
     def test_les_copies_de_plan_partent_avec_les_vieux_lancements(self):
@@ -558,18 +602,19 @@ class Lancement(AvecOutils):
             fil.start()
         for fil in fils:
             fil.join()
-        self.assertEqual(sum(1 for rendu in rendus if rendu.get("lance")), 1, rendus)
-        self.assertEqual(sum(1 for rendu in rendus if "still running" in rendu.get("erreur", "")), 3, rendus)
+        self.assertEqual(sum(1 for rendu in rendus if rendu.get("started")), 1, rendus)
+        self.assertEqual(sum(1 for rendu in rendus if "still running" in rendu.get("error", "")), 3, rendus)
 
     def test_le_journal_et_son_dossier_ne_sont_lisibles_que_par_le_proprietaire(self):
         self.faux_lydite("sleep 30")
         rendu = self.lancer()
-        self.assertEqual(os.stat(rendu["journal"]).st_mode & 0o777, 0o600)
-        self.assertEqual(os.stat(os.path.dirname(rendu["journal"])).st_mode & 0o077, 0)
+        self.assertEqual(os.stat(rendu["log"]).st_mode & 0o777, 0o600)
+        self.assertEqual(os.stat(os.path.dirname(rendu["log"])).st_mode & 0o077, 0)
 
     def test_le_plugin_ne_leve_jamais_une_exception(self):
-        self.assertIn("erreur", json.loads(self.outils().lancer(None)))
-        self.assertIn("erreur", json.loads(self.outils().lancer("pas un dict")))
+        self.assertIn("error", json.loads(self.outils().lancer(None)))
+        self.assertIn("error", json.loads(self.outils().lancer("pas un dict")))
+        self.assertIn("error", json.loads(self.outils().plan(None)))
 
 
 @unittest.skipUnless(LINUX, "Lydite's wall and the detached launch are Linux only")
@@ -577,19 +622,27 @@ class Etat(AvecOutils):
     def test_etat_rend_ce_que_lydite_a_constate(self):
         self.faux_lydite(code_etat=1, texte_etat="main-1 : en cours")
         rendu = json.loads(self.outils().etat({}))
-        self.assertEqual(rendu["etat"], "main-1 : en cours")
+        self.assertEqual(rendu["state"], "main-1 : en cours")
         self.assertEqual(rendu["code"], 1)
-        self.assertEqual(rendu["lancements"], [])
+        self.assertEqual(rendu["launches"], [])
 
     def test_etat_liste_les_lancements_et_lit_le_journal_de_l_un_d_eux(self):
         self.faux_lydite("echo 'travail en cours'; sleep 30")
         outils = self.outils()
         lance = json.loads(outils.lancer(self.demande()))
         rendu = json.loads(outils.etat({"id": lance["id"]}))
-        self.assertEqual(rendu["lancements"][0]["id"], lance["id"])
-        self.assertTrue(rendu["lancements"][0]["en_cours"])
-        self.assertIn("travail en cours", rendu["journal"])
-        self.assertIn("no launch", json.loads(outils.etat({"id": "inconnu"}))["journal"])
+        self.assertEqual(rendu["launches"][0]["id"], lance["id"])
+        self.assertTrue(rendu["launches"][0]["running"])
+        self.assertIn("travail en cours", rendu["log_tail"])
+        self.assertIn("no launch", json.loads(outils.etat({"id": "inconnu"}))["log_tail"])
+
+    def test_etat_rend_exactement_ces_cles(self):
+        self.faux_lydite("sleep 30")
+        outils = self.outils()
+        lance = json.loads(outils.lancer(self.demande()))
+        rendu = json.loads(outils.etat({"id": lance["id"]}))
+        self.assertEqual(set(rendu), {"state", "code", "note", "launches", "log_tail"})
+        self.assertEqual(set(rendu["launches"][0]), {"id", "started_at", "work", "repo", "profile", "running"})
 
     def test_etat_sans_binaire_rend_quand_meme_les_lancements(self):
         self.faux_lydite("sleep 30")
@@ -597,8 +650,8 @@ class Etat(AvecOutils):
         json.loads(outils.lancer(self.demande()))
         self.ctx.reglages["binaire"] = str(self.dossier / "absent")
         rendu = json.loads(outils.etat({}))
-        self.assertIn("not an executable", rendu["lydite"])
-        self.assertEqual(len(rendu["lancements"]), 1)
+        self.assertIn("not an executable", rendu["lydite_error"])
+        self.assertEqual(len(rendu["launches"]), 1)
 
     def test_etat_ne_donne_pas_la_cle_a_lydite(self):
         self.faux_lydite(suite="", texte_etat="aucune vague")
@@ -650,13 +703,13 @@ class Lecons(AvecOutils):
         self.ecrire_lecon("alpha", "Write the proof first.", ("src/", "tests/"))
         self.faux_lydite()
         rendu = self.appeler()
-        self.assertEqual(rendu["depot"], str(self.depot))
-        self.assertEqual(rendu["nombre"], 2)
-        self.assertEqual([lecon["nom"] for lecon in rendu["lecons"]], ["alpha", "zebre"])
-        self.assertEqual(rendu["lecons"][0]["regle"], "Write the proof first.")
-        self.assertEqual(rendu["lecons"][0]["fichiers"], ["src/", "tests/"])
-        self.assertNotIn("texte", rendu["lecons"][0])
-        self.assertIn("read-only", rendu["lecture"])
+        self.assertEqual(rendu["repo"], str(self.depot))
+        self.assertEqual(rendu["count"], 2)
+        self.assertEqual([lecon["name"] for lecon in rendu["lessons"]], ["alpha", "zebre"])
+        self.assertEqual(rendu["lessons"][0]["rule"], "Write the proof first.")
+        self.assertEqual(rendu["lessons"][0]["files"], ["src/", "tests/"])
+        self.assertNotIn("text", rendu["lessons"][0])
+        self.assertIn("read-only", rendu["note"])
 
     def test_le_programme_recoit_lecons_et_le_depot_et_un_environnement_ferme(self):
         self.ecrire_lecon("alpha")
@@ -675,39 +728,39 @@ class Lecons(AvecOutils):
         self.faux_lydite()
         rendu = self.appeler(nom="alpha")
         fichier = self.depot / ".agents" / "skills" / "alpha" / "SKILL.md"
-        self.assertEqual(rendu["nom"], "alpha")
-        self.assertEqual(rendu["regle"], "Write the proof first.")
-        self.assertEqual(rendu["fichiers"], ["src/"])
-        self.assertEqual(rendu["texte"].encode("utf-8"), fichier.read_bytes())
-        self.assertIn("cite a lesson by its name", rendu["lecture"])
+        self.assertEqual(rendu["name"], "alpha")
+        self.assertEqual(rendu["rule"], "Write the proof first.")
+        self.assertEqual(rendu["files"], ["src/"])
+        self.assertEqual(rendu["text"].encode("utf-8"), fichier.read_bytes())
+        self.assertIn("cite a lesson by its name", rendu["note"])
 
     def test_un_refus_de_lydite_ne_sert_aucune_lecon(self):
         self.ecrire_lecon("alpha")
         self.faux_lydite(code_lecons=2, texte_lecons="refus 42 : lesson alpha is wrong")
         rendu = self.appeler()
-        self.assertEqual(rendu["lecons"], [])
+        self.assertEqual(rendu["lessons"], [])
         self.assertEqual(rendu["code"], 2)
-        self.assertIn("refus 42", rendu["refus"])
-        self.assertNotIn("texte", rendu)
+        self.assertIn("refus 42", rendu["refusal"])
+        self.assertNotIn("text", rendu)
 
     def test_un_nom_qui_n_est_pas_un_nom_de_lecon_est_refuse(self):
         self.ecrire_lecon("alpha")
         self.faux_lydite()
         for mauvais in ("../x", "Abc", "", "a" * 65):
             rendu = self.appeler(nom=mauvais)
-            self.assertIn("erreur", rendu, mauvais)
-            self.assertIn("not a lesson name", rendu["erreur"], mauvais)
-            self.assertNotIn("noms", rendu, mauvais)
+            self.assertIn("error", rendu, mauvais)
+            self.assertIn("not a lesson name", rendu["error"], mauvais)
+            self.assertNotIn("names", rendu, mauvais)
 
     def test_un_nom_inconnu_donne_les_noms_qui_existent(self):
         self.ecrire_lecon("zebre")
         self.ecrire_lecon("alpha")
         self.faux_lydite()
         rendu = self.appeler(nom="absent")
-        self.assertIn("erreur", rendu)
-        self.assertIn("alpha", rendu["erreur"])
-        self.assertIn("zebre", rendu["erreur"])
-        self.assertEqual(rendu["noms"], ["alpha", "zebre"])
+        self.assertIn("error", rendu)
+        self.assertIn("alpha", rendu["error"])
+        self.assertIn("zebre", rendu["error"])
+        self.assertEqual(rendu["names"], ["alpha", "zebre"])
 
     def test_un_skill_md_symlink_vers_l_exterieur_n_est_pas_servi(self):
         exterieur = self.dossier / "hors-depot.md"
@@ -718,8 +771,8 @@ class Lecons(AvecOutils):
         self.ecrire_lecon("zebre")
         self.faux_lydite()
         rendu = self.appeler()
-        self.assertEqual([lecon["nom"] for lecon in rendu["lecons"]], ["zebre"])
-        self.assertIn("erreur", self.appeler(nom="alpha"))
+        self.assertEqual([lecon["name"] for lecon in rendu["lessons"]], ["zebre"])
+        self.assertIn("error", self.appeler(nom="alpha"))
 
     def test_un_dossier_de_lecon_symlink_n_est_pas_servi(self):
         exterieur = self.dossier / "hors-depot"
@@ -733,7 +786,7 @@ class Lecons(AvecOutils):
         self.ecrire_lecon("zebre")
         self.faux_lydite()
         rendu = self.appeler()
-        self.assertEqual([lecon["nom"] for lecon in rendu["lecons"]], ["zebre"])
+        self.assertEqual([lecon["name"] for lecon in rendu["lessons"]], ["zebre"])
 
     def test_un_fichier_de_4097_octets_n_est_pas_servi(self):
         self.ecrire_lecon("petite", "Small.", ("src/",))
@@ -744,35 +797,120 @@ class Lecons(AvecOutils):
         (self.depot / ".agents" / "skills" / "grande" / "SKILL.md").write_bytes(octets)
         self.faux_lydite()
         rendu = self.appeler()
-        self.assertEqual([lecon["nom"] for lecon in rendu["lecons"]], ["petite"])
+        self.assertEqual([lecon["name"] for lecon in rendu["lessons"]], ["petite"])
 
     def test_un_depot_sans_dossier_de_lecons_rend_une_liste_vide(self):
         self.faux_lydite()
         rendu = self.appeler()
-        self.assertEqual(rendu["lecons"], [])
-        self.assertEqual(rendu["nombre"], 0)
-        self.assertIn("no lesson yet", rendu["lecture"])
+        self.assertEqual(rendu["lessons"], [])
+        self.assertEqual(rendu["count"], 0)
+        self.assertIn("no lesson yet", rendu["note"])
 
     def test_un_binaire_absent_est_dit_sous_lydite_sans_lecon(self):
         self.ecrire_lecon("alpha")
         self.reglages["binaire"] = str(self.dossier / "absent")
         rendu = self.appeler()
-        self.assertEqual(rendu["lecons"], [])
-        self.assertIn("not an executable", rendu["lydite"])
+        self.assertEqual(rendu["lessons"], [])
+        self.assertIn("not an executable", rendu["lydite_error"])
 
     def test_un_depot_relatif_ou_qui_n_est_pas_un_depot_git_donne_le_refus_de_lancer(self):
         self.faux_lydite()
         with self.assertRaises(sous_module("outils").Refus) as contexte:
             self.outils()._demande({"depot": "depot"})
         relatif = json.loads(self.outils().lecons({"depot": "depot"}))
-        self.assertIn("erreur", relatif)
-        self.assertIn(str(contexte.exception), relatif["erreur"])
+        self.assertIn("error", relatif)
+        self.assertIn(str(contexte.exception), relatif["error"])
         pas_git = json.loads(self.outils().lecons({"depot": str(self.dossier)}))
-        self.assertIn("erreur", pas_git)
-        self.assertIn("not a git checkout", pas_git["erreur"])
+        self.assertIn("error", pas_git)
+        self.assertIn("not a git checkout", pas_git["error"])
         vide = json.loads(self.outils().lecons({"depot": ""}))
-        self.assertIn("erreur", vide)
-        self.assertIn("required", vide["erreur"])
+        self.assertIn("error", vide)
+        self.assertIn("required", vide["error"])
+
+
+@unittest.skipUnless(LINUX, "the fake Lydite is a shell script: Linux only")
+class Plan(AvecOutils):
+    """Ce que Lydite dit d'un plan, sans rien lancer."""
+
+    def ecrire_plan(self, texte=PLAN):
+        chemin = self.dossier / "plan.txt"
+        chemin.write_text(texte, encoding="utf-8", newline="\n")
+        return chemin
+
+    def appeler(self, chemin, **reglages):
+        return json.loads(self.outils(**reglages).plan({"plan": str(chemin)}))
+
+    def test_un_plan_accepte_rend_l_empreinte_les_taches_la_preuve_et_les_dependances(self):
+        chemin = self.ecrire_plan()
+        self.faux_lydite("echo 'b attend a : elles partagent a.txt'; echo 'c attend b : elles partagent b.txt'")
+        rendu = self.appeler(chemin)
+        self.assertTrue(rendu["accepted"])
+        self.assertEqual(rendu["plan"], str(chemin))
+        self.assertEqual(rendu["sha256"], hashlib.sha256(chemin.read_bytes()).hexdigest())
+        self.assertEqual(rendu["tasks"], 1)
+        self.assertEqual(rendu["proof"], "cargo test")
+        self.assertEqual(
+            rendu["added_dependencies"],
+            ["b attend a : elles partagent a.txt", "c attend b : elles partagent b.txt"],
+        )
+        self.assertNotIn("refusal", rendu)
+        self.assertIn("accepts", rendu["note"])
+
+    def test_le_programme_recoit_plan_et_le_chemin_un_environnement_ferme_et_aucune_cle(self):
+        chemin = self.ecrire_plan()
+        self.faux_lydite()
+        with faux_secrets():
+            self.outils(cle_nom="CLE_DEEPSEEK").plan({"plan": str(chemin)})
+        self.assertEqual(self.lu("argv").splitlines(), ["plan", str(chemin)])
+        env = self.lu("env")
+        self.assertNotIn("HERMES_YOLO_MODE", env)
+        self.assertNotIn("OPENAI_API_KEY", env)
+        self.assertNotIn("CLE_DEEPSEEK", env)
+        self.assertNotIn(SECRET, env)
+
+    def test_le_programme_est_lance_avec_exactement_binaire_plan_chemin(self):
+        chemin = self.ecrire_plan()
+        self.faux_lydite()
+        outils = self.outils()
+        with mock.patch.object(sous_module("outils").subprocess, "run") as lancer:
+            lancer.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            outils.plan({"plan": str(chemin)})
+        self.assertEqual(lancer.call_args.args[0], [self.reglages["binaire"], "plan", str(chemin)])
+
+    def test_un_plan_refuse_rend_le_refus_et_pas_de_dependances(self):
+        chemin = self.ecrire_plan()
+        self.faux_lydite("echo 'lydite : 6021 lancer.plan_blanc' >&2; echo '  preuve : manque' >&2; exit 2")
+        rendu = self.appeler(chemin)
+        self.assertFalse(rendu["accepted"])
+        self.assertEqual(rendu["code"], 2)
+        self.assertIn("6021 lancer.plan_blanc", rendu["refusal"])
+        self.assertIn("preuve : manque", rendu["refusal"])
+        self.assertNotIn("added_dependencies", rendu)
+        self.assertIn("refuses", rendu["note"])
+
+    def test_un_plan_absent_relatif_ou_illisible_rend_error_sans_lancer_le_programme(self):
+        self.faux_lydite()
+        outils = self.outils()
+        illisible = self.dossier / "binaire.plan"
+        illisible.write_bytes(b"\xff\xfe\x00")
+        absent = str(self.dossier / "absent")
+        for args in ({}, {"plan": ""}, {"plan": "plan.txt"}, {"plan": absent}, {"plan": str(illisible)}):
+            rendu = json.loads(outils.plan(args))
+            self.assertIn("error", rendu, args)
+        self.assertFalse((self.sortie / "argv").exists())
+
+    def test_un_binaire_introuvable_rend_error(self):
+        chemin = self.ecrire_plan()
+        rendu = self.appeler(chemin, binaire=str(self.dossier / "absent"))
+        self.assertIn("not an executable", rendu["error"])
+
+    def test_le_verrou_ne_demande_rien_pour_un_plan(self):
+        chemin = self.ecrire_plan()
+        self.assertIsNone(self.outils().verrou(tool_name=sous_module("nom").PLAN, args={"plan": str(chemin)}))
+
+    def test_le_plugin_ne_leve_jamais_une_exception(self):
+        self.assertIn("error", json.loads(self.outils().plan(None)))
+        self.assertIn("error", json.loads(self.outils().plan("pas un dict")))
 
 
 if __name__ == "__main__":

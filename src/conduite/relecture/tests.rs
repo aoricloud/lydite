@@ -629,7 +629,7 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
     let attendu = format!(
         "Receipt\n- Cost: unknown\n- 3 hands, 0 retries, 0 set aside\n\
-         - Fil sealed at {octets} bytes: sha256 {empreinte}.\n\
+         - Thread sealed at {octets} bytes: sha256 {empreinte}.\n\
          - Proof settings changed: none\n\n\
          Ecrire deux fichiers\n\nProof: exit 0 → green\n\na: Ecrire le fichier critique\nb: Ecrire \
          l'autre fichier\n\nReview: 1 remark, 0 blocking.\nReviewed and replayed on commit {t}.\n\
