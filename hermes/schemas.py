@@ -1,6 +1,6 @@
 """Ce que le modèle lit de chaque outil : son nom, quand l'employer, ses paramètres."""
 
-from .nom import ETAT, LANCER, LECONS
+from .nom import ETAT, LANCER, LECONS, PLAN
 
 SCHEMA_LANCER = {
     "name": LANCER,
@@ -111,5 +111,27 @@ SCHEMA_LECONS = {
             },
         },
         "required": ["depot"],
+    },
+}
+
+SCHEMA_PLAN = {
+    "name": PLAN,
+    "description": (
+        "Check a plan file with Lydite without running it: no worker, no pull request, no cost, so no approval "
+        "is asked. Call it when the user writes or changes a plan file, and before calling " + LANCER + " "
+        "with `plan`. It returns whether Lydite accepts the plan as written, with the plan's SHA-256, its "
+        "number of tasks, its proof line and the tasks Lydite will run one after the other because they share "
+        "a file; or Lydite's refusal (its code, its rule, what was seen and the fix, in French). Fix a refused "
+        "plan with the user, then check it again. Pass the path; do not run the plan yourself."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "plan": {
+                "type": "string",
+                "description": "Absolute path of the plan file to check, as it would be given to " + LANCER + ".",
+            },
+        },
+        "required": ["plan"],
     },
 }

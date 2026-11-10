@@ -24,7 +24,7 @@ class Manifeste(unittest.TestCase):
         nom = sous_module("nom")
         lu = manifeste()
         self.assertEqual(lu["champs"]["name"], nom.NOM)
-        self.assertEqual(lu["listes"]["provides_tools"], [nom.LANCER, nom.ETAT, nom.LECONS])
+        self.assertEqual(lu["listes"]["provides_tools"], [nom.LANCER, nom.ETAT, nom.LECONS, nom.PLAN])
         self.assertIn(f"env: {nom.SECRET_ENV}", lu["texte"])
 
     def test_les_capacites_declarees_sont_les_enregistrees(self):
@@ -62,7 +62,7 @@ class Manifeste(unittest.TestCase):
 
         nu = Nu()
         plugin().register(nu)
-        self.assertEqual(len(nu.outils), 4)
+        self.assertEqual(len(nu.outils), 5)
 
     def test_les_reglages_lus_par_le_code_sont_ceux_du_manifeste(self):
         code = (DOSSIER / "outils.py").read_text(encoding="utf-8")
