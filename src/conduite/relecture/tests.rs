@@ -950,6 +950,94 @@ fn une_correction_non_assemblee_est_le_refus_7017_et_rien_ne_se_pousse() {
     let _ = fs::remove_dir_all(&essai.racine);
 }
 
+/// Un fichier de remarques : une remarque par `(fichier, bloquante)`, numérotées à partir de 1.
+fn remarques_sur(visees: &[(&str, bool)]) -> String {
+    let mut lignes = vec!["remarques 2".to_string()];
+    for (i, (fichier, bloquante)) in visees.iter().enumerate() {
+        let oui = if *bloquante { "oui" } else { "non" };
+        lignes.extend(["".into(), format!("remarque {}", i + 1), format!("fichier : {fichier}")]);
+        lignes.extend([format!("bloquante : {oui}"), "    Un constat.".into(), "    Une correction.".into()]);
+    }
+    lignes.extend(["".into(), "rejoue".into(), "    La preuve est verte.".into()]);
+    lignes.extend(["".into(), "non rejoue".into(), "    Le réseau n'est pas joué.".into()]);
+    let lignes: Vec<&str> = lignes.iter().map(String::as_str).collect();
+    texte(&lignes)
+}
+
+/// Une bloquante hors de portée : le refus 7020, aucune correction, rien de poussé, et `lydite etat` le montre.
+fn refus_7020(essai: &Essai, visees: &[(&str, bool)], numero: usize, fichier: &str) {
+    distant_nu(&essai.racine, &essai.depot);
+    let gh = gh_qui_suit(&essai.racine, &essai.depot);
+    essai.remarques(1, &remarques_sur(visees));
+    let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    assert_eq!(essai.mener(&plan, Some(&gh)), ExitCode::FAILURE);
+    let fil = essai.fil();
+    let ouvertes = ouvertes(&fil);
+    let [v, r] = &ouvertes[..] else { panic!("la vague et le relecteur, sans correction : {ouvertes:?}") };
+    assert!(!fil.iter().any(|e| matches!(e, Evenement::Correction { .. })));
+    let refus = refus_de_forge(&fil, v);
+    let [(7020, preuve)] = &refus[..] else { panic!("{refus:?}") };
+    assert!(preuve.contains(&format!("wave {v}")), "{preuve}");
+    assert!(preuve.contains(&format!("number {numero}, on {fichier},")), "{preuve}");
+    assert!(!preuve.contains("Un constat."), "{preuve}");
+    // La relecture et son verdict sont au fil, et le bac du relecteur est retiré.
+    assert!(fil.iter().any(|e| matches!(e, Evenement::Relecture { vague, relue, .. } if vague == r && relue == v)));
+    rien_de_pousse(essai);
+    let dit = rendu(&etat(&fil), PLUS_TARD);
+    assert!(dit.contains("refusée (7020) : "), "{dit}");
+    assert_eq!(etat_dans(&essai.kraken), Ok(ExitCode::FAILURE));
+}
+
+#[test]
+fn une_bloquante_hors_de_la_liste_est_le_refus_7020_sans_aucune_correction() {
+    let essai = Essai::nouveau("relecture-7020");
+    refus_7020(&essai, &[("hors/liste.txt", true)], 1, "hors/liste.txt");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn de_deux_bloquantes_l_une_dedans_l_autre_dehors_est_le_refus_7020() {
+    let essai = Essai::nouveau("relecture-7020-deux");
+    refus_7020(&essai, &[("sortie/a.txt", true), ("hors/liste.txt", true)], 2, "hors/liste.txt");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn une_bloquante_sous_le_dossier_de_la_liste_laisse_partir_la_correction() {
+    let essai = Essai::nouveau("relecture-7020-dedans");
+    essai.remarques(1, &remarques_sur(&[("sortie/sous/a.txt", true)]));
+    let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    let _ = essai.mener(&plan, None);
+    let fil = essai.fil();
+    assert!(fil.iter().any(|e| matches!(e, Evenement::Correction { .. })));
+    assert!(refus_de_forge(&fil, &ouvertes(&fil)[0]).iter().all(|(code, _)| *code != 7020));
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn sans_fichiers_a_la_tache_critique_la_bloquante_dehors_laisse_partir_la_correction() {
+    let essai = Essai::nouveau("relecture-7020-sans-fichiers");
+    essai.remarques(1, &remarques_sur(&[("hors/liste.txt", true)]));
+    let plan = Plan::lire(PLAN_DE_VAGUE.replace("fichiers : sortie/\n", "").as_bytes()).unwrap();
+    let _ = essai.mener(&plan, None);
+    let fil = essai.fil();
+    assert!(fil.iter().any(|e| matches!(e, Evenement::Correction { .. })));
+    assert!(refus_de_forge(&fil, &ouvertes(&fil)[0]).iter().all(|(code, _)| *code != 7020));
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn une_non_bloquante_dehors_n_arrete_rien() {
+    let essai = Essai::nouveau("relecture-7020-non-bloquante");
+    essai.remarques(1, &remarques_sur(&[("sortie/a.txt", true), ("hors/liste.txt", false)]));
+    let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    let _ = essai.mener(&plan, None);
+    let fil = essai.fil();
+    assert!(fil.iter().any(|e| matches!(e, Evenement::Correction { .. })));
+    assert!(refus_de_forge(&fil, &ouvertes(&fil)[0]).iter().all(|(code, _)| *code != 7020));
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
 #[test]
 fn une_correction_qui_ne_change_rien_n_est_pas_une_correction() {
     let essai = Essai::nouveau("relecture-sans-changement");
