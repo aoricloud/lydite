@@ -29,8 +29,8 @@ The workers are **Claude Code sessions that Lydite starts itself**, on the model
 ## Requirements
 
 - Linux (Lydite's wall holds there only; the tools hide themselves elsewhere).
-- The `lydite` binary already installed on the machine, built from the Lydite repository; `git`, `claude`, and for a
-  pull request `gh`; for the wall, `srt`. **This plugin ships and downloads no binary.**
+- The `lydite` binary already installed on the machine, from an attested release of the Lydite repository; `git`,
+  `claude`, and for a pull request `gh`; for the wall, `srt`. **This plugin ships and downloads no binary.**
 - A Lydite profile **accepted beforehand by a human** (`lydite accepter <name>`). The plugin never accepts one.
 - Hermes `>= 0.23.0`.
 

@@ -15,7 +15,11 @@ description: Hand an issue and its proof to Lydite from the chat; the proof is r
 maintainer: aoricloud
 category: automation
 requires_hermes: ">=0.23.0"
-version: "0.1.0"
+version: "0.3.1"
+image: https://raw.githubusercontent.com/aoricloud/lydite/<sha>/hermes/docs/banner.png
+screenshots:
+  - https://raw.githubusercontent.com/aoricloud/lydite/<sha>/hermes/docs/screenshot-approval.png
+  - https://raw.githubusercontent.com/aoricloud/lydite/<sha>/hermes/docs/screenshot-receipt.png
 platforms: [linux]
 capabilities:
   provides_tools: [lydite_lancer, lydite_etat, lydite_lecons]
