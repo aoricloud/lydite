@@ -2,7 +2,8 @@
 use super::*;
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::fil::{instant, maintenant};
-use crate::essais::{effacer, kraken, racine};
+use crate::essais::{effacer, kraken, lacher, racine};
+use std::time::{Duration, Instant};
 
 #[test]
 fn tenir_cree_le_dossier_et_son_fichier_a_part_du_fil() {
@@ -37,7 +38,13 @@ fn un_dossier_que_tient_un_autre_est_refuse_en_6032_et_se_prend_des_qu_il_le_lac
 /// Le verrou d'un autre lancement (ou de la sonde) sur `dir`, que le système tient tant que le fichier reste ouvert.
 fn verrou_d_un_autre(dir: &Path) -> fs::File {
     let autre = OpenOptions::new().create(true).write(true).truncate(false).open(dir.join(VERROU)).unwrap();
-    autre.try_lock().unwrap();
+    // La prise se réessaie : une prise exclusive qui suit une sonde peut tomber sur la copie égarée de cette sonde,
+    // qu'un processus né à cet instant garde entre `fork` et `exec`.
+    let debut = Instant::now();
+    while autre.try_lock().is_err() {
+        assert!(debut.elapsed() < Duration::from_secs(30), "le verrou de {} ne se prend pas", dir.display());
+        std::thread::sleep(Duration::from_millis(1));
+    }
     autre
 }
 
@@ -48,12 +55,15 @@ fn un_lancement_qui_tombe_sur_un_verrou_bref_reessaie_et_le_prend() {
     let mut autre = Some(verrou_d_un_autre(&dir));
     let mut pauses = 0;
     // Le verrou se lâche pendant la première pause : la sonde a fini. Le lancement l'a pris, sans refus.
-    tenir_en(&dir, 3, &mut || {
+    tenir_en(&dir, 30_000, &mut || {
         pauses += 1;
         autre = None;
+        std::thread::sleep(Duration::from_millis(1));
     })
     .unwrap();
-    assert_eq!(pauses, 1);
+    // Il réessaie au moins une fois, puis prend le verrou ; « à l'essai suivant » ne se promet pas tant qu'une copie du
+    // descripteur peut vivre.
+    assert!(pauses >= 1);
     // Il le tient bien : une sonde le voit tenu.
     assert!(sonder(&dir).unwrap());
     effacer(dir.parent().unwrap());
@@ -84,16 +94,20 @@ fn la_sonde_dit_le_dossier_tenu_sans_le_garder_ni_rien_creer() {
     // Un autre lancement le tient : tenu ; lâché : libre.
     let autre = verrou_d_un_autre(&dir);
     assert!(sonder(&dir).unwrap());
-    drop(autre);
+    lacher(autre, &dir);
     assert!(!sonder(&dir).unwrap());
-    // La sonde ne garde rien : un verrou exclusif se prend aussitôt après, d'un autre fichier.
+    // La sonde ne garde rien : un verrou exclusif se prend après, d'un autre fichier.
     let suivant = verrou_d_un_autre(&dir);
-    drop(suivant);
+    lacher(suivant, &dir);
     // Une sonde qui tient le verrou en partage fait réessayer `tenir_en`, non refuser : le cas des deux à la fois.
     let sonde = OpenOptions::new().read(true).open(dir.join(VERROU)).unwrap();
     sonde.try_lock_shared().unwrap();
     let mut sonde = Some(sonde);
-    tenir_en(&dir, 1, &mut || sonde = None).unwrap();
+    tenir_en(&dir, 30_000, &mut || {
+        sonde = None;
+        std::thread::sleep(Duration::from_millis(1));
+    })
+    .unwrap();
     effacer(&racine);
 }
 

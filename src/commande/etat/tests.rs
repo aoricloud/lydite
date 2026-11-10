@@ -4,7 +4,7 @@ use crate::coeur::erreur::Code;
 use crate::coeur::fil::{self, Couleur, lot};
 use crate::conduite::mener::{annonce, toutes_constatees};
 use crate::conduite::tentative::Pris;
-use crate::essais::{MAINTENANT, V1, ouverture};
+use crate::essais::{MAINTENANT, V1, lacher, ouverture};
 use std::env;
 use std::fs;
 
@@ -1350,7 +1350,9 @@ fn le_recu_de_kraken_etat_dit_la_mesure_sur_une_ligne_a_part_quand_un_reglage_es
 }
 
 // `attendre` : les tests posent le fil et le verrou à la main, et la pause est une fonction qui joue la fin du
-// lancement ; aucun ne dort ni ne dépend d'un fil d'exécution.
+// lancement ; aucun ne dépend d'un fil d'exécution, et la pause qui lâche le verrou attend que le système l'ait
+// lâché pour de bon (`lacher`), puisque fermer le fichier ne suffit pas quand un processus né à cet instant en garde
+// une copie.
 
 /// Un dossier neuf pour `attendre`, vide.
 fn dossier_d_attente(nom: &str) -> std::path::PathBuf {
@@ -1400,7 +1402,7 @@ fn une_vague_qui_finit_pendant_l_attente_fait_sortir_la_commande_avec_son_code()
         let code = attendre_avec(&dossier, 0, &mut || {
             pauses += 1;
             ecrire_au_fil(&dossier, &vague_d_une_main(verdict_final), true);
-            lancement = None;
+            lacher(lancement.take().unwrap(), &dossier);
         });
         assert_eq!(code, Ok(attendu), "{verdict_final:?}");
         assert_eq!(pauses, 1);
@@ -1417,7 +1419,7 @@ fn un_dossier_tenu_longtemps_ne_compte_pas_contre_le_delai_d_ouverture() {
     let code = attendre_avec(&dossier, 1, &mut || {
         pauses += 1;
         if pauses == 7 {
-            lancement = None;
+            lacher(lancement.take().unwrap(), &dossier);
         }
     });
     assert_eq!(code, Ok(ExitCode::SUCCESS));
@@ -1432,7 +1434,7 @@ fn un_lancement_tue_sans_sceau_de_fin_rend_1_la_ou_etat_rend_0() {
     // La vague est menée à bout et verte, mais le lancement est mort avant d'écrire son sceau.
     let code = attendre_avec(&dossier, 0, &mut || {
         ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), false);
-        lancement = None;
+        lacher(lancement.take().unwrap(), &dossier);
     });
     assert_eq!(code, Ok(ExitCode::FAILURE));
     // C'est le sceau qui manque : `etat` lit le même fil et le dit vert.
@@ -1448,7 +1450,7 @@ fn un_decoupage_observe_sans_sceau_n_est_pas_un_lancement_tue() {
     let observe = [decoupeur_pris(PRISE), vec![plan_pris(3)]].concat();
     let code = attendre_avec(&dossier, 0, &mut || {
         ecrire_au_fil(&dossier, &observe, false);
-        lancement = None;
+        lacher(lancement.take().unwrap(), &dossier);
     });
     assert_eq!(code, Ok(ExitCode::SUCCESS));
     let _ = fs::remove_dir_all(&dossier);
@@ -1459,7 +1461,7 @@ fn un_fil_au_sceau_rompu_rend_2_et_un_fil_illisible_est_un_refus() {
     let dossier = fil_scelle("attendre-rompu");
     changer_dans_le_fil(&dossier, "premier", "premiex");
     let mut lancement = Some(tenu_par_un_lancement(&dossier));
-    let code = attendre_avec(&dossier, 0, &mut || lancement = None);
+    let code = attendre_avec(&dossier, 0, &mut || lacher(lancement.take().unwrap(), &dossier));
     assert_eq!(code, Ok(ExitCode::from(2)));
     let _ = fs::remove_dir_all(&dossier);
     // Un fil qu'on ne lit pas (ici un dossier à la place du fichier) : le refus, que `principal` sort en 2.
