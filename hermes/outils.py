@@ -322,13 +322,39 @@ class Outils:
     # --- le verrou d'approbation ----------------------------------------------------------------------------------
 
     @staticmethod
-    def _plier(etiquette: str, valeur: str, couper: str = "fin", lignes: int = 2) -> list:
+    def _sur_une_ligne(valeur: str) -> str:
+        """La valeur sans ses retours à la ligne, chacun rendu par un espace."""
+        return valeur.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+
+    @staticmethod
+    def _plier_entre_les_mots(valeur: str, largeur: int) -> list:
+        """Les lignes d'une valeur pliée entre ses mots, ou une liste vide si elle ne s'y prête pas : un mot plus
+        long que la ligne, ou des espaces qui ne sont pas un seul espace entre deux mots. Une pliure vaut donc
+        exactement un espace, et rien de la valeur n'est perdu."""
+        mots = valeur.split(" ")
+        if "" in mots or any(len(mot) > largeur for mot in mots):
+            return []
+        rendues = [mots[0]]
+        for mot in mots[1:]:
+            if len(rendues[-1]) + 1 + len(mot) <= largeur:
+                rendues[-1] += " " + mot
+            else:
+                rendues.append(mot)
+        return rendues
+
+    @classmethod
+    def _plier(cls, etiquette: str, valeur: str, couper: str = "fin", lignes: int = 2) -> list:
         """Plie une valeur sous son libellé : le libellé puis la valeur sur la première ligne, et au plus
-        `lignes - 1` lignes de continuation indentées de neuf espaces. Une valeur qui reste trop longue est coupée au
-        début (`couper` vaut "debut", pour un chemin dont on garde la fin) ou à la fin, avec `…` pour le montrer."""
+        `lignes - 1` lignes de continuation indentées de neuf espaces. La pliure tombe entre deux mots quand la
+        valeur tient ainsi dans ses lignes ; sinon elle tombe tous les `largeur` caractères. Une valeur qui reste
+        trop longue est coupée au début (`couper` vaut "debut", pour un chemin dont on garde la fin) ou à la fin,
+        avec `…` pour le montrer."""
         prefixe = f"{etiquette:<7}: "
         largeur = LARGEUR_DE_L_APPROBATION - len(prefixe)
-        valeur = valeur.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+        valeur = cls._sur_une_ligne(valeur)
+        entre_les_mots = cls._plier_entre_les_mots(valeur, largeur)
+        if 1 < len(entre_les_mots) <= lignes:
+            return [prefixe + entre_les_mots[0]] + [" " * len(prefixe) + suite for suite in entre_les_mots[1:]]
         capacite = largeur * lignes
         if len(valeur) > capacite:
             if couper == "debut":
@@ -340,24 +366,34 @@ class Outils:
             rendues.append(" " * len(prefixe) + valeur[debut : debut + largeur])
         return rendues
 
-    @staticmethod
-    def _lignes_voulues(etiquette: str, valeur: str) -> int:
+    @classmethod
+    def _lignes_voulues(cls, etiquette: str, valeur: str) -> int:
         """Le nombre de rangées qu'il faut à une valeur pour paraître en entier, trois au plus."""
         largeur = LARGEUR_DE_L_APPROBATION - len(f"{etiquette:<7}: ")
-        longueur = len(valeur.replace("\r\n", " ").replace("\n", " ").replace("\r", " "))
+        longueur = len(cls._sur_une_ligne(valeur))
         return max(1, min(3, -(-longueur // largeur)))
 
     @classmethod
     def _place_des_entrees(cls, entrees: list, place: int) -> dict:
         """Les rangées accordées à chaque entrée : une au moins, puis les rangées restantes vont d'abord au travail
-        et à la preuve, dont l'humain approuve le texte exact, puis au dépôt et au profil ; trois au plus chacune."""
+        et à la preuve, dont l'humain approuve le texte exact, puis au dépôt et au profil ; trois au plus chacune.
+        Ce qui reste ensuite sert à plier entre les mots : une valeur qui paraît déjà en entier, mais dont la pliure
+        tomberait au milieu d'un mot, reçoit la rangée qui lui manque. Aucune entrée n'y perd une rangée."""
         accordees = {etiquette: 1 for etiquette, _, _ in entrees}
         valeurs = {etiquette: valeur for etiquette, valeur, _ in entrees}
         priorite = ("work", "proof", "repo", "profile")
-        for etiquette in sorted(valeurs, key=lambda nom: priorite.index(nom) if nom in priorite else len(priorite)):
+        ordre = sorted(valeurs, key=lambda nom: priorite.index(nom) if nom in priorite else len(priorite))
+        for etiquette in ordre:
             prises = min(cls._lignes_voulues(etiquette, valeurs[etiquette]) - 1, place)
             accordees[etiquette] += prises
             place -= prises
+        for etiquette in ordre:
+            largeur = LARGEUR_DE_L_APPROBATION - len(f"{etiquette:<7}: ")
+            entre_les_mots = cls._plier_entre_les_mots(cls._sur_une_ligne(valeurs[etiquette]), largeur)
+            manque = len(entre_les_mots) - accordees[etiquette]
+            if 0 < manque <= place and len(entre_les_mots) <= 3:
+                accordees[etiquette] += manque
+                place -= manque
         return accordees
 
     @classmethod
@@ -375,9 +411,10 @@ class Outils:
             texte = demande["plan_octets"].decode("utf-8")
             nom = Path(demande["plan"]).name
             taches = sum(1 for ligne in texte.splitlines() if ligne.startswith("tache "))
+            compte = "1 task" if taches == 1 else f"{taches} tasks"
             avant = [
                 ("repo", demande["depot"], "debut"),
-                ("plan", f"{nom} · {taches} tasks · {len(texte)} chars", "debut"),
+                ("plan", f"{nom} · {compte} · {len(texte)} chars", "debut"),
             ]
             apres = [
                 ("proof", self._preuve_du_plan(texte), "fin"),
