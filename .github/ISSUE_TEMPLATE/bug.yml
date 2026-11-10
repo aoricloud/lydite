@@ -1,0 +1,38 @@
+name: Bug
+description: Lydite did something wrong, or refused something it should have accepted.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        For a security problem (a worker out of its wall, a key that leaks, a check that says green when it is not),
+        do not open an issue: use the Security tab, then "Report a vulnerability".
+  - type: input
+    id: version
+    attributes:
+      label: Release or commit
+      description: The release tag (for example v0.3.2) or the commit you built.
+    validations:
+      required: true
+  - type: input
+    id: systeme
+    attributes:
+      label: System
+      description: For example Debian 13 on x86-64, Claude Code 2.1.317.
+    validations:
+      required: true
+  - type: textarea
+    id: commande
+    attributes:
+      label: What you ran
+      description: The command, and the plan or profile if they matter (never a key).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: vu
+    attributes:
+      label: What happened, and what you expected
+      description: Paste the refusal or the output of `lydite etat` as it is; it may be in French.
+    validations:
+      required: true

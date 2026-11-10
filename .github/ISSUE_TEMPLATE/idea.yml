@@ -1,0 +1,21 @@
+name: Idea
+description: Something Lydite could do, or do better.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: besoin
+    attributes:
+      label: What you need
+      description: The situation and the problem, before the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposition
+    attributes:
+      label: What you propose
+      description: Optional. How it could work, and what it would change for the people who run Lydite.
+  - type: textarea
+    id: preuve
+    attributes:
+      label: How we would know it works
+      description: Optional. The test or the observation that would prove it.

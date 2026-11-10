@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/aoricloud/lydite/security/advisories/new
+    about: A worker out of its wall, a key that leaks, a check that says green when it is not. Never in a public issue.
