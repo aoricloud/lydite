@@ -461,7 +461,7 @@ class Outils:
         try:
             demande = self._demande(args if isinstance(args, dict) else {})
         except Refus as refus:
-            return {"action": "block", "message": _json({"erreur": str(refus)})}
+            return {"action": "block", "message": _json({"error": str(refus)})}
         empreinte = _empreinte(demande["plan_octets"]) if demande["plan"] else ""
         if demande["plan"]:
             self._plans_montres[(demande["depot"], demande["profil"], demande["plan"])] = empreinte
@@ -477,9 +477,9 @@ class Outils:
         try:
             return _json(self._lancer(args if isinstance(args, dict) else {}))
         except Refus as refus:
-            return _json({"erreur": str(refus)})
+            return _json({"error": str(refus)})
         except Exception as exc:  # noqa: BLE001 (Hermes veut du JSON, jamais une exception)
-            return _json({"erreur": f"unexpected {type(exc).__name__}: {exc}"})
+            return _json({"error": f"unexpected {type(exc).__name__}: {exc}"})
 
     def _lancer(self, args: dict) -> dict:
         if not self.disponible():
@@ -544,20 +544,20 @@ class Outils:
         )
         if code is not None:
             return {
-                "lance": False,
+                "started": False,
                 "id": identifiant,
-                "sortie": code,
-                "signification": SORTIES.get(code, "unknown code"),
-                "journal": str(journal),
-                "fin_du_journal": _fin_du_journal(str(journal)),
+                "exit_code": code,
+                "meaning": SORTIES.get(code, "unknown code"),
+                "log": str(journal),
+                "log_tail": _fin_du_journal(str(journal)),
             }
         return {
-            "lance": True,
+            "started": True,
             "id": identifiant,
             "pid": enfant.pid,
-            "journal": str(journal),
-            "profil": demande["profil"],
-            "suite": f"running in the background; follow it with {ETAT} (id {identifiant})",
+            "log": str(journal),
+            "profile": demande["profil"],
+            "next": f"running in the background; follow it with {ETAT} (id {identifiant})",
         }
 
     def _copier_le_plan(self, demande: dict, journal: Path) -> str:
@@ -578,7 +578,7 @@ class Outils:
         try:
             return _json(self._etat(args if isinstance(args, dict) else {}))
         except Exception as exc:  # noqa: BLE001 (Hermes veut du JSON, jamais une exception)
-            return _json({"erreur": f"unexpected {type(exc).__name__}: {exc}"})
+            return _json({"error": f"unexpected {type(exc).__name__}: {exc}"})
 
     def _etat(self, args: dict) -> dict:
         rendu: dict = {}
@@ -594,35 +594,35 @@ class Outils:
                 errors="replace",
                 timeout=30,
             )
-            rendu["etat"] = fin.stdout.strip()
+            rendu["state"] = fin.stdout.strip()
             rendu["code"] = fin.returncode
-            rendu["lecture"] = "0: last wave finished (or none); 1: it is not (running or failed); 2: thread unreadable"
+            rendu["note"] = "0: last wave finished (or none); 1: it is not (running or failed); 2: thread unreadable"
             if fin.stderr.strip():
-                rendu["ecarts"] = fin.stderr.strip()[-2000:]
+                rendu["stderr"] = fin.stderr.strip()[-2000:]
         except Refus as refus:
-            rendu["lydite"] = str(refus)
+            rendu["lydite_error"] = str(refus)
         except subprocess.TimeoutExpired:
-            rendu["lydite"] = "`lydite etat` did not answer in 30 s"
+            rendu["lydite_error"] = "`lydite etat` did not answer in 30 s"
 
         tous = sorted(self._lancements().values(), key=lambda lancement: lancement["debut"], reverse=True)
         demande = args.get("id")
-        rendu["lancements"] = [
+        rendu["launches"] = [
             {
                 "id": lancement["id"],
-                "debut": lancement["debut"],
-                "objet": lancement["objet"],
-                "depot": lancement["depot"],
-                "profil": lancement["profil"],
-                "en_cours": self._en_cours_de(lancement),
+                "started_at": lancement["debut"],
+                "work": lancement["objet"],
+                "repo": lancement["depot"],
+                "profile": lancement["profil"],
+                "running": self._en_cours_de(lancement),
             }
             for lancement in tous[:5]
         ]
         if isinstance(demande, str) and demande:
             choisi = self._lancements().get(demande)
             if choisi is None:
-                rendu["journal"] = f"no launch {demande!r} (ids come from {LANCER})"
+                rendu["log_tail"] = f"no launch {demande!r} (ids come from {LANCER})"
             else:
-                rendu["journal"] = _fin_du_journal(choisi["journal"])
+                rendu["log_tail"] = _fin_du_journal(choisi["journal"])
         return rendu
 
     # --- leçons ---------------------------------------------------------------------------------------------------
@@ -632,13 +632,13 @@ class Outils:
         try:
             return _json(self._lecons(args if isinstance(args, dict) else {}))
         except Exception as exc:  # noqa: BLE001 (Hermes veut du JSON, jamais une exception)
-            return _json({"erreur": f"unexpected {type(exc).__name__}: {exc}"})
+            return _json({"error": f"unexpected {type(exc).__name__}: {exc}"})
 
     def _lecons(self, args: dict) -> dict:
         try:
             depot = self._depot(args)
         except Refus as refus:
-            return {"erreur": str(refus)}
+            return {"error": str(refus)}
 
         try:
             fin = subprocess.run(
@@ -653,16 +653,16 @@ class Outils:
                 timeout=30,
             )
         except Refus as refus:
-            return {"lecons": [], "lydite": str(refus)}
+            return {"lessons": [], "lydite_error": str(refus)}
         except subprocess.TimeoutExpired:
-            return {"lecons": [], "lydite": "`lydite lecons` did not answer in 30 s"}
+            return {"lessons": [], "lydite_error": "`lydite lecons` did not answer in 30 s"}
         if fin.returncode != 0:
             # Lydite refuse : aucune leçon n'est servie, même si des fichiers valides sont sur le disque.
-            return {"lecons": [], "code": fin.returncode, "refus": (fin.stderr + fin.stdout)[-LIMITE_DU_REFUS:]}
+            return {"lessons": [], "code": fin.returncode, "refusal": (fin.stderr + fin.stdout)[-LIMITE_DU_REFUS:]}
 
         nom = args.get("nom")
         if nom is not None and (not isinstance(nom, str) or not _NOM_DE_LECON.fullmatch(nom)):
-            return {"erreur": f"`nom` {nom!r} is not a lesson name (lowercase letters, digits and '-', 1 to 64)"}
+            return {"error": f"`nom` {nom!r} is not a lesson name (lowercase letters, digits and '-', 1 to 64)"}
 
         dossier = self._dossier_des_lecons(depot)
         lecons = self._lire_les_lecons(dossier) if dossier is not None else []
@@ -683,22 +683,20 @@ class Outils:
             if choisie is None:
                 noms = [lecon["nom"] for lecon in lecons]
                 liste = ", ".join(noms) if noms else "none"
-                return {"erreur": f"no lesson {nom!r}; this repository has: {liste}", "noms": noms}
+                return {"error": f"no lesson {nom!r}; this repository has: {liste}", "names": noms}
             return {
-                "nom": choisie["nom"],
-                "regle": choisie["regle"],
-                "fichiers": choisie["fichiers"],
-                "texte": choisie["texte"],
-                "lecture": lecture,
+                "name": choisie["nom"],
+                "rule": choisie["regle"],
+                "files": choisie["fichiers"],
+                "text": choisie["texte"],
+                "note": lecture,
             }
 
         return {
-            "depot": depot,
-            "nombre": len(lecons),
-            "lecons": [
-                {"nom": lecon["nom"], "regle": lecon["regle"], "fichiers": lecon["fichiers"]} for lecon in lecons
-            ],
-            "lecture": lecture,
+            "repo": depot,
+            "count": len(lecons),
+            "lessons": [{"name": lecon["nom"], "rule": lecon["regle"], "files": lecon["fichiers"]} for lecon in lecons],
+            "note": lecture,
         }
 
     @staticmethod
