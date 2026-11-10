@@ -614,6 +614,7 @@ class Lancement(AvecOutils):
     def test_le_plugin_ne_leve_jamais_une_exception(self):
         self.assertIn("error", json.loads(self.outils().lancer(None)))
         self.assertIn("error", json.loads(self.outils().lancer("pas un dict")))
+        self.assertIn("error", json.loads(self.outils().plan(None)))
 
 
 @unittest.skipUnless(LINUX, "Lydite's wall and the detached launch are Linux only")
@@ -825,6 +826,91 @@ class Lecons(AvecOutils):
         vide = json.loads(self.outils().lecons({"depot": ""}))
         self.assertIn("error", vide)
         self.assertIn("required", vide["error"])
+
+
+@unittest.skipUnless(LINUX, "the fake Lydite is a shell script: Linux only")
+class Plan(AvecOutils):
+    """Ce que Lydite dit d'un plan, sans rien lancer."""
+
+    def ecrire_plan(self, texte=PLAN):
+        chemin = self.dossier / "plan.txt"
+        chemin.write_text(texte, encoding="utf-8", newline="\n")
+        return chemin
+
+    def appeler(self, chemin, **reglages):
+        return json.loads(self.outils(**reglages).plan({"plan": str(chemin)}))
+
+    def test_un_plan_accepte_rend_l_empreinte_les_taches_la_preuve_et_les_dependances(self):
+        chemin = self.ecrire_plan()
+        self.faux_lydite("echo 'b attend a : elles partagent a.txt'; echo 'c attend b : elles partagent b.txt'")
+        rendu = self.appeler(chemin)
+        self.assertTrue(rendu["accepted"])
+        self.assertEqual(rendu["plan"], str(chemin))
+        self.assertEqual(rendu["sha256"], hashlib.sha256(chemin.read_bytes()).hexdigest())
+        self.assertEqual(rendu["tasks"], 1)
+        self.assertEqual(rendu["proof"], "cargo test")
+        self.assertEqual(
+            rendu["added_dependencies"],
+            ["b attend a : elles partagent a.txt", "c attend b : elles partagent b.txt"],
+        )
+        self.assertNotIn("refusal", rendu)
+        self.assertIn("accepts", rendu["note"])
+
+    def test_le_programme_recoit_plan_et_le_chemin_un_environnement_ferme_et_aucune_cle(self):
+        chemin = self.ecrire_plan()
+        self.faux_lydite()
+        with faux_secrets():
+            self.outils(cle_nom="CLE_DEEPSEEK").plan({"plan": str(chemin)})
+        self.assertEqual(self.lu("argv").splitlines(), ["plan", str(chemin)])
+        env = self.lu("env")
+        self.assertNotIn("HERMES_YOLO_MODE", env)
+        self.assertNotIn("OPENAI_API_KEY", env)
+        self.assertNotIn("CLE_DEEPSEEK", env)
+        self.assertNotIn(SECRET, env)
+
+    def test_le_programme_est_lance_avec_exactement_binaire_plan_chemin(self):
+        chemin = self.ecrire_plan()
+        self.faux_lydite()
+        outils = self.outils()
+        with mock.patch.object(sous_module("outils").subprocess, "run") as lancer:
+            lancer.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            outils.plan({"plan": str(chemin)})
+        self.assertEqual(lancer.call_args.args[0], [self.reglages["binaire"], "plan", str(chemin)])
+
+    def test_un_plan_refuse_rend_le_refus_et_pas_de_dependances(self):
+        chemin = self.ecrire_plan()
+        self.faux_lydite("echo 'lydite : 6021 lancer.plan_blanc' >&2; echo '  preuve : manque' >&2; exit 2")
+        rendu = self.appeler(chemin)
+        self.assertFalse(rendu["accepted"])
+        self.assertEqual(rendu["code"], 2)
+        self.assertIn("6021 lancer.plan_blanc", rendu["refusal"])
+        self.assertIn("preuve : manque", rendu["refusal"])
+        self.assertNotIn("added_dependencies", rendu)
+        self.assertIn("refuses", rendu["note"])
+
+    def test_un_plan_absent_relatif_ou_illisible_rend_error_sans_lancer_le_programme(self):
+        self.faux_lydite()
+        outils = self.outils()
+        illisible = self.dossier / "binaire.plan"
+        illisible.write_bytes(b"\xff\xfe\x00")
+        absent = str(self.dossier / "absent")
+        for args in ({}, {"plan": ""}, {"plan": "plan.txt"}, {"plan": absent}, {"plan": str(illisible)}):
+            rendu = json.loads(outils.plan(args))
+            self.assertIn("error", rendu, args)
+        self.assertFalse((self.sortie / "argv").exists())
+
+    def test_un_binaire_introuvable_rend_error(self):
+        chemin = self.ecrire_plan()
+        rendu = self.appeler(chemin, binaire=str(self.dossier / "absent"))
+        self.assertIn("not an executable", rendu["error"])
+
+    def test_le_verrou_ne_demande_rien_pour_un_plan(self):
+        chemin = self.ecrire_plan()
+        self.assertIsNone(self.outils().verrou(tool_name=sous_module("nom").PLAN, args={"plan": str(chemin)}))
+
+    def test_le_plugin_ne_leve_jamais_une_exception(self):
+        self.assertIn("error", json.loads(self.outils().plan(None)))
+        self.assertIn("error", json.loads(self.outils().plan("pas un dict")))
 
 
 if __name__ == "__main__":

@@ -1,8 +1,9 @@
-"""Les trois outils du plugin et le verrou d'approbation du lancement.
+"""Les quatre outils du plugin et le verrou d'approbation du lancement.
 
 `lancer` démarre `lydite lancer ...` en arrière-plan, détaché, et rend la main au bout de quelques secondes avec un
 identifiant. `etat` rend `lydite etat` (ce que Lydite a lui-même constaté) et l'état des lancements faits d'ici.
-`lecons` rend les leçons que Lydite garde pour un dépôt, après que Lydite les a lui-même vérifiées.
+`lecons` rend les leçons que Lydite garde pour un dépôt, après que Lydite les a lui-même vérifiées. `plan` rend ce que
+`lydite plan` accepte ou refuse d'un fichier de plan, sans rien lancer.
 
 Ce que le plugin fait, et ne fait pas :
 - il lance un seul programme, le binaire de Lydite, par une liste d'arguments (jamais par un shell) ;
@@ -82,6 +83,17 @@ _NOM_DE_LECON = re.compile(r"[a-z0-9-]{1,64}")
 # La taille d'un `SKILL.md`, et les derniers octets d'un refus de Lydite qu'on rend au modèle.
 TAILLE_DE_LA_LECON = 4096
 LIMITE_DU_REFUS = 2000
+
+PLAN_ACCEPTE = (
+    "Lydite accepts this plan as written; nothing was started. `added_dependencies` lists the tasks Lydite "
+    "will run one after the other because they share a file. A launch still asks the human's approval, which "
+    "shows this same SHA-256 if the file has not changed."
+)
+PLAN_REFUSE = (
+    "Lydite refuses this plan; nothing was started. The refusal gives its code, the rule, what was seen and "
+    "the fix (`correction`), in French. Show it to the user as written, agree on the change with them, and "
+    "check the plan again before any launch."
+)
 
 # Ce que veut dire le code de sortie de `lydite lancer` (voir le README de Lydite).
 SORTIES = {
@@ -792,6 +804,58 @@ class Outils:
                 if chemin:
                     fichiers.append(chemin)
         return fichiers
+
+    # --- plan -----------------------------------------------------------------------------------------------------
+
+    def plan(self, args, **_):
+        """Ce que Lydite dit d'un fichier de plan, sans rien lancer, rendu en JSON quoi qu'il arrive."""
+        try:
+            return _json(self._plan(args if isinstance(args, dict) else {}))
+        except Exception as exc:  # noqa: BLE001 (Hermes veut du JSON, jamais une exception)
+            return _json({"error": f"unexpected {type(exc).__name__}: {exc}"})
+
+    def _plan(self, args: dict) -> dict:
+        plan = args.get("plan")
+        if not isinstance(plan, str) or not plan.strip():
+            return {"error": "`plan` is required: the absolute path of the plan file to check"}
+        try:
+            # Les bornes d'un lancement : un plan que cet outil accepte, `lancer` le prend aussi.
+            chemin, octets = self._lire_le_plan(plan)
+            binaire = self._binaire()
+        except Refus as refus:
+            return {"error": str(refus)}
+        texte = octets.decode("utf-8")
+        try:
+            # raccourci : Lydite relit le fichier ; s'il change entre les deux lectures, l'empreinte rendue
+            # n'est pas celle des octets lus par Lydite. Sans conséquence : le lancement part d'une copie.
+            fin = subprocess.run(
+                [binaire, "plan", chemin],
+                check=False,
+                env=self._env(avec_cle=False),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return {"error": "`lydite plan` did not answer in 30 s"}
+        rendu = {
+            "accepted": fin.returncode == 0,
+            "plan": chemin,
+            "sha256": _empreinte(octets),
+            "tasks": sum(1 for ligne in texte.splitlines() if ligne.startswith("tache ")),
+            "proof": self._preuve_du_plan(texte),
+        }
+        if fin.returncode == 0:
+            rendu["added_dependencies"] = [ligne for ligne in fin.stdout.splitlines() if ligne.strip()]
+            rendu["note"] = PLAN_ACCEPTE
+        else:
+            rendu["code"] = fin.returncode
+            rendu["refusal"] = (fin.stderr + fin.stdout)[-LIMITE_DU_REFUS:]
+            rendu["note"] = PLAN_REFUSE
+        return rendu
 
     # --- la mémoire des lancements --------------------------------------------------------------------------------
 

@@ -2,7 +2,7 @@
 name: driving-lydite
 description: Hand a coding job to Lydite and report what it recorded. Use when the user asks to give Lydite an issue, an objective or a plan file, or asks where a Lydite wave stands. Lydite runs isolated Claude Code workers, replays the user's proof command itself and opens a pull request.
 license: MIT
-compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat and lydite_lecons; anywhere else the same steps are the commands lydite lancer, lydite etat and lydite lecons.
+compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat, lydite_lecons and lydite_plan; anywhere else the same steps are the commands lydite lancer, lydite etat, lydite lecons and lydite plan.
 ---
 
 # Driving Lydite
@@ -44,6 +44,10 @@ Have all of these. If one is missing, ask the user for it; do not invent it.
 
 ## Launch
 
+When the work is a plan file, call `lydite_plan` with its path first. It runs nothing and asks no approval.
+If Lydite refuses the plan, give the refusal as written, propose the fix to the user, and change the file
+only if they ask you to; then check it again. Launch only a plan that Lydite accepts.
+
 Call `lydite_lancer` with `depot` and one of `issue`, `objectif` or `plan` (and `preuve` for the first two). Add
 `observer: true` first if the user wants to see the plan before anything runs.
 
@@ -78,7 +82,7 @@ What Lydite prints is the report. Relay it as it is written:
 
 A refusal says its code, its rule, what was seen and what to do, and nothing started. Give the user the code and the
 message exactly as written, then stop. Do not redo the job yourself. Do not retry with the proof or the plan changed to
-get past the refusal. Do not start a second wave to work around the first.
+get past the refusal. Do not start a second wave to work around the first. A plan refused by `lydite_plan` is not a failed launch: fix it with the user, as said under Launch.
 
 If a wave ends with set-aside tasks, report them. What happens next is the user's decision.
 

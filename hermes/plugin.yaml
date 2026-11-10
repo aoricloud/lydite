@@ -9,6 +9,7 @@ provides_tools:
   - lydite_lancer
   - lydite_etat
   - lydite_lecons
+  - lydite_plan
 provides_hooks:
   - pre_tool_call
 config_schema:
