@@ -28,30 +28,35 @@ network. A *wave* is one launch: an objective, its tasks, one pull request.
 
 ## What a Lydite pull request says
 
-This is the body of [givre-lab#29](https://github.com/aoricloud/givre-lab/pull/29), abridged (`[…]`). Lydite wrote it;
-its labels are still partly French, and the right column reads them:
+This is the body of [mycelium-lab#55](https://github.com/aoricloud/mycelium-lab/pull/55), abridged (`[…]`). Lydite
+wrote it. The reviewer's lines at the end are still in French:
 
 ```text
-Reçu                                                   receipt
-- Coût : 0,80 $ estimé                                 estimated cost of the hands
-- 10 mains, 1 relance, 0 classée                       10 hands, 1 retry, 0 task set aside
-- Fil sealed at 4583790 bytes: sha256 dcbc10a5[…].     the journal of the run (the thread), sealed
-- Réglages de la preuve changés : `Cargo.toml`         a Cargo, rustfmt, clippy or toolchain settings file changed: named
+Receipt
+- Cost: $0.12 estimated
+- 2 hands, 0 retries, 0 set aside
+- Fil sealed at 280615 bytes: sha256 0056f995[…].
+- Proof settings changed: none
 
-[…]
-Preuve : cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check → vert
-[…]
-Relecture : 0 remarques, dont 0 bloquantes.            review by another hand: 0 remarks, 0 blocking
-Reviewed and replayed on commit ebca186871cb83284ab1deae2adbacedc7a01972.
+mycelium lancer refuses a box too large to simulate instead of aborting (issue #53)
+
+Proof: cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check → green
+
+refus-boite-geante: Fix issue #53 of this repository […]
+
+Review: 1 remark, 0 blocking.
+Reviewed and replayed on commit 375275bd4ed8ae6e92cb4cac84bedec09842b385.
 Not replayed (from the review):
-[…]                                                    ten lines, in French; the first says the proof never
-                                                       rebuilds the WebAssembly module the task asked for
+[…]                                                    ten lines, in French; the first says that nothing replayed
+                                                       shows the new test failing on the code before the fix
 ```
 
-Three things to notice. The proof line is your command, run again by Lydite after the hands have finished, not by
-them. The commit line names the exact commit that was replayed (and reviewed, when the plan marked a task critical): on
-the benches, GitHub only merges a pull request whose head is that commit. And the last block is what the review could
-**not** see replayed. Lydite prints it.
+The receipt counts the hands, their retries and the tasks set aside, gives the estimated cost of the hands, and seals
+the journal of the run (the *thread*; this receipt still calls it `Fil`). Three more things to notice. The proof line
+is your command, run again by Lydite after the hands have finished, not by them. The commit line names the exact
+commit that was replayed (and reviewed, when the plan marked a task critical): on the benches, GitHub only merges a
+pull request whose head is that commit. And the last block is what the review could **not** see replayed. Lydite
+prints it.
 
 As of 9 November 2026, three days after the first one was merged, on our own repositories:
 
@@ -228,8 +233,8 @@ line gives the provider's prices, so that receipts carry a cost.
 
 - Windows: only with `mur = demande`, knowingly. The wall does not hold there: the hands' commands run outside the
   sandbox and see a provider key if there is one. No `--issue`.
-- English: this README, the Hermes plugin and half of the pull request body. Commands, refusals and `lydite etat` are
-  in French, and so is what the hands write in our own pull requests.
+- English: this README, the Hermes plugin and the labels of the pull request body. Commands, refusals and
+  `lydite etat` are in French, and so are the reviewers' lines in our own pull requests.
 - The Hermes plugin: Linux only.
 - Providers: we run Claude and DeepSeek. The format allows others; we have not run them.
 - Anyone but us: Lydite has only run on our own three repositories.
@@ -267,12 +272,18 @@ Lydite runs; see Anthropic's [legal and compliance page](https://code.claude.com
 
 [`hermes/`](hermes/README.md) is a [Hermes Agent](https://hermes-agent.nousresearch.com) plugin. You talk to Hermes,
 Hermes hands the job to Lydite, and Lydite does what it does anywhere else: its own Claude Code workers behind the wall,
-your proof replayed by Lydite itself, a pull request with its receipt. The plugin adds two tools and one skill:
+your proof replayed by Lydite itself, a pull request with its receipt. The plugin adds four tools and one skill:
 
 - `lydite_lancer` starts a wave from an issue, an objective or a plan file, with your proof command. Hermes shows you
   the repository, the work, the proof and the profile, and waits for your approval before anything starts.
 - `lydite_etat` reads back what Lydite recorded: tasks, proofs, pull request, CI, and the receipt (cost, hands,
   retries). A fact a worker only declared is shown as declared.
+- `lydite_lecons` returns the lessons Lydite keeps for a repository, the written rules it gives to its
+  workers (`.agents/skills/<name>/SKILL.md`): the list, or one lesson in full. It is read-only, and Lydite
+  checks the lessons first.
+- `lydite_plan` checks a plan file with Lydite before a launch (`lydite plan <file>`): whether Lydite
+  accepts it, or its refusal and the fix, so that the plan is corrected with the human before the launch
+  is approved. It starts nothing and costs nothing.
 - The skill `lydite:driving-lydite` tells the model when to hand a job to Lydite, how to read what `lydite_etat`
   returns, and to quote a refusal and stop instead of redoing the work itself. It is in the open `SKILL.md` format, so
   Claude Code can read it too.
@@ -354,7 +365,7 @@ reviewer get the list of all lessons, one line each, the same way.
   prompt file, and the lessons given and set aside. Both texts are kept in `consignes/<SHA-256>.txt`.
 - **A sealed thread.** Before it builds the body of its PR, and again when it ends (on every exit, published or not),
   a wave writes a `vague.sceau` line: the journal's length in bytes and the SHA-256 of those bytes. The PR receipt
-  repeats the first one (`Fil sealed at <bytes> bytes: sha256 <hash>.`). `lydite etat` recomputes every seal, names
+  repeats the first one (`Thread sealed at <bytes> bytes: sha256 <hash>.`). `lydite etat` recomputes every seal, names
   the first one that no longer matches (its wave, its bytes) on stderr, and exits 2. A seal shows a line changed or
   removed before it. It does not show a line appended after it, nor a journal rewritten with its seals redone (the
   receipt in the PR, off the machine, keeps its own).
