@@ -11,6 +11,7 @@ that way.
 ```bash
 cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check
 python3 -m unittest discover -s hermes/tests -t hermes     # the Hermes plugin
+ruff check hermes .github && ruff format --check hermes .github   # if Python changed (ruff 0.17.2, as in CI)
 ```
 
 The tests never start a real Claude Code or a real `gh`: they use stand-ins. You do not need an account to run them.
@@ -20,9 +21,9 @@ The tests never start a real Claude Code or a real `gh`: they use stand-ins. You
 - **Open an issue first** for anything larger than a small fix, so that we agree on the change before you write it.
   For a security problem, do not open an issue: see [SECURITY.md](SECURITY.md).
 - **Keep it small**: one change per pull request, with a test that fails without it.
-- **Language**: the code, its comments and its tests are written in French; what a user reads (the README, the
-  plugin, and step by step the commands and messages) is in English. Keep both as you find them in the file you
-  change.
+- **Language**: the code, its comments and its tests are written in French. What a user reads is moving to English:
+  the README, the Hermes plugin and the pull request receipts already are; the commands, the refusals and
+  `lydite etat` are still in French and move one by one. Keep the language you find in the file you change.
 - **Layers**: the code is in three layers (`coeur`, `branchements`, `conduite`, under `commande`); `tests/couches.rs`
   keeps each one from naming the layers above it.
 
