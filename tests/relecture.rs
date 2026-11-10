@@ -522,13 +522,13 @@ fn kraken_remarques_veut_un_fichier_et_un_seul() {
         let erreur = String::from_utf8_lossy(&sortie.stderr);
         assert_eq!(sortie.status.code(), Some(2), "{args:?} : {}", dit(&sortie));
         assert!(erreur.starts_with("lydite : 1006 contrat.commande_mal_formee\n"), "{erreur}");
-        assert!(erreur.contains(vu) && erreur.contains("lydite remarques <fichier>"), "{erreur}");
+        assert!(erreur.contains(vu) && erreur.contains("lydite remarques <file>"), "{erreur}");
     }
     // Le mot est dans la liste fermée que le refus 1005 donne.
     let sortie = Command::new(env!("CARGO_BIN_EXE_lydite")).arg("Remarques").output().unwrap();
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     assert!(erreur.starts_with("lydite : 1005 contrat.commande_inconnue\n"), "{erreur}");
-    assert!(erreur.contains("lydite remarques <fichier>"), "{erreur}");
+    assert!(erreur.contains("lydite remarques <file>"), "{erreur}");
     let _ = fs::remove_dir_all(&dir);
 }
 
