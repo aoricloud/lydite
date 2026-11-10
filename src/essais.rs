@@ -19,6 +19,22 @@ use crate::coeur::profil::{Declaration, Profil};
 use crate::coeur::remarques::Remarque;
 use crate::conduite::lancer::{Issues, Liens, Menee, base_du_depot, lancer_avec};
 
+/// Lâche le verrou que `tenu` tient sur `dossier`, et n'en rend la main qu'une fois le dossier libre pour de bon.
+/// Fermer le fichier ne suffit pas : les tests d'un même binaire tournent ensemble et beaucoup lancent des processus ;
+/// un processus né entre `fork` et `exec` garde une copie du descripteur, et le verrou (`flock`) vit avec elle jusqu'à
+/// son `exec`. L'aide ferme donc le fichier, puis sonde le dossier (1 ms entre deux sondes) jusqu'à le voir libre. La
+/// sonde prend le verrou en partage : la copie égarée d'une sonde ne gêne pas la sonde suivante, seulement une prise
+/// exclusive, que le test qui la veut réessaie. Au-delà de 30 s, la machine est bloquée : l'aide panique en nommant le
+/// dossier.
+pub(crate) fn lacher(tenu: fs::File, dossier: &Path) {
+    drop(tenu);
+    let debut = Instant::now();
+    while crate::branchements::dossier::sonder(dossier).unwrap() {
+        assert!(debut.elapsed() < Duration::from_secs(30), "le verrou de {} ne se lâche pas", dossier.display());
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
 /// Un dossier neuf, à ce test, dans le dossier temporaire du système : le dépôt visé, le dossier de Kraken (que le
 /// premier lancement crée) et la fausse main y vivent côte à côte.
 pub(crate) fn racine(nom: &str) -> PathBuf {
