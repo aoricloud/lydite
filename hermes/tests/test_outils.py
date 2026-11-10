@@ -251,7 +251,10 @@ class Verrou(AvecOutils):
         self.assertEqual(empreinte, hashlib.sha256(PLAN.encode("utf-8")).hexdigest())
         self.assertIn(Path(args["plan"]).name, message)
         self.assertIn(f"{len(PLAN)} chars", message)
-        self.assertIn("1 tasks", message)
+        self.assertIn("·1task·", self.compact(message))
+        deux = "plan 1\nobjectif : o\npreuve : cargo test\n\ntache a\n    faire.\n\ntache b\n    faire.\n"
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande_de_plan(deux))
+        self.assertIn("·2tasks·", self.compact(decision["message"]))
         self.assertIn("cargo test", message)
         self.assertNotIn("Écris apercus/LISEZ-MOI.md.", message)
 
@@ -260,6 +263,47 @@ class Verrou(AvecOutils):
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
         self.assertEqual(decision["action"], "approve")
         self.assertIn(self.compact(preuve), self.compact(decision["message"]))
+        self.bornes(decision["message"])
+
+    def lignes_de_la_preuve(self, message):
+        """Les lignes de la preuve dans un message d'approbation, sans le libellé ni l'indentation."""
+        lignes = message.splitlines()
+        debut = next(rang for rang, ligne in enumerate(lignes) if ligne.startswith("proof  : "))
+        fin = next(rang for rang, ligne in enumerate(lignes) if ligne.startswith("profile: "))
+        return [ligne[9:] for ligne in lignes[debut:fin]]
+
+    def test_une_preuve_se_plie_entre_deux_mots(self):
+        preuve = "cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check"
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
+        self.assertEqual(decision["action"], "approve")
+        self.assertEqual(
+            self.lignes_de_la_preuve(decision["message"]),
+            ["cargo test && cargo clippy --all-targets -- -D", "warnings && cargo fmt --check"],
+        )
+        self.bornes(decision["message"])
+
+    def test_un_mot_plus_long_que_la_ligne_se_coupe_par_caracteres(self):
+        preuve = "cargo test " + "a" * 80
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
+        self.assertEqual(self.lignes_de_la_preuve(decision["message"]), [preuve[:49], preuve[49:]])
+
+    def test_deux_espaces_de_suite_restent_dans_la_preuve(self):
+        preuve = 'grep -q "deux  espaces" notes.txt && cargo test --all-targets --locked'
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=preuve))
+        self.assertEqual(self.lignes_de_la_preuve(decision["message"]), [preuve[:49], preuve[49:]])
+
+    def test_la_pliure_entre_les_mots_ne_prend_que_la_place_libre(self):
+        lancer = sous_module("nom").LANCER
+        mot = "m" * 30
+        preuve = " ".join([mot] * 3)
+        decision = self.outils().verrou(tool_name=lancer, args=self.demande(preuve=preuve))
+        self.assertEqual(self.lignes_de_la_preuve(decision["message"]), [mot, mot, mot])
+        self.bornes(decision["message"])
+        # Quand le dépôt et l'objectif prennent toute la place, la même preuve se coupe par caractères, en entier.
+        args = self.demande(issue=None, objectif="o" * 110, preuve=preuve, depot=str(self.depot_long(150)))
+        decision = self.outils().verrou(tool_name=lancer, args=args)
+        self.assertEqual(self.lignes_de_la_preuve(decision["message"]), [preuve[:49], preuve[49:]])
+        self.assertIn(self.compact("objective: " + "o" * 110), self.compact(decision["message"]))
         self.bornes(decision["message"])
 
     def test_111_caracteres_sont_refuses_et_110_acceptes(self):
