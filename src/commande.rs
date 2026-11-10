@@ -5,10 +5,11 @@
 //! le fil ne se lit pas. `lydite etat` y ajoute ses règles : découpage, relecture et CI verte, et le code 0 quand il
 //! n'y a aucune vague, rien n'étant alors affirmé.
 //!
-//! `lydite attendre` attend la fin du lancement qui tient le dossier, puis dit la dernière vague comme `lydite etat`
-//! et en rend le code : 0 si elle est menée à bout et verte ; 1 si elle est rouge, ou finie sans son sceau de fin (un
-//! lancement tué) ; 2 si le fil ne se lit pas ou si un sceau est rompu, et si, faute de dossier tenu comme de vague
-//! neuve en 60 s, il n'y a rien à attendre.
+//! `lydite attendre` attend la fin du lancement qui tient le dossier, puis, si le fil a au moins une note de plus
+//! qu'à son départ, dit la dernière vague comme `lydite etat` et en rend le code : 0 si elle est menée à bout et
+//! verte ; 1 si elle est rouge, ou finie sans son sceau de fin (un lancement tué, même sans note de plus) ; 2 si le fil
+//! ne se lit pas ou si un sceau est rompu, si le lancement attendu n'a ouvert aucune vague ni fait avancer aucune
+//! (aucune note de plus), et si, faute de dossier tenu comme de note neuve en 60 s, il n'y a rien à attendre.
 //!
 //! Un déclaré ne s'affiche jamais comme un fait : il porte toujours son mot (« pris, déclaré : main-… » dans `lancer`,
 //! « prise déclarée, non prouvée » et « mur exigé (déclaré) » dans `lydite etat`), et ne donne jamais le code 0.
