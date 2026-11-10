@@ -13,9 +13,9 @@ use crate::branchements::srt;
 use crate::coeur::erreur::{Code, Refus, nommee};
 use crate::coeur::fil::{Evenement, SceauVague};
 use crate::coeur::lecons::Lecon;
-use crate::coeur::plan;
 use crate::coeur::plan::Plan;
 use crate::coeur::profil::Profil;
+use crate::coeur::texte;
 use crate::conduite::decoupage;
 use crate::conduite::decoupage::Decoupage;
 use crate::conduite::lancer::{Liens, Menee, base_du_depot, duree_du_bail, lancer_avec};
@@ -265,7 +265,7 @@ pub(crate) fn decouper_cmd(lieu: &Lieu<'_>, o: &Options) -> Result<ExitCode, Ref
     };
     eprintln!("découpage pris : {main} · {} tâches", decoupe.plan.taches.len());
     if o.observer {
-        println!("{}", plan::sans_controle_en_lignes(decoupe.texte.trim_end()));
+        println!("{}", texte::en_lignes_du_plan(decoupe.texte.trim_end()));
         return Ok(ExitCode::SUCCESS);
     }
     let numero = issue.as_ref().map(|issue| issue.numero);
@@ -296,7 +296,7 @@ fn lire_l_issue(lieu: &Lieu<'_>, nom: &str, numero: u64) -> Result<github::Issue
 fn dire(plan: &Plan, branche: Option<&str>, mains: &[(String, Result<Pris, String>)]) {
     for ((id, issue), tache) in mains.iter().zip(&plan.taches) {
         if let Ok(Pris { sortie, .. }) = issue {
-            println!("{sortie}");
+            println!("{}", texte::en_lignes(sortie));
         }
         eprintln!("{}", if branche.is_some() { annonce_tache(id, &tache.id, issue) } else { annonce(id, issue) });
     }
@@ -314,8 +314,8 @@ pub(crate) fn annonce(id: &str, issue: &Result<Pris, String>) -> String {
     match issue {
         Ok(Pris { prouve: true, .. }) => format!("pris : {id}"),
         Ok(Pris { prouve: false, .. }) => format!("pris, déclaré : {id}"),
-        Err(refus) if refus.starts_with("refusée (") => format!("refusée : {id}\n{refus}"),
-        Err(erreur) => format!("échec classé : {id}\n{erreur}"),
+        Err(refus) if refus.starts_with("refusée (") => format!("refusée : {id}\n{}", texte::en_lignes(refus)),
+        Err(erreur) => format!("échec classé : {id}\n{}", texte::en_lignes(erreur)),
     }
 }
 
@@ -328,8 +328,10 @@ pub(crate) fn annonce(id: &str, issue: &Result<Pris, String>) -> String {
 fn annonce_tache(main: &str, id: &str, issue: &Result<Pris, String>) -> String {
     match issue {
         Ok(_) => format!("assemblée : {main} ({id})"),
-        Err(refus) if refus.starts_with("refusée (") => format!("refusée : {main} ({id})\n{refus}"),
-        Err(erreur) => format!("classée : {main} ({id})\n{erreur}"),
+        Err(refus) if refus.starts_with("refusée (") => {
+            format!("refusée : {main} ({id})\n{}", texte::en_lignes(refus))
+        }
+        Err(erreur) => format!("classée : {main} ({id})\n{}", texte::en_lignes(erreur)),
     }
 }
 

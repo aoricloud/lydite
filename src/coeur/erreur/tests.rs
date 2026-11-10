@@ -87,6 +87,7 @@ const TABLE: &[(u16, &str)] = &[
     (7017, "vague.bloquantes_restantes"),
     (7018, "vague.chemin_protege"),
     (7019, "vague.plafond_atteint"),
+    (7020, "vague.bloquante_hors_de_portee"),
     // --- 8000 : forge ---
     (8001, "forge.distant_illisible"),
     (8002, "forge.base_inconnue"),
@@ -216,6 +217,17 @@ fn nommee_garde_son_kind_et_nomme_ce_qu_elle_visait() {
     let erreur = nommee(io::Error::from(io::ErrorKind::PermissionDenied), "git dans /depot");
     assert_eq!(erreur.kind(), io::ErrorKind::PermissionDenied);
     assert!(erreur.to_string().starts_with("git dans /depot : "), "{erreur}");
+}
+
+#[test]
+fn un_refus_affiche_n_a_aucun_caractere_de_controle() {
+    let refus = Refus::new(Code::Conflit, "a\u{1b}[31m\tb\u{202e}\nc", "d\u{7}\r\ne");
+    let affiche = refus.to_string();
+    assert!(affiche.contains("  preuve : a\\u{1b}[31m\\tb\\u{202e} ; c\n"), "{affiche:?}");
+    assert!(affiche.ends_with("  correction : d\\u{7} ; e"), "{affiche:?}");
+    assert!(!affiche.chars().any(|c| c.is_control() && c != '\n'), "{affiche:?}");
+    // Le refus garde ses champs bruts.
+    assert!(refus.preuve.contains('\u{1b}'));
 }
 
 #[test]

@@ -1413,17 +1413,69 @@ fn une_vague_qui_finit_pendant_l_attente_fait_sortir_la_commande_avec_son_code()
 #[test]
 fn un_dossier_tenu_longtemps_ne_compte_pas_contre_le_delai_d_ouverture() {
     let dossier = dossier_d_attente("longtemps");
-    ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), true);
     let mut lancement = Some(tenu_par_un_lancement(&dossier));
     let mut pauses = 0;
     let code = attendre_avec(&dossier, 1, &mut || {
         pauses += 1;
+        // Le lancement note sa vague pendant qu'il tient le dossier, puis le lâche à la septième pause.
+        if pauses == 3 {
+            ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), true);
+        }
         if pauses == 7 {
             lacher(lancement.take().unwrap(), &dossier);
         }
     });
     assert_eq!(code, Ok(ExitCode::SUCCESS));
     assert_eq!(pauses, 7, "la sonde attend la fin du lancement, sans compter ses pauses");
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_dossier_tenu_puis_libre_sans_note_de_plus_ne_dit_pas_la_vague_d_avant() {
+    let dossier = dossier_d_attente("sans-note");
+    // La dernière vague du fil est verte et scellée : ancienne, elle ne doit pas se lire « tout est vert ».
+    ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), true);
+    let mut lancement = Some(tenu_par_un_lancement(&dossier));
+    let mut erreur = Vec::new();
+    let code = attendre_ecrivant(&dossier, 0, &mut || lacher(lancement.take().unwrap(), &dossier), &mut erreur);
+    assert_eq!(code, Ok(ExitCode::from(2)));
+    assert_eq!(String::from_utf8(erreur).unwrap().trim_end(), SANS_VAGUE);
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_dossier_tenu_puis_libre_sans_note_de_plus_sur_une_vague_sans_sceau_rend_1() {
+    let dossier = dossier_d_attente("sans-note-tuee");
+    // La dernière vague est menée à bout et verte, mais son lancement est mort avant d'écrire son sceau.
+    ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), false);
+    let mut lancement = Some(tenu_par_un_lancement(&dossier));
+    let mut erreur = Vec::new();
+    let code = attendre_ecrivant(&dossier, 0, &mut || lacher(lancement.take().unwrap(), &dossier), &mut erreur);
+    assert_eq!(code, Ok(ExitCode::FAILURE));
+    let erreur = String::from_utf8(erreur).unwrap();
+    assert!(erreur.contains("sceau de fin") && !erreur.contains(SANS_VAGUE), "{erreur}");
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn une_vague_ouverte_qui_recoit_une_note_de_la_forge_pendant_l_attente_est_dite() {
+    let dossier = dossier_d_attente("forge");
+    // La vague est ouverte au départ ; pendant l'attente, la forge la refuse et le lancement scelle.
+    ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), false);
+    let mut lancement = Some(tenu_par_un_lancement(&dossier));
+    let mut erreur = Vec::new();
+    let code = attendre_ecrivant(
+        &dossier,
+        0,
+        &mut || {
+            ecrire_au_fil(&dossier, &[refus_de_forge(V1, 8005)], true);
+            lacher(lancement.take().unwrap(), &dossier);
+        },
+        &mut erreur,
+    );
+    assert_eq!(code, Ok(ExitCode::FAILURE));
+    let erreur = String::from_utf8(erreur).unwrap();
+    assert!(!erreur.contains(SANS_VAGUE), "{erreur}");
     let _ = fs::remove_dir_all(&dossier);
 }
 
@@ -1461,8 +1513,12 @@ fn un_fil_au_sceau_rompu_rend_2_et_un_fil_illisible_est_un_refus() {
     let dossier = fil_scelle("attendre-rompu");
     changer_dans_le_fil(&dossier, "premier", "premiex");
     let mut lancement = Some(tenu_par_un_lancement(&dossier));
-    let code = attendre_avec(&dossier, 0, &mut || lacher(lancement.take().unwrap(), &dossier));
+    let mut erreur = Vec::new();
+    let code = attendre_ecrivant(&dossier, 0, &mut || lacher(lancement.take().unwrap(), &dossier), &mut erreur);
     assert_eq!(code, Ok(ExitCode::from(2)));
+    // Le sceau rompu se dit par son propre message, non par celui d'un lancement sans vague.
+    let erreur = String::from_utf8(erreur).unwrap();
+    assert!(erreur.contains("ne correspond plus au sceau") && !erreur.contains(SANS_VAGUE), "{erreur}");
     let _ = fs::remove_dir_all(&dossier);
     // Un fil qu'on ne lit pas (ici un dossier à la place du fichier) : le refus, que `principal` sort en 2.
     let illisible = dossier_d_attente("illisible");
@@ -1500,4 +1556,23 @@ fn une_vague_qui_s_ouvre_et_finit_pendant_le_delai_est_rendue_sans_avoir_vu_le_d
     assert_eq!(code, Ok(ExitCode::FAILURE));
     assert_eq!(pauses, 2);
     let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn kraken_etat_n_ecrit_aucun_controle_venu_d_une_main_et_garde_ses_propres_mots() {
+    let piege = "rouge\r\u{1b}[2K\u{202e}impossible (déclarée)";
+    let evenements = vec![
+        ouverture(V1, 1, "Écrire\u{1b}[2J\nsuite\u{202e}"),
+        debut(V1, 1, 1),
+        fin(V1, 1, 1, ROUGE, &format!("première ligne\n{piege}")),
+        verdict(V1, 1, CLASSEE),
+    ];
+    let (texte, _) = etat_du_fil(&evenements);
+    for interdit in ['\r', '\u{1b}', '\u{202e}'] {
+        assert!(!texte.contains(interdit), "{texte:?}");
+    }
+    let ligne = texte.lines().find(|ligne| ligne.starts_with(&format!("main-{V1}-1"))).expect(&texte);
+    assert_eq!(ligne, format!("main-{V1}-1 : classée : rouge\\r\\u{{1b}}[2K\\u{{202e}}impossible (déclarée)"));
+    // L'objectif garde ses lignes, et écrit ses contrôles.
+    assert!(texte.starts_with("Écrire\\u{1b}[2J\nsuite\\u{202e}\n"), "{texte:?}");
 }

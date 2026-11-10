@@ -37,7 +37,10 @@
 //! Le texte des remarques n'est jamais publié : il vit au fil, et la correction le reçoit comme objectif, que le corps
 //! de la PR ne reprend pas (`publication::corps` n'en garde que les nombres), à une exception : les lignes du bloc
 //! `non rejoue`, dix au plus et coupées à 200 caractères, sous « Not replayed (from the review): ».
-//! Les refus 7016 et 7017 se notent au fil
+//! Avant toute correction, une remarque bloquante dont le fichier n'est couvert (`plan::couvre`) par aucune entrée des
+//! `fichiers` de la correction arrête la relecture : c'est le refus 7020, aucune main ne part et rien ne se pousse ;
+//! sans `fichiers` aux tâches critiques, rien ne borne la correction et la règle ne joue pas.
+//! Les refus 7016, 7017 et 7020 se notent au fil
 //! par un `forge.refus` de la vague relue.
 
 use std::fs;
@@ -50,7 +53,7 @@ use crate::branchements::dossier::{Fil, lire};
 use crate::branchements::git::{faire, faire_borne, geste, racines};
 use crate::coeur::erreur::{Code, Refus, nommee, queue};
 use crate::coeur::fil::Evenement;
-use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
+use crate::coeur::plan::{Plan, TAILLE_MAX, Tache, couvre};
 use crate::coeur::profil::Profil;
 use crate::coeur::remarques::{FORME, Remarque, lire_fichier};
 use crate::conduite::alarmes;
@@ -91,6 +94,10 @@ const SANS_RELECTURE: &str = "Rien ne se pousse : le travail des tâches critiqu
 const SANS_CORRECTION: &str = "Rien ne se pousse : des remarques bloquantes restent sans correction. Lis-les au fil \
                                (vague.relecture), puis corrige-les toi-même dans la branche de la vague, ou relance \
                                une vague neuve.";
+
+/// La correction d'une remarque bloquante hors de portée (7020).
+const SANS_PORTEE: &str = "Nothing is pushed: no correction was started. Rerun the task in a fresh wave with that \
+                           file in its `fichiers`, or fix it yourself on the branch, then have it reviewed.";
 
 /// La correction d'un fil qui ne reçoit pas la note d'une relecture prise (7012).
 const SANS_NOTE: &str = "Rien ne se pousse : une relecture que le fil n'a pas reçue ne compte pas, et son bac demeure. \
@@ -279,8 +286,8 @@ pub(crate) enum Relue {
     Aucune,
     /// Relue, et corrigée si des remarques bloquantes l'ont voulu : la forge peut partir.
     Prise(Prise),
-    /// Rien ne se pousse : le refus 7016 (la relecture classée), 7017 (la correction non assemblée) ou 7012 (une note
-    /// ratée), noté au fil quand le fil le permet.
+    /// Rien ne se pousse : le refus 7016 (la relecture classée), 7017 (la correction non assemblée), 7020 (une
+    /// bloquante hors de portée) ou 7012 (une note ratée), noté au fil quand le fil le permet.
     Dehors(Refus),
 }
 
@@ -385,7 +392,9 @@ struct Lue {
 }
 
 impl Relecture<'_> {
-    /// Le relecteur, puis, des remarques bloquantes, la correction. Le refus est le 7016, le 7017 ou le 7012.
+    /// Le relecteur, puis, des remarques bloquantes, la correction. Le refus est le 7016, le 7017, le 7020 (une
+    /// remarque bloquante vise un fichier que la correction ne peut pas toucher : aucune correction ne part) ou le
+    /// 7012.
     fn mener(&self) -> Result<Prise, Refus> {
         let Lue { vague, main, remarques, texte } = self.relecteur()?;
         let (n, bloquantes) = (remarques.len(), remarques.iter().filter(|remarque| remarque.bloquante).count());
@@ -416,8 +425,28 @@ impl Relecture<'_> {
         }
         let ecrits = [REMARQUES, DIFF, FICHIER_PREUVE];
         retirer_le_bac(self.depot, self.dossier, "le bac du relecteur", &main, self.tete, &ecrits);
+        if let Some((numero, fichier)) = self.bloquante_hors_de_portee(&remarques) {
+            let preuve = format!(
+                "the review of wave {} has a blocking remark, number {numero}, on {fichier}, \
+                 which the correction cannot touch",
+                self.menee.id
+            );
+            return Err(Refus::new(Code::BloquanteHorsDePortee, preuve, SANS_PORTEE));
+        }
         let correction = if bloquantes == 0 { None } else { Some(self.corriger(&remarques)?) };
         Ok(Prise { main, n, bloquantes, correction })
+    }
+
+    /// Le numéro (à partir de 1) et le fichier de la première remarque bloquante qu'aucune entrée des fichiers de la
+    /// correction ne couvre (`plan::couvre`, à la lettre). Quand une tâche critique n'a pas de `fichiers`
+    /// ([`fichiers_de`] rend `None`), rien ne borne la correction : aucune remarque n'est hors de portée. Une remarque
+    /// non bloquante n'y change rien.
+    fn bloquante_hors_de_portee<'r>(&self, remarques: &'r [Remarque]) -> Option<(usize, &'r str)> {
+        let fichiers = fichiers_de(&self.critiques)?;
+        remarques.iter().enumerate().find_map(|(i, remarque)| {
+            let couvert = fichiers.iter().any(|entree| couvre(entree, &remarque.fichier));
+            (remarque.bloquante && !couvert).then_some((i + 1, remarque.fichier.as_str()))
+        })
     }
 
     /// Le profil, l'empreinte et le modèle du dernier `main.lancement` de la main du relecteur dans sa vague `vague`,
