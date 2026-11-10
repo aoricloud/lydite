@@ -311,10 +311,12 @@ lock for an instant (the probe of `lydite attendre`, below) retries for about 20
 
 `lydite etat` returns 1 for a wave still running as well as for a red one. `lydite attendre`
 (no argument) waits while a launch holds the state folder (it probes the lock for an instant, every 2 seconds, and
-never keeps it), then says the last wave like `lydite etat` and exits 0 if it is carried through and green, 1 if it is
-red or finished without its closing seal (a killed launch), 2 if the journal cannot be read or a seal is broken. Run
-just before the launch takes the folder, it waits at most 60 seconds for a wave to open; with no new wave and no held
-folder it says so and exits 2.
+never keeps it), then, if the thread gained at least one note since it started, says the last wave like `lydite etat`
+and exits 0 if it is carried through and green, 1 if it is red or finished without its closing seal (a killed launch,
+even with no new note), 2 if the journal cannot be read or a seal is broken. If the folder was held and then freed
+with no new note (a launch refused before it opened its wave), it says so on stderr and exits 2. Run just before the
+launch takes the folder, it waits at most 60 seconds for a note to come; with no new note and no held folder it says
+so and exits 2.
 
 ### A profile
 
