@@ -114,10 +114,10 @@ fn options_accepter() {
     assert_eq!(refus.code, mal_formee);
     assert!(refus.preuve.contains("le profil doit être un texte UTF-8"), "{refus}");
     // La commande est dans l'usage, que la correction du refus 1005 donne.
-    assert!(USAGE.contains("lydite accepter <profil>"), "{USAGE}");
+    assert!(USAGE.contains("lydite accepter <profile>"), "{USAGE}");
     let inconnue = options(&args(&["Accepter", "veille"])).unwrap_err();
     assert_eq!(inconnue.code, Code::CommandeInconnue);
-    assert!(inconnue.correction.contains("lydite accepter <profil>"), "{inconnue}");
+    assert!(inconnue.correction.contains("lydite accepter <profile>"), "{inconnue}");
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn options_profil() {
         assert!(refus.preuve.contains(dit), "{mots:?} : {refus}");
         assert!(refus.correction.contains(USAGE), "{refus}");
     }
-    assert!(USAGE.contains("lydite profil <profil>"), "{USAGE}");
+    assert!(USAGE.contains("lydite profil <profile>"), "{USAGE}");
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn options_remarques_seul() {
         assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
     }
     // Le mot est dans l'usage et dans la liste fermée que le refus 1005 donne.
-    assert!(USAGE.contains("lydite remarques <fichier>"), "{USAGE}");
+    assert!(USAGE.contains("lydite remarques <file>"), "{USAGE}");
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn options_lecons_seul() {
         assert!(refus.preuve.contains(vu), "la preuve dit ce qui a été vu ({vu}) : {refus}");
         assert!(refus.correction.contains(USAGE), "la correction donne l'usage : {refus}");
     }
-    assert!(USAGE.contains("lydite lecons <dossier>"), "{USAGE}");
+    assert!(USAGE.contains("lydite lecons <folder>"), "{USAGE}");
 }
 
 #[test]
@@ -544,8 +544,8 @@ fn options_decouper_refuse_ce_qui_ne_va_pas_avec_lui() {
 fn l_usage_donne_les_deux_formes_de_lancer() {
     // La forme de M3a, telle quelle (tests/contrat.rs la lit), et la forme de `--plan` à côté, avec ses deux
     // drapeaux facultatifs.
-    let m3a = r#"lydite lancer <profil> "<objectif>" [--n N] [--verifier "<commande>"] [--depot <chemin>]"#;
-    let plan = "lydite lancer <profil> --plan <fichier> [--depot <chemin>] [--pr <branche>]";
+    let m3a = r#"lydite lancer <profile> "<objective>" [--n N] [--verifier "<command>"] [--depot <path>]"#;
+    let plan = "lydite lancer <profile> --plan <file> [--depot <path>] [--pr <branch>]";
     for forme in [m3a, plan, "lydite etat"] {
         assert!(USAGE.contains(forme), "{forme}");
     }
@@ -556,16 +556,30 @@ fn l_usage_dit_le_decoupage_et_les_commandes_de_m5() {
     // La forme du découpage, entière, avec `--observer`, `--depot` et `--pr` facultatifs, et les deux commandes que
     // d'autres pièces lisent : l'usage les dit, comme la liste fermée que donne le refus 1005.
     let decouper = concat!(
-        r#"lydite lancer <profil> "<objectif>" --decouper --verifier "<preuve>" [--observer] [--depot <chemin>] "#,
-        r#"[--pr <branche>]"#,
+        r#"lydite lancer <profile> "<objective>" --decouper --verifier "<proof>" [--observer] [--depot <path>] "#,
+        r#"[--pr <branch>]"#,
     );
-    for forme in [decouper, "lydite plan [--decoupe] <fichier>", "lydite remarques <fichier>"] {
+    for forme in [decouper, "lydite plan [--decoupe] <file>", "lydite remarques <file>"] {
         assert!(USAGE.contains(forme), "{forme}");
     }
     let inconnue = options(&args(&["Plan", "p.txt"])).unwrap_err();
     assert_eq!(inconnue.code, Code::CommandeInconnue);
-    for forme in ["--decouper", "--observer", "lydite plan [--decoupe] <fichier>", "lydite remarques <fichier>"] {
+    for forme in ["--decouper", "--observer", "lydite plan [--decoupe] <file>", "lydite remarques <file>"] {
         assert!(inconnue.correction.contains(forme), "la correction du refus 1005 dit {forme} : {inconnue}");
+    }
+}
+
+#[test]
+fn l_usage_est_en_anglais() {
+    // L'usage est la première chose que l'humain lit : il est en anglais. Les commandes et leurs drapeaux restent ce
+    // qu'ils sont, et les mots qui nomment les arguments aussi.
+    let francais =
+        [" ou ", "<profil>", "<objectif>", "<fichier>", "<dossier>", "<chemin>", "<branche>", "<preuve>", "<commande>"];
+    let anglais =
+        [" or ", "<profile>", "<objective>", "<file>", "<folder>", "<path>", "<branch>", "<proof>", "<command>"];
+    for (francais, anglais) in francais.iter().zip(anglais.iter()) {
+        assert!(!USAGE.contains(francais), "l'usage dit encore {francais} : {USAGE}");
+        assert!(USAGE.contains(anglais), "l'usage ne dit pas {anglais} : {USAGE}");
     }
 }
 

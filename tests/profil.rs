@@ -262,7 +262,7 @@ fn assert_regle(refus: &Refus) {
 
 /// La correction d'un refus de la ligne de commande donne l'usage de `lancer`, avec ses trois drapeaux.
 fn assert_usage(refus: &Refus) {
-    let usage = r#"lydite lancer <profil> "<objectif>" [--n N] [--verifier "<commande>"] [--depot <chemin>]"#;
+    let usage = r#"lydite lancer <profile> "<objective>" [--n N] [--verifier "<command>"] [--depot <path>]"#;
     assert!(refus.correction.contains(usage), "la correction donne l'usage : {refus:?}");
 }
 

@@ -9,19 +9,19 @@ use crate::conduite::mener::Options;
 
 /// L'usage, que la correction d'un refus de la ligne de commande donne.
 const USAGE: &str = concat!(
-    "lydite lancer <profil> \"<objectif>\" [--n N] [--verifier \"<commande>\"] [--depot <chemin>]",
-    " ou lydite lancer <profil> --plan <fichier> [--depot <chemin>] [--pr <branche>]",
-    " ou lydite lancer <profil> \"<objectif>\" --decouper --verifier \"<preuve>\" [--observer] [--depot <chemin>]",
-    " [--pr <branche>]",
-    " ou lydite lancer <profil> --issue <n> --decouper --verifier \"<preuve>\" [--observer] [--depot <chemin>]",
-    " [--pr <branche>]",
-    " ou lydite plan [--decoupe] <fichier>",
-    " ou lydite remarques <fichier>",
-    " ou lydite lecons <dossier>",
-    " ou lydite accepter <profil>",
-    " ou lydite profil <profil>",
-    " ou lydite etat",
-    " ou lydite attendre",
+    "lydite lancer <profile> \"<objective>\" [--n N] [--verifier \"<command>\"] [--depot <path>]",
+    " or lydite lancer <profile> --plan <file> [--depot <path>] [--pr <branch>]",
+    " or lydite lancer <profile> \"<objective>\" --decouper --verifier \"<proof>\" [--observer] [--depot <path>]",
+    " [--pr <branch>]",
+    " or lydite lancer <profile> --issue <n> --decouper --verifier \"<proof>\" [--observer] [--depot <path>]",
+    " [--pr <branch>]",
+    " or lydite plan [--decoupe] <file>",
+    " or lydite remarques <file>",
+    " or lydite lecons <folder>",
+    " or lydite accepter <profile>",
+    " or lydite profil <profile>",
+    " or lydite etat",
+    " or lydite attendre",
 );
 
 /// Les drapeaux de `lancer` qui prennent une valeur, chacun une fois : `--pr` et `--issue` n'y vont qu'avec
@@ -370,7 +370,7 @@ fn contient(args: &[OsString], drapeau: &str) -> bool {
 }
 
 fn refus_de_ligne(code: Code, preuve: impl Into<String>) -> Refus {
-    Refus::new(code, preuve, format!("Écris la commande selon l'usage : {USAGE}."))
+    Refus::new(code, preuve, format!("Write the command as the usage shows: {USAGE}."))
 }
 
 fn mot(arg: &OsStr) -> String {

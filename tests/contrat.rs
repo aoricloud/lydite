@@ -118,8 +118,8 @@ fn assert_regle(refus: &Refus) {
 /// La correction d'un refus de la ligne de commande donne l'usage : les trois commandes de la liste fermée, `lancer`
 /// avec ses trois drapeaux.
 fn assert_usage(refus: &Refus) {
-    let lancer = r#"lydite lancer <profil> "<objectif>" [--n N] [--verifier "<commande>"] [--depot <chemin>]"#;
-    for morceau in [lancer, "lydite accepter <profil>", "lydite profil <profil>", "lydite etat", "lydite attendre"] {
+    let lancer = r#"lydite lancer <profile> "<objective>" [--n N] [--verifier "<command>"] [--depot <path>]"#;
+    for morceau in [lancer, "lydite accepter <profile>", "lydite profil <profile>", "lydite etat", "lydite attendre"] {
         assert!(refus.correction.contains(morceau), "la correction donne l'usage ({morceau}) : {refus:?}");
     }
 }
