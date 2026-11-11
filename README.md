@@ -67,8 +67,8 @@ The receipt counts the hands, their retries and the tasks set aside, and seals t
 Four more things to notice. The proof line is your command, run again by Lydite after the hands have finished, not by
 them. The points to justify are found by Lydite itself, without a model: here a test of the base lost lines, and the
 reviewer had to say why. The commit line names the exact commit that was replayed (and reviewed, when the plan marked
-a task critical): on this repository, a required check refuses to merge a Lydite pull request unless its head's files
-are those of a commit named as replayed after a review, in its body or in a correction merged into its branch. And the
+a task critical): on this repository, the CI check `tete` fails for a Lydite pull request unless its head's files are
+those of a commit named as replayed after a review, in its body or in a correction merged into its branch. And the
 last block is what the review could **not** see replayed. Lydite prints it.
 
 As of 11 November 2026, on our own repositories:
@@ -423,8 +423,9 @@ before its first seal), 2 if the journal cannot be read or a seal is broken. Lyd
 the pull request, and at every exit once the wave has opened; a split alone is never sealed. So a launch killed after
 that first seal, or a `--split` launch killed or refused between its split and its wave, is not caught: `wait` then
 exits as `lydite status` would, possibly 0. If the folder was held and then freed with no new note (a launch refused
-before it opened its wave), it says so on stderr and exits 2. Run just before the launch takes the folder, it waits at
-most 60 seconds for a note to come; with no new note and no held folder it says so and exits 2.
+before it opened its wave), it says so on stderr and exits 2; but if the last wave of the thread carries no seal (an
+earlier launch killed before its first seal), it says that wave instead and exits 1. Run just before the launch takes
+the folder, it waits at most 60 seconds for a note; with no new note and no held folder it says so and exits 2.
 
 ### A profile
 
