@@ -556,6 +556,77 @@ fn chaque_cle_d_effort_se_lit_et_se_refuse_hors_de_son_domaine() {
 }
 
 #[test]
+fn efforts_permis_se_lit_comme_une_liste_et_se_refuse_hors_de_son_domaine() {
+    // Sans la clé, tout effort est permis, et la rangée de `lydite profil` le dit.
+    let libre = lu("sorte = claude\n").unwrap();
+    assert!(VALEURS_D_EFFORT.iter().all(|effort| libre.permet_l_effort(effort)));
+    assert!(libre.rangees().contains(&"allowed efforts: any".to_string()), "{:?}", libre.rangees());
+    // Une liste à virgules, blancs autour : seuls ses efforts sont permis, un seul, deux, ou les cinq.
+    for (texte, permis) in [
+        ("low", &["low"][..]),
+        ("low, high", &["low", "high"]),
+        ("max,xhigh , medium", &["max", "xhigh", "medium"]),
+        ("low, medium, high, xhigh, max", &VALEURS_D_EFFORT),
+    ] {
+        let profil =
+            lu(&format!("sorte = claude\nefforts_permis = {texte}\n")).unwrap_or_else(|refus| panic!("{refus}"));
+        for effort in VALEURS_D_EFFORT {
+            assert_eq!(profil.permet_l_effort(effort), permis.contains(&effort), "{texte} : {effort}");
+        }
+        let rangee = format!("allowed efforts: {}", permis.join(", "));
+        assert!(profil.rangees().contains(&rangee), "{rangee} : {:?}", profil.rangees());
+        // Les efforts du profil ne s'y jugent pas : une main dont `effort` n'est pas permis reste lue.
+        assert!(lu(&format!("sorte = claude\nefforts_permis = {texte}\neffort = max\n")).is_ok(), "{texte}");
+        // Les copies du profil (une tâche, un rôle) gardent la liste.
+        let copie = profil.avec_modeles(Some("opus"), None).avec_efforts(Some("low"), None).pour_le_relecteur();
+        for effort in VALEURS_D_EFFORT {
+            assert_eq!(copie.permet_l_effort(effort), permis.contains(&effort), "copie, {texte} : {effort}");
+        }
+    }
+    // Une valeur hors du domaine, vide, en `-`, ou une redite : la ligne refusée (6009).
+    let regle = "efforts_permis liste des efforts parmi low, medium, high, xhigh et max";
+    for valeur in ["extreme", "Low", "low, extreme", "low high", "low,,high", "low,", "auto", "-low", "low, -high", ""]
+    {
+        let refus =
+            lu(&format!("sorte = claude\nefforts_permis = {valeur}\n")).err().unwrap_or_else(|| panic!("{valeur}"));
+        assert_eq!(refus.code, Code::ProfilLigneRefusee, "{valeur:?} : {refus}");
+        assert!(refus.preuve.contains(":2 : « efforts_permis = "), "{refus}");
+    }
+    for valeur in ["extreme", "Low", "low, extreme", "low high", "auto"] {
+        let refus = lu(&format!("sorte = claude\nefforts_permis = {valeur}\n")).err().unwrap();
+        assert!(refus.preuve.contains(regle), "{valeur} : {refus}");
+    }
+    let refus = lu("sorte = claude\nefforts_permis = low\nefforts_permis = max\n").err().unwrap();
+    assert_eq!(refus.code, Code::ProfilLigneRefusee, "{refus}");
+    assert!(CLES.contains(&"efforts_permis"));
+    // Une main brute n'a pas d'effort à refuser.
+    assert!(Profil::faux(vec!["x".into()], Duration::from_secs(1)).permet_l_effort("max"));
+}
+
+#[test]
+fn le_lancement_note_l_effort_declare_de_la_tentative_ou_aucun() {
+    let profil = borne("sorte = claude\neffort = low\neffort_relance = high\n");
+    let lancement = |profil: &Profil, relance: bool| {
+        let declaration = profil.demande(&absolu("bac"), None, relance).declaration.unwrap();
+        declaration.lancement_selon("v", 1, if relance { 2 } else { 1 }, String::new())
+    };
+    let effort = |evenement: Evenement| match evenement {
+        Evenement::Lancement { effort, .. } => effort,
+        autre => panic!("{autre:?}"),
+    };
+    assert_eq!(effort(lancement(&profil, false)).as_deref(), Some("low"));
+    assert_eq!(effort(lancement(&profil, true)).as_deref(), Some("high"));
+    // L'effort d'une tâche (deux tentatives) prend la place de ceux du profil.
+    let tache = profil.avec_efforts(Some("max"), Some("max"));
+    assert_eq!(effort(lancement(&tache, false)).as_deref(), Some("max"));
+    assert_eq!(effort(lancement(&tache, true)).as_deref(), Some("max"));
+    // Sans clé, le lancement n'en déclare aucun.
+    let sans = borne("sorte = claude\n");
+    assert_eq!(effort(lancement(&sans, false)), None);
+    assert_eq!(effort(lancement(&sans, true)), None);
+}
+
+#[test]
 fn le_profil_integre_ne_pose_aucun_effort_et_garde_son_texte() {
     let integre = integre("claude").unwrap();
     assert!(!integre.contains("effort"), "{integre}");
@@ -1082,6 +1153,7 @@ fn la_declaration_dit_son_lancement() {
         profil: "essai".into(),
         empreinte: hex(&sha256(texte.as_bytes())),
         modele: "opus".into(),
+        effort: None,
         mur: Mur::Exige,
         reglages: declaration.reglages.clone(),
         reglages_depot: String::new(),

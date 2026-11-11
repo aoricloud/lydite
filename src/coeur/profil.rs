@@ -30,6 +30,10 @@
 //!     `medium`, `high`, `xhigh`, `max` (sinon refus de profil). Posé, il devient `--effort <valeur>` dans l'argv de la
 //!     main, et le constat vérifie que Claude Code l'applique ; sans clé, Claude Code prend son défaut, que
 //!     `lydite profil` dit. Le profil intégré n'en pose aucun ;
+//!   - `efforts_permis` : les efforts qu'un plan peut demander à une tâche (`effort :`), une liste à virgules de
+//!     valeurs de `low`, `medium`, `high`, `xhigh`, `max`. Sans la clé, tout effort est permis. Un effort de tâche
+//!     hors de la liste est le refus 6033 au lancement, avant toute main ; les clés `effort*` du profil ne s'y
+//!     jugent pas ;
 //!   - `api` et `cle`, ensemble ou pas du tout : le fournisseur d'une main qui parle à une autre API que celle
 //!     d'Anthropic, au format d'Anthropic. `api` est l'URL de l'API, en `https://` : un hôte en `[A-Za-z0-9.-]`, puis
 //!     un port et un chemin facultatifs, le chemin en `[A-Za-z0-9._~/-]`, ni identifiants ni requête. `cle` est le
@@ -128,7 +132,7 @@ const INTEGRE: &str =
     "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = exige\ndelai_main = 3600\ndelai_preuve = 300\n";
 
 /// Les clés d'un profil, et aucune autre.
-const CLES: [&str; 23] = [
+const CLES: [&str; 24] = [
     "sorte",
     "programme",
     "modele",
@@ -139,6 +143,7 @@ const CLES: [&str; 23] = [
     "effort_relance",
     "effort_decoupeur",
     "effort_relecteur",
+    "efforts_permis",
     "api",
     "cle",
     "prix",
@@ -155,13 +160,13 @@ const CLES: [&str; 23] = [
 ];
 
 /// Les valeurs d'un effort, celles que Claude Code accepte pour `--effort`.
-const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+pub(crate) const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// Ce que `lydite profil` dit d'un effort que le profil ne pose pas.
-const EFFORT_PAR_DEFAUT: &str = "Claude Code's default";
+pub(crate) const EFFORT_PAR_DEFAUT: &str = "Claude Code's default";
 
 /// Les clés dont la valeur est une liste à virgules.
-const LISTES: [&str; 6] = ["prix", "outils", "reseau", "lecture", "proteges", "mesure"];
+const LISTES: [&str; 7] = ["prix", "outils", "reseau", "lecture", "proteges", "mesure", "efforts_permis"];
 
 /// Les réglages de `mesure`, et aucun autre.
 pub(crate) const SANS_LECTURE: &str = "sans-lecture";
@@ -301,6 +306,8 @@ struct Claude {
     effort_decoupeur: Option<String>,
     /// L'effort du relecteur, pour ses deux tentatives (`effort_relecteur`), de même.
     effort_relecteur: Option<String>,
+    /// Les efforts qu'une tâche de plan peut demander (`efforts_permis`), `None` sans clé : tout effort est permis.
+    efforts_permis: Option<Vec<String>>,
     /// Le fournisseur que le profil nomme, `None` pour une main qui parle chez Anthropic.
     fournisseur: Option<FournisseurDuProfil>,
     /// Les prix déclarés (`prix`) : le modèle, puis ses [`Prix`]. Vide sans `api`.
@@ -422,6 +429,7 @@ impl Declaration {
             profil: self.profil.clone(),
             empreinte: self.empreinte.clone(),
             modele: self.modele.clone(),
+            effort: self.effort.clone(),
             mur: if self.mur { Mur::Exige } else { Mur::Demande },
             reglages: self.reglages.clone(),
             reglages_depot,
@@ -482,6 +490,7 @@ impl Profil {
                 effort_dit(&claude.effort_decoupeur),
                 effort_dit(&claude.effort_relecteur),
             ),
+            format!("allowed efforts: {}", claude.efforts_permis.as_ref().map_or("any".into(), |e| e.join(", "))),
             format!("wall: {mur}"),
             format!("proof: {preuve}"),
             format!("ceiling per hand: ${}", self.plafond()),
@@ -529,6 +538,17 @@ impl Profil {
             claude.effort_relance = relance.map(String::from);
         }
         copie
+    }
+
+    /// Le profil permet cet effort à une tâche de plan (`efforts_permis`) : sans la clé, et pour une main brute, tout
+    /// effort est permis.
+    pub(crate) fn permet_l_effort(&self, effort: &str) -> bool {
+        match &self.sorte {
+            Sorte::Claude(claude) => {
+                claude.efforts_permis.as_ref().is_none_or(|permis| permis.iter().any(|e| e == effort))
+            }
+            Sorte::Brute(_) => true,
+        }
     }
 
     /// Le profil du découpeur : celui-ci, à l'effort `effort_decoupeur` pour ses deux tentatives.
@@ -1118,6 +1138,7 @@ pub(crate) fn lire(
         effort_relance: None,
         effort_decoupeur: None,
         effort_relecteur: None,
+        efforts_permis: None,
         fournisseur: None,
         prix: Vec::new(),
         exige: true,
@@ -1189,6 +1210,10 @@ pub(crate) fn lire(
             "effort_relance" => claude.effort_relance = Some(valeur.into()),
             "effort_decoupeur" => claude.effort_decoupeur = Some(valeur.into()),
             "effort_relecteur" => claude.effort_relecteur = Some(valeur.into()),
+            "efforts_permis" if !elements.iter().all(|effort| EFFORTS.contains(effort)) => {
+                return refus("efforts_permis liste des efforts parmi low, medium, high, xhigh et max");
+            }
+            "efforts_permis" => claude.efforts_permis = Some(liste()),
             "api" => match hote_de(valeur) {
                 Some(hote) => api = Some((n, valeur, hote)),
                 None => {

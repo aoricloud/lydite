@@ -90,6 +90,10 @@
 //!   du dépôt que le bac porte au départ, vide s'il n'y en a aucun. `foi` vaut toujours `declare` : c'est ce que le
 //!   profil dit, pas ce que la main fait. Ces lignes sont le compteur des lancements, par profil et par empreinte.
 //!   Elles ne sont pas la preuve d'une main : elles portent l'origine de la séance.
+//! - `main.lancement {vague, main, tentative, profil, empreinte, modele, effort, mur, reglages, reglages_depot, foi}` :
+//!   le même lancement quand le profil déclare un effort pour la tentative. `effort` est un de `low`, `medium`,
+//!   `high`, `xhigh`, `max`. Sans effort déclaré, la clé manque, et la ligne est la précédente : un fil écrit avant ce
+//!   champ se relit sans lui, à l'identique.
 //! - `main.constat {vague, main, tentative, version, mur_actif, foi}` : ce que Kraken a lu de la main avant sa consigne
 //!   et à son ouverture. `version` est la version de Claude Code qu'elle a dite, `null` faute d'ouverture ; `mur_actif`
 //!   dit si Claude Code a répondu que son mur est actif (`true`) ou non (`false`), `null` si rien ne l'a dit. `foi`
@@ -334,6 +338,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::json::{self, Valeur};
+use crate::coeur::profil::EFFORTS;
 use crate::coeur::protocole::statut_de_coupure;
 
 /// La version du fil que Kraken écrit, et la seule qu'il lit.
@@ -361,7 +366,8 @@ pub(crate) enum Evenement {
     /// `main.debut` : la main `main` (1 à n) commence sa tentative `tentative` (1, puis 2 à la relance).
     Debut { vague: String, main: usize, tentative: usize },
     /// `main.lancement` : la main part pour sa tentative avec ce que son profil `profil`, de l'empreinte `empreinte`,
-    /// déclare : le `modele` de la tentative, le `mur` du profil, le JSON exact de `--settings` (`reglages`) et les
+    /// déclare : le `modele` de la tentative, son `effort` déclaré (`None` sans clé : Claude Code prend son défaut, et
+    /// la ligne n'a pas la clé), le `mur` du profil, le JSON exact de `--settings` (`reglages`) et les
     /// fichiers de réglages du dépôt que le bac portait au départ (`reglages_depot`, une liste en chaîne, un élément
     /// `<chemin> <empreinte>` par ligne, vide s'il n'y en a aucun). Toujours déclaré : la ligne porte `foi: declare`,
     /// qui n'est pas un champ.
@@ -372,6 +378,7 @@ pub(crate) enum Evenement {
         profil: String,
         empreinte: String,
         modele: String,
+        effort: Option<String>,
         mur: Mur,
         reglages: String,
         reglages_depot: String,
@@ -1000,6 +1007,17 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
                 profil: jeton_ascii("profil")?,
                 empreinte: jeton_ascii("empreinte")?,
                 modele: jeton_ascii("modele")?,
+                // Facultatif : la clé manque quand rien n'est déclaré, et un fil d'avant ce champ se relit sans lui.
+                effort: match valeur("effort") {
+                    None => None,
+                    Some(_) => match texte("effort")? {
+                        lu if EFFORTS.contains(&lu) => Some(lu.to_string()),
+                        lu => {
+                            let domaine = EFFORTS.join(" ou ");
+                            return Err(format!("« effort » vaut {lu:?}, hors de son domaine : {domaine}"));
+                        }
+                    },
+                },
                 mur: jeton(&Mur::TOUS, Mur::mot, "mur", texte("mur")?)?,
                 reglages: texte("reglages")?.into(),
                 reglages_depot: texte("reglages_depot")?.into(),
@@ -1700,22 +1718,28 @@ impl Evenement {
                 profil,
                 empreinte,
                 modele,
+                effort,
                 mur,
                 reglages,
                 reglages_depot,
             } => {
-                vec![
+                let mut corps = vec![
                     ("vague", texte(vague)),
                     ("main", entier(*main)),
                     ("tentative", entier(*tentative)),
                     ("profil", texte(profil)),
                     ("empreinte", texte(empreinte)),
                     ("modele", texte(modele)),
+                ];
+                // Sans effort déclaré, la clé manque : la ligne est celle d'avant ce champ.
+                corps.extend(effort.as_deref().map(|effort| ("effort", texte(effort))));
+                corps.extend([
                     ("mur", texte(mur.mot())),
                     ("reglages", texte(reglages)),
                     ("reglages_depot", texte(reglages_depot)),
                     ("foi", texte(Foi::Declare.mot())),
-                ]
+                ]);
+                corps
             }
             Evenement::Constat { vague, main, tentative, version, mur_actif } => vec![
                 ("vague", texte(vague)),

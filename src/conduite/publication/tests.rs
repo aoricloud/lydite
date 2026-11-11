@@ -117,6 +117,81 @@ fn le_corps_de_la_pr_dit_la_mesure_sur_une_ligne_a_part_quand_un_reglage_est_pos
 }
 
 #[test]
+fn le_corps_de_la_pr_dit_l_effort_de_chaque_role_dans_son_recu() {
+    let plan = Plan::lire(b"plan 1\nobjectif : Un test\npreuve : cargo test\n\ntache a\n    Ecrire a.txt\n").unwrap();
+    let (v, c) = ("1761901500000_11_0", "1761901500001_11_0");
+    // Une tentative : son début, son lancement à l'effort `effort`, sa consigne de rôle `role`.
+    let tentative = |vague: &str, tentative: usize, effort: Option<&str>, role: fil::Role| {
+        [
+            Evenement::Lancement {
+                vague: vague.into(),
+                main: 1,
+                tentative,
+                profil: "essai".into(),
+                empreinte: "e".into(),
+                modele: "sonnet".into(),
+                effort: effort.map(str::to_string),
+                mur: fil::Mur::Exige,
+                reglages: "{}".into(),
+                reglages_depot: String::new(),
+            },
+            Evenement::Consigne {
+                vague: vague.into(),
+                main: 1,
+                tentative,
+                role,
+                consigne: "c".into(),
+                systeme: None,
+                lecons: String::new(),
+                ecartees: String::new(),
+                mesure: String::new(),
+            },
+        ]
+    };
+    let ouverte = |vague: &str| Evenement::Vague {
+        vague: vague.into(),
+        n: 1,
+        depot: "d".into(),
+        verifier: None,
+        objectif: "Un test".into(),
+    };
+    let evenements: Vec<Evenement> = [
+        vec![ouverte(v)],
+        tentative(v, 1, Some("low"), fil::Role::Main).to_vec(),
+        tentative(v, 2, Some("high"), fil::Role::Main).to_vec(),
+        vec![ouverte(c), Evenement::Correction { vague: c.into(), corrige: v.into() }],
+        tentative(c, 1, Some("max"), fil::Role::Correction).to_vec(),
+    ]
+    .concat();
+    let notes: Vec<fil::Note> = evenements
+        .iter()
+        .zip(1..)
+        .map(|(evenement, seq)| fil::Note {
+            seance: "s".into(),
+            seq,
+            instant: "2026-10-31T21:00:00.000Z".into(),
+            origine: "humain".into(),
+            origine_foi: Foi::Declare,
+            evenement: evenement.clone(),
+        })
+        .collect();
+    let texte = corps_sans_reglage(&plan, &etat(&evenements), v, None, None, &notes);
+    let ligne = "- Effort: hand: low, high; correction: max";
+    assert!(texte.lines().any(|vue| vue == ligne), "{texte}");
+    // La ligne est dans le bloc « Receipt », sous les mains et avant l'objectif du plan.
+    let place = |bout: &str| texte.find(bout).unwrap_or_else(|| panic!("{bout} : {texte}"));
+    assert!(place("hands, ") < place(ligne) && place(ligne) < place("Un test"), "{texte}");
+    // Sans le lancement (une main brute n'en note pas), le rôle reste dit, au défaut de Claude Code.
+    let sans: Vec<Evenement> =
+        evenements.iter().filter(|e| !matches!(e, Evenement::Lancement { .. })).cloned().collect();
+    let notes: Vec<fil::Note> =
+        notes.into_iter().filter(|n| !matches!(n.evenement, Evenement::Lancement { .. })).collect();
+    let texte = corps_sans_reglage(&plan, &etat(&sans), v, None, None, &notes);
+    let ligne = "- Effort: hand: Claude Code's default; correction: Claude Code's default";
+    assert!(texte.lines().any(|vue| vue == ligne), "{texte}");
+}
+
+#[test]
 fn le_recu_separe_les_mains_refusees() {
     let v = "1761901500000_11_0";
     let refus = |main| Evenement::Refus {
@@ -322,8 +397,9 @@ fn le_corps_dit_le_plan_sans_sortie_de_main_ni_chemin() {
         .collect();
     let recu = "Receipt\n- Cost: $0.84 estimated + unknown\n- 3 hands, 1 retry, 1 set aside, 3 refused";
     let attendu = format!(
-        "{recu}\n- Proof settings changed: none\n\nCinq fichiers\n\nProof: cargo test → green\n\na: Ecrire \
-         a.txt,\n\nb: set aside\nc: refused (7011): {}\nd: refused (7007): {}\ne: refused (8999)\n",
+        "{recu}\n- Effort: Claude Code's default\n- Proof settings changed: none\n\nCinq fichiers\n\n\
+         Proof: cargo test → green\n\na: Ecrire a.txt,\n\nb: set aside\nc: refused (7011): {}\n\
+         d: refused (7007): {}\ne: refused (8999)\n",
         Code::Sautee.regle(),
         Code::Conflit.regle()
     );
@@ -409,8 +485,8 @@ fn le_corps_d_une_vague_decoupee_nomme_ses_taches_par_leur_id_et_dit_la_relectur
         corps_sans_reglage(&plan, &vagues, v, ligne_de_relecture(&vagues, v).as_deref(), None, &[])
     };
     let fin = "\n";
-    let entete = "Receipt\n- Cost: unknown\n- 0 hands, 0 retries, 1 set aside\n- Proof settings changed: none\n\n\
-                  Trois fichiers\n\nProof: cargo test → green\n\n";
+    let entete = "Receipt\n- Cost: unknown\n- 0 hands, 0 retries, 1 set aside\n- Effort: Claude Code's default\n\
+                  - Proof settings changed: none\n\nTrois fichiers\n\nProof: cargo test → green\n\n";
     // Découpée, relue, corrigée : les ids seuls, ce qui est dehors dit son état, puis la relecture en nombres.
     let notes = [ouverte.clone(), joue.clone(), fusion(1), fusion(2), classee.clone(), relecture(3, 1), correction];
     let corrigee = format!("{entete}a\nb\n\nc: set aside\n\nReview: 3 remarks, 1 blocking, corrected.{fin}");
@@ -648,8 +724,9 @@ impl Lieu {
     /// Ce que `lydite etat` dit de ce fil, et son code de sortie.
     fn etat(&self) -> (String, ExitCode) {
         let dit = crate::commande::etat::rendu(&etat(&self.fil()), "2099-01-01T00:00:00.000Z");
-        // La ligne de reçu a ses propres essais : ici, le reste du texte.
-        let dit = dit.lines().filter(|ligne| !ligne.starts_with("Coût : ")).collect::<Vec<_>>().join("\n");
+        // Les lignes de reçu (le coût, l'effort) ont leurs propres essais : ici, le reste du texte.
+        let recu = |ligne: &&str| ligne.starts_with("Coût : ") || ligne.starts_with("Effort: ");
+        let dit = dit.lines().filter(|ligne| !recu(ligne)).collect::<Vec<_>>().join("\n");
         (dit, crate::commande::etat::etat_dans(&self.kraken).unwrap())
     }
 
@@ -700,6 +777,7 @@ fn une_pr_verte_part_de_la_base_distante_puis_range_ses_bacs() {
     let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
     let corps = format!(
         "Receipt\n- Cost: unknown\n- 2 hands, 0 retries, 0 set aside\n\
+         - Effort: hand: Claude Code's default\n\
          - Thread sealed at {octets} bytes: sha256 {empreinte}.\n\
          - Proof settings changed: none\n\n\
          Ecrire a et b\n\nProof: exit 0 → green\n\na: Ecrire a\nb: Ecrire b\n\n\

@@ -671,14 +671,14 @@ fn n_va_de_1_a_la_borne_du_lecteur() {
         assert_eq!(refus.code, Code::CommandeMalFormee);
         assert!(refus.preuve.contains(&format!("de 1 à 10000, pas « {hors} »")), "{refus}");
     }
-    // La vague de BORNE mains s'écrit, se relit sans écart, et se dit en une ligne par main, entre son objectif et sa
-    // ligne de reçu.
+    // La vague de BORNE mains s'écrit, se relit sans écart, et se dit en une ligne par main, entre son objectif et ses
+    // deux lignes de reçu (le coût, l'effort).
     let dossier = env::temp_dir().join(format!("lydite-test-borne-{}", lot()));
     fs::create_dir_all(&dossier).unwrap();
     Fil::seance(&dossier, "humain").noter(&ouverture(V1, BORNE, "o")).unwrap();
     let Lecture { notes, ecarts } = crate::branchements::dossier::lire(&dossier).unwrap();
     assert!(ecarts.is_empty(), "{ecarts:?}");
     let evenements: Vec<Evenement> = notes.into_iter().map(|note| note.evenement).collect();
-    assert_eq!(rendu(&etat(&evenements), MAINTENANT).lines().count(), 2 + BORNE);
+    assert_eq!(rendu(&etat(&evenements), MAINTENANT).lines().count(), 3 + BORNE);
     let _ = fs::remove_dir_all(&dossier);
 }
