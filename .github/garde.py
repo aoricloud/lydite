@@ -6,7 +6,9 @@ noms neufs des fichiers changés, les lignes ajoutées par le diff net et par ch
 auteurs et committers), le nom de la branche, le titre et le corps. Elle nomme le lieu, jamais le mot ni ce qu'un motif
 a trouvé : les noms passent d'abord, et un fichier n'est nommé que si aucun nom neuf ne porte rien. Une ligne de la
 liste qui porte plusieurs mots se cherche aussi repliée (voir `porte`) : coupée en fin de ligne ou séparée par d'autres
-signes, elle se trouve encore.
+signes, elle se trouve encore. L'adresse de l'auteur et du committer d'un commit ne passe que par la liste, jamais par
+le motif des adresses électroniques : c'est celle qu'un contributeur publie lui-même avec son commit, et la garde
+rejouée sur `main` après la fusion de sa PR la reverrait.
 
 La PR d'un fork ne lit pas la liste (`LISTE=fork`) : sa sortie est publique, et rougir sur un mot deviné le
 confirmerait. Ailleurs, une liste vide ou absente est une faute : la garde ne passe pas sans elle.
@@ -91,8 +93,9 @@ def porte(bas, replie, mot):
     return len(mot.split()) >= 2 and len(forme.split()) >= 2 and forme in replie
 
 
-def trouvailles(texte, mots):
-    """Ce que porte le texte, nommé sans ce qui a été trouvé : les lignes de la liste, puis les motifs."""
+def trouvailles(texte, mots, *, courriels=True):
+    """Ce que porte le texte, nommé sans ce qui a été trouvé : les lignes de la liste, puis les motifs ; sans celui des
+    adresses électroniques si `courriels` est faux."""
     bas, replie = texte.lower(), replier(texte)
     trouve = [f"Line {numero} of the guard list" for numero, mot in mots if porte(bas, replie, mot)]
     if RESEAU_PRIVE.search(texte):
@@ -101,7 +104,7 @@ def trouvailles(texte, mots):
         trouve.append("A private network name")
     if CHEMIN_PERSONNEL.search(texte):
         trouve.append("A personal path")
-    if any(not courriel_permis(c) for c in COURRIEL.finditer(texte)):
+    if courriels and any(not courriel_permis(c) for c in COURRIEL.finditer(texte)):
         trouve.append("An e-mail address")
     return trouve
 
@@ -219,7 +222,8 @@ def garder(dossier, environ):
         fautes.append(f"A binary file is changed{nomme}; its content cannot be checked.")
     for commit in lire_commits(dossier / "commits.jsonl"):
         court = str(commit.get("sha") or "")[:7]
-        message, personnes = trouvailles(commit.get("m") or "", mots), trouvailles(identites(commit), mots)
+        message = trouvailles(commit.get("m") or "", mots)
+        personnes = trouvailles(identites(commit), mots, courriels=False)
         fautes += [f"{t} appears in the message of commit {court}." for t in message]
         fautes += [f"{t} appears in the author or committer of commit {court}." for t in personnes]
     pr = json.loads((dossier / "pr.json").read_text(encoding="utf-8")) if (dossier / "pr.json").exists() else {}
