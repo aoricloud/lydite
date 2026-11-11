@@ -28,6 +28,11 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --no-fail-fast
       - run: cargo clippy --all-targets -- -D warnings
+      # reseau/ (lydite-reseau, le filtre réseau du mur natif) ne se construit que sous Linux. Ses essais du vrai socket
+      # Unix, éteints par défaut, se jouent ici.
+      - run: cargo fmt --check --manifest-path reseau/Cargo.toml
+      - run: cargo test --no-fail-fast --manifest-path reseau/Cargo.toml -- --include-ignored
+      - run: cargo clippy --all-targets --manifest-path reseau/Cargo.toml -- -D warnings
   windows:
     runs-on: windows-latest
     steps:
