@@ -99,6 +99,16 @@ use crate::coeur::fil::lot;
 use crate::coeur::fil::{Evenement, Mur};
 use crate::coeur::json::{self, Json};
 use crate::coeur::plan::hors_forme;
+use crate::coeur::protocole::MODE_DES_EDITIONS;
+
+/// Le fichier du fil dans le dossier de Lydite : `dossier.rs` l'écrit sous ce nom, et la règle `Edit` de la main le
+/// ferme.
+pub(crate) const FIL: &str = "fil.jsonl";
+/// Le dossier des profils dans le dossier de Lydite : `dossier.rs` y range les profils, et la règle `Edit` de la
+/// main le ferme.
+pub(crate) const PROFILS: &str = "profils";
+/// Le début du nom des réglages de srt du rejeu, `srt-<lot>.json`, que les règles `Read` et `Edit` de la main ferment.
+pub(crate) const DEBUT_SRT: &str = "srt-";
 
 /// Les délais d'un profil qui ne les dit pas : une heure pour la main, cinq minutes pour la preuve que Kraken rejoue.
 const DELAI_MAIN: Duration = Duration::from_secs(3600);
@@ -727,7 +737,7 @@ impl Profil {
         );
         Ok(Some(Srt {
             programme: claude.srt.clone(),
-            fichier: Path::new(&bornes.dossier).join(format!("srt-{}.json", lot())),
+            fichier: Path::new(&bornes.dossier).join(format!("{DEBUT_SRT}{}.json", lot())),
             reglages,
             temporaire: temporaire.into(),
         }))
@@ -834,8 +844,8 @@ impl Profil {
             .iter()
             .filter(|sortant| !declare(sortant))
             .map(|sortant| sortant.to_string())
-            .chain(["fil.jsonl", "profils/**"].map(|garde| format!("Edit({}/{garde})", bornes.regle)))
-            .chain(["Read", "Edit"].map(|outil| format!("{outil}({}/srt-*.json)", bornes.regle)))
+            .chain([FIL.to_string(), format!("{PROFILS}/**")].map(|garde| format!("Edit({}/{garde})", bornes.regle)))
+            .chain(["Read", "Edit"].map(|outil| format!("{outil}({}/{DEBUT_SRT}*.json)", bornes.regle)))
             .chain(bornes.connexions.iter().flat_map(connexion))
             .chain([format!("Edit({}/**)", bornes.commun)])
             .chain(COMMIT_REFUSE.map(String::from))
@@ -876,7 +886,7 @@ impl Profil {
                 "stream-json",
                 "--verbose",
                 "--permission-mode",
-                "acceptEdits",
+                MODE_DES_EDITIONS,
                 "--permission-prompts",
                 "none",
                 "--strict-mcp-config",

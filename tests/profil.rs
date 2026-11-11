@@ -89,8 +89,9 @@ const DEMANDES: [&str; 4] = [
 const GET_SETTINGS: &str = concat!(
     r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_settings","response":{"applied":"#,
     r#"{"model":"<modele>"},"effective":{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox":{"enabled":true,"#,
-    r#""failIfUnavailable":<exige>,"allowUnsandboxedCommands":false,<exclues>"network":{"allowedDomains":["exemple.t"#,
-    r#"est"],"strictAllowlist":true},"credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
+    r#""failIfUnavailable":<exige>,"allowUnsandboxedCommands":false,<exclues>"#,
+    r#""filesystem":{"denyRead":["~/",<dossier>]},"network":{"allowedDomains":<domaines>,"#,
+    r#""strictAllowlist":true},"credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
     r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}}},"#,
     r#""sources":[{"source":"userSettings","settings":{}},{"source":"flagSettings",""#,
     r#"settings":{}}]}}}"#,
@@ -377,8 +378,10 @@ fn regles(essai: &Essai, reseau: &[&str], outils: &[&str], pret: &[&str]) -> (Ve
 
 /// Les quatre réponses de contrôle d'une main fidèle au `--settings` déclaré : au modèle `modele`, le mur exigé ou
 /// demandé et ses commandes `exclues`, que Claude Code dit actif ou non, et chaque règle déclarée vue à la source
-/// `flagSettings`.
+/// `flagSettings`. Son `filesystem` effectif ferme à la lecture le dossier personnel et le dossier de Lydite de
+/// l'essai, `dossier`, et son réseau effectif les domaines des règles `WebFetch(domain:…)` de `allow`.
 fn reponses(
+    dossier: &Path,
     modele: &str,
     exige: bool,
     exclues: &[&str],
@@ -394,9 +397,16 @@ fn reponses(
             })
         })
         .collect();
+    let domaines: Vec<String> = allow
+        .iter()
+        .filter_map(|regle| regle.strip_prefix("WebFetch(domain:")?.strip_suffix(')'))
+        .map(json_chaine)
+        .collect();
     [
         GET_SETTINGS
             .replace("<modele>", modele)
+            .replace("<dossier>", &json_chaine(&dossier.to_string_lossy()))
+            .replace("<domaines>", &format!("[{}]", domaines.join(",")))
             .replace("<exige>", &exige.to_string())
             .replace("<exclues>", &cle_exclues(exclues)),
         LIST_PERMISSION_RULES.replace("<regles>", &vues.join(",")),
@@ -639,7 +649,7 @@ impl Essai {
     fn repondre_a(&self, exige: bool, exclues: &[&str], actif: bool, allow: &[String], deny: &[String]) {
         let tentatives = [(1, "claude-haiku-5-5", ECHEC), (2, "claude-sonnet-5-5", REUSSITE)];
         for (n, modele, resultat) in tentatives {
-            self.repondre(n, &reponses(modele, exige, exclues, actif, allow, deny));
+            self.repondre(n, &reponses(&self.dossier, modele, exige, exclues, actif, allow, deny));
             self.conclure(n, modele, resultat);
         }
     }
@@ -1218,7 +1228,7 @@ fn le_decoupeur_part_sur_la_cle_decoupeur_a_ses_deux_tentatives() {
         let (allow, deny) =
             regles(&essai, &RESEAU, &[], &[&format!("Bash({DECOUPE})"), &format!("PowerShell({DECOUPE})")]);
         for n in [1, 2] {
-            essai.repondre(n, &reponses(applique, false, &[DECOUPE], false, &allow, &deny));
+            essai.repondre(n, &reponses(&essai.dossier, applique, false, &[DECOUPE], false, &allow, &deny));
             essai.conclure(n, applique, REUSSITE);
         }
         essai.profil_accepte("veille", cle);
@@ -1320,7 +1330,7 @@ fn une_main_dont_les_reglages_n_ont_pas_pris_est_tuee_avant_la_consigne() {
     let (allow, deny) = regles(&essai, &RESEAU, &[], &PRET);
     // Le `get_settings` du `--settings` tombé du 1/11, à chaque tentative : les trois autres réponses sont justes.
     for (n, modele) in [(1, "claude-haiku-5-5"), (2, "claude-sonnet-5-5")] {
-        let mut tombees = reponses(modele, false, &EXCLUES, false, &allow, &deny);
+        let mut tombees = reponses(&essai.dossier, modele, false, &EXCLUES, false, &allow, &deny);
         tombees[0] = GET_SETTINGS_TOMBE.replace("<modele>", modele);
         essai.repondre(n, &tombees);
         essai.conclure(n, modele, REUSSITE);
@@ -1904,7 +1914,7 @@ fn le_profil_integre_part_sur_sonnet_et_s_inscrit_sans_etre_garde() {
     // réseau.
     let (allow, deny) = regles(&essai, &[], &[], &PRET);
     for (n, resultat) in [(1, ECHEC), (2, REUSSITE)] {
-        essai.repondre(n, &reponses("claude-sonnet-5-5", true, &[], true, &allow, &deny));
+        essai.repondre(n, &reponses(&essai.dossier, "claude-sonnet-5-5", true, &[], true, &allow, &deny));
         essai.conclure(n, "claude-sonnet-5-5", resultat);
     }
     let lancer = ["lancer", "claude", OBJECTIF, "--verifier", VERIFIER];
@@ -1999,7 +2009,7 @@ fn un_profil_declare_ses_sortants_et_son_mcp_a_la_fausse_claude() {
     let attente = r#""mcp_servers":[{"name":"docs","status":"pending"}]"#;
     let ouverture = OUVERTURE.replace(r#""mcp_servers":[]"#, attente);
     for (n, modele, resultat) in [(1, "claude-haiku-5-5", ECHEC), (2, "claude-sonnet-5-5", REUSSITE)] {
-        essai.repondre(n, &reponses(modele, false, &EXCLUES, false, &allow, &deny));
+        essai.repondre(n, &reponses(&essai.dossier, modele, false, &EXCLUES, false, &allow, &deny));
         essai.conclure_par(n, &ouverture.replace("<modele>", modele), resultat);
     }
     let sortie = essai.lancer_et_verifier("veille");

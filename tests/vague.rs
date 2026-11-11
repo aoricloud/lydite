@@ -487,7 +487,8 @@ const FERMES: [&str; 19] = [
 const GET_SETTINGS: &str = concat!(
     r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_settings","response":{"applied":"#,
     r#"{"model":"haiku"},"effective":{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox":{"enabled":true,"fa"#,
-    r#"ilIfUnavailable":true,"allowUnsandboxedCommands":false,"network":{"allowedDomains":[],"strictAllowlist":true}"#,
+    r#"ilIfUnavailable":true,"allowUnsandboxedCommands":false,"filesystem":{"denyRead":["~/",@DOSSIER@]},"#,
+    r#""network":{"allowedDomains":[],"strictAllowlist":true}"#,
     r#","credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
     r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}}},"#,
     r#""sources":[{"source":"userSettings","settings":{}},{"source":"flagSettings","settings":{}}]}}}"#,
@@ -530,6 +531,11 @@ fn regle_du_dossier(dossier: &Path) -> String {
     }
 }
 
+/// Un texte en chaîne JSON : entre guillemets, l'antislash et le guillemet échappés.
+fn json_chaine(texte: &str) -> String {
+    format!("\"{}\"", texte.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 /// Les quatre réponses de contrôle que la fausse claude rend : les règles que Kraken déclare à la main d'une tâche de
 /// preuve `preuve`, sous le dossier de Kraken `dossier` et les leurres de la racine, sur le dépôt visé `depot`.
 fn controle(racine: &Path, dossier: &Path, depot: &Path, preuve: &str) -> String {
@@ -567,7 +573,8 @@ fn controle(racine: &Path, dossier: &Path, depot: &Path, preuve: &str) -> String
         ),
         vues.join(",")
     );
-    [GET_SETTINGS, &regles, GET_HOOKS_LISTING, GET_SANDBOX_DIALOG].join("\n") + "\n"
+    let reglages = GET_SETTINGS.replace("@DOSSIER@", &json_chaine(&dossier.to_string_lossy()));
+    [reglages.as_str(), &regles, GET_HOOKS_LISTING, GET_SANDBOX_DIALOG].join("\n") + "\n"
 }
 
 #[test]

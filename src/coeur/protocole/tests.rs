@@ -1,4 +1,6 @@
 use super::*;
+use crate::essais::mains::{bac_jetable, profil_borne};
+use std::fs;
 
 // Les lignes de Claude Code relevées le 1/11, réduites aux champs que Kraken lit.
 const GET_SETTINGS: &str = concat!(
@@ -6,7 +8,8 @@ const GET_SETTINGS: &str = concat!(
     r#"":"get_settings","response":{"applied":{"model":"claude-sonnet-5-5"},""#,
     r#"effective":{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox""#,
     r#":{"enabled":true,"failIfUnavailable":false,"allowUnsandboxedCommands":"#,
-    r#"false,"network":{"allowedDomains":[],"strictAllowlist":true}}},"source"#,
+    r#"false,"filesystem":{"denyRead":["~/","/srv/lydite"],"allowRead":["/srv/lydite/bacs/main-1","#,
+    r#""/srv/depot/.git"]},"network":{"allowedDomains":[],"strictAllowlist":true}}},"source"#,
     r#"s":[{"source":"userSettings","settings":{}},{"source":"flagSettings",""#,
     r#"settings":{}}]}}}"#,
 );
@@ -272,15 +275,10 @@ fn chaque_ecart_des_reponses_est_dit() {
 #[test]
 fn les_commandes_exclues_du_bac_a_sable_se_jugent_telles_que_declarees() {
     // `get_settings` dans la forme relevée le 1/11 au soir sous Windows : après `network`, son `sandbox` effectif
-    // porte `filesystem`, le bac en `/srv/lydite/bacs/main-1`, puis la preuve prêtée en `excludedCommands`. Le
-    // `--settings` la déclare juste après `allowUnsandboxedCommands`.
+    // porte la preuve prêtée en `excludedCommands`. Le `--settings` la déclare juste après `allowUnsandboxedCommands`.
     let settings = GET_SETTINGS.replace(
         r#""strictAllowlist":true}}"#,
-        concat!(
-            r#""strictAllowlist":true},"filesystem":{"denyRead":["~/"],"allowRead":[""#,
-            r#"/srv/lydite/bacs/main-1"]},"excludedCommands":["findstr /x bonjour bon"#,
-            r#"jour.txt"]}"#,
-        ),
+        concat!(r#""strictAllowlist":true},"excludedCommands":["findstr /x bonjour bon"#, r#"jour.txt"]}"#,),
     );
     let declare = REGLAGES.replace(
         r#""allowUnsandboxedCommands":false,"#,
@@ -677,4 +675,105 @@ fn les_regles_des_identifiants_s_additionnent_d_une_source_a_l_autre() {
     }
     let ecart = jugement(Some(&format!("[{cle}]"))).unwrap_err();
     assert!(ecart.ends_with("[1 élément], déclaré [2 éléments]"), "{ecart}");
+}
+
+/// Le jugement de `get_settings` sur ces réglages déclarés, l'effectif étant `GET_SETTINGS` où `de` devient `en`.
+fn jugement_du_mur(declare: &str, de: &str, en: &str) -> Result<(), String> {
+    let settings = GET_SETTINGS.replace(de, en);
+    assert!(de == en || settings != GET_SETTINGS, "{de} n'est pas dans GET_SETTINGS");
+    juger_reponses(&attendu(declare), &avec(&settings)).1
+}
+
+#[test]
+fn les_listes_qui_ouvrent_le_mur_se_jugent_par_leurs_entrees_effectives() {
+    let lus = r#""allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git"]"#;
+    // Une entrée de plus à l'effectif, qu'une autre source ajouterait : un écart qui nomme la clé et l'entrée.
+    let ecart =
+        jugement_du_mur(REGLAGES, lus, r#""allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git","/home/humain"]"#)
+            .unwrap_err();
+    assert_eq!(
+        ecart,
+        concat!(
+            "main : réglages non pris : get_settings : ",
+            r#"effective.sandbox.filesystem.allowRead : entrée "/home/humain" hors du déclaré"#,
+        )
+    );
+    // Une entrée de moins ferme davantage le mur, et une clé absente de l'effectif vaut une liste vide : pris.
+    assert_eq!(jugement_du_mur(REGLAGES, lus, r#""allowRead":["/srv/lydite/bacs/main-1"]"#), Ok(()));
+    assert_eq!(jugement_du_mur(REGLAGES, &format!(",{lus}"), ""), Ok(()));
+    // Une liste qui n'en est pas une n'est pas lue comme vide : un écart.
+    let ecart = jugement_du_mur(REGLAGES, lus, r#""allowRead":"tout""#).unwrap_err();
+    assert!(ecart.contains(r#"effective.sandbox.filesystem.allowRead "tout", déclaré une liste"#), "{ecart}");
+    // Les domaines du réseau suivent la même règle.
+    let declare = REGLAGES.replace(r#""allowedDomains":[]"#, r#""allowedDomains":["a.test"]"#);
+    let domaines = r#""allowedDomains":[]"#;
+    assert_eq!(jugement_du_mur(&declare, domaines, r#""allowedDomains":["a.test"]"#), Ok(()));
+    assert_eq!(jugement_du_mur(&declare, domaines, domaines), Ok(()));
+    for effectif in [r#"["a.test","b.test"]"#, r#"["b.test"]"#] {
+        let ecart = jugement_du_mur(&declare, domaines, &format!(r#""allowedDomains":{effectif}"#)).unwrap_err();
+        assert!(
+            ecart.contains(r#"effective.sandbox.network.allowedDomains : entrée "b.test" hors du déclaré"#),
+            "{ecart}"
+        );
+    }
+    // Rien de déclaré : toute entrée effective est de trop.
+    let ecart = jugement_du_mur(REGLAGES, domaines, r#""allowedDomains":["b.test"]"#).unwrap_err();
+    assert!(ecart.contains(r#"allowedDomains : entrée "b.test" hors du déclaré"#), "{ecart}");
+}
+
+#[test]
+fn la_liste_qui_ferme_le_mur_garde_chaque_entree_declaree() {
+    let fermes = r#""denyRead":["~/","/srv/lydite"]"#;
+    // Une entrée déclarée qui manque : un écart qui nomme la clé et l'entrée.
+    let ecart = jugement_du_mur(REGLAGES, fermes, r#""denyRead":["~/"]"#).unwrap_err();
+    assert_eq!(
+        ecart,
+        concat!(
+            "main : réglages non pris : get_settings : ",
+            r#"effective.sandbox.filesystem.denyRead : entrée "/srv/lydite" déclarée, absente"#,
+        )
+    );
+    // Une clé absente, ou qui n'est pas une liste, ne garde rien.
+    assert!(jugement_du_mur(REGLAGES, &format!("{fermes},"), "").is_err());
+    assert!(jugement_du_mur(REGLAGES, fermes, r#""denyRead":"~/""#).is_err());
+    // Une entrée de plus ferme davantage le mur : pas un écart.
+    assert_eq!(jugement_du_mur(REGLAGES, fermes, r#""denyRead":["~/","/srv/lydite","/etc"]"#), Ok(()));
+    assert_eq!(jugement_du_mur(REGLAGES, fermes, fermes), Ok(()));
+}
+
+/// Les chemins des feuilles de ce JSON sous `chemin` : un objet se parcourt, tout autre valeur, liste comprise, est
+/// une feuille.
+fn feuilles(json: &Json, chemin: &str, sortie: &mut Vec<String>) {
+    match json {
+        Json::Objet(objet) => {
+            for (cle, valeur) in objet {
+                feuilles(valeur, &format!("{chemin}.{cle}"), sortie);
+            }
+        }
+        _ => sortie.push(chemin.to_string()),
+    }
+}
+
+#[test]
+fn chaque_cle_sandbox_du_profil_est_jugee_ou_nommee_non_jugee() {
+    let (dir, bac) = bac_jetable("cles-jugees");
+    let mut ecrites = Vec::new();
+    // Le mur demandé avec une preuve prêtée (`excludedCommands` s'écrit), puis le mur exigé, avec un réseau.
+    let profils = [
+        ("sorte = claude\n", Some("cargo test && git status")),
+        ("sorte = claude\nmur = exige\nreseau = exemple.test\n", None),
+    ];
+    for (texte, verifier) in profils {
+        let declaration = profil_borne(texte, &dir).demande(&bac, verifier, false).declaration.unwrap();
+        let declare = json::document(&declaration.reglages).unwrap();
+        feuilles(champ(&declare, "sandbox").unwrap(), "sandbox", &mut ecrites);
+    }
+    let _ = fs::remove_dir_all(&dir);
+    assert!(ecrites.iter().any(|cle| cle == "sandbox.excludedCommands"), "{ecrites:?}");
+    assert!(ecrites.iter().any(|cle| cle == "sandbox.filesystem.allowRead"), "{ecrites:?}");
+    let jugees: Vec<&str> = MUR.iter().chain(&OUVRANT).chain([&VARIABLES, &FERMANT]).copied().collect();
+    for cle in &ecrites {
+        let nommee = NON_JUGEES.iter().any(|(nom, raison)| *nom == cle.as_str() && !raison.is_empty());
+        assert!(jugees.contains(&cle.as_str()) || nommee, "{cle} s'écrit dans --settings sans être jugée ni nommée");
+    }
 }
