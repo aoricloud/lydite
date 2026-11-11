@@ -1046,6 +1046,8 @@ fn lydite_profil_dit_le_profil_integre_sans_rien_ecrire() {
         "profile: claude (built-in)",
         "fingerprint: 7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5",
         "model: sonnet; retry: sonnet",
+        "effort: Claude Code's default; retry: Claude Code's default; splitter: Claude Code's default; reviewer: \
+         Claude Code's default",
         "wall: required: the hand's commands run in Claude Code's sandbox",
         "proof: replayed by srt, inside the wall",
         "ceiling per hand: $20",
@@ -1059,6 +1061,37 @@ fn lydite_profil_dit_le_profil_integre_sans_rien_ecrire() {
 }
 
 #[test]
+fn lydite_profil_dit_l_effort_de_chaque_role_et_refuse_un_effort_inconnu() {
+    let essai = Essai::nouveau("profil-effort");
+    // Un effort posé par rôle : sa valeur ; ceux qui ne le sont pas, le défaut de Claude Code. La rangée suit celle du
+    // modèle.
+    essai.profil_accepte("veille", "effort_decoupeur = xhigh\neffort = low\n");
+    let rangees = rangees_du_profil(&essai, "veille");
+    let [modele, effort] = &rangees[2..4] else { panic!("{rangees:?}") };
+    assert_eq!(modele, "model: haiku; retry: sonnet");
+    let defaut = "Claude Code's default";
+    assert_eq!(effort, &format!("effort: low; retry: {defaut}; splitter: xhigh; reviewer: {defaut}"));
+    // Les quatre posées.
+    essai.profil_accepte(
+        "veille",
+        "effort = low\neffort_relance = medium\neffort_decoupeur = high\neffort_relecteur = max\n",
+    );
+    let rangees = rangees_du_profil(&essai, "veille");
+    assert_eq!(rangees[3], "effort: low; retry: medium; splitter: high; reviewer: max");
+    // Un effort hors du domaine : le refus 6009, que `lydite profil` rend comme `lancer`, avec sa ligne et sa règle.
+    for cle in ["effort", "effort_relance", "effort_decoupeur", "effort_relecteur"] {
+        essai.profil("veille", &format!("{cle} = ultra\n"));
+        let regle = format!("« {cle} = ultra » : un effort vaut low, medium, high, xhigh ou max");
+        for commande in ["profil", "accepter"] {
+            let refus = lire_refus(essai.kraken().args([commande, "veille"]));
+            assert_eq!(refus.code, "lydite : 6009 lancer.profil_ligne_refusee", "{cle} : {commande}");
+            assert!(refus.preuve.contains(&regle), "{cle} : {commande} : {refus:?}");
+        }
+    }
+    essai.nettoyer();
+}
+
+#[test]
 fn lydite_profil_dit_un_mur_demande_et_refuse_comme_lancer() {
     let essai = Essai::nouveau("profil-demande");
     let (_, empreinte) = essai.profil_accepte("veille", "plafond = 7.5\n");
@@ -1067,6 +1100,9 @@ fn lydite_profil_dit_un_mur_demande_et_refuse_comme_lancer() {
         format!("profile: veille ({})", fichier.display()),
         format!("fingerprint: {empreinte}"),
         "model: haiku; retry: sonnet".to_string(),
+        "effort: Claude Code's default; retry: Claude Code's default; splitter: Claude Code's default; reviewer: \
+         Claude Code's default"
+            .to_string(),
         "wall: requested: the hand's commands may run outside the sandbox, and see the provider's key if there is \
          one"
         .to_string(),

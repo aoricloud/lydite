@@ -527,7 +527,8 @@ impl Relecture<'_> {
             lecons: Some(&self.menee.lecons),
             ..Liens::default()
         };
-        let rendue = lancer_avec(self.depot, self.dossier, self.profil, &relecteur, self.bail, tete, liens)
+        let profil = self.profil.pour_le_relecteur();
+        let rendue = lancer_avec(self.depot, self.dossier, &profil, &relecteur, self.bail, tete, liens)
             .map_err(|echec| classee(format!("sa vague ne s'ouvre pas, {} : {}", echec.code, echec.preuve)))?;
         let (main, issue) = rendue.issues.into_iter().next().unwrap_or_else(|| {
             (format!("main-{}-1", rendue.id), Err("la vague du relecteur n'a rendu aucune issue".into()))
@@ -547,8 +548,9 @@ impl Relecture<'_> {
         let correction = plan_de_la_correction(self.profil, self.plan, &self.critiques, remarques);
         let manque = |preuve: String| Refus::new(Code::BloquantesRestantes, preuve, SANS_CORRECTION);
         let liens = Liens { corrige: Some(id), lecons: Some(&self.menee.lecons), ..Liens::default() };
-        let corrigee = lancer_avec(self.depot, self.dossier, self.profil, &correction, self.bail, tete, liens)
-            .map_err(|echec| {
+        let profil = self.profil.pour_la_correction();
+        let corrigee =
+            lancer_avec(self.depot, self.dossier, &profil, &correction, self.bail, tete, liens).map_err(|echec| {
                 manque(format!("la correction de la vague {id} ne s'ouvre pas, {} : {}", echec.code, echec.preuve))
             })?;
         let dehors = corrigee.issues.iter().find_map(|(_, issue)| issue.as_ref().err());

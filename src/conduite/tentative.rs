@@ -195,8 +195,12 @@ pub(crate) fn tenter(
 ) -> (Option<Constat>, Option<String>, Result<Pris, Echec>) {
     let mut verif = None;
     let Demande { argv, declaration } = profil.demande_avec(bac, verifier, precedente.is_some(), lecons);
-    let attendu =
-        declaration.as_ref().map(|d| Attendu { reglages: &d.reglages, modele: &d.modele, mcp: d.mcp.as_deref() });
+    let attendu = declaration.as_ref().map(|d| Attendu {
+        reglages: &d.reglages,
+        modele: &d.modele,
+        effort: d.effort.as_deref(),
+        mcp: d.mcp.as_deref(),
+    });
     // raccourci : ce que la main écrit entre au fil tel quel, et une main qui y recopierait sa clé l'y écrirait ;
     // monter (masquer la valeur de la clé dans ce qu'elle rend) si une main d'un fournisseur la répète
     let fournisseur = profil.fournisseur();
