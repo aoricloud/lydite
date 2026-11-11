@@ -26,7 +26,9 @@
 //!    une règle `allow` qu'une autre source ajoute (`userSettings` en tête) fait lire et écrire la main hors de son
 //!    bac, `~/.config/gh/` compris, sans que rien ne la retienne. Toute règle `allow` qui n'est pas une règle déclarée,
 //!    vue à `flagSettings`, est un écart (outils de fichiers, WebFetch, WebSearch, `mcp__*`, tout autre outil), qui
-//!    nomme la règle et sa source et dit de la retirer des réglages de cette source. Une seule exception : `Bash` et
+//!    nomme la règle et sa source, dit de la retirer du fichier de réglages de cette source (`~/.claude/settings.json`
+//!    pour `userSettings`, ou le `settings.json` du dossier que nomme `CLAUDE_CONFIG_DIR` ; le nom seul pour une autre
+//!    source) et rappelle ce qui reste permis. Une seule exception : `Bash` et
 //!    `PowerShell` (nus ou avec un motif) sous un mur exigé (`sandbox.failIfUnavailable` vrai au déclaré), car ces
 //!    commandes y restent dans le bac à sable que le constat prouve actif (`allowUnsandboxedCommands` faux, une
 //!    `excludedCommands` de plus est déjà un écart) ; sous un mur seulement demandé, le bac peut manquer et la règle
@@ -38,8 +40,8 @@
 //!    `get_hooks_listing` avec tous les crochets coupés ; `get_sandbox_dialog`, interne à Claude Code,
 //!    qui dit le mur actif ou non, et dont le silence n'est pas un écart, sauf un mur exigé qu'il dit inactif.
 //! 4. Sans écart, Kraken écrit la consigne ([`message`]), puis ferme l'entrée de la main. Au moindre écart, la main
-//!    meurt sans sa consigne : `main : réglages non pris : <écarts>`, chaque écart en une ligne qui dit le déclaré
-//!    contre le constaté, les écarts joints par « ; ».
+//!    meurt sans sa consigne : `hand: settings not applied: <écarts>`, chaque écart en une ligne, en anglais, qui dit
+//!    le déclaré contre le constaté (`declared …`), les écarts joints par « ; ».
 //! 5. L'ouverture, `{"type":"system","subtype":"init",…}`, n'arrive qu'après la consigne, 0,4 s après :
 //!    [`juger_ouverture`] y juge le mode `acceptEdits`, les outils fermés et les serveurs MCP, et en tire la version.
 //!    Avant elle, une ligne illisible est un écart, et toute autre ligne s'ignore.
@@ -99,7 +101,22 @@ const NON_JUGEES: [(&str, &str); 0] = [];
 pub(crate) const MODE_DES_EDITIONS: &str = "acceptEdits";
 
 /// Le début de l'erreur d'une main tuée sur un écart, avant sa consigne ou à son ouverture.
-const NON_PRIS: &str = "main : réglages non pris : ";
+const NON_PRIS: &str = "hand: settings not applied: ";
+
+/// Le fichier de réglages de la source `userSettings`, tel que l'humain le lit dans l'écart d'une règle ou d'un dossier
+/// qu'il y a écrit : `~/.claude/settings.json`, ou le `settings.json` du dossier que nomme `CLAUDE_CONFIG_DIR`.
+const FICHIER_UTILISATEUR: &str =
+    "~/.claude/settings.json (or the settings.json in the folder CLAUDE_CONFIG_DIR names)";
+
+/// Où retirer une entrée : le fichier de réglages de la source quand il est connu (`userSettings`), sinon son nom seul,
+/// sinon « la source qui l'ajoute ».
+fn lieu_de_source(source: Option<&str>) -> String {
+    match source {
+        Some("userSettings") => FICHIER_UTILISATEUR.to_string(),
+        Some(source) => format!("the settings of {source:?}"),
+        None => "the settings of the source that adds it".to_string(),
+    }
+}
 
 /// Ce que Kraken a passé à la main, contre quoi se juge ce qu'elle répond.
 #[derive(Debug, Clone, Copy)]
@@ -203,9 +220,9 @@ pub(crate) fn message(consigne: &str) -> String {
 /// Range une ligne de la sortie de la main, lue sans son `\n`. Illisible, en UTF-8 ou en JSON, elle est un écart, et
 /// l'erreur rendue est entière : `jouer` la rend avant l'ouverture, et l'ignore après.
 pub(crate) fn lire_ligne(octets: &[u8]) -> Result<Ligne, String> {
-    let illisible = |raison: String| format!("{NON_PRIS}ligne illisible : {raison}");
+    let illisible = |raison: String| format!("{NON_PRIS}unreadable line : {raison}");
     let texte =
-        str::from_utf8(octets).map_err(|e| illisible(format!("UTF-8 invalide après l'octet {}", e.valid_up_to())))?;
+        str::from_utf8(octets).map_err(|e| illisible(format!("invalid UTF-8 after byte {}", e.valid_up_to())))?;
     let ligne = json::document(texte).map_err(illisible)?;
     Ok(match (texte_de(&ligne, "type"), texte_de(&ligne, "subtype")) {
         (Some("control_response"), _) => match (texte_de(&ligne, "response.request_id"), champ(&ligne, "response")) {
@@ -222,7 +239,7 @@ pub(crate) fn lire_ligne(octets: &[u8]) -> Result<Ligne, String> {
 /// Juge les quatre réponses, rangées par l'id de leur demande, contre le `--settings` déclaré. Rend le mur constaté,
 /// même sur un écart : le booléen `enabled` d'une réponse `success` à `get_sandbox_dialog`, `None` sinon. Puis le
 /// jugement : `Ok`, ou l'erreur qui dit tous les écarts, chacun à la suite du nom de sa demande, dans l'ordre de
-/// [`DEMANDES`] : `main : réglages non pris : get_settings : <écart> ; <écart> ; list_permission_rules : <écart>`.
+/// [`DEMANDES`] : `hand: settings not applied: get_settings : <écart> ; <écart> ; list_permission_rules : <écart>`.
 pub(crate) fn juger_reponses(
     attendu: &Attendu,
     reponses: &BTreeMap<String, Json>,
@@ -235,12 +252,12 @@ pub(crate) fn juger_reponses(
     };
     let declare = match json::document(attendu.reglages) {
         Ok(declare) => declare,
-        Err(raison) => return (mur_actif, Err(format!("{NON_PRIS}--settings déclaré illisible : {raison}"))),
+        Err(raison) => return (mur_actif, Err(format!("{NON_PRIS}declared --settings unreadable : {raison}"))),
     };
     let mut groupes = Vec::new();
     for id in DEMANDES {
         let ecarts = match reponses.get(id) {
-            None => vec!["demandée, sans réponse".to_string()],
+            None => vec!["requested, no reply".to_string()],
             Some(reponse) if !succes(reponse) => match id {
                 // Interne à Claude Code, `get_sandbox_dialog` en erreur ne dit rien du mur : ce n'est pas un écart.
                 "get_sandbox_dialog" => Vec::new(),
@@ -267,13 +284,13 @@ pub(crate) fn juger_reponses(
 /// affichent tous deux `default`), aucun nom nu de `deny` parmi `tools`, et `mcp_servers` vide sans `mcp`, ou, avec
 /// lui, chaque serveur au nom d'une clé du `mcpServers` déclaré, quel que soit son statut. Rend la version constatée,
 /// `claude_code_version`, même sur un écart. Puis le jugement : `Ok`, ou l'erreur qui dit tous les écarts,
-/// `main : réglages non pris : à l'ouverture, <écart> ; <écart>`.
+/// `hand: settings not applied: at startup, <écart> ; <écart>`.
 pub(crate) fn juger_ouverture(attendu: &Attendu, ouverture: &Json) -> (Option<String>, Result<(), String>) {
     let version = texte_de(ouverture, "claude_code_version").map(str::to_string);
     let mut ecarts = Vec::new();
     if texte_de(ouverture, "permissionMode") != Some(MODE_DES_EDITIONS) {
         ecarts.push(format!(
-            "permissionMode {}, déclaré {MODE_DES_EDITIONS:?}",
+            "permissionMode {}, declared {MODE_DES_EDITIONS:?}",
             montre(champ(ouverture, "permissionMode"))
         ));
     }
@@ -283,7 +300,7 @@ pub(crate) fn juger_ouverture(attendu: &Attendu, ouverture: &Json) -> (Option<St
             textes(champ(declare, "permissions.deny")).into_iter().filter(|nom| !nom.contains('(')).collect()
         }
         Err(raison) => {
-            ecarts.push(format!("--settings déclaré illisible : {raison}"));
+            ecarts.push(format!("declared --settings unreadable : {raison}"));
             Vec::new()
         }
     };
@@ -291,29 +308,29 @@ pub(crate) fn juger_ouverture(attendu: &Attendu, ouverture: &Json) -> (Option<St
         Some(Json::Liste(outils)) => {
             for nom in fermes {
                 if outils.iter().any(|outil| matches!(outil, Json::Texte(vu) if vu == nom)) {
-                    ecarts.push(format!("tools porte {nom:?}, déclaré en deny"));
+                    ecarts.push(format!("tools carries {nom:?}, declared in deny"));
                 }
             }
         }
-        autre => ecarts.push(format!("tools {}, déclaré une liste sans les noms de deny", montre(autre))),
+        autre => ecarts.push(format!("tools {}, declared a list without the deny names", montre(autre))),
     }
     let serveurs = champ(ouverture, "mcp_servers");
     match (attendu.mcp, serveurs) {
         (None, Some(Json::Liste(serveurs))) if serveurs.is_empty() => {}
-        (None, _) => ecarts.push(format!("mcp_servers {}, déclaré []", montre(serveurs))),
+        (None, _) => ecarts.push(format!("mcp_servers {}, declared []", montre(serveurs))),
         // Un serveur déclaré passe, quel que soit son statut : il peut être encore `pending`.
         (Some(noms), Some(Json::Liste(serveurs))) => {
             for nom in serveurs.iter().map(|serveur| champ(serveur, "name")) {
                 if !matches!(nom, Some(Json::Texte(nom)) if noms.contains(nom)) {
-                    ecarts.push(format!("mcp_servers.name {}, déclaré parmi {noms:?}", montre(nom)));
+                    ecarts.push(format!("mcp_servers.name {}, declared among {noms:?}", montre(nom)));
                 }
             }
         }
         (Some(noms), autre) => {
-            ecarts.push(format!("mcp_servers {}, déclaré une liste de serveurs parmi {noms:?}", montre(autre)));
+            ecarts.push(format!("mcp_servers {}, declared a list of servers among {noms:?}", montre(autre)));
         }
     }
-    (version, jugement(&ecarts, &format!("{NON_PRIS}à l'ouverture, ")))
+    (version, jugement(&ecarts, &format!("{NON_PRIS}at startup, ")))
 }
 
 /// La sortie de la main : le texte `result` de sa ligne de résultat, vide s'il manque. Un résultat en erreur
@@ -473,25 +490,26 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
         Some(Json::Liste(sources)) if sources.iter().any(flag) => {}
         Some(Json::Liste(sources)) => {
             let noms: Vec<String> = sources.iter().map(|source| montre(champ(source, "source"))).collect();
-            ecarts.push(format!("sources [{}], déclaré \"flagSettings\" parmi elles", noms.join(", ")));
+            ecarts.push(format!("sources [{}], declared \"flagSettings\" among them", noms.join(", ")));
         }
-        autre => ecarts.push(format!("sources {}, déclaré \"flagSettings\" parmi elles", montre(autre))),
+        autre => ecarts.push(format!("sources {}, declared \"flagSettings\" among them", montre(autre))),
     }
     match vu("errors") {
         None => {}
         Some(Json::Liste(erreurs)) => {
             for erreur in erreurs {
                 let de = |cle| montre(champ(erreur, cle));
-                ecarts.push(format!("erreur {} à {} : {}, déclaré sans erreur", de("file"), de("path"), de("message")));
+                let (fichier, chemin, message) = (de("file"), de("path"), de("message"));
+                ecarts.push(format!("error {fichier} at {chemin} : {message}, declared without error"));
             }
         }
-        autre => ecarts.push(format!("errors {}, déclaré []", montre(autre))),
+        autre => ecarts.push(format!("errors {}, declared []", montre(autre))),
     }
     // Ce qui garde la main : les crochets et la mémoire automatique coupés, le mur tel que déclaré.
     let mut egal = |chemin: &str, declare: Option<&Json>| {
         let effectif = vu(&format!("effective.{chemin}"));
         if effectif != declare {
-            ecarts.push(format!("effective.{chemin} {}, déclaré {}", montre(effectif), montre(declare)));
+            ecarts.push(format!("effective.{chemin} {}, declared {}", montre(effectif), montre(declare)));
         }
     };
     egal("disableAllHooks", Some(&Json::Booleen(true)));
@@ -502,7 +520,7 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
     let effectif = vu(&format!("effective.{VARIABLES}"));
     let declarees = champ(declare, VARIABLES);
     if !variables_gardees(effectif, declarees) {
-        ecarts.push(format!("effective.{VARIABLES} {}, déclaré {}", montre(effectif), montre(declarees)));
+        ecarts.push(format!("effective.{VARIABLES} {}, declared {}", montre(effectif), montre(declarees)));
     }
     for chemin in OUVRANT {
         let cle = format!("effective.{chemin}");
@@ -512,11 +530,11 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
             Some(Json::Liste(effectives)) => {
                 for entree in effectives {
                     if !matches!(entree, Json::Texte(texte) if declarees.contains(&texte.as_str())) {
-                        ecarts.push(format!("{cle} : entrée {} hors du déclaré", montre(Some(entree))));
+                        ecarts.push(format!("{cle} : entry {} outside the declared", montre(Some(entree))));
                     }
                 }
             }
-            autre => ecarts.push(format!("{cle} {}, déclaré une liste", montre(autre))),
+            autre => ecarts.push(format!("{cle} {}, declared a list", montre(autre))),
         }
     }
     // Les dossiers de plus où les outils de fichiers lisent et écrivent sans règle : Lydite n'en déclare aucun.
@@ -525,17 +543,28 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
         Some(Json::Liste(dossiers)) => {
             for dossier in dossiers {
                 let nom = montre(Some(dossier));
-                ecarts.push(format!("effective.{DOSSIERS} : dossier {nom} hors du déclaré (aucun)"));
+                let (vu, ou) = match sources_du_dossier(vu("sources"), dossier).as_slice() {
+                    [] => (String::new(), lieu_de_source(None)),
+                    noms => {
+                        let lieux: Vec<String> = noms.iter().map(|source| lieu_de_source(Some(source))).collect();
+                        let dits: Vec<String> = noms.iter().map(|source| format!("{source:?}")).collect();
+                        (format!(", seen at {}", dits.join(", ")), lieux.join(" and "))
+                    }
+                };
+                ecarts.push(format!(
+                    "effective.{DOSSIERS} : directory {nom} outside the declared (none){vu} : \
+                     remove this entry from {DOSSIERS} in {ou} to launch Lydite"
+                ));
             }
         }
-        autre => ecarts.push(format!("effective.{DOSSIERS} {}, déclaré une liste vide", montre(autre))),
+        autre => ecarts.push(format!("effective.{DOSSIERS} {}, declared an empty list", montre(autre))),
     }
     {
         let cle = format!("effective.{FERMANT}");
         let effectives = textes(vu(&cle));
         for entree in textes(champ(declare, FERMANT)) {
             if !effectives.contains(&entree) {
-                ecarts.push(format!("{cle} : entrée {entree:?} déclarée, absente"));
+                ecarts.push(format!("{cle} : entry {entree:?} declared, absent"));
             }
         }
     }
@@ -543,13 +572,13 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
     let pris =
         matches!(applique, Some(Json::Texte(nom)) if nom == modele || nom.starts_with(&format!("claude-{modele}-")));
     if !pris {
-        ecarts.push(format!("applied.model {}, déclaré {modele:?}", montre(applique)));
+        ecarts.push(format!("applied.model {}, declared {modele:?}", montre(applique)));
     }
     // L'effort ne se juge que déclaré : sans clé, Claude Code prend son défaut, que rien ne compare.
     if let Some(effort) = effort {
         let applique = vu("applied.effort");
         if !matches!(applique, Some(Json::Texte(vu)) if vu == effort) {
-            ecarts.push(format!("applied.effort {}, déclaré {effort:?}", montre(applique)));
+            ecarts.push(format!("applied.effort {}, declared {effort:?}", montre(applique)));
         }
     }
     ecarts
@@ -573,7 +602,7 @@ fn variables_gardees(effectif: Option<&Json>, declarees: Option<&Json>) -> bool 
 fn regles(corps: Option<&Json>, declare: &Json) -> Vec<String> {
     let lues = corps.and_then(|corps| champ(corps, "state.rules"));
     let Some(Json::Liste(vues)) = lues else {
-        return vec![format!("state.rules {}, déclaré une liste de règles", montre(lues))];
+        return vec![format!("state.rules {}, declared a list of rules", montre(lues))];
     };
     let mut ecarts = Vec::new();
     for comportement in ["allow", "deny"] {
@@ -586,15 +615,15 @@ fn regles(corps: Option<&Json>, declare: &Json) -> Vec<String> {
                 continue;
             }
             let vu = if memes.is_empty() {
-                "absente".to_string()
+                "absent".to_string()
             } else {
                 let ou: Vec<String> = memes
                     .iter()
-                    .map(|vue| format!("en {} à {}", montre(champ(vue, "behavior")), montre(champ(vue, "source"))))
+                    .map(|vue| format!("as {} at {}", montre(champ(vue, "behavior")), montre(champ(vue, "source"))))
                     .collect();
-                format!("vue {}", ou.join(", "))
+                format!("seen {}", ou.join(", "))
             };
-            ecarts.push(format!("{comportement} {regle:?} déclarée, {vu}"));
+            ecarts.push(format!("{comportement} {regle:?} declared, {vu}"));
         }
     }
     // Les règles `allow` que Lydite n'a pas déclarées : une autre source qui en ajoute ouvre les outils de la main hors
@@ -614,15 +643,31 @@ fn regles(corps: Option<&Json>, declare: &Json) -> Vec<String> {
             continue;
         }
         let ou = match source {
-            Some(source) => format!("à {source:?}"),
-            None => "sans source".to_string(),
+            Some(source) => format!("at {source:?}"),
+            None => "without a source".to_string(),
         };
         ecarts.push(format!(
-            "allow {} vue {ou}, non déclarée : la retirer des réglages de cette source pour lancer Lydite",
+            "allow {} seen {ou}, not declared : remove this rule from {} to launch Lydite. \
+             A rule on Bash or PowerShell stays allowed, under a required wall (sandbox.failIfUnavailable true)",
             montre(champ(vue, "rule")),
+            lieu_de_source(source),
         ));
     }
     ecarts
+}
+
+/// Les sources de `get_settings` dont les réglages portent ce dossier dans `permissions.additionalDirectories`, dans
+/// l'ordre des sources. Vide si `sources` ne le dit pas : l'écart nomme alors le dossier sans source.
+fn sources_du_dossier<'a>(sources: Option<&'a Json>, dossier: &Json) -> Vec<&'a str> {
+    let Some(Json::Liste(sources)) = sources else { return Vec::new() };
+    sources
+        .iter()
+        .filter(|source| {
+            let porte = champ(source, &format!("settings.{DOSSIERS}"));
+            matches!(porte, Some(Json::Liste(liste)) if liste.contains(dossier))
+        })
+        .filter_map(|source| texte_de(source, "source"))
+        .collect()
 }
 
 /// Vrai si la règle vise `Bash` ou `PowerShell`, nus ou avec un motif entre parenthèses. Sous un mur exigé, ces
@@ -639,7 +684,7 @@ fn crochets(corps: Option<&Json>) -> Vec<String> {
     if coupes == Some(&Json::Booleen(true)) {
         Vec::new()
     } else {
-        vec![format!("policy.allDisabled {}, déclaré true", montre(coupes))]
+        vec![format!("policy.allDisabled {}, declared true", montre(coupes))]
     }
 }
 
@@ -647,7 +692,7 @@ fn crochets(corps: Option<&Json>) -> Vec<String> {
 fn mur(mur_actif: Option<bool>, declare: &Json) -> Vec<String> {
     let exige = champ(declare, "sandbox.failIfUnavailable") == Some(&Json::Booleen(true));
     if exige && mur_actif == Some(false) {
-        vec!["enabled false, déclaré exigé (failIfUnavailable true)".to_string()]
+        vec!["enabled false, declared required (failIfUnavailable true)".to_string()]
     } else {
         Vec::new()
     }
@@ -657,8 +702,8 @@ fn mur(mur_actif: Option<bool>, declare: &Json) -> Vec<String> {
 fn rendue_en_erreur(reponse: &Json) -> String {
     let subtype = montre(champ(reponse, "subtype"));
     match champ(reponse, "error") {
-        Some(erreur) => format!("demandée, rendue en {subtype} : {}", montre(Some(erreur))),
-        None => format!("demandée, rendue en {subtype}"),
+        Some(erreur) => format!("requested, returned as {subtype} : {}", montre(Some(erreur))),
+        None => format!("requested, returned as {subtype}"),
     }
 }
 
@@ -706,11 +751,11 @@ fn montre(valeur: Option<&Json>) -> String {
         Some(Json::Texte(texte)) => format!("{texte:?}"),
         Some(Json::Liste(liste)) => match liste.len() {
             0 => "[]".into(),
-            1 => "[1 élément]".into(),
-            n => format!("[{n} éléments]"),
+            1 => "[1 item]".into(),
+            n => format!("[{n} items]"),
         },
         Some(Json::Objet(objet)) if objet.is_empty() => "{}".into(),
-        Some(Json::Objet(_)) => "un objet".into(),
+        Some(Json::Objet(_)) => "an object".into(),
     }
 }
 

@@ -455,7 +455,7 @@ fn kraken_etat_dit_le_mur() {
         debut(V2, 3, 1),
         lancement(V2, 3, 1, Exige),
         constat(V2, 3, 1, None),
-        fin(V2, 3, 1, ROUGE, "main : réglages non pris"),
+        fin(V2, 3, 1, ROUGE, "hand: settings not applied"),
         verdict(V2, 3, CLASSEE),
         // 4 : pas de constat (la main est encore en route) : demandé, non exigé, déclaré.
         debut(V2, 4, 1),
@@ -483,7 +483,7 @@ fn kraken_etat_dit_le_mur() {
         "Écrire bonjour.txt\n\
          main-{V2}-1 : taken · wall active (observed)\n\
          main-{V2}-2 : taken · wall inactive (observed)\n\
-         main-{V2}-3 : set aside: main : réglages non pris · wall required (declared)\n\
+         main-{V2}-3 : set aside: hand: settings not applied · wall required (declared)\n\
          main-{V2}-4 : running, attempt 1 · wall requested, not required (declared)\n\
          main-{V2}-5 : taken\n\
          main-{V2}-6 : running, attempt 2 · wall requested, not required (declared)\n\

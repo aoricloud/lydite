@@ -354,7 +354,7 @@ fn une_main_claude_dont_les_reglages_n_ont_pas_pris_est_tuee_avant_la_consigne()
     let (constat, sortie) =
         jouer(&fausse_claude(&dir, &gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
     let erreur = sortie.unwrap_err().texte();
-    let ecart = "main : réglages non pris : get_settings : effective.disableAllHooks false, déclaré true";
+    let ecart = "hand: settings not applied: get_settings : effective.disableAllHooks false, declared true";
     assert!(erreur.starts_with(ecart), "{erreur}");
     assert_eq!(
         constat,
@@ -377,7 +377,7 @@ fn une_main_claude_a_l_ouverture_fautive_est_tuee() {
     let debut = Instant::now();
     let (constat, sortie) =
         jouer(&fausse_claude(&dir, &gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
-    let ecart = r#"main : réglages non pris : à l'ouverture, permissionMode "default", déclaré "acceptEdits""#;
+    let ecart = r#"hand: settings not applied: at startup, permissionMode "default", declared "acceptEdits""#;
     // Sous Windows, `taskkill /T` tue d'abord les enfants (ici `ping`) : la racine peut sortir d'elle-même avant son
     // tour, et le code 255 de taskkill ajoute alors « ; kill: … » à l'erreur, alors que l'arbre est mort.
     let erreur = sortie.unwrap_err().texte();
@@ -499,8 +499,8 @@ fn les_reglages_d_un_vrai_profil_se_jugent_pris_par_une_main_fidele() {
     gestes.extend([Geste::Recopier, Geste::Dire(OUVERTURE), Geste::Dire(RESULTAT)]);
     let (_, sortie) = jouer(&fausse_claude(&dir, &gestes), &bac, "consigne", DELAI, Some(&attendu), false, None);
     let erreur = sortie.unwrap_err().texte();
-    assert!(erreur.starts_with("main : réglages non pris : list_permission_rules : deny \"Edit("), "{erreur}");
-    assert!(erreur.contains("fil.jsonl)\" déclarée, absente"), "{erreur}");
+    assert!(erreur.starts_with("hand: settings not applied: list_permission_rules : deny \"Edit("), "{erreur}");
+    assert!(erreur.contains("fil.jsonl)\" declared, absent"), "{erreur}");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -697,7 +697,7 @@ fn avant_son_ouverture_une_ligne_illisible_tue_la_main_et_ensuite_elle_s_ignore(
     let (constat, sortie) =
         jouer(&fausse_claude(&dir, &gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
     let erreur = sortie.unwrap_err().texte();
-    assert!(erreur.starts_with("main : réglages non pris : ligne illisible : "), "{erreur}");
+    assert!(erreur.starts_with("hand: settings not applied: unreadable line : "), "{erreur}");
     assert_eq!(constat, Some(Constat::default()));
     assert!(debut.elapsed() < Duration::from_secs(20), "tuée à sa ligne, pas au bout de son sommeil");
     // Après l'ouverture, seule compte la ligne du résultat : la même ligne s'ignore.
