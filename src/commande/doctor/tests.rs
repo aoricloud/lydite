@@ -322,6 +322,6 @@ fn la_ligne_de_commande_lit_doctor_avec_ou_sans_profil() {
         let refus = options(&args(mal_formee)).unwrap_err();
         assert_eq!(refus.code, Code::CommandeMalFormee, "{mal_formee:?} : {refus}");
         assert!(refus.preuve.contains("doctor"), "{refus}");
-        assert!(refus.correction.contains(" or lydite doctor [<profile>] or lydite etat"), "{refus}");
+        assert!(refus.correction.contains(" or lydite doctor [<profile>] or lydite status"), "{refus}");
     }
 }
