@@ -258,6 +258,18 @@ fn options_etat_seul() {
 }
 
 #[test]
+fn options_version_seul() {
+    assert_eq!(options(&args(&["--version"])), Ok(Commande::Version));
+    assert_eq!(options(&args(&["-V"])), Ok(Commande::Version));
+    // Un mot de plus : le premier mot reste `--version`, qui n'est plus reconnu seul avec un suivant.
+    for mots in [&["--version", "x"][..], &["-V", "x"], &["--version", "-V"]] {
+        let refus = options(&args(mots)).unwrap_err();
+        assert_eq!(refus.code, Code::CommandeInconnue, "{mots:?}");
+    }
+    assert!(USAGE.contains("lydite --version"), "{USAGE}");
+}
+
+#[test]
 fn options_plan_lu() {
     let attendu = |depot: Option<&str>, pr: Option<&str>| {
         let (depot, pr) = (depot.map(PathBuf::from), pr.map(String::from));
