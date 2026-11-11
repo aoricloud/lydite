@@ -798,7 +798,7 @@ fn un_dossier_de_kraken_sous_le_depot_est_refuse_avant_tout_bac() {
     essai.dossier = essai.racine.join("lydite").join("..").join("ailleurs");
     let refus = lire_refus(essai.kraken().args(["lancer", "claude", OBJECTIF]));
     assert_eq!(refus.code, "lydite : 6015 lancer.dossier_sous_le_depot");
-    assert!(refus.preuve.ends_with("porte « .. »"), "{refus:?}");
+    assert!(refus.preuve.ends_with("contains \"..\""), "{refus:?}");
     assert!(!essai.racine.join("ailleurs").exists() && !essai.racine.join("lydite").exists());
     depot_intact(&essai.depot, &["sous"]);
     essai.nettoyer();
@@ -866,8 +866,8 @@ fn un_profil_inconnu_est_refuse() {
     let refus = lire_refus(essai.kraken().args(ligne));
     assert_eq!(refus.code, "lydite : 6001 lancer.profil_inconnu");
     assert_regle(&refus);
-    assert!(refus.preuve.contains("« inconnu »") && refus.preuve.contains("inconnu.profil"), "{refus:?}");
-    assert!(refus.correction.contains("lydite accepter inconnu") && refus.correction.contains("claude"), "{refus:?}");
+    assert!(refus.preuve.contains("\"inconnu\"") && refus.preuve.contains("inconnu.profil"), "{refus:?}");
+    assert!(refus.correction.contains("lydite accept inconnu") && refus.correction.contains("claude"), "{refus:?}");
     // Le nom d'un profil qui sortirait de `profils` est refusé avant toute lecture.
     let refus = lire_refus(essai.kraken().args(["lancer", "../veille", OBJECTIF]));
     assert_eq!(refus.code, "lydite : 6007 lancer.profil_nom_refuse");
@@ -888,7 +888,7 @@ fn un_depot_absent_est_refuse() {
         assert_eq!(refus.code, "lydite : 6002 lancer.depot_introuvable", "{}", depot.display());
         assert_regle(&refus);
         assert!(refus.preuve.contains(&depot.display().to_string()), "la preuve nomme le dépôt : {refus:?}");
-        assert!(refus.correction.contains("--depot"), "{refus:?}");
+        assert!(refus.correction.contains("--repo"), "{refus:?}");
     }
     assert!(!absent.exists(), "un dépôt absent ne se crée pas");
     assert_eq!(fs::read_to_string(&fichier).unwrap(), "x");
@@ -905,8 +905,8 @@ fn un_dossier_hors_git_est_refuse() {
     let refus = lire_refus(essai.kraken().args(["lancer", "veille", OBJECTIF, "--depot"]).arg(&nu));
     assert_eq!(refus.code, "lydite : 6003 lancer.bac_impossible");
     assert_regle(&refus);
-    assert!(refus.preuve.starts_with(&format!("git rev-parse dans {} a échoué (", nu.display())), "{refus:?}");
-    assert!(refus.correction.contains("--depot"), "{refus:?}");
+    assert!(refus.preuve.starts_with(&format!("git rev-parse in {} failed (", nu.display())), "{refus:?}");
+    assert!(refus.correction.contains("--repo"), "{refus:?}");
     // Le dossier hors git reste vide ; Kraken n'y a posé ni bac ni fil, pas plus que dans son dossier.
     assert_eq!(noms(&nu), Vec::<String>::new());
     essai.rien_ne_part();
@@ -921,12 +921,12 @@ fn accepter_un_nom_inconnu_ou_integre_est_refuse() {
     let integre = accepter("claude");
     assert_eq!(integre.code, "lydite : 6013 lancer.profil_sans_fichier");
     assert_regle(&integre);
-    assert!(integre.preuve.contains("claude.profil") && integre.preuve.contains("profil intégré"), "{integre:?}");
+    assert!(integre.preuve.contains("claude.profil") && integre.preuve.contains("built-in profile"), "{integre:?}");
     let inconnu = accepter("hermes");
     assert_eq!(inconnu.code, "lydite : 6001 lancer.profil_inconnu");
     assert_regle(&inconnu);
     assert!(inconnu.preuve.contains("hermes.profil"), "{inconnu:?}");
-    assert!(inconnu.correction.contains("lydite accepter hermes"), "{inconnu:?}");
+    assert!(inconnu.correction.contains("lydite accept hermes"), "{inconnu:?}");
     // Un nom qui sortirait de `profils` est refusé (6007) ; un dossier de Kraken qui n'est pas absolu l'est aussi
     // (6004).
     assert_eq!(accepter("../x").code, "lydite : 6007 lancer.profil_nom_refuse");
@@ -970,7 +970,7 @@ fn un_profil_faux_est_refuse_a_l_acceptation_comme_au_lancement() {
             "relecteur-redit.profil:3 : « relecteur = haiku » : chaque clé s'écrit une fois",
         ),
         ("sans-sorte", b"modele = opus\n", "6010 lancer.profil_incomplet", "sans-sorte.profil ne dit pas sa sorte"),
-        ("utf16", b"\xFF\xFEs\x00", "6008 lancer.profil_illisible", "utf16.profil : UTF-8 invalide après l'octet 0"),
+        ("utf16", b"\xFF\xFEs\x00", "6008 lancer.profil_illisible", "utf16.profil: invalid UTF-8 after byte 0"),
     ];
     for (nom, octets, code, dans_la_preuve) in cas {
         fs::write(profils.join(format!("{nom}.profil")), octets).unwrap();
@@ -979,7 +979,9 @@ fn un_profil_faux_est_refuse_a_l_acceptation_comme_au_lancement() {
             assert_eq!(refus.code, format!("lydite : {code}"), "{ligne:?}");
             assert_regle(&refus);
             assert!(refus.preuve.contains(dans_la_preuve), "{dans_la_preuve} : {refus:?}");
-            assert!(refus.correction.contains(&format!("lydite accepter {nom}")), "{refus:?}");
+            // La correction du 6008 est de `dossier.rs`, celle des autres codes de `profil.rs` : chacune la dit.
+            let dit = |mot: &str| refus.correction.contains(&format!("lydite {mot} {nom}"));
+            assert!(dit("accept") || dit("accepter"), "{refus:?}");
         }
         assert!(!profils.join(format!("{nom}.empreinte")).exists(), "{nom} n'a pas d'empreinte");
     }
@@ -1028,7 +1030,7 @@ fn git_qui_ne_se_lance_pas_est_refuse_en_6006() {
     let refus = lire_refus(essai.kraken().env("PATH", &vide).args(lancer).arg(&essai.depot));
     assert_eq!(refus.code, "lydite : 6006 lancer.entree_sortie");
     assert_regle(&refus);
-    let nomme = format!("lancement impossible de git dans {}", essai.depot.display());
+    let nomme = format!("cannot start git in {}", essai.depot.display());
     assert!(refus.preuve.starts_with(&nomme), "la preuve nomme le programme et le dépôt : {refus:?}");
     essai.rien_ne_part();
     essai.nettoyer();
@@ -1478,7 +1480,7 @@ fn un_reglage_illisible_arrete_la_vague_avant_la_main() {
     let stderr = String::from_utf8_lossy(&sortie.stderr);
     let reglages = essai.bac().join(".claude").join("settings.json");
     assert!(stderr.contains(&format!("refusée : main-{}-1\nrefusée (7012) : ", essai.vague())), "{stderr}");
-    let preuve = format!("lecture des réglages {}", reglages.display());
+    let preuve = format!("reading the settings {}", reglages.display());
     assert!(stderr.contains(&preuve), "la preuve nomme le fichier : {stderr}");
     // La main n'est pas partie : la vague s'est arrêtée au début de sa tentative, avant son lancement, sans fin ni
     // verdict.

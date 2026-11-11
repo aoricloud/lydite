@@ -206,7 +206,7 @@ fn un_second_lancement_pendant_un_premier_est_refuse_en_6032_sans_rien_ecrire_au
     let refus = lire_refus(&lancer_le_plan(&racine, &rapide));
     assert_eq!(refus.code, "lydite : 6032 lancer.dossier_pris");
     assert!(refus.preuve.contains(&racine.join("lydite").display().to_string()), "{}", refus.preuve);
-    assert!(refus.correction.contains("Attends la fin de l'autre lancement"), "{}", refus.correction);
+    assert!(refus.correction.contains("Wait for the other launch to finish"), "{}", refus.correction);
     assert!(refus.correction.contains("LYDITE_DOSSIER"), "{}", refus.correction);
     assert!(!fil.exists(), "le lancement refusé n'a rien écrit au fil");
     // Le premier finit sans être gêné : sa vague est la seule du fil, et il n'a pas été refusé.

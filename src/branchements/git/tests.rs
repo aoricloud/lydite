@@ -13,10 +13,10 @@ fn un_echec_de_faire_borne_dit_les_octets_non_gardes() {
     // de `a.txt` restent hors d'une garde de 2.
     let commande = || geste(&depot, &["ls-files", "--error-unmatch", "a.txt", "absent"]);
     let coupee = faire_borne(commande(), 2).unwrap_err();
-    assert!(coupee.contains("4 octets de plus sur la sortie standard, non gardés"), "{coupee}");
+    assert!(coupee.contains("4 more bytes on the standard output, not kept"), "{coupee}");
     // Gardé en entier, le même échec ne dit rien des octets non gardés.
     let entiere = faire_borne(commande(), 6).unwrap_err();
-    assert!(!entiere.contains("non gardés"), "{entiere}");
+    assert!(!entiere.contains("not kept"), "{entiere}");
     let _ = fs::remove_dir_all(&depot);
 }
 

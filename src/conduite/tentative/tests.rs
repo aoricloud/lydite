@@ -10,7 +10,7 @@ fn une_sortie_verte_suivie_d_une_mise_a_mort_ratee_passe_encore_annonce_vert() {
     assert_eq!(annonce_vert(jeu.unwrap()), Ok(verte));
     // Une erreur garde son texte et dit l'échec en plus.
     let erreur = apres_la_mise_a_mort(Err("rouge".into()), Err("restes".into())).unwrap_err();
-    assert_eq!(erreur, "rouge ; mise à mort : restes");
+    assert_eq!(erreur, "rouge; kill: restes");
 }
 use crate::branchements::processus::{retire_de_l_env, retire_de_la_preuve};
 use crate::coeur::profil::{Fournisseur, Mesure};
@@ -158,20 +158,20 @@ fn tenter_ne_rend_de_constat_que_d_une_main_declaree() {
     let libre = crate::coeur::profil::lire("essai", "sorte = claude\nmur = demande\n", None, None).unwrap();
     let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, None, &journal, None, None);
     assert_eq!(constat, None);
-    assert!(erreur(verdict).starts_with("main : aucun programme à lancer"));
+    assert!(erreur(verdict).starts_with("hand: no program to start"));
     assert!(!temporaire_de(&bac).unwrap().exists());
     // Une main brute ne déclare rien : l'erreur de son départ, sans constat.
     let brute = Profil::faux(vec!["lydite-main-introuvable".into()], DELAI);
     let (constat, verif, verdict) = tenter(&brute, &bac, "objectif", Some("exit 0"), None, &journal, None, None);
     assert_eq!((constat, verif), (None, None));
-    assert!(erreur(verdict).starts_with("lancement impossible de lydite-main-introuvable"));
+    assert!(erreur(verdict).starts_with("cannot start lydite-main-introuvable"));
     // Une main Claude déclare : Kraken rend le constat de ce qu'il en a lu, ici rien, et l'erreur de son départ. Un
     // constat vide est un constat : la vague le note, car la main était déclarée.
     let claude = profil_borne("sorte = claude\nprogramme = lydite-claude-introuvable\n", &dir);
     let (constat, verif, verdict) =
         tenter(&claude, &bac, "objectif", Some("exit 0"), Some("échec"), &journal, None, None);
     assert_eq!((constat, verif), (Some(Constat::default()), None));
-    assert!(erreur(verdict).starts_with("lancement impossible de lydite-claude-introuvable"));
+    assert!(erreur(verdict).starts_with("cannot start lydite-claude-introuvable"));
     let _ = fs::remove_dir_all(&dir);
 }
 

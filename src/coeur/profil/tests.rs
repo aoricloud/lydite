@@ -102,8 +102,8 @@ fn charger_claude_ou_un_inconnu() {
     // Un profil inconnu est le refus 6001 : ce qui a été vu, le fichier qui manque, et les profils qu'on peut nommer.
     let refus = charger_dans("x", &dossier).err().expect("« x » n'est pas un profil");
     assert_eq!(refus.code, Code::ProfilInconnu);
-    assert!(refus.preuve.starts_with("profil « x » inconnu : "), "{refus}");
-    assert!(refus.preuve.contains("x.profil est absent"), "{refus}");
+    assert!(refus.preuve.starts_with("unknown profile \"x\": "), "{refus}");
+    assert!(refus.preuve.contains("x.profil is absent"), "{refus}");
     assert!(refus.correction.contains("claude"), "{refus}");
     let _ = fs::remove_dir_all(&dossier);
 }
@@ -156,7 +156,7 @@ fn un_profil_se_lit_d_un_fichier() {
     for nom in ["", "../correcteur", "correcteur.profil", "a b", "é", "a/b", r"a\b"] {
         let refus = charger_dans(nom, &dossier).err().expect(nom);
         assert_eq!(refus.code, Code::ProfilNomRefuse, "{nom:?}");
-        assert!(refus.preuve.contains(&format!("« {nom} »")), "{refus}");
+        assert!(refus.preuve.contains(&format!("\"{nom}\"")), "{refus}");
     }
     let _ = fs::remove_dir_all(&dossier);
 }
@@ -198,7 +198,7 @@ fn sans_fichier_claude_est_le_profil_integre() {
     // Un autre nom sans fichier est inconnu (6001) : la preuve nomme le fichier attendu, la correction l'intégré.
     let refus = charger_dans("hermes", &dossier).err().unwrap();
     assert_eq!(refus.code, Code::ProfilInconnu);
-    assert!(refus.preuve.contains("« hermes »") && refus.preuve.contains("hermes.profil"), "{refus}");
+    assert!(refus.preuve.contains("\"hermes\"") && refus.preuve.contains("hermes.profil"), "{refus}");
     assert!(refus.correction.contains("claude"), "{refus}");
     // Un fichier claude.profil l'emporte sur l'intégré.
     fs::write(dossier.join("profils").join("claude.profil"), "sorte = claude\nmodele = haiku\n").unwrap();
@@ -380,17 +380,20 @@ fn un_profil_faux_est_refuse_avec_sa_ligne() {
     fs::write(&utf16, b"\xFF\xFEs\x00o\x00").unwrap();
     let refus = charger_dans("utf16", &dossier).err().unwrap();
     assert_eq!(refus.code, Code::ProfilIllisible);
-    assert_eq!(refus.preuve, format!("{} : UTF-8 invalide après l'octet 0", utf16.display()));
-    assert!(refus.correction.contains("lydite accepter utf16"), "{refus}");
+    assert_eq!(refus.preuve, format!("{}: invalid UTF-8 after byte 0", utf16.display()));
+    assert!(refus.correction.contains("lydite accept utf16"), "{refus}");
     let coupe = dossier.join("profils").join("coupe.profil");
     fs::write(&coupe, b"sorte = claude\n\xC3\n").unwrap();
-    assert!(charger_dans("coupe", &dossier).err().unwrap().preuve.ends_with("UTF-8 invalide après l'octet 15"));
+    assert!(charger_dans("coupe", &dossier).err().unwrap().preuve.ends_with("invalid UTF-8 after byte 15"));
     let repertoire = dossier.join("profils").join("dossier.profil");
     fs::create_dir(&repertoire).unwrap();
     let refus = charger_dans("dossier", &dossier).err().unwrap();
     assert_eq!(refus.code, Code::ProfilIllisible);
-    let systeme = fs::read(&repertoire).unwrap_err().to_string();
-    assert_eq!(refus.preuve, format!("lecture du profil {} : {systeme}", repertoire.display()));
+    let nommee = crate::coeur::erreur::nommee(
+        fs::read(&repertoire).unwrap_err(),
+        format!("reading the profile {}", repertoire.display()),
+    );
+    assert_eq!(refus.preuve, nommee.to_string());
     let _ = fs::remove_dir_all(&dossier);
 }
 

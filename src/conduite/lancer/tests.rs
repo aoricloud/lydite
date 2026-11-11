@@ -1164,7 +1164,7 @@ fn un_dossier_qui_ne_peut_pas_garder_la_consigne_arrete_la_vague_sans_lecon() {
     let menee = lancer_sur(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL, &base).unwrap();
     assert!(menee.arretee);
     let issue = menee.issues[0].1.as_ref().unwrap_err();
-    assert!(issue.contains("écriture de la consigne") && issue.contains("(7012)"), "{issue}");
+    assert!(issue.contains("writing the instruction") && issue.contains("(7012)"), "{issue}");
     // La fausse main écrit `entree.txt` dans son bac : aucun bac n'en porte, elle n'est pas partie.
     let partie = trouves(&kraken, &|nom| nom == "entree.txt");
     assert!(partie.is_empty() && consignes_notees(&kraken).is_empty(), "{partie:?}");
@@ -1184,7 +1184,7 @@ fn une_ecriture_ratee_de_la_consigne_arrete_la_vague() {
     let menee = lancer_sur(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL, &base).unwrap();
     assert!(menee.arretee);
     let issue = menee.issues[0].1.as_ref().unwrap_err();
-    assert!(issue.contains("écriture de la consigne"), "{issue}");
+    assert!(issue.contains("writing the instruction"), "{issue}");
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -1421,7 +1421,7 @@ fn une_main_declaree_est_precedee_de_son_lancement_et_suivie_de_son_constat() {
     let plan = Plan::copies("objectif", verifier, 1);
     let (id, issue) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap().1.remove(0);
     let erreur = issue.unwrap_err();
-    assert!(erreur.starts_with("lancement impossible de lydite-claude-introuvable"), "{erreur}");
+    assert!(erreur.starts_with("cannot start lydite-claude-introuvable"), "{erreur}");
     // Dans chaque tentative : le bail et le début, le lancement avant que la main parte, le constat à son retour,
     // puis la fin.
     let notes = notes(&kraken);
@@ -1496,7 +1496,7 @@ fn une_main_dont_le_profil_nomme_un_fournisseur_le_note_apres_son_lancement() {
     let plan = Plan::copies("objectif", Some("git status"), 1);
     let (_, mut issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
     let erreur = issues.remove(0).1.unwrap_err();
-    assert!(erreur.starts_with("lancement impossible de lydite-claude-introuvable"), "{erreur}");
+    assert!(erreur.starts_with("cannot start lydite-claude-introuvable"), "{erreur}");
     // À chaque tentative, le fournisseur déclaré suit le lancement et précède le constat.
     let notes = notes(&kraken);
     let evenements: Vec<Evenement> = notes.iter().map(|note| note.evenement.clone()).collect();
@@ -1873,7 +1873,7 @@ fn une_main_tuee_a_son_delai_n_est_pas_relancee() {
     // a n'est pas relancée : elle est refusée en 7005, dont la preuve dit le temps dépassé, et b est sautée, sans
     // bac.
     let refus = refusee(ids[0], &issues[0].1, 7005);
-    assert!(refus.contains("main : temps dépassé (1 s)"), "la preuve dit le délai de la main : {refus}");
+    assert!(refus.contains("hand: timed out (1 s)"), "la preuve dit le délai de la main : {refus}");
     refusee(ids[1], &issues[1].1, 7011);
     assert!(!kraken.join("bacs").join(ids[1]).exists(), "b n'a pas de bac");
     // Un seul début, donc une seule main : la fin rouge de a dit le temps dépassé, puis son refus a clos la tâche.
@@ -1885,7 +1885,7 @@ fn une_main_tuee_a_son_delai_n_est_pas_relancee() {
     assert_eq!(debuts.count(), 1, "aucune relance : {evenements:?}");
     let fins: Vec<&Evenement> = evenements.iter().filter(|e| matches!(e, Evenement::Fin { .. })).collect();
     let [Evenement::Fin { texte, .. }] = fins.as_slice() else { panic!("une seule fin : {fins:?}") };
-    assert!(texte.starts_with("main : temps dépassé (1 s)"), "{texte}");
+    assert!(texte.starts_with("hand: timed out (1 s)"), "{texte}");
     // Son bac n'est ni figé ni assemblé : la branche de la vague est restée à sa base.
     assert_eq!(git(&kraken.join("bacs").join(ids[0]), &["rev-parse", "HEAD"]), base, "aucun commit dans son bac");
     assert_eq!(git(&depot, &["rev-parse", &branche]), base);
@@ -1906,7 +1906,7 @@ fn une_main_sans_programme_est_classee_sans_faire_tomber_la_vague() {
     assert_eq!(issues.len(), 2);
     for (id, issue) in &issues {
         let erreur = issue.as_ref().unwrap_err();
-        assert!(erreur.starts_with("main : aucun programme à lancer"), "{id} : {erreur}");
+        assert!(erreur.starts_with("hand: no program to start"), "{id} : {erreur}");
     }
     // Chacune est relancée une fois, comme toute fin rouge, puis classée.
     let vagues = etat(&fil(&kraken));
@@ -2409,7 +2409,7 @@ fn une_competence_imbriquee_fait_refuser_sa_tache() {
     let branche = branche.expect("la branche d'une vague à plan");
     let ids: Vec<&str> = issues.iter().map(|(id, _)| id.as_str()).collect();
     let refus = refusee(ids[0], &issues[0].1, 7006);
-    assert!(refus.contains(" : sous/.claude/skills/k/SKILL.md"), "le refus nomme la compétence : {refus}");
+    assert!(refus.contains(": sous/.claude/skills/k/SKILL.md"), "le refus nomme la compétence : {refus}");
     refusee(ids[1], &issues[1].1, 7011);
     assert!(!kraken.join("bacs").join(ids[1]).exists(), "b n'a pas de bac");
     // a était verte, mais son bac n'est ni figé ni assemblé, et la branche est restée à sa base.
@@ -3920,12 +3920,12 @@ mod quota {
         assert_eq!(histoire, ["vague 1", "refus 6030"]);
         // Sans fichier quota, rien ne change : la main part, et ne tient pas faute de programme.
         let (issue, histoire, _) = lancer_a_api("quota-sans-prix-libre", sans_prix, None);
-        assert!(issue.unwrap_err().starts_with("lancement impossible de lydite-claude-introuvable"));
+        assert!(issue.unwrap_err().starts_with("cannot start lydite-claude-introuvable"));
         assert_eq!(&histoire[..2], ["vague 1", "bail 1"]);
         // Avec un prix pour le modèle (`sonnet` par défaut), sous un quota que rien n'atteint : la main part.
         let avec_prix = sans_prix.replace("autre-modele 1 2", "sonnet 3 15");
         let (issue, histoire, _) = lancer_a_api("quota-avec-prix", &avec_prix, Some("100\n"));
-        assert!(issue.unwrap_err().starts_with("lancement impossible de lydite-claude-introuvable"));
+        assert!(issue.unwrap_err().starts_with("cannot start lydite-claude-introuvable"));
         assert_eq!(&histoire[..2], ["vague 1", "bail 1"]);
     }
 
