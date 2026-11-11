@@ -1247,6 +1247,7 @@ class Findings(AvecFindings):
         """Le plan écrit passe les bornes de `lydite_lancer` pour un plan : le même fichier, la même empreinte."""
         rendu = self.appeler(ids=[ID_FINDING], proof=PREUVE)
         chemin = rendu["plans"][0]["plan"]
+        self.faux_lydite("echo 'wall: required'")  # ce plan est sous `findings/` : il ne part que sous un mur exigé
         demande = self.outils()._demande({"depot": str(self.depot), "plan": chemin})
         self.assertEqual(hashlib.sha256(demande["plan_octets"]).hexdigest(), rendu["plans"][0]["sha256"])
 
@@ -1394,6 +1395,137 @@ class FindingsSysteme(AvecFindings):
         rendu = self.appeler(ids=[ID_FINDING], proof=PREUVE)
         self.assertIn("is a link", rendu["error"])
         self.assertEqual(list(dehors.iterdir()), [])
+
+
+class PlanDeRapport(AvecOutils):
+    """Un plan sous `findings/` du plugin vient d'un rapport : il ne part que sous un mur exigé, que le plugin demande
+    à `lydite profil`."""
+
+    def faux_lydite_du_mur(self, mur="wall: required", code=0, ecrit_sur="stdout"):
+        """Un faux Lydite qui répond à `profil` et note chaque appel dans `appels`, un par ligne."""
+        dossier = self.dossier / "bin"
+        dossier.mkdir(exist_ok=True)
+        chemin = dossier / "lydite"
+        chemin.write_text(
+            f"#!/bin/sh\n"
+            f"printf '%s\\n' \"$*\" >> '{self.sortie}/appels'\n"
+            f'if [ "$1" = profil ]; then\n'
+            f"  printf '%s\\n' 'profile: nautile' '{mur}' >{'&2' if ecrit_sur == 'stderr' else '&1'}\n"
+            f"  exit {code}\n"
+            f"fi\n"
+            f"exit 0\n",
+            encoding="utf-8",
+        )
+        chemin.chmod(0o755)
+        self.reglages["binaire"] = str(chemin)
+
+    def appels(self):
+        chemin = self.sortie / "appels"
+        return chemin.read_text(encoding="utf-8").splitlines() if chemin.exists() else []
+
+    def plan_ecrit(self, sous_le_plugin=True):
+        """Le même plan, sous `findings/` du dossier de données du plugin ou ailleurs, sous le même nom."""
+        base = self.dossier / "ailleurs"
+        if sous_le_plugin:
+            base = self.dossier / "donnees" / "findings" / "0123456789abcdef"
+        base.mkdir(parents=True, exist_ok=True)
+        chemin = base / "hsf_exemple.txt"
+        chemin.write_text(PLAN, encoding="utf-8", newline="\n")
+        return str(chemin)
+
+    def args(self, plan):
+        return self.demande(issue=None, preuve=None, plan=plan, profil="nautile")
+
+    def test_un_mur_demande_bloque_le_verrou_et_lancer_et_rien_ne_part(self):
+        self.faux_lydite_du_mur("wall: requested")
+        plan = self.plan_ecrit()
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.args(plan))
+        self.assertEqual(decision["action"], "block")
+        message = json.loads(decision["message"])["error"]
+        self.assertIn("comes from a report", message)
+        self.assertIn("wall: requested", message)
+        self.assertIn("mur = exige", message)
+        self.assertIn("lydite accepter", message)
+        rendu = json.loads(self.outils().lancer(self.args(plan)))
+        self.assertIn("comes from a report", rendu["error"])
+        self.assertTrue(self.appels())
+        self.assertTrue(all(appel == "profil nautile" for appel in self.appels()), self.appels())
+
+    def test_un_mur_exige_laisse_passer_avec_le_message_d_aujourd_hui(self):
+        self.faux_lydite_du_mur("wall: required")
+        ici, ailleurs = self.plan_ecrit(), self.plan_ecrit(sous_le_plugin=False)
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.args(ici))
+        autre = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.args(ailleurs))
+        self.assertEqual(decision["action"], "approve")
+        self.assertEqual(decision["message"], autre["message"])
+        self.assertIn("hsf_exemple.txt", decision["message"])
+        self.assertIn("sha256", decision["message"])
+        rendu = json.loads(self.outils().lancer(self.args(ici)))
+        self.assertNotIn("error", rendu)
+        self.assertIn(f"lancer nautile --plan {rendu['log'][:-4]}.plan", " ".join(self.appels()))
+
+    def test_la_commande_est_une_liste_d_arguments_sans_cle_et_au_nom_du_profil(self):
+        self.faux_lydite_du_mur()
+        sorties = sous_module("outils").subprocess
+        with (
+            mock.patch.object(sorties, "run", wraps=sorties.run) as courir,
+            faux_secrets(),
+        ):
+            outils = self.outils(cle_nom="MA_CLE")
+            outils.verrou(tool_name=sous_module("nom").LANCER, args=self.args(self.plan_ecrit()))
+        appel = courir.call_args
+        self.assertEqual(appel.args[0], [self.reglages["binaire"], "profil", "nautile"])
+        self.assertNotIn("MA_CLE", appel.kwargs["env"])
+        self.assertNotIn(SECRET, appel.kwargs["env"].values())
+        self.assertNotIn("shell", appel.kwargs)
+        self.assertEqual(appel.kwargs["stdin"], sous_module("outils").subprocess.DEVNULL)
+        self.assertEqual(appel.kwargs["timeout"], 30)
+
+    def test_un_profil_qui_sort_en_2_est_un_refus_qui_porte_la_fin_de_ce_qu_il_a_ecrit(self):
+        self.faux_lydite_du_mur("profil inconnu : FIN-DU-REFUS", code=2, ecrit_sur="stderr")
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.args(self.plan_ecrit()))
+        self.assertEqual(decision["action"], "block")
+        message = json.loads(decision["message"])["error"]
+        self.assertIn("refused (exit 2)", message)
+        self.assertIn("FIN-DU-REFUS", message)
+
+    def test_la_fin_du_refus_est_bornee_a_2000_caracteres(self):
+        self.faux_lydite_du_mur("x" * 3000 + "FIN", code=2, ecrit_sur="stderr")
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.args(self.plan_ecrit()))
+        message = json.loads(decision["message"])["error"]
+        self.assertIn("xFIN", message)
+        self.assertNotIn("x" * 2001, message)
+
+    def test_un_profil_qui_sort_en_0_sans_mur_exige_est_refuse(self):
+        self.faux_lydite_du_mur("walls: required")
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.args(self.plan_ecrit()))
+        self.assertEqual(decision["action"], "block")
+
+    def test_un_plan_ailleurs_ne_change_en_rien_et_profil_n_est_pas_appele(self):
+        self.faux_lydite_du_mur("wall: requested")
+        plan = self.plan_ecrit(sous_le_plugin=False)
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.args(plan))
+        self.assertEqual(decision["action"], "approve")
+        self.assertEqual(self.appels(), [])
+        self.outils()._demande(self.args(plan))
+        self.assertEqual(self.appels(), [])
+
+    def test_un_lien_hors_du_dossier_vers_un_plan_du_dossier_est_controle(self):
+        self.faux_lydite_du_mur("wall: requested")
+        lien = self.dossier / "lien.txt"
+        os.symlink(self.plan_ecrit(), lien)
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.args(str(lien)))
+        self.assertEqual(decision["action"], "block")
+
+    def test_un_lien_du_dossier_vers_un_plan_ailleurs_n_est_pas_controle(self):
+        self.faux_lydite_du_mur("wall: requested")
+        ailleurs = self.plan_ecrit(sous_le_plugin=False)
+        lien = self.dossier / "donnees" / "findings" / "lien.txt"
+        lien.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(ailleurs, lien)
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.args(str(lien)))
+        self.assertEqual(decision["action"], "approve")
+        self.assertEqual(self.appels(), [])
 
 
 if __name__ == "__main__":

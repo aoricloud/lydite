@@ -52,6 +52,7 @@ what is missing.
 | `lydite_etat` | Returns `lydite etat` (what Lydite itself recorded: tasks, proofs, pull request, CI) and the launches made from this plugin, with the end of a launch's log when given its `id`. |
 | `lydite_lecons` | Returns the lessons of a repository: the written rules Lydite learned there from past mistakes and gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Without `name`, the list of each lesson's name, rule and files; with `name`, one lesson in full. It is read-only, and Lydite checks the lessons first. Nothing is approved, because nothing is started or written. |
 | `lydite_plan` | Runs `lydite plan <file>` on a plan file and returns what Lydite accepts or refuses, and why: the plan's SHA-256, its number of tasks, its proof line and the tasks that will wait for one another because they share a file, or Lydite's refusal (its code, its rule, what was seen, the fix). It starts nothing and costs nothing, so nothing is approved: use it to fix a plan with the human before approving a launch. |
+| `lydite_findings` | Reads a hermes-security findings export (JSON, `1.0`) and turns it into Lydite plans. Without `ids`, it lists the findings Lydite can take and the ones it sets aside, each with the reason. With `ids` (from 1 to 12) and `proof`, it writes one plan file per chosen finding under the plugin's data folder (mode 0600) and starts nothing, so nothing is approved. A plan it wrote is launched like any plan, with `lydite_lancer`, after the human's approval, and only under a required wall (see below). |
 
 It also ships one skill, `lydite:driving-lydite`, in the open `SKILL.md` format with only its common fields, so
 Claude Code can read it too. It tells the model when to hand a job to Lydite, what to have before launching (the
@@ -61,6 +62,33 @@ lists it for the model while the plugin is enabled, on Linux, and does not copy 
 
 The workers are **Claude Code sessions that Lydite starts itself**, on the model and provider of the Lydite profile
 (for example a DeepSeek endpoint). They are never Hermes agents or Hermes child processes.
+
+### With hermes-security
+
+`lydite_findings` is for the findings of a hermes-security scan. The steps:
+
+1. hermes-security scans the repository and exports the scan as JSON
+   (`hermes security-review export --scan <id> --format json --out <file>`).
+2. `lydite_findings` with the repository and that file lists the findings Lydite can take and the ones it sets aside.
+3. The human chooses which findings to fix, and gives the proof command.
+4. `lydite_findings` writes one plan per chosen finding. Each plan asks the worker to prove the flaw by a failing test
+   first, then fix it.
+5. Each plan is launched by `lydite_lancer`, one at a time, and the human approves each launch.
+6. Lydite opens the pull request and its receipt, as for any launch.
+
+A finding that comes back **not proved** was shown by no test: nothing was changed, and the worker says so instead of
+fixing blind. What is proved today: Lydite replays the final green itself. The red of the test before the fix is what
+the worker declares and what the reviewer reads; Lydite does not replay it. A finding under `.github/` (or `.git/`,
+`.claude/`) goes back to the human: Lydite does not publish changes there.
+
+The format read is the `1.0` JSON export of hermes-security. No code of hermes-security is taken.
+
+The titles and claims of a report are text written by someone else. They enter the worker's instruction quoted as
+data, bounded and on one line, and a plan written from a report only runs under a required wall: before such a launch
+the plugin asks `lydite profil <name>` (read-only) and refuses unless it says `wall: required`. To use it, put
+`mur = exige` in the profile, and have a human run `lydite accepter <name>`; or use another profile. The check goes by
+where the plan is: under the plugin's `findings/` data folder. A plan copied out of that folder goes like a plan
+written by hand.
 
 ### Names still in French
 
@@ -132,13 +160,17 @@ hermes config set tools.tool_search.enabled off
   retries, the set-aside tasks and the proof-setting files the diff changed; then the proof result and the review
   outcome. `lydite_etat` returns what `lydite etat` prints, which has the same cost and hands line plus the wave's
   duration. The cost is an estimate, a flat-rate approximation or `inconnu` (unknown), never an invoice.
+- The wall check of a plan from a report goes by the plan's place: a plan copied out of the plugin's `findings/` data
+  folder is launched like a plan written by hand, without that check. Until Lydite itself knows where a plan comes
+  from, the human's reading of the plan before approving is what holds.
 
 ## What it does on your machine (disclosures)
 
 - **Commands.** One program only: the Lydite binary, started with an argument list, never through a shell. `lydite
   lancer` (in the background), `lydite etat` (read-only, 30 s timeout), `lydite lecons <folder>` (read-only, 30 s
   timeout, with the closed list of variables and no provider key), and `lydite plan <file>` (read-only, 30 s timeout,
-  with the closed list of variables and no provider key). Lydite in turn runs `git`, `gh`, `claude` and the proof
+  with the closed list of variables and no provider key), and `lydite profil <name>` (read-only, 30 s timeout, same
+  closed list, only before launching a plan written from a report). Lydite in turn runs `git`, `gh`, `claude` and the proof
   command inside its sandbox; those are Lydite's, documented in its README.
 - **Network.** The plugin makes no network call itself. Lydite and its workers do: the model provider named in the
   profile, and GitHub (through `gh`) for the issue, the push and the pull request. Nothing is sent anywhere else, and
@@ -161,9 +193,14 @@ hermes config set tools.tool_search.enabled off
   registers the skill), what the Lydite binary reports, the `plan` file named in a `lydite_lancer` call (to
   fingerprint its bytes and copy them for Lydite) or in a `lydite_plan` call (to fingerprint its bytes and count its
   tasks), the lesson files of the repository named in a `lydite_lecons` call (`.agents/skills/*/SKILL.md`, 4096 bytes
-  each at most, never following a link out of that folder), and the existence of the repository's `.git`. A plan is
-  copied with mode 0600 under the plugin's data folder and Lydite reads the copy: if the file changed after you saw
-  it, the launch is refused.
+  each at most, never following a link out of that folder), the report file named in a `lydite_findings` call (4 MiB
+  at most) and the files of the repository that the report cites (only their existence is looked at), and the
+  existence of the repository's `.git`. A plan is copied with mode 0600 under the plugin's data folder and Lydite
+  reads the copy: if the file changed after you saw it, the launch is refused.
+- **File writes.** The plans written by `lydite_findings`, mode 0600, under the plugin's data folder, and nothing
+  anywhere else (apart from the logs and plan copies of launches, in the same folder).
+- **Third-party text.** The titles and the claims of a report enter a worker's instruction, quoted as data, bounded
+  and without a line break; and such a plan only runs under a required wall.
 
 ## Test
 

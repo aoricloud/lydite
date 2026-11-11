@@ -303,6 +303,12 @@ class Outils:
         if not _BRANCHE.fullmatch(pr) or ".." in pr:
             raise Refus(f"`pr` {pr!r} is not a branch name")
 
+        # raccourci : l'origine d'un plan se juge à son emplacement. Le contrôle ne vaut que pour un plan resté sous
+        # `findings/` du plugin ; un plan copié ailleurs part comme un plan écrit à la main. À monter quand Lydite
+        # connaîtra lui-même l'origine d'un plan.
+        if plan_donne and self._est_un_plan_de_rapport(plan):
+            self._exiger_le_mur(profil)
+
         return {
             "depot": depot,
             "issue": issue if issue_donnee else None,
@@ -314,6 +320,48 @@ class Outils:
             "pr": pr,
             "observer": args.get("observer") is True,
         }
+
+    def _est_un_plan_de_rapport(self, plan: str) -> bool:
+        """Le plan, résolu, est-il sous le dossier `findings/` du plugin, résolu lui aussi ?"""
+        try:
+            return Path(plan).resolve().is_relative_to((self._donnees() / "findings").resolve())
+        except (OSError, RuntimeError):
+            return False
+
+    def _exiger_le_mur(self, profil: str) -> None:
+        """Un plan né d'un rapport ne part que sous un mur exigé : `lydite profil <nom>` (lecture seule) doit dire
+        `wall: required`. Sinon c'est un refus, rendu au modèle."""
+        binaire = self._binaire()
+        try:
+            fin = subprocess.run(
+                [binaire, "profil", profil],
+                check=False,
+                env=self._env(avec_cle=False),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            dit = "`lydite profil` did not answer in 30 s"
+        except OSError as exc:
+            dit = f"`lydite profil` could not start: {exc}"
+        else:
+            sortie = fin.stdout.splitlines()
+            if fin.returncode == 0 and any(ligne.startswith("wall: required") for ligne in sortie):
+                return
+            if fin.returncode == 0:
+                mur = next((ligne for ligne in sortie if ligne.startswith("wall:")), "")
+                dit = f"`lydite profil` said: {mur or 'no `wall:` line'}"
+            else:
+                dit = f"`lydite profil` refused (exit {fin.returncode}): {(fin.stderr + fin.stdout)[-LIMITE_DU_REFUS:]}"
+        raise Refus(
+            f"this plan comes from a report, whose text was written by someone else, so it only runs under a "
+            f"required wall. {dit}. To use it: set `mur = exige` in profile {profil!r}, then have a human run "
+            f"`lydite accepter {profil}`; or use another profile."
+        )
 
     @staticmethod
     def _lire_le_plan(plan: str):
