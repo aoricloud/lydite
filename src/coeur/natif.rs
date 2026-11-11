@@ -38,10 +38,6 @@
 //!   chemin fermé qui s'ouvre en silence. Un chemin refusé en écriture que la fermeture cache, sans qu'un chemin lu ou
 //!   écrit ne le rouvre, est sauté : le monter exposerait ce qu'il couvre.
 
-#![cfg_attr(not(test), expect(dead_code))]
-// raccourci : rien n'appelle encore cette fonction ; l'appelant qui lance `bwrap` à la place de srt la prendra, et
-// rustc dira alors cette attente inutile
-
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
