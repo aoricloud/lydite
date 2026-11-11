@@ -1351,6 +1351,20 @@ fn les_listes_du_mur_sont_celles_des_reglages_de_srt() {
 }
 
 #[test]
+fn le_dossier_de_lydite_est_celui_que_borner_a_pose() {
+    // Le même dossier que celui que `denyRead` ferme : un autre le séparerait du mur.
+    let exige = borne("sorte = claude\nmur = exige\n");
+    assert_eq!(exige.dossier_de_lydite(), Some(absolu("k").as_path()));
+    let worktree = absolu("k").join("bacs").join("main-1");
+    let temporaire = crate::branchements::bac::temporaire_de(&worktree).unwrap();
+    let listes = exige.listes_du_mur(&worktree, &temporaire).unwrap().unwrap();
+    assert_eq!(listes.fermes[1], absolu("k").to_string_lossy());
+    // Sans bornes, ou pour une main brute, il n'y en a pas.
+    assert_eq!(lu("sorte = claude\nmur = exige\n").unwrap().dossier_de_lydite(), None);
+    assert_eq!(Profil::faux(vec!["x".into()], DELAI_PREUVE).dossier_de_lydite(), None);
+}
+
+#[test]
 fn les_regles_de_chemin_suivent_le_systeme() {
     // Sous Windows, la lettre de lecteur en minuscule et des barres obliques ; ailleurs, `//` devant le chemin.
     assert_eq!(regle_de_chemin(r"C:\Users\x\.lydite", true), Ok("//c/Users/x/.lydite".into()));
