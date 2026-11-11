@@ -423,9 +423,10 @@ before its first seal), 2 if the journal cannot be read or a seal is broken. Lyd
 the pull request, and at every exit once the wave has opened; a split alone is never sealed. So a launch killed after
 that first seal, or a `--split` launch killed or refused between its split and its wave, is not caught: `wait` then
 exits as `lydite status` would, possibly 0. If the folder was held and then freed with no new note (a launch refused
-before it opened its wave), it says so on stderr and exits 2; but if the last wave of the thread carries no seal (an
-earlier launch killed before its first seal), it says that wave instead and exits 1. Run just before the launch takes
-the folder, it waits at most 60 seconds for a note; with no new note and no held folder it says so and exits 2.
+before it opened its wave), it says so on stderr and exits 2; but if the last wave of the thread carries no seal and is
+not a split alone (an earlier launch killed before its first seal), it says that wave instead and exits 1. Run just
+before the launch takes the folder, it waits at most 60 seconds for a note; with no new note and no held folder it says
+so and exits 2.
 
 ### A profile
 
