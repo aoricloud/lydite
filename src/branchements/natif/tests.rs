@@ -123,7 +123,7 @@ fn la_commande_part_sous_deux_bwrap_dont_le_second_pose_le_verrou() {
     assert_eq!(exterieur[mur.len() + 5..], fin);
     assert_eq!(filtre.parent(), Some(d.temporaire.as_path()), "le filtre est dans le dossier temporaire du bac");
     // Le second : le verrou, par le descripteur 9, puis la commande.
-    let verrou = "--bind / / --unshare-pid --proc /proc --die-with-parent --seccomp 9 -- sh -c";
+    let verrou = "--bind / / --dev-bind /dev /dev --unshare-pid --proc /proc --die-with-parent --seccomp 9 -- sh -c";
     let attendu: Vec<String> = verrou.split(' ').map(String::from).chain([commande.to_string()]).collect();
     assert_eq!(*interieur, attendu);
     // Le fichier du filtre existait au moment de l'appel, le second bwrap en a lu les octets par le descripteur 9, et

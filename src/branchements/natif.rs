@@ -9,8 +9,8 @@
 //!
 //! ```text
 //! <bwrap> <arguments du mur> -- sh -c '<POSE_LE_VERROU>' sh <filtre> <bwrap> <commande>
-//!   → exec 9<<filtre> && exec <bwrap> --bind / / --unshare-pid --proc /proc --die-with-parent --seccomp 9
-//!                                     -- sh -c <commande>
+//!   → exec 9<<filtre> && exec <bwrap> --bind / / --dev-bind /dev /dev --unshare-pid --proc /proc --die-with-parent
+//!                                     --seccomp 9 -- sh -c <commande>
 //! ```
 //!
 //! Le fichier du filtre s'écrit dans le dossier temporaire du bac (`verrou-<lot>.bpf`) et se retire quelle que soit la
@@ -43,8 +43,12 @@ use crate::coeur::verrou::{Architecture, filtre};
 
 /// Le `sh` d'une ligne qui ouvre le filtre (`$1`) sur le descripteur 9, puis lance le second `bwrap` (`$2`) qui le lit
 /// et joue la commande (`$3`). Les trois arrivent en paramètres : aucun d'eux ne passe par une citation.
-const POSE_LE_VERROU: &str =
-    r#"exec 9<"$1" && exec "$2" --bind / / --unshare-pid --proc /proc --die-with-parent --seccomp 9 -- sh -c "$3""#;
+// `--dev-bind /dev /dev` : sans lui, le `--bind / /` de ce second bwrap rend `/dev/null` inutilisable (Permission
+// denied), fait constaté par la grille du mur natif.
+const POSE_LE_VERROU: &str = concat!(
+    r#"exec 9<"$1" && exec "$2" --bind / / --dev-bind /dev /dev --unshare-pid --proc /proc --die-with-parent "#,
+    r#"--seccomp 9 -- sh -c "$3""#,
+);
 
 /// Le programme `bwrap` : `LYDITE_BWRAP`, sinon `bwrap`.
 pub(crate) fn programme() -> OsString {
