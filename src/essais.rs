@@ -818,7 +818,14 @@ pub(crate) fn faux_bwrap(dir: &Path) -> OsString {
 /// jamais été appelé.
 #[cfg(unix)]
 pub(crate) fn appels_du_faux_bwrap(dir: &Path) -> Vec<Vec<String>> {
-    let texte = fs::read_to_string(dir.join("bwrap").join("appels.txt")).unwrap_or_default();
+    appels_notes(&dir.join("bwrap").join("appels.txt"))
+}
+
+/// Les appels qu'un faux a notés dans `fichier`, chacun la liste de ses arguments, un par ligne, fermés par `---` :
+/// vide si le fichier n'existe pas.
+#[cfg(unix)]
+fn appels_notes(fichier: &Path) -> Vec<Vec<String>> {
+    let texte = fs::read_to_string(fichier).unwrap_or_default();
     let (mut appels, mut courant) = (Vec::new(), Vec::new());
     for ligne in texte.lines() {
         if ligne == "---" {
@@ -828,6 +835,65 @@ pub(crate) fn appels_du_faux_bwrap(dir: &Path) -> Vec<Vec<String>> {
         }
     }
     appels
+}
+
+/// Un faux `lydite-reseau`, un `sh` d'un dossier neuf de `dir`, `reseau/`. Appelé en `filtre`, il note ses arguments
+/// (`filtres.txt`, un par ligne, fermés par `---`), puis, dans son dossier : son pid et ceux de ses enfants
+/// (`pids.txt`), si son entrée est un tuyau (`entrees.txt` : `tuyau` ou `autre`), le mode et l'existence du dossier de
+/// son socket (`dossiers.txt`) ; il écrit `pret` dans `ordre.txt` et `ready` sur sa sortie, puis lit son entrée
+/// jusqu'à sa fermeture, et écrit alors `entree-fermee` dans `ordre.txt`. Si `mort` est dans son dossier, il écrit
+/// `boom` sur ses erreurs et sort en 3 sans rien dire d'autre ; si `muet` y est, il ne dit pas `ready`, et dort sans
+/// rien lire de son entrée ; si `fichier` y est, il remplace le dossier de son socket par un fichier avant de dire
+/// `ready` : ce dossier ne se retire plus, et l'arrêt du filtre le dit. Appelé en `relais`, il note ses arguments
+/// (`relais.txt`, même forme), écrit `relais` dans `ordre.txt`, et joue ce qui suit son premier `--`, sans écouter
+/// rien. Rend son chemin. Unix seulement.
+#[cfg(unix)]
+pub(crate) fn faux_reseau(dir: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let notes = dir.join("reseau");
+    fs::create_dir_all(&notes).unwrap();
+    let lignes = [
+        "#!/bin/sh",
+        r#"ici=$(dirname "$0")"#,
+        "noter() {",
+        "  quoi=$1; shift",
+        r#"  { for a in "$@"; do printf '%s\n' "$a"; done; echo '---'; } >> "$ici/$quoi.txt""#,
+        "}",
+        r#"case "$1" in"#,
+        "  filtre)",
+        r#"    noter filtres "$@""#,
+        r#"    echo $$ >> "$ici/pids.txt""#,
+        r#"    if [ -p /dev/stdin ]; then echo tuyau; else echo autre; fi >> "$ici/entrees.txt""#,
+        r#"    dossier=$(dirname "$3")"#,
+        r#"    if [ -d "$dossier" ]; then ls -ld "$dossier" | cut -c1-10; else echo absent; fi >> "$ici/dossiers.txt""#,
+        r#"    if [ -f "$ici/mort" ]; then echo boom >&2; exit 3; fi"#,
+        r#"    if [ -f "$ici/muet" ]; then sleep 1000 & echo $! >> "$ici/pids.txt"; wait; exit 0; fi"#,
+        r#"    if [ -f "$ici/fichier" ]; then rm -rf "$dossier"; : > "$dossier"; fi"#,
+        r#"    echo pret >> "$ici/ordre.txt""#,
+        "    echo ready",
+        "    cat > /dev/null",
+        r#"    echo entree-fermee >> "$ici/ordre.txt""#,
+        "    ;;",
+        "  relais)",
+        r#"    noter relais "$@""#,
+        r#"    echo relais >> "$ici/ordre.txt""#,
+        r#"    while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done"#,
+        "    [ $# -gt 0 ] && shift",
+        r#"    exec "$@""#,
+        "    ;;",
+        "esac",
+    ];
+    let chemin = notes.join("lydite-reseau");
+    fs::write(&chemin, lignes.iter().map(|ligne| format!("{ligne}\n")).collect::<String>()).unwrap();
+    fs::set_permissions(&chemin, fs::Permissions::from_mode(0o755)).unwrap();
+    chemin
+}
+
+/// Les appels `quoi` (`filtres` ou `relais`) que le [`faux_reseau`] de `dir` a notés, dans l'ordre, chacun la liste de
+/// ses arguments : vide s'il n'a jamais été appelé ainsi.
+#[cfg(unix)]
+pub(crate) fn appels_du_faux_reseau(dir: &Path, quoi: &str) -> Vec<Vec<String>> {
+    appels_notes(&dir.join("reseau").join(format!("{quoi}.txt")))
 }
 
 /// Lance le plan dans le dépôt visé : chaque tâche par une main, dans un bac neuf sous le dossier de Kraken, deux

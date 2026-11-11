@@ -14,10 +14,36 @@
 //! ```
 //!
 //! Le fichier du filtre s'écrit dans le dossier temporaire du bac (`verrou-<lot>.bpf`) et se retire quelle que soit la
-//! fin. La commande part après que le filtre est ouvert, jamais avant. Le réseau est coupé en entier (`--unshare-net`
-//! des arguments du mur) : un profil qui permet des domaines est refusé avant tout lancement. `TMPDIR` y vaut le
-//! dossier temporaire du bac, le seul endroit hors du bac où la preuve écrit, comme sous srt. Les chemins que le mur a
-//! sautés parce qu'ils manquent s'écrivent en tête du journal, une ligne chacun.
+//! fin. La commande part après que le filtre est ouvert, jamais avant. `TMPDIR` y vaut le dossier temporaire du bac, le
+//! seul endroit hors du bac où la preuve écrit, comme sous srt. Les chemins que le mur a sautés parce qu'ils manquent
+//! s'écrivent en tête du journal, une ligne chacun.
+//!
+//! # Le réseau
+//!
+//! Sans domaine permis par le profil, le réseau est coupé en entier (`--unshare-net` des arguments du mur) et rien
+//! d'autre ne part. Avec des domaines, le bac n'a toujours pas de réseau : il sort par `lydite-reseau`
+//! (le dossier `reseau/` de ce dépôt), en deux morceaux.
+//!
+//! 1. Avant le bac, Lydite crée un dossier neuf en 0700 à côté du temporaire du bac et lance, hors du bac,
+//!    `lydite-reseau filtre --socket <dossier>/s --domaines <a,b,c> --journal <Lydite>/reseau.journal`, le dossier
+//!    s'appelant `<dix hexadécimaux>.net`. Un chemin de socket de plus de 107 octets est refusé avant de lancer. Son
+//!    entrée est un tuyau que Lydite tient ouvert : le filtre s'arrête quand elle se ferme. Lydite attend sa ligne
+//!    `ready` jusqu'à une échéance ; un filtre qui meurt avant, ou qui se tait, est un refus : rien n'est lancé,
+//!    rien ne reste.
+//! 2. Dans le bac, le dossier du socket est monté en écriture et `lydite-reseau` en lecture seule, après les
+//!    montages du mur, et la chaîne devient :
+//!
+//! ```text
+//! <bwrap> <arguments du mur> --bind <dossier> <dossier> --ro-bind <lydite-reseau> <lydite-reseau>
+//!   -- <lydite-reseau> relais --ecoute 127.0.0.1:3128 --vers <socket> -- sh -c '<POSE_LE_VERROU>' sh …
+//! ```
+//!
+//! Le relais écoute avant de lancer la commande, donc avant le verrou ; la commande, elle, reste sous le verrou, et ne
+//! sort que par `127.0.0.1:3128`, où les variables de proxy la mènent. À la fin, quelle qu'elle soit (succès, échec,
+//! délai dépassé), Lydite ferme l'entrée du filtre, l'attend jusqu'à une échéance, tue son arbre s'il ne sort pas,
+//! puis retire le dossier du socket. Le relais ne transmet pas les signaux : la mise à mort vise l'arbre entier.
+//!
+//! Le programme se lit dans `LYDITE_RESEAU`, sinon `lydite-reseau` à côté de l'exécutable de Lydite.
 
 #![cfg_attr(not(all(test, target_os = "linux")), expect(dead_code))]
 // raccourci : rien dans le profil ne mène encore ici, seule la grille (des tests, sous Linux) appelle ce rejeu ;
@@ -27,14 +53,17 @@ use std::cell::RefCell;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
-use std::io::{self, ErrorKind, Write};
+use std::io::{self, BufRead, BufReader, ErrorKind, Read, Write};
 use std::path::{self, Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
-use std::time::Duration;
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use crate::branchements::bac::temporaire_de;
 use crate::branchements::claude::temporaire;
 use crate::branchements::processus::{attendre, echeance, retire_de_la_preuve, sans_session, tuer_et_attendre};
+use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{nommee, queue};
 use crate::coeur::fil::lot;
 use crate::coeur::natif::{Disque, Regles, TOUJOURS_REFUSES, arguments};
@@ -49,6 +78,30 @@ const POSE_LE_VERROU: &str = concat!(
     r#"exec 9<"$1" && exec "$2" --bind / / --dev-bind /dev /dev --unshare-pid --proc /proc --die-with-parent "#,
     r#"--seccomp 9 -- sh -c "$3""#,
 );
+
+/// L'adresse que le relais écoute dans le bac, et que les variables de proxy de la commande désignent.
+const ECOUTE: &str = "127.0.0.1:3128";
+
+/// Les variables de la commande qui mènent ses clients HTTP au relais.
+const VARIABLES_DU_PROXY: [&str; 6] =
+    ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"];
+
+/// Les variables de la commande qui gardent l'hôte local hors du proxy, et leur valeur.
+const VARIABLES_SANS_PROXY: [&str; 2] = ["NO_PROXY", "no_proxy"];
+const SANS_PROXY: &str = "localhost,127.0.0.1,::1";
+
+/// La ligne que le filtre écrit sur sa sortie quand il écoute.
+const PRET: &str = "ready";
+
+/// Ce qu'un chemin de socket Unix tient d'octets au plus (`sun_path` de 108, moins l'octet nul).
+const SOCKET_MAX: usize = 107;
+
+/// Le temps que le filtre a pour dire `ready`, et pour sortir une fois son entrée fermée, avant que son arbre soit tué.
+const ATTENTE_DU_FILTRE: Duration = Duration::from_secs(10);
+
+/// Pour qui n'a pas de filtre : comment en donner un.
+const DONNER_LE_FILTRE: &str =
+    "set LYDITE_RESEAU to the path of a built lydite-reseau, or put lydite-reseau next to the Lydite executable";
 
 /// Le programme `bwrap` : `LYDITE_BWRAP`, sinon `bwrap`.
 pub(crate) fn programme() -> OsString {
@@ -88,13 +141,50 @@ fn architecture() -> Result<Architecture, String> {
     }
 }
 
+/// Le programme `lydite-reseau` : `LYDITE_RESEAU`, sinon `lydite-reseau` à côté de l'exécutable de Lydite. C'est le
+/// chemin que ces deux sources donnent, pas encore vu sur le disque : [`preparer`] le lit, et seulement quand le profil
+/// permet des domaines. Err si ni l'une ni l'autre ne donne de chemin, et le texte dit les deux façons d'en donner un.
+pub(crate) fn reseau() -> Result<PathBuf, String> {
+    reseau_selon(env::var_os("LYDITE_RESEAU"), env::current_exe())
+}
+
+/// Le programme `lydite-reseau` qu'une valeur de `LYDITE_RESEAU` et l'exécutable de Lydite désignent : une valeur
+/// absente ou vide laisse le programme voisin de l'exécutable.
+fn reseau_selon(valeur: Option<OsString>, exe: io::Result<PathBuf>) -> Result<PathBuf, String> {
+    if let Some(valeur) = valeur.filter(|valeur| !valeur.is_empty()) {
+        return Ok(PathBuf::from(valeur));
+    }
+    let nom = format!("lydite-reseau{}", env::consts::EXE_SUFFIX);
+    match exe {
+        Ok(exe) => exe.parent().map(|dossier| dossier.join(nom)).ok_or_else(|| {
+            format!(
+                "LYDITE_RESEAU is not set, and the Lydite executable {} has no folder: {DONNER_LE_FILTRE}",
+                exe.display()
+            )
+        }),
+        Err(e) => {
+            Err(format!("LYDITE_RESEAU is not set, and the Lydite executable is unknown ({e}): {DONNER_LE_FILTRE}"))
+        }
+    }
+}
+
+/// Ce que le rejeu règle hors du profil : où est `lydite-reseau`, et les deux échéances du filtre (le temps de dire
+/// `ready`, puis le temps de sortir une fois son entrée fermée). [`rejouer`] le tire de l'environnement ; un test le
+/// donne.
+struct Reglage {
+    filtre: Result<PathBuf, String>,
+    pret: Duration,
+    arret: Duration,
+}
+
 /// Rejoue la commande de vérification dans le bac sous le mur natif, `programme` étant le `bwrap` et `maison` le
 /// dossier où `~` se déplie. Rend son `verif` : `None` si elle n'a pas pu partir, sinon la fin de sa sortie (les
 /// chemins sautés d'abord, puis la sortie de la commande) ; et Ok si elle réussit avant le délai, sinon Err(erreur),
 /// dont le texte est celui du rejeu par srt (`rouge (<statut>)`, `temps dépassé (<s> s)`). Un profil qui n'exige pas
-/// le mur, ou qui permet des domaines, ne part pas : rien n'est créé. Une commande blanche non plus. Le fichier du
-/// filtre est retiré dans tous les cas, et le journal lu puis effacé.
-// raccourci : pas de réseau sous le mur natif ; monter le relais avec la vague suivante
+/// le mur ne part pas : rien n'est créé. Une commande blanche non plus. Un profil qui permet des domaines part avec
+/// le filtre réseau (voir l'en-tête) ; sans `lydite-reseau`, ou avec un chemin de socket trop long, il ne part pas non
+/// plus, et rien n'est créé. Le fichier du filtre d'appels système est retiré dans tous les cas, le filtre réseau
+/// arrêté et son dossier retiré, et le journal lu puis effacé.
 pub(crate) fn rejouer(
     programme: &OsStr,
     maison: &Path,
@@ -103,20 +193,34 @@ pub(crate) fn rejouer(
     bac: &Path,
     journal: &Path,
 ) -> (Option<String>, Result<(), String>) {
+    let reglage = Reglage { filtre: reseau(), pret: ATTENTE_DU_FILTRE, arret: ATTENTE_DU_FILTRE };
+    rejouer_avec(programme, maison, profil, commande, bac, journal, &reglage)
+}
+
+/// [`rejouer`], avec les `reglage`s donnés.
+fn rejouer_avec(
+    programme: &OsStr,
+    maison: &Path,
+    profil: &Profil,
+    commande: &str,
+    bac: &Path,
+    journal: &Path,
+    reglage: &Reglage,
+) -> (Option<String>, Result<(), String>) {
     if commande.trim().is_empty() {
         return (None, Err(format!("vérification « {commande} » blanche : rien ne se rejoue, rien n'est prouvé")));
     }
     let delai = profil.delai_preuve();
-    let mur = match preparer(maison, profil, bac) {
+    let mur = match preparer(maison, profil, bac, reglage) {
         Ok(mur) => mur,
         Err(erreur) => return (None, Err(format!("vérification « {commande} » impossible : {erreur}"))),
     };
-    let issue = executer(programme, commande, bac, delai, journal, profil.variable_de_la_cle(), &mur);
+    let jouee = executer(programme, commande, bac, delai, journal, profil.variable_de_la_cle(), &mur);
     let _ = fs::remove_file(&mur.filtre);
     // Même quand la vérification n'a pas pu partir : le journal que le mur a commencé se lit et s'efface.
     let sortie = lire_journal(journal);
-    let issue = match issue {
-        Ok(issue) => issue,
+    let (issue, arret) = match jouee {
+        Ok(jouee) => jouee,
         Err(erreur) => return (None, Err(erreur)),
     };
     let rejeu = match issue {
@@ -126,6 +230,12 @@ pub(crate) fn rejouer(
         Ok(None) => {
             Err(queue(&format!("vérification « {commande} » : temps dépassé ({} s) :\n{sortie}", delai.as_secs_f32())))
         }
+    };
+    // Un filtre qui ne s'arrête pas n'est jamais tu : même une preuve verte le dit.
+    let rejeu = match (rejeu, arret) {
+        (rejeu, None) => rejeu,
+        (Ok(()), Some(echec)) => Err(format!("vérification « {commande} » : {echec}")),
+        (Err(erreur), Some(echec)) => Err(format!("{erreur}\n{echec}")),
     };
     (Some(queue(&sortie)), rejeu)
 }
@@ -140,6 +250,74 @@ struct Mur {
     temporaire: PathBuf,
     /// Les chemins que le mur a sautés, une ligne chacun, pour le journal.
     notes: Vec<String>,
+    /// Le filtre réseau que le profil demande, `None` sans domaine.
+    reseau: Option<Reseau>,
+}
+
+/// Le filtre réseau d'un rejeu, prévu par [`preparer`] et pas encore lancé : rien de lui n'existe sur le disque.
+struct Reseau {
+    /// Les domaines que le profil permet.
+    domaines: Vec<String>,
+    /// `lydite-reseau`, par son chemin réel : le même chemin se monte dans le bac.
+    programme: PathBuf,
+    /// Le dossier neuf du socket, à côté du temporaire du bac.
+    dossier: PathBuf,
+    /// Le socket du filtre, dans `dossier`.
+    socket: PathBuf,
+    /// Le journal du filtre, dans le dossier de Lydite.
+    journal: PathBuf,
+    /// Le temps qu'a le filtre pour dire `ready`, puis pour sortir une fois son entrée fermée.
+    pret: Duration,
+    arret: Duration,
+}
+
+/// Le filtre réseau, prévu pour un profil qui permet `domaines`, dont le temporaire du bac est `temporaire` : le
+/// programme est vu sur le disque et le chemin du socket est mesuré, rien n'est créé.
+fn prevoir_le_reseau(
+    profil: &Profil,
+    temporaire: &Path,
+    domaines: Vec<String>,
+    reglage: &Reglage,
+) -> Result<Reseau, String> {
+    let programme = programme_reel(&reglage.filtre)?;
+    let Some(lydite) = profil.dossier_de_lydite() else {
+        return Err("the profile has no Lydite folder to keep the network filter's log in".into());
+    };
+    // Un nom court (dix hexadécimaux du lot, comme le temporaire du bac en a douze) : le chemin du socket tient dans
+    // 107 octets, et le dossier du bac en prend déjà une bonne part.
+    let dossier = temporaire.with_file_name(format!("{}.net", &hex(&sha256(lot().as_bytes()))[..10]));
+    let socket = dossier.join("s");
+    socket_assez_court(&socket)?;
+    let journal = lydite.join("reseau.journal");
+    Ok(Reseau { domaines, programme, dossier, socket, journal, pret: reglage.pret, arret: reglage.arret })
+}
+
+/// Le chemin réel de `lydite-reseau` : un fichier que le disque tient. Le refus nomme les deux façons de le donner.
+fn programme_reel(filtre: &Result<PathBuf, String>) -> Result<PathBuf, String> {
+    let chemin = filtre.as_ref().map_err(String::clone)?;
+    let manque = |pourquoi: String| {
+        format!(
+            "the profile allows domains, so the native wall needs lydite-reseau, and {pourquoi}: {DONNER_LE_FILTRE}"
+        )
+    };
+    match fs::canonicalize(chemin) {
+        Ok(reel) if reel.is_file() => Ok(reel),
+        Ok(reel) => Err(manque(format!("{} is not a file", reel.display()))),
+        Err(e) => Err(manque(format!("{} cannot be read ({e})", chemin.display()))),
+    }
+}
+
+/// Un chemin de socket Unix de plus de [`SOCKET_MAX`] octets ne se lie pas : il est refusé avant de lancer.
+fn socket_assez_court(socket: &Path) -> Result<(), String> {
+    let octets = socket.as_os_str().len();
+    if octets > SOCKET_MAX {
+        return Err(format!(
+            "the network filter socket path {} is {octets} bytes long, and a Unix socket path holds {SOCKET_MAX} at \
+             most: use a shorter sandbox folder",
+            socket.display()
+        ));
+    }
+    Ok(())
 }
 
 /// L'issue d'une vérification partie : son statut, None si elle dépasse le délai, ou l'erreur de son attente.
@@ -161,9 +339,9 @@ fn lire_le_disque(chemin: &Path, echec: &RefCell<Option<String>>) -> Disque {
 }
 
 /// Les arguments du mur pour un rejeu dans `bac`, et son fichier du filtre écrit : le dossier temporaire du bac est
-/// recréé vide d'abord, comme sous srt. Rien n'est créé si le profil n'exige pas le mur ou permet des domaines, ni, du
-/// filtre, si le mur ne se forme pas.
-fn preparer(maison: &Path, profil: &Profil, bac: &Path) -> Result<Mur, String> {
+/// recréé vide d'abord, comme sous srt. Rien n'est créé si le profil n'exige pas le mur, ni si le filtre réseau qu'il
+/// demande ne se prévoit pas ([`prevoir_le_reseau`]), ni, du filtre d'appels système, si le mur ne se forme pas.
+fn preparer(maison: &Path, profil: &Profil, bac: &Path, reglage: &Reglage) -> Result<Mur, String> {
     let absolu = path::absolute(bac).map_err(|e| format!("chemin absolu du bac {} : {e}", bac.display()))?;
     let Some(dossier) = temporaire_de(&absolu) else {
         return Err(format!("le bac {} n'a pas de nom, son dossier temporaire ne se forme pas", bac.display()));
@@ -171,13 +349,11 @@ fn preparer(maison: &Path, profil: &Profil, bac: &Path) -> Result<Mur, String> {
     let Some(listes) = profil.listes_du_mur(&absolu, &dossier)? else {
         return Err("le profil n'exige pas le mur : le mur natif ne se joue que sous un mur exigé".into());
     };
-    if !listes.domaines.is_empty() {
-        return Err(format!(
-            "le mur natif coupe le réseau en entier et ne relaie pas encore de domaine, or le profil en permet ({}) : \
-             retire `reseau` du profil pour jouer sous le mur natif",
-            listes.domaines.join(", ")
-        ));
-    }
+    let reseau = if listes.domaines.is_empty() {
+        None
+    } else {
+        Some(prevoir_le_reseau(profil, &dossier, listes.domaines.clone(), reglage)?)
+    };
     let architecture = architecture()?;
     if temporaire(bac, true)?.is_none() {
         return Err(format!("le bac {} n'est pas un dossier : le mur n'y monte rien", bac.display()));
@@ -210,7 +386,173 @@ fn preparer(maison: &Path, profil: &Profil, bac: &Path) -> Result<Mur, String> {
         let _ = fs::remove_file(&fichier);
         return Err(nommee(e, format!("filtre {}", fichier.display())).to_string());
     }
-    Ok(Mur { arguments: natif.arguments, filtre: fichier, temporaire: dossier, notes })
+    Ok(Mur { arguments: natif.arguments, filtre: fichier, temporaire: dossier, notes, reseau })
+}
+
+/// Le filtre réseau lancé : le processus, son entrée que Lydite tient ouverte, et le dossier de son socket. Il s'arrête
+/// par [`Filtre::arreter`], et à défaut, en tombant : aucune sortie de [`executer`] ne le laisse vivant.
+struct Filtre {
+    enfant: Child,
+    /// Son entrée standard : la fermer l'arrête.
+    entree: Option<ChildStdin>,
+    /// Le lecteur de sa sortie, qui finit quand elle se ferme.
+    sortie: Option<JoinHandle<()>>,
+    /// Le lecteur de ses erreurs, qui rend ce qu'il a lu (8 Kio au plus).
+    erreurs: Option<JoinHandle<String>>,
+    /// Le dossier de son socket, à retirer.
+    dossier: PathBuf,
+    /// Le temps qu'il a pour sortir une fois son entrée fermée.
+    arret: Duration,
+    /// Il est sorti, tué ou de lui-même : ses lecteurs ne bloquent plus.
+    sorti: bool,
+}
+
+impl Filtre {
+    /// Ferme son entrée, attend qu'il sorte jusqu'à l'échéance, tue son arbre s'il ne sort pas, puis retire le dossier
+    /// du socket, même quand il ne s'est pas arrêté. Rend ce qui a échoué. Se rejoue sans dommage.
+    fn arreter(&mut self) -> Result<(), String> {
+        drop(self.entree.take());
+        let sorti = match attendre(&mut self.enfant, echeance(self.arret)) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) | Err(_) => tuer_et_attendre(&mut self.enfant),
+        };
+        self.sorti = sorti.is_ok();
+        if self.sorti
+            && let Some(lecteur) = self.sortie.take()
+        {
+            let _ = lecteur.join();
+        }
+        let retire = match fs::remove_dir_all(&self.dossier) {
+            Err(e) if e.kind() != ErrorKind::NotFound => {
+                Err(format!("cannot remove the network filter folder {}: {e}", self.dossier.display()))
+            }
+            _ => Ok(()),
+        };
+        let sorti = sorti.map_err(|e| format!("the network filter does not stop: {e}"));
+        match (sorti, retire) {
+            (Ok(()), retire) => retire,
+            (sorti, Ok(())) => sorti,
+            (Err(sorti), Err(retire)) => Err(format!("{sorti}; {retire}")),
+        }
+    }
+
+    /// Ce que le filtre a écrit sur ses erreurs, une fois sorti ; vide s'il ne l'est pas, ou n'a rien écrit.
+    fn erreurs(&mut self) -> String {
+        match self.erreurs.take() {
+            Some(lecteur) if self.sorti => lecteur.join().unwrap_or_default().trim().to_string(),
+            _ => String::new(),
+        }
+    }
+}
+
+impl Drop for Filtre {
+    fn drop(&mut self) {
+        let _ = self.arreter();
+    }
+}
+
+/// Crée `dossier`, neuf, en 0700 : lui seul, et ce que le bac y monte, le tient.
+#[cfg(unix)]
+fn dossier_prive(dossier: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new().mode(0o700).create(dossier)
+}
+
+/// Sans Unix, il n'y a pas de socket Unix pour le filtre ; le dossier se crée tel quel.
+#[cfg(not(unix))]
+fn dossier_prive(dossier: &Path) -> io::Result<()> {
+    fs::create_dir(dossier)
+}
+
+/// Lance le filtre réseau de `reseau`, hors du bac, et attend sa ligne `ready`. Le dossier de son socket est créé neuf
+/// avant lui ; si le filtre ne dit pas `ready`, il est arrêté et le dossier retiré, et l'erreur le dit : rien ne
+/// reste.
+fn demarrer_le_filtre(reseau: &Reseau) -> Result<Filtre, String> {
+    let dossier = &reseau.dossier;
+    dossier_prive(dossier).map_err(|e| format!("cannot make the network filter folder {}: {e}", dossier.display()))?;
+    let lance = lancer_le_filtre(reseau);
+    if lance.is_err() {
+        let _ = fs::remove_dir_all(dossier);
+    }
+    lance
+}
+
+/// Pourquoi le filtre n'a pas dit `ready` : sa sortie s'est fermée (il est mort), ou l'échéance est tombée.
+enum Silence {
+    Mort,
+    Muet,
+}
+
+/// Attend sur `lignes`, les lignes de la sortie du filtre, la ligne `ready`, jusqu'à `delai`.
+fn attendre_pret(lignes: &Receiver<String>, delai: Duration) -> Result<(), Silence> {
+    let fin = echeance(delai);
+    loop {
+        match lignes.recv_timeout(fin.saturating_duration_since(Instant::now())) {
+            Ok(ligne) if ligne.trim() == PRET => return Ok(()),
+            Ok(_) => {}
+            Err(RecvTimeoutError::Timeout) => return Err(Silence::Muet),
+            Err(RecvTimeoutError::Disconnected) => return Err(Silence::Mort),
+        }
+    }
+}
+
+/// Le lancement de [`demarrer_le_filtre`], le dossier du socket étant déjà créé.
+fn lancer_le_filtre(reseau: &Reseau) -> Result<Filtre, String> {
+    let nom = reseau.programme.display();
+    let mut enfant = Command::new(&reseau.programme)
+        .arg("filtre")
+        .arg("--socket")
+        .arg(&reseau.socket)
+        .arg("--domaines")
+        .arg(reseau.domaines.join(","))
+        .arg("--journal")
+        .arg(&reseau.journal)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot start the network filter {nom}: {e}"))?;
+    let (Some(entree), Some(sortie), Some(erreurs)) = (enfant.stdin.take(), enfant.stdout.take(), enfant.stderr.take())
+    else {
+        let _ = tuer_et_attendre(&mut enfant);
+        return Err(format!("cannot reach the pipes of the network filter {nom}"));
+    };
+    let (envoi, lignes) = mpsc::channel();
+    let sortie = thread::spawn(move || {
+        // Elle se lit jusqu'à sa fermeture, même quand plus personne n'attend de ligne.
+        for ligne in BufReader::new(sortie).lines().map_while(Result::ok) {
+            let _ = envoi.send(ligne);
+        }
+    });
+    let erreurs = thread::spawn(move || {
+        let mut octets = Vec::new();
+        let _ = erreurs.take(8192).read_to_end(&mut octets);
+        String::from_utf8_lossy(&octets).into_owned()
+    });
+    let (dossier, arret) = (reseau.dossier.clone(), reseau.arret);
+    let mut filtre = Filtre {
+        enfant,
+        entree: Some(entree),
+        sortie: Some(sortie),
+        erreurs: Some(erreurs),
+        dossier,
+        arret,
+        sorti: false,
+    };
+    let Err(silence) = attendre_pret(&lignes, reseau.pret) else { return Ok(filtre) };
+    // Il n'a rien dit de ce qu'on attend : il s'arrête, et ce qu'il a écrit sur ses erreurs en dit la raison.
+    let arrete = filtre.arreter();
+    let statut = filtre.enfant.try_wait().ok().flatten().map(|statut| format!(" ({statut})")).unwrap_or_default();
+    let erreurs = filtre.erreurs();
+    let detail = if erreurs.is_empty() { String::new() } else { format!(": {erreurs}") };
+    let mut texte = match silence {
+        Silence::Mort => format!("the network filter {nom} exited before it said {PRET}{statut}{detail}"),
+        Silence::Muet => format!("the network filter {nom} did not say {PRET} within {} s", reseau.pret.as_secs_f32()),
+    };
+    if let Err(echec) = arrete {
+        texte = format!("{texte}; {echec}");
+    }
+    Err(texte)
 }
 
 /// La sortie de la vérification, lue dans son journal, qui s'efface ensuite. Un journal qui ne se lit pas le dit,
@@ -224,11 +566,42 @@ fn lire_journal(journal: &Path) -> String {
     sortie
 }
 
+/// Joue la commande dans le bac sous `mur` ([`jouer_la_commande`]), après avoir lancé le filtre réseau que `mur`
+/// demande, et l'arrête après, quelle que soit l'issue : succès, échec, délai dépassé. Rend l'issue de la commande et
+/// l'échec de l'arrêt du filtre, s'il y en a un ; Err si rien n'a pu partir, le filtre n'ayant pas dit `ready` compris.
+/// Quand c'est la commande qui n'a pas pu partir, l'échec de l'arrêt du filtre s'ajoute à son erreur, sur sa ligne.
+fn executer(
+    programme: &OsStr,
+    commande: &str,
+    bac: &Path,
+    delai: Duration,
+    journal: &Path,
+    cle: Option<&str>,
+    mur: &Mur,
+) -> Result<(Issue, Option<String>), String> {
+    let mut filtre = match &mur.reseau {
+        Some(reseau) => {
+            Some(demarrer_le_filtre(reseau).map_err(|e| format!("vérification « {commande} » impossible : {e}"))?)
+        }
+        None => None,
+    };
+    let issue = jouer_la_commande(programme, commande, bac, delai, journal, cle, mur);
+    let arret = filtre.as_mut().and_then(|filtre| filtre.arreter().err());
+    match (issue, arret) {
+        (Ok(issue), arret) => Ok((issue, arret)),
+        (Err(erreur), None) => Err(erreur),
+        // Comme `rejouer_avec` pour une commande qui a tourné : l'échec de l'arrêt s'ajoute à l'erreur.
+        (Err(erreur), Some(echec)) => Err(format!("{erreur}\n{echec}")),
+    }
+}
+
 /// Joue la commande dans le bac sous `mur`, sa sortie dans `journal`, sans les variables que [`retire_de_la_preuve`]
 /// désigne, et sans `cle`, la variable qui tient la clé du fournisseur du profil s'il en nomme un : la clé ne va qu'à
-/// la main. `TMPDIR` vaut le dossier temporaire du mur. Err si elle n'a pas pu partir (journal impossible à écrire,
-/// programme qui ne part pas), sinon son issue. Au délai, son arbre entier meurt.
-fn executer(
+/// la main. `TMPDIR` vaut le dossier temporaire du mur. Avec un filtre réseau (`mur.reseau`, déjà lancé), le dossier du
+/// socket et `lydite-reseau` se montent dans le bac, le relais part avant le verrou, et les variables de proxy de la
+/// commande le désignent. Err si elle n'a pas pu partir (journal impossible à écrire, programme qui ne part pas),
+/// sinon son issue. Au délai, son arbre entier meurt.
+fn jouer_la_commande(
     programme: &OsStr,
     commande: &str,
     bac: &Path,
@@ -244,12 +617,33 @@ fn executer(
         writeln!(fichier, "{note}").map_err(|e| echec(nommee(e, format!("journal {}", journal.display()))))?;
     }
     let mut verification = Command::new(programme);
-    verification.args(&mur.arguments).args(["--", "sh", "-c", POSE_LE_VERROU, "sh"]);
+    verification.args(&mur.arguments);
+    if let Some(reseau) = &mur.reseau {
+        // Après tous les montages du mur : ni la fermeture d'un dossier ni la racine ne les recouvrent.
+        verification.arg("--bind").arg(&reseau.dossier).arg(&reseau.dossier);
+        verification.arg("--ro-bind").arg(&reseau.programme).arg(&reseau.programme);
+    }
+    verification.arg("--");
+    if let Some(reseau) = &mur.reseau {
+        // Le relais écoute, puis lance ce qui suit : le second `bwrap`, qui pose le verrou, n'est donc pas encore là.
+        verification.arg(&reseau.programme).args(["relais", "--ecoute", ECOUTE, "--vers"]).arg(&reseau.socket);
+        verification.arg("--");
+    }
+    verification.args(["sh", "-c", POSE_LE_VERROU, "sh"]);
     verification.arg(&mur.filtre).arg(programme).arg(commande);
     if let Some(cle) = cle {
         verification.env_remove(cle);
     }
     sans_session(&mut verification, retire_de_la_preuve);
+    if mur.reseau.is_some() {
+        let proxy = format!("http://{ECOUTE}");
+        for nom in VARIABLES_DU_PROXY {
+            verification.env(nom, &proxy);
+        }
+        for nom in VARIABLES_SANS_PROXY {
+            verification.env(nom, SANS_PROXY);
+        }
+    }
     let mut enfant = verification
         .env("TMPDIR", &mur.temporaire)
         .current_dir(bac)

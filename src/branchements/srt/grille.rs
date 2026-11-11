@@ -9,13 +9,16 @@
 //!
 //! La table des cas s'écrit une fois ([`TABLE`]) ; le mur joué est un paramètre ([`Mur`]), pour qu'un second mur la
 //! rejoue sans la recopier. Le mur natif (bwrap lancé par Lydite, sans srt : [`crate::branchements::natif`]) la rejoue
-//! par les tests `natif_*`, qui demandent bwrap et le réseau de la machine (ses témoins le joignent, le mur non) :
-//! `LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored` (`LYDITE_BWRAP` nomme le bwrap, sinon `bwrap`). Il
-//! coupe le réseau en entier : le profil de la grille n'y permet aucun domaine, et les cas qui demandent le réseau
-//! permis sont « pas encore » ([`Mur::pas_encore`]), éteints avec leur raison. Chaque essai monte son décor dans un
-//! dossier neuf ([`Decor`]) : rien du vrai dossier personnel n'est lu ni écrit, car `HOME` y vaut le faux dossier
-//! personnel le temps du rejeu. Chaque commande écrit d'abord une marque à elle (`TOUR`) : une marque absente de la
-//! sortie ne prouve rien si la commande n'a pas tourné.
+//! par les tests `natif_*`, qui demandent bwrap, un `lydite-reseau` construit et le réseau de la machine (ses témoins
+//! le joignent, le mur non) : `LYDITE_RESEAU` doit désigner ce `lydite-reseau` (`LYDITE_BWRAP` nomme le bwrap, sinon
+//! `bwrap`). Pour la jouer :
+//! `cargo build --manifest-path reseau/Cargo.toml`, puis
+//! `LYDITE_GRILLE=natif LYDITE_RESEAU=<reseau/target/debug/lydite-reseau> cargo test grille::natif_ -- --ignored`. Le
+//! profil de la grille permet les mêmes domaines sous les deux murs : sous
+//! le mur natif ils passent par le filtre `lydite-reseau`, sous srt par son proxy, et les cas ont les mêmes constats.
+//! Chaque essai monte son décor dans un dossier neuf ([`Decor`]) : rien du vrai dossier personnel n'est lu ni écrit,
+//! car `HOME` y vaut le faux dossier personnel le temps du rejeu. Chaque commande écrit d'abord une marque à elle
+//! (`TOUR`) : une marque absente de la sortie ne prouve rien si la commande n'a pas tourné.
 //! Linux seulement : le mur est bwrap.
 #![cfg(target_os = "linux")]
 
@@ -34,13 +37,20 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Instant;
 
-/// Une requête HTTP par le proxy du mur : `argv` = marque de départ, URL, marque de réussite, en-tête `Host` (ou vide).
-const REQUETE: &str = r#"import sys, urllib.request
+/// Une requête HTTP par le proxy du mur : `argv` = marque de départ, URL, marque de réussite, en-tête `Host` (ou vide),
+/// et marque de refus (ou rien). Un refus du proxy, une réponse HTTP d'erreur, écrit sa marque, son code et son en-tête
+/// `X-Proxy-Error`, puis sort en erreur.
+const REQUETE: &str = r#"import sys, urllib.error, urllib.request
 print(sys.argv[1], flush=True)
 demande = urllib.request.Request(sys.argv[2], headers={"Host": sys.argv[4]} if sys.argv[4] else {})
-with urllib.request.urlopen(demande, timeout=20) as reponse:
-    if reponse.status == 200:
-        print(sys.argv[3], flush=True)"#;
+try:
+    with urllib.request.urlopen(demande, timeout=20) as reponse:
+        if reponse.status == 200:
+            print(sys.argv[3], flush=True)
+except urllib.error.HTTPError as erreur:
+    refus = sys.argv[5] if len(sys.argv) > 5 else "REFUS"
+    print(refus, erreur.code, erreur.headers.get("X-Proxy-Error", ""), flush=True)
+    sys.exit(1)"#;
 
 /// Une connexion directe, sans le proxy du mur, à une adresse IPv4 et non à un nom (aucune résolution ne peut la
 /// faire échouer) : `argv` = marque de départ, marque de réussite, adresse IPv4.
@@ -106,9 +116,6 @@ enum Mur {
     Natif,
 }
 
-/// Pourquoi un cas n'est pas joué sous le mur natif : le réseau y est coupé en entier, sans relais.
-const SANS_RELAIS: &str = "le mur natif n'a pas de relais : réseau coupé en entier, monté par la vague suivante";
-
 impl Mur {
     /// Le programme qui tient ce mur, ou ce qui manque pour jouer la grille.
     fn programme(self) -> Result<OsString, String> {
@@ -126,12 +133,11 @@ impl Mur {
         }
     }
 
-    /// La ligne du profil qui donne le réseau permis : le mur natif le coupe en entier, et refuse un profil qui permet
-    /// des domaines.
+    /// La ligne du profil qui donne le réseau permis : les mêmes domaines sous les deux murs, par le proxy de srt ou
+    /// par le filtre `lydite-reseau` du mur natif.
     fn reseau(self) -> &'static str {
         match self {
-            Mur::Srt => "reseau = example.com, localtest.me\n",
-            Mur::Natif => "",
+            Mur::Srt | Mur::Natif => "reseau = example.com, localtest.me\n",
         }
     }
 
@@ -141,14 +147,6 @@ impl Mur {
         match self {
             Mur::Srt => profil.avec_srt(programme.to_os_string()),
             Mur::Natif => {}
-        }
-    }
-
-    /// Ce que ce mur ne joue pas encore du cas `id`, avec la raison : un tel cas ne passe pas, il le dit.
-    fn pas_encore(self, id: &str) -> Option<&'static str> {
-        match (self, id) {
-            (Mur::Natif, "R2" | "S4") => Some(SANS_RELAIS),
-            _ => None,
         }
     }
 
@@ -190,13 +188,17 @@ fn programme_de_srt(grille: Option<&str>, srt: Option<OsString>) -> Result<OsStr
 }
 
 /// Le bwrap de la grille du mur natif : `LYDITE_GRILLE=natif` l'allume, `bwrap` est celui de `natif::programme`
-/// (`LYDITE_BWRAP`, sinon `bwrap`). Sans cela, le texte de l'erreur le dit.
+/// (`LYDITE_BWRAP`, sinon `bwrap`). Sans cela, le texte de l'erreur le dit, et nomme `LYDITE_RESEAU`, qui doit désigner
+/// un `lydite-reseau` construit : `natif::rejouer` le lit.
 fn programme_de_natif(grille: Option<&str>, bwrap: OsString) -> Result<OsString, String> {
     if grille != Some("natif") {
-        return Err("la grille du mur natif est éteinte : pose LYDITE_GRILLE=natif (elle demande bwrap, que \
-                    LYDITE_BWRAP nomme sinon `bwrap`, et le réseau de la machine pour ses témoins) : \
-                    LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"
-            .into());
+        return Err(
+            "la grille du mur natif est éteinte : pose LYDITE_GRILLE=natif, et LYDITE_RESEAU à un lydite-reseau \
+                    construit (cargo build --manifest-path reseau/Cargo.toml) ; elle demande bwrap, que LYDITE_BWRAP \
+                    nomme sinon `bwrap`, et le réseau de la machine pour ses témoins : LYDITE_GRILLE=natif \
+                    LYDITE_RESEAU=<lydite-reseau> cargo test grille::natif_ -- --ignored"
+                .into(),
+        );
     }
     Ok(bwrap)
 }
@@ -720,14 +722,17 @@ fn f9c(d: &Decor) -> Cas {
 /// Une requête HTTP par le proxy du mur, vers `url`, sous l'en-tête `Host` si `hote` n'est pas vide : sa marque de
 /// départ se voit toujours (le python a tourné), celle de réussite seulement si `fin` est vert.
 fn requete(d: &Decor, url: &str, hote: &str, fin: Fin) -> Cas {
-    let (tente, ok) = (d.marque("TENTE"), d.marque("OK"));
-    let cas = Cas::new(d, format!("python3 -c '{REQUETE}' {tente} \"{url}\" {ok} \"{hote}\""), fin).voit(&tente);
+    let (tente, ok, refus) = (d.marque("TENTE"), d.marque("OK"), d.marque("REFUS"));
+    let corps = format!("python3 -c '{REQUETE}' {tente} \"{url}\" {ok} \"{hote}\" {refus}");
+    let cas = Cas::new(d, corps, fin).voit(&tente);
     if fin == Fin::Vert { cas.voit(&ok) } else { cas.ne_voit_pas(&ok) }
 }
 
-/// R1 : un domaine non permis est refusé.
+/// R1 : un domaine non permis est refusé, par la réponse 403 du proxy et son en-tête `X-Proxy-Error:
+/// blocked-by-allowlist`, sous les deux murs.
 fn r1(d: &Decor) -> Cas {
-    requete(d, "http://example.org/", "", Fin::Rouge)
+    let refus = format!("{} 403 blocked-by-allowlist", d.marque("REFUS"));
+    requete(d, "http://example.org/", "", Fin::Rouge).voit(&refus)
 }
 
 /// R2 : un domaine permis passe.
@@ -835,13 +840,10 @@ fn t2(d: &Decor) -> Cas {
 
 /// Joue le cas `id` de la [`TABLE`] dans le mur : monte son décor, rejoue sa commande par [`Mur::rejouer`]
 /// ([`rejouer`] sous srt, [`natif::rejouer`] sous le mur natif) sous un profil au mur exigé, et constate. Panique, en
-/// le disant, si la grille est éteinte, ou si le mur ne joue pas encore ce cas ([`Mur::pas_encore`]).
+/// le disant, si la grille est éteinte.
 fn jouer(mur: Mur, id: &str) {
     let trouve = TABLE.iter().find(|(nom, _)| *nom == id);
     let (_, fabrique) = trouve.unwrap_or_else(|| panic!("{id} n'est pas dans la table"));
-    if let Some(raison) = mur.pas_encore(id) {
-        panic!("{id} : pas encore sous ce mur : {raison}");
-    }
     let programme = mur.programme().unwrap_or_else(|erreur| panic!("{id} : {erreur}"));
     let decor = Decor::neuf(true);
     let mut cas = fabrique(&decor);
@@ -882,7 +884,7 @@ const ETEINTE: &str = "demande bwrap, srt et le réseau : LYDITE_GRILLE=srt carg
 
 /// Le texte de l'`ignore` de chaque test de la grille du mur natif qui se joue.
 const ETEINTE_NATIF: &str =
-    "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored";
+    "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored";
 
 #[test]
 #[ignore = "demande bwrap, srt et le réseau : LYDITE_GRILLE=srt cargo test grille -- --ignored"]
@@ -1040,161 +1042,161 @@ fn t2_une_preuve_trop_lente_est_tuee_avec_ses_petits_enfants() {
     jouer(Mur::Srt, "T2");
 }
 
-// La même table, jouée sous le mur natif (`LYDITE_GRILLE=natif`). R2 et S4, qui demandent le réseau permis, sont « pas
-// encore » : le test existe, éteint avec sa raison, et `jouer` le refuse en la disant.
+// La même table, jouée sous le mur natif (`LYDITE_GRILLE=natif`, avec `LYDITE_RESEAU` au `lydite-reseau` construit) :
+// chaque cas a son test `natif_*`, et ses constats sont ceux de srt.
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f1_un_temoin_du_dossier_personnel_ne_se_lit_pas() {
     jouer(Mur::Natif, "F1");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f2_un_temoin_du_dossier_de_lydite_ne_se_lit_pas() {
     jouer(Mur::Natif, "F2");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f3_un_fichier_de_lecture_se_lit() {
     jouer(Mur::Natif, "F3");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f4a_ecrire_dans_tmp_echoue() {
     jouer(Mur::Natif, "F4a");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f4b_ecrire_dans_le_dossier_personnel_echoue() {
     jouer(Mur::Natif, "F4b");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f4c_ecrire_dans_le_dossier_de_lecture_echoue() {
     jouer(Mur::Natif, "F4c");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f5_le_bac_et_son_temporaire_s_ecrivent() {
     jouer(Mur::Natif, "F5");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f6_le_git_commun_se_lit_et_ne_s_ecrit_pas() {
     jouer(Mur::Natif, "F6");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f7_un_lien_du_bac_ne_rend_pas_le_temoin_lisible() {
     jouer(Mur::Natif, "F7");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f8_un_processus_de_dehors_n_est_pas_dans_proc() {
     jouer(Mur::Natif, "F8");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f9a_le_git_commun_ne_se_renomme_pas() {
     jouer(Mur::Natif, "F9a");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f9b_le_bac_ne_se_renomme_pas() {
     jouer(Mur::Natif, "F9b");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f9c_le_temporaire_ne_se_renomme_pas() {
     jouer(Mur::Natif, "F9c");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
-fn natif_r1_une_connexion_a_un_domaine_echoue() {
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+fn natif_r1_un_domaine_non_permis_est_refuse() {
     jouer(Mur::Natif, "R1");
 }
 
 #[test]
-#[ignore = "pas encore : le mur natif n'a pas de relais : réseau coupé en entier, monté par la vague suivante"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_r2_un_domaine_permis_passe() {
     jouer(Mur::Natif, "R2");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_r3_sans_le_proxy_rien_ne_sort() {
     jouer(Mur::Natif, "R3");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
-fn natif_r4_une_adresse_ip_en_clair_echoue() {
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+fn natif_r4_une_adresse_ip_en_clair_est_refusee() {
     jouer(Mur::Natif, "R4");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_r5_le_bac_ne_resout_aucun_nom() {
     jouer(Mur::Natif, "R5");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_r6_la_machine_ne_recoit_rien_du_mur() {
     jouer(Mur::Natif, "R6");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_s1_un_socket_unix_ne_se_cree_pas() {
     jouer(Mur::Natif, "S1");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_s2_la_moitie_haute_de_l_argument_ne_passe_pas() {
     jouer(Mur::Natif, "S2");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_s3_io_uring_est_refuse() {
     jouer(Mur::Natif, "S3");
 }
 
 #[test]
-#[ignore = "pas encore : le mur natif n'a pas de relais : réseau coupé en entier, monté par la vague suivante"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_s4_le_reseau_permis_marche_apres_le_verrou() {
     jouer(Mur::Natif, "S4");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_e1_la_cle_du_fournisseur_n_entre_pas_dans_le_mur() {
     jouer(Mur::Natif, "E1");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_t1_le_code_de_sortie_est_rendu_tel_quel() {
     jouer(Mur::Natif, "T1");
 }
 
 #[test]
-#[ignore = "demande bwrap et le réseau de la machine : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_t2_une_preuve_trop_lente_est_tuee_avec_ses_petits_enfants() {
     jouer(Mur::Natif, "T2");
 }
@@ -1225,52 +1227,37 @@ fn chaque_cas_de_la_table_a_son_test_eteint() {
 }
 
 #[test]
-fn chaque_cas_de_la_table_a_son_test_natif_eteint_ou_pas_encore() {
+fn chaque_cas_de_la_table_a_son_test_natif_eteint() {
     let source = include_str!("grille.rs");
     let appel = |id: &str| format!("{}(Mur::Natif, {id:?});", "jouer");
     let test = format!("#[{}]", "test");
     for (id, _) in TABLE {
         assert_eq!(source.matches(&appel(id)).count(), 1, "{id} : un test natif et un seul le joue");
-        // Le test de ce cas va de son attribut `test` à son appel : éteint, avec le texte de son cas (la raison, s'il
-        // n'est pas encore joué), et nommé `natif_…` pour que `--skip natif_` le laisse à la grille de srt.
+        // Le test de ce cas va de son attribut `test` à son appel : éteint, avec le texte de la grille du mur natif, et
+        // nommé `natif_…` pour que `--skip natif_` le laisse à la grille de srt.
         let avant = source.split_once(&appel(id)).map_or("", |(avant, _)| avant);
         let tete = &avant[avant.rfind(&test).unwrap_or(0)..];
-        let ignore = match Mur::Natif.pas_encore(id) {
-            Some(raison) => format!("pas encore : {raison}"),
-            None => ETEINTE_NATIF.to_string(),
-        };
-        let attendu = format!("{test}\n#[ignore = {ignore:?}]\nfn natif_{}", id.to_lowercase());
+        let attendu = format!("{test}\n#[ignore = {ETEINTE_NATIF:?}]\nfn natif_{}", id.to_lowercase());
         assert!(tete.starts_with(&attendu), "{id} : le test natif n'est pas éteint comme il doit : {tete:.120}");
-        assert_eq!(Mur::Srt.pas_encore(id), None, "{id} : srt joue toute la table");
     }
-    // Aucun autre test ne joue le mur natif, et la liste des « pas encore » est celle de la raison : R2 et S4.
+    // Aucun autre test ne joue le mur natif.
     let joue = format!("{}(Mur::Natif", "jouer");
     let tests = source.split(&test).skip(1).filter(|morceau| morceau.contains(&joue)).count();
     assert_eq!(tests, TABLE.len(), "autant de tests natifs que de cas");
-    let ids = TABLE.iter().map(|(id, _)| *id);
-    let pas_encore: Vec<&str> = ids.filter(|id| Mur::Natif.pas_encore(id).is_some()).collect();
-    assert_eq!(pas_encore, ["R2", "S4"]);
 }
 
 #[test]
-#[should_panic(expected = "R2 : pas encore sous ce mur : le mur natif n'a pas de relais")]
-fn un_cas_pas_encore_joue_ne_passe_pas_il_le_dit() {
-    let mur = Mur::Natif;
-    jouer(mur, "R2");
-}
-
-#[test]
-fn le_mur_natif_n_a_pas_de_reseau_et_son_profil_n_en_permet_aucun() {
+fn sous_les_deux_murs_le_profil_de_la_grille_donne_les_memes_domaines() {
     let decor = Decor::neuf(false);
     let cas = fabrique_de("F1")(&decor);
     let programme = OsString::from("bwrap");
-    // Le mur natif refuse tout domaine : son profil n'en donne aucun, alors que celui de srt les donne.
-    let natif = decor.profil(Mur::Natif, &cas, &programme);
-    let listes = natif.listes_du_mur(&decor.bac, &decor.temporaire).unwrap().unwrap();
-    assert!(listes.domaines.is_empty(), "{:?}", listes.domaines);
-    let srt = decor.profil(Mur::Srt, &cas, &programme);
-    let listes = srt.listes_du_mur(&decor.bac, &decor.temporaire).unwrap().unwrap();
-    assert_eq!(listes.domaines, ["example.com", "localtest.me"]);
+    // Le mur natif relaie les domaines par `lydite-reseau` comme srt par son proxy : son profil les donne tous deux.
+    let domaines = |mur: Mur| {
+        let profil = decor.profil(mur, &cas, &programme);
+        profil.listes_du_mur(&decor.bac, &decor.temporaire).unwrap().unwrap().domaines
+    };
+    assert_eq!(domaines(Mur::Srt), ["example.com", "localtest.me"]);
+    assert_eq!(domaines(Mur::Natif), domaines(Mur::Srt));
     let _ = fs::remove_dir_all(&decor.dir);
 }
 
@@ -1336,6 +1323,8 @@ fn la_grille_natif_eteinte_le_dit_au_lieu_de_passer() {
     for grille in [None, Some(""), Some("srt"), Some("autre")] {
         let erreur = programme_de_natif(grille, bwrap()).unwrap_err();
         assert!(erreur.contains("LYDITE_GRILLE=natif"), "{erreur}");
+        // Elle dit aussi d'où vient le `lydite-reseau` qui relaie le réseau permis.
+        assert!(erreur.contains("LYDITE_RESEAU"), "{erreur}");
     }
     // Et inversement : `LYDITE_GRILLE=natif` ne donne pas de srt à la grille de srt.
     let erreur = programme_de_srt(Some("natif"), Some(OsString::from("srt"))).unwrap_err();
