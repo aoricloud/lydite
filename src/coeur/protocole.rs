@@ -22,7 +22,19 @@
 //!    déclarée, une entrée de moins n'est pas un écart et une clé absente vaut une liste vide ;
 //!    `sandbox.filesystem.denyRead`, qui le ferme en grandissant : chaque entrée déclarée y paraît) et le modèle
 //!    déclaré ;
-//!    `list_permission_rules` avec chaque règle déclarée, à la source `flagSettings` ;
+//!    `list_permission_rules` avec chaque règle déclarée, à la source `flagSettings`, et sans règle `allow` de plus :
+//!    une règle `allow` qu'une autre source ajoute (`userSettings` en tête) fait lire et écrire la main hors de son
+//!    bac, `~/.config/gh/` compris, sans que rien ne la retienne. Toute règle `allow` qui n'est pas une règle déclarée,
+//!    vue à `flagSettings`, est un écart (outils de fichiers, WebFetch, WebSearch, `mcp__*`, tout autre outil), qui
+//!    nomme la règle et sa source et dit de la retirer des réglages de cette source. Une seule exception : `Bash` et
+//!    `PowerShell` (nus ou avec un motif) sous un mur exigé (`sandbox.failIfUnavailable` vrai au déclaré), car ces
+//!    commandes y restent dans le bac à sable que le constat prouve actif (`allowUnsandboxedCommands` faux, une
+//!    `excludedCommands` de plus est déjà un écart) ; sous un mur seulement demandé, le bac peut manquer et la règle
+//!    reste un écart. Une règle `deny` ou `ask` d'une autre source n'est pas un écart : `deny` ferme davantage, et une
+//!    demande n'a pas de réponse ici. De même `effective.permissions.additionalDirectories` de `get_settings`, dossiers
+//!    où les outils de fichiers travaillent sans règle : Lydite n'en déclare aucun, chaque entrée est un écart, une clé
+//!    absente vaut une liste vide. `permissions.defaultMode` ne se juge pas ici : `--permission-mode acceptEdits`
+//!    l'emporte, et l'ouverture juge déjà le mode ([`juger_ouverture`]) ;
 //!    `get_hooks_listing` avec tous les crochets coupés ; `get_sandbox_dialog`, interne à Claude Code,
 //!    qui dit le mur actif ou non, et dont le silence n'est pas un écart, sauf un mur exigé qu'il dit inactif.
 //! 4. Sans écart, Kraken écrit la consigne ([`message`]), puis ferme l'entrée de la main. Au moindre écart, la main
@@ -68,6 +80,10 @@ const VARIABLES: &str = "sandbox.credentials.envVars";
 /// Les listes du mur qui l'ouvrent quand elles grandissent : chaque entrée effective doit être une entrée déclarée. Une
 /// entrée de moins ferme le mur davantage, ce n'est pas un écart ; une clé absente de l'effectif vaut une liste vide.
 const OUVRANT: [&str; 2] = ["sandbox.filesystem.allowRead", "sandbox.network.allowedDomains"];
+
+/// Les dossiers que les outils de fichiers d'une main lisent et écrivent sans règle, en plus de son bac. Lydite n'en
+/// déclare aucun : une entrée effective est un écart, une clé absente vaut une liste vide.
+const DOSSIERS: &str = "permissions.additionalDirectories";
 
 /// La liste du mur qui le ferme quand elle grandit : chaque entrée déclarée doit paraître à l'effectif, une entrée de
 /// plus d'une autre source n'est pas un écart (comme les refus de [`VARIABLES`]).
@@ -503,6 +519,17 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
             autre => ecarts.push(format!("{cle} {}, déclaré une liste", montre(autre))),
         }
     }
+    // Les dossiers de plus où les outils de fichiers lisent et écrivent sans règle : Lydite n'en déclare aucun.
+    match vu(&format!("effective.{DOSSIERS}")) {
+        None => {}
+        Some(Json::Liste(dossiers)) => {
+            for dossier in dossiers {
+                let nom = montre(Some(dossier));
+                ecarts.push(format!("effective.{DOSSIERS} : dossier {nom} hors du déclaré (aucun)"));
+            }
+        }
+        autre => ecarts.push(format!("effective.{DOSSIERS} {}, déclaré une liste vide", montre(autre))),
+    }
     {
         let cle = format!("effective.{FERMANT}");
         let effectives = textes(vu(&cle));
@@ -570,7 +597,40 @@ fn regles(corps: Option<&Json>, declare: &Json) -> Vec<String> {
             ecarts.push(format!("{comportement} {regle:?} déclarée, {vu}"));
         }
     }
+    // Les règles `allow` que Lydite n'a pas déclarées : une autre source qui en ajoute ouvre les outils de la main hors
+    // de son bac. Une règle `deny` ou `ask` d'une autre source n'est pas un écart.
+    let declarees = textes(champ(declare, "permissions.allow"));
+    let mur_exige = champ(declare, "sandbox.failIfUnavailable") == Some(&Json::Booleen(true));
+    for vue in vues {
+        if texte_de(vue, "behavior") != Some("allow") {
+            continue;
+        }
+        let source = texte_de(vue, "source");
+        let regle = texte_de(vue, "rule");
+        if source == Some("flagSettings") && regle.is_some_and(|regle| declarees.contains(&regle)) {
+            continue;
+        }
+        if mur_exige && regle.is_some_and(commande_du_mur) {
+            continue;
+        }
+        let ou = match source {
+            Some(source) => format!("à {source:?}"),
+            None => "sans source".to_string(),
+        };
+        ecarts.push(format!(
+            "allow {} vue {ou}, non déclarée : la retirer des réglages de cette source pour lancer Lydite",
+            montre(champ(vue, "rule")),
+        ));
+    }
     ecarts
+}
+
+/// Vrai si la règle vise `Bash` ou `PowerShell`, nus ou avec un motif entre parenthèses. Sous un mur exigé, ces
+/// commandes restent dans le bac à sable, dont le constat prouve qu'il est actif.
+fn commande_du_mur(regle: &str) -> bool {
+    ["Bash", "PowerShell"]
+        .iter()
+        .any(|outil| regle.strip_prefix(outil).is_some_and(|reste| reste.is_empty() || reste.starts_with('(')))
 }
 
 /// L'écart de `get_hooks_listing` : les crochets ne sont pas tous coupés.

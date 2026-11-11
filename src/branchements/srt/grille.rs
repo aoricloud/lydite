@@ -568,6 +568,13 @@ impl Drop for Pose {
 
 type Fabrique = fn(&Decor) -> Cas;
 
+/// Les cas de la [`TABLE`] que srt ne joue pas, avec la raison : seul le mur natif les joue.
+const SEULEMENT_NATIF: &[(&str, &str)] = &[(
+    "R7",
+    "le dossier du socket du filtre est une pièce du mur natif (le relais du bac s'y connecte) ; srt sort par son \
+     proxy, et n'a ni ce dossier ni ce relais",
+)];
+
 /// La table : un nom, et le cas que ce nom fait de son décor.
 const TABLE: &[(&str, Fabrique)] = &[
     ("F1", f1),
@@ -590,6 +597,7 @@ const TABLE: &[(&str, Fabrique)] = &[
     ("R4", r4),
     ("R5", r5),
     ("R6", r6),
+    ("R7", r7),
     ("S1", s1),
     ("S2", s2),
     ("S3", s3),
@@ -791,6 +799,25 @@ fn r6(d: &Decor) -> Cas {
     requete(d, &format!("http://localtest.me:{port}/"), "", Fin::Rouge).avec_temoin(Temoin::Tcp(ecouteurs, port))
 }
 
+/// R7 : le dossier du socket du filtre, que le mur natif monte dans le bac, ne change pas : la commande y voit le
+/// socket (`s`), mais écrire, retirer ou renommer y échoue, et le socket y est encore après. Le relais, hors du verrou,
+/// rouvrirait sinon ce que le chemin désigne désormais. Les cas R1 à R6 et S4, qui passent par le relais, prouvent
+/// qu'une connexion traverse ce montage en lecture seule. Seul le mur natif le joue ([`SEULEMENT_NATIF`]). Le dossier
+/// est `<dix hexadécimaux>.net`, à côté du temporaire du bac, dans le dossier neuf du décor : la commande le trouve
+/// par ce nom.
+fn r7(d: &Decor) -> Cas {
+    let cote = d.temporaire.parent().expect("le temporaire du bac a un dossier");
+    let (vu, ecrit, retire, renomme, encore) =
+        (d.marque("VU"), d.marque("ECRIT"), d.marque("RETIRE"), d.marque("RENOMME"), d.marque("ENCORE"));
+    let corps = format!(
+        "D=$(ls -d \"{}\"/*.net | head -n 1); test -S \"$D/s\" && echo {vu}; echo x > \"$D/ecrit\" && echo {ecrit}; \
+         rm \"$D/s\" && echo {retire}; mv \"$D/s\" \"$D/renomme\" && echo {renomme}; test -S \"$D/s\" && echo {encore}",
+        cote.display()
+    );
+    let cas = Cas::new(d, corps, Fin::Vert).voit(&vu).voit(&encore);
+    cas.ne_voit_pas(&ecrit).ne_voit_pas(&retire).ne_voit_pas(&renomme)
+}
+
 /// Un socket Unix témoin ouvert dehors, dans le dossier de `lecture` (lisible du mur), qui compte ses connexions.
 fn socket_temoin(d: &Decor) -> (Temoin, String) {
     let chemin = d.lecture.join("t.sock");
@@ -858,6 +885,9 @@ fn t2(d: &Decor) -> Cas {
 fn jouer(mur: Mur, id: &str) {
     let trouve = TABLE.iter().find(|(nom, _)| *nom == id);
     let (_, fabrique) = trouve.unwrap_or_else(|| panic!("{id} n'est pas dans la table"));
+    if let (Mur::Srt, Some((_, raison))) = (mur, SEULEMENT_NATIF.iter().find(|(nom, _)| *nom == id)) {
+        panic!("{id} ne se joue pas sous srt : {raison}");
+    }
     let programme = mur.programme().unwrap_or_else(|erreur| panic!("{id} : {erreur}"));
     let decor = Decor::neuf(true);
     let mut cas = fabrique(&decor);
@@ -1187,6 +1217,12 @@ fn natif_r6_la_machine_ne_recoit_rien_du_mur() {
 
 #[test]
 #[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+fn natif_r7_le_dossier_du_socket_du_filtre_ne_change_pas() {
+    jouer(Mur::Natif, "R7");
+}
+
+#[test]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_s1_un_socket_unix_ne_se_cree_pas() {
     jouer(Mur::Natif, "S1");
 }
@@ -1239,8 +1275,15 @@ fn chaque_cas_de_la_table_a_son_test_eteint() {
     let n = ids.len();
     ids.dedup();
     assert_eq!(ids.len(), n, "un cas est écrit deux fois dans la table");
+    for (id, raison) in SEULEMENT_NATIF {
+        assert!(TABLE.iter().any(|(nom, _)| nom == id), "{id} : dit seulement natif, et n'est pas dans la table");
+        assert!(!raison.is_empty(), "{id} : seulement natif, sans raison");
+    }
+    let sous_srt = |id: &str| !SEULEMENT_NATIF.iter().any(|(nom, _)| *nom == id);
     for id in ids {
-        assert_eq!(source.matches(&appel(id)).count(), 1, "{id} : un test et un seul le joue");
+        // Un cas seulement natif n'a pas de test srt, et dit pourquoi.
+        let attendu = usize::from(sous_srt(id));
+        assert_eq!(source.matches(&appel(id)).count(), attendu, "{id} : le nombre de tests srt qui le jouent");
     }
     // Un test qui joue un mur porte l'`ignore` : jamais joué en passant par `cargo test` seul.
     let joue = format!("{}(Mur::Srt", "jouer");
@@ -1249,7 +1292,7 @@ fn chaque_cas_de_la_table_a_son_test_eteint() {
         tests += 1;
         assert!(morceau.starts_with(&format!("\n{ignore}\nfn ")), "un test du mur n'est pas éteint : {morceau:.80}");
     }
-    assert_eq!(tests, n, "autant de tests que de cas");
+    assert_eq!(tests, n - SEULEMENT_NATIF.len(), "autant de tests srt que de cas que srt joue");
 }
 
 #[test]
