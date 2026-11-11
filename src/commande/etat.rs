@@ -146,7 +146,7 @@ fn sans_sceau_de_fin(montrees: &[&Vague], sceaux: &[SceauLu]) -> bool {
 fn aucune_vague(dossier: &Path) -> String {
     let m1 = dossier.join("fil");
     if m1.exists() {
-        format!("no wave in the v2 thread; the M1 thread is no longer read: {}", m1.display())
+        format!("no wave in the thread; the old tab-separated thread is no longer read: {}", m1.display())
     } else {
         "no wave".into()
     }

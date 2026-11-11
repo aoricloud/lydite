@@ -349,8 +349,8 @@ impl From<io::Error> for Refus {
         Refus::new(
             Code::EntreeSortie,
             erreur.to_string(),
-            "Vérifie que le chemin ou le programme de la preuve existe et que Lydite peut le lire, l'écrire ou le \
-             lancer, puis relance.",
+            "Check that the path, or the program of the proof, exists and that Lydite can read, write or run it, \
+             then retry.",
         )
     }
 }

@@ -905,7 +905,7 @@ fn une_ci_rouge_vaut_une_relance_qui_avance_la_branche_de_la_pr() {
         Evenement::Vague { vague, objectif, .. } if vague == relance => Some(objectif.as_str()),
         _ => None,
     });
-    assert_eq!(objectif, Some("Rendre verte la CI de la PR 12"));
+    assert_eq!(objectif, Some("Make the CI of PR 12 green"));
     let partie_de_la_tete = fil.iter().any(|note| {
         matches!(note, Evenement::Assemblage { vague, base, preuve, .. }
             if vague == relance && *base == tete && preuve == "exit 0")
@@ -984,7 +984,7 @@ fn une_ci_rouge_vaut_une_relance_qui_avance_la_branche_de_la_pr() {
     let verte = format!("PR 12 · {PR} · CI green (observed)");
     let (de_rouge, de_verte) = (dit.find(&rouge), dit.find(&verte));
     assert!(dit.starts_with("Ecrire a et b\n") && de_rouge < de_verte && de_rouge.is_some(), "{dit}");
-    assert!(dit.contains("\n\nRendre verte la CI de la PR 12\n"), "{dit}");
+    assert!(dit.contains("\n\nMake the CI of PR 12 green\n"), "{dit}");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -1276,7 +1276,7 @@ fn une_relance_non_assemblee_est_8011_sous_la_relance() {
     // `lydite etat` montre la relance, qui n'a pas de PR à elle : son objectif, sa tâche classée, puis le refus.
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::FAILURE, "{dit}");
-    assert!(dit.starts_with("Rendre verte la CI de la PR 12\n"), "{dit}");
+    assert!(dit.starts_with("Make the CI of PR 12 green\n"), "{dit}");
     assert!(dit.contains(&format!("main-{relance}-1 ci : set aside")), "{dit}");
     assert!(dit.ends_with(&format!("\nrefusée (8011) : {}", Code::CiRouge.regle())), "{dit}");
     let _ = fs::remove_dir_all(&lieu.racine);
@@ -1298,7 +1298,7 @@ fn la_relance_est_un_plan_d_une_tache_ci_dont_l_objectif_porte_le_contexte() {
     let relance = plan_de_relance(&plan, 12, "test (windows) : FAILURE\ntest b ... FAILED\n");
     // Une vague qui rend verte la CI de la PR, de la preuve de la vague relancée, et sa seule tâche, sans dépendance
     // ni preuve à elle.
-    assert_eq!(relance.objectif, "Rendre verte la CI de la PR 12");
+    assert_eq!(relance.objectif, "Make the CI of PR 12 green");
     assert_eq!(relance.preuve.as_deref(), Some("cargo test"));
     let [tache] = &relance.taches[..] else { panic!("{relance:?}") };
     assert_eq!((tache.id.as_str(), tache.depend.is_empty(), tache.preuve.as_deref()), ("ci", true, None));

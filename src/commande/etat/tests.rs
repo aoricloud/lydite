@@ -637,7 +637,7 @@ fn kraken_etat_montre_la_vague_relancee_avant_sa_relance() {
     let (v1, v2) = (branche_de(V1), branche_de(V2));
     let (ancienne, _) = assemblees(V0, "Une vague plus ancienne", &["a"]);
     let (relancee, texte_relancee) = assemblees(V1, "Deux tâches", &["a", "b"]);
-    let (relance, texte_relance) = assemblees(V2, "Rendre verte la CI de la PR 12", &["ci"]);
+    let (relance, texte_relance) = assemblees(V2, "Make the CI of PR 12 green", &["ci"]);
     let ligne_pr = |ci: &str| format!("PR 12 · {URL_DE_LA_PR} · {ci}");
     // V1 ouvre sa PR 12, dont la CI est rouge ; sa relance V2 pousse dans la même branche, sous son id, et la CI est
     // verte.
@@ -814,7 +814,7 @@ fn kraken_etat_dit_la_chaine_d_une_vague_decoupee_poussee_puis_relancee_en_ci() 
     // Le découpage pris, la vague jouée, relue (une remarque, bloquante) et corrigée ; sa PR 12 a une CI rouge, que
     // sa relance (V2, une tâche `ci`) rend verte : toute la chaîne se montre, et le code est 0.
     let (plan, texte) = assemblees(V1, "Deux tâches", &["a", "b"]);
-    let (relance, texte_relance) = assemblees(V2, "Rendre verte la CI de la PR 12", &["ci"]);
+    let (relance, texte_relance) = assemblees(V2, "Make the CI of PR 12 green", &["ci"]);
     let branche = branche_de(V1);
     let pousse_v1 = vec![poussee(V1, &branche), pr(V1, &branche, Foi::Constate), ci(V1, Couleur::Rouge, Foi::Constate)];
     let pousse_v2 = vec![poussee(V2, &branche), pr(V2, &branche, Foi::Constate), ci(V2, Couleur::Vert, Foi::Constate)];
@@ -843,7 +843,7 @@ fn kraken_etat_dit_la_chaine_d_une_vague_decoupee_poussee_puis_relancee_en_ci() 
     .join("\n");
     assert_eq!(etat_du_fil(&[avant.clone(), relance, pousse_v2].concat()), (attendu, ExitCode::SUCCESS));
     // La même chaîne, la CI de la relance rouge encore et la vague relancée refusée en 8011 : le code est 1.
-    let (relance, _) = assemblees(V2, "Rendre verte la CI de la PR 12", &["ci"]);
+    let (relance, _) = assemblees(V2, "Make the CI of PR 12 green", &["ci"]);
     let rouge_encore =
         vec![poussee(V2, &branche), pr(V2, &branche, Foi::Constate), ci(V2, Couleur::Rouge, Foi::Constate)];
     let fil = [avant, vec![refus_de_forge(V1, 8011)], relance, rouge_encore].concat();
@@ -1114,7 +1114,7 @@ fn un_fil_de_m1_seul_est_dit() {
     let m1 = dossier.join("fil");
     let ancien = "1761901200000\tvague\t1761901200000\t1\t/srv/depot\t\tÉcrire bonjour.txt\n";
     fs::write(&m1, ancien).unwrap();
-    let attendu = format!("no wave in the v2 thread; the M1 thread is no longer read: {}", m1.display());
+    let attendu = format!("no wave in the thread; the old tab-separated thread is no longer read: {}", m1.display());
     assert_eq!(aucune_vague(&dossier), attendu);
     assert_eq!(etat_dans(&dossier), Ok(ExitCode::SUCCESS));
     // Un fil v2 sans vague, le type d'une autre pièce seul : le fil de M1 est encore dit.
