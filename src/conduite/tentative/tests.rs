@@ -13,7 +13,7 @@ fn une_sortie_verte_suivie_d_une_mise_a_mort_ratee_passe_encore_annonce_vert() {
     assert_eq!(erreur, "rouge ; mise à mort : restes");
 }
 use crate::branchements::processus::{retire_de_l_env, retire_de_la_preuve};
-use crate::coeur::profil::Mesure;
+use crate::coeur::profil::{Fournisseur, Mesure};
 use crate::essais::mains::{DELAI, bac_jetable, profil_borne};
 use std::collections::BTreeMap;
 use std::env;
@@ -122,7 +122,7 @@ fn la_main_d_un_fournisseur_recoit_son_url_et_sa_cle_et_perd_le_jeton_herite() {
         assert_eq!(sans.get(nom).map(String::as_str), env::var(nom).ok().as_deref(), "{nom} passe tel quel");
     }
     let (api, cle) = ("https://api.exemple.test/anthropic", "leurre-de-la-cle");
-    let avec = vues(Some((api, cle, "CLE_ESSAI")));
+    let avec = vues(Some(Fournisseur { api, cle, variable: "CLE_ESSAI" }));
     assert_eq!(avec["ANTHROPIC_BASE_URL"], api);
     assert_eq!(avec["ANTHROPIC_API_KEY"], cle);
     assert!(!avec.contains_key("ANTHROPIC_AUTH_TOKEN"), "le jeton hérité de l'humain ne va pas chez le fournisseur");
@@ -135,7 +135,7 @@ fn la_main_d_un_fournisseur_recoit_son_url_et_sa_cle_et_perd_le_jeton_herite() {
     let texte = "sorte = claude\napi = https://api.exemple.test/anthropic\ncle = CLE_ESSAI\n";
     let mut profil = profil_borne(texte, &dir);
     profil.fournir(|_| Some(OsString::from(cle))).unwrap();
-    assert_eq!(profil.fournisseur(), Some((api, cle)));
+    assert_eq!(profil.fournisseur(), Some(Fournisseur { api, cle, variable: "CLE_ESSAI" }));
     let commande = if cfg!(windows) { "set > env.txt" } else { "env > env.txt" };
     rejouer(&profil, commande, &bac, &dir.join("journal.tmp")).1.unwrap();
     let preuve = String::from_utf8_lossy(&fs::read(bac.join("env.txt")).unwrap()).into_owned();
