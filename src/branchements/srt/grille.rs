@@ -31,6 +31,7 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, ErrorKind};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::Child;
@@ -376,6 +377,8 @@ struct Cas {
     /// Le délai de la preuve, en secondes.
     delai: u64,
     temoin: Temoin,
+    /// Le fichier que le profil du cas prête comme exécutable de Lydite (`Profil::avec_lydite`), s'il y en a un.
+    pret: Option<PathBuf>,
 }
 
 impl Cas {
@@ -391,6 +394,7 @@ impl Cas {
             env: Vec::new(),
             delai: 120,
             temoin: Temoin::Aucun,
+            pret: None,
         }
     }
 
@@ -421,6 +425,12 @@ impl Cas {
 
     fn en_secondes(mut self, delai: u64) -> Cas {
         self.delai = delai;
+        self
+    }
+
+    /// Le profil du cas prête ce fichier, comme `preparer` prête l'exécutable de Lydite.
+    fn avec_executable_prete(mut self, fichier: PathBuf) -> Cas {
+        self.pret = Some(fichier);
         self
     }
 }
@@ -506,6 +516,9 @@ impl Decor {
         );
         let mut profil = profil_borne(&texte, &self.dir);
         mur.brancher(&mut profil, programme);
+        if let Some(pret) = &cas.pret {
+            profil.avec_lydite(pret.clone());
+        }
         profil
     }
 }
@@ -575,6 +588,7 @@ const TABLE: &[(&str, Fabrique)] = &[
     ("F9b", f9b),
     ("F9c", f9c),
     ("F10", f10),
+    ("F11", f11),
     ("R1", r1),
     ("R2", r2),
     ("R3", r3),
@@ -723,6 +737,26 @@ fn f10(d: &Decor) -> Cas {
     let marque = d.marque("CONNEXION");
     let cas = Cas::new(d, format!("cat \"{}\"", temoin.display()), Fin::Rouge);
     cas.ne_voit_pas(&marque).sur_l_hote(&temoin, Etat::Contient(marque))
+}
+
+/// F11 : un faux exécutable `lydite` (un script `sh` qui écrit une marque) vit dans un dossier sous le faux dossier
+/// personnel, avec à côté de lui un fichier voisin qui porte une autre marque. Le profil prête le faux exécutable,
+/// comme `preparer` prête le vrai. La commande lance `lydite` par son nom, ce dossier en tête du `PATH` comme
+/// `path_de_kraken` le pose, puis lit le voisin : la première marque se voit, la seconde nulle part, et la fin est
+/// rouge, car le voisin ne se lit pas.
+fn f11(d: &Decor) -> Cas {
+    let dossier = d.personnel.join("bin");
+    fs::create_dir_all(&dossier).unwrap();
+    let (executable, voisin) = (dossier.join("lydite"), dossier.join("voisin"));
+    let (lance, marque) = (d.marque("LYDITE"), d.marque("VOISIN"));
+    fs::write(&executable, format!("#!/bin/sh\necho {lance}\n")).unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(&voisin, &marque).unwrap();
+    // Le fichier réel, au bout des liens, comme `preparer` le résout.
+    let reel = fs::canonicalize(&executable).unwrap();
+    let corps = format!("PATH=\"{}:$PATH\"; export PATH; lydite; cat \"{}\"", dossier.display(), voisin.display());
+    let cas = Cas::new(d, corps, Fin::Rouge).voit(&lance).ne_voit_pas(&marque);
+    cas.sur_l_hote(&voisin, Etat::Contient(marque)).avec_executable_prete(reel)
 }
 
 /// Une requête HTTP par le proxy du mur, vers `url`, sous l'en-tête `Host` si `hote` n'est pas vide : sa marque de
@@ -1000,6 +1034,12 @@ fn f10_un_temoin_du_dossier_de_connexion_de_claude_ne_se_lit_pas() {
 
 #[test]
 #[ignore = "demande bwrap, srt et le réseau : LYDITE_GRILLE=srt cargo test grille -- --ignored"]
+fn f11_l_executable_prete_se_lance_et_son_voisin_ne_se_lit_pas() {
+    jouer(Mur::Srt, "F11");
+}
+
+#[test]
+#[ignore = "demande bwrap, srt et le réseau : LYDITE_GRILLE=srt cargo test grille -- --ignored"]
 fn r1_un_domaine_non_permis_est_refuse() {
     jouer(Mur::Srt, "R1");
 }
@@ -1161,6 +1201,12 @@ fn natif_f9c_le_temporaire_ne_se_renomme_pas() {
 #[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f10_un_temoin_du_dossier_de_connexion_de_claude_ne_se_lit_pas() {
     jouer(Mur::Natif, "F10");
+}
+
+#[test]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+fn natif_f11_l_executable_prete_se_lance_et_son_voisin_ne_se_lit_pas() {
+    jouer(Mur::Natif, "F11");
 }
 
 #[test]

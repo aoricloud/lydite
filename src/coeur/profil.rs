@@ -337,6 +337,10 @@ struct Claude {
     bornes: Option<Bornes>,
     /// Le programme qui rejoue la preuve sous un mur exigé : `srt`, ou ce que pose [`Profil::avec_srt`].
     srt: OsString,
+    /// Le fichier réel de l'exécutable de Lydite (au bout des liens), que `preparer` résout : sous un mur exigé, les
+    /// commandes le lisent, lui seul, et la preuve prêtée qui appelle `lydite` par son nom se lance. `None` s'il ne
+    /// s'est pas résolu : rien n'est prêté de plus.
+    lydite: Option<PathBuf>,
 }
 
 /// Le mur qui rejoue la preuve d'un profil ([`Profil::mur_du_rejeu`]).
@@ -897,6 +901,15 @@ impl Profil {
         }
     }
 
+    /// Le fichier réel de l'exécutable de Lydite, que `preparer` résout une fois : sous un mur exigé, les commandes de
+    /// la main et du rejeu le lisent (le fichier seul, jamais son dossier), car un `lydite` sous le dossier personnel,
+    /// fermé, ne se lancerait pas. Un test le pose sans toucher à l'environnement. Une main brute n'a rien à prêter.
+    pub(crate) fn avec_lydite(&mut self, lydite: PathBuf) {
+        if let Sorte::Claude(claude) = &mut self.sorte {
+            claude.lydite = Some(lydite);
+        }
+    }
+
     /// Sous un mur exigé, ce qui rejoue une preuve dans `worktree` : le programme srt, un fichier de réglages neuf du
     /// dossier de Kraken, `srt-<lot>.json`, et ce qu'il porte, toutes ses clés écrites, même vides, car srt refuse un
     /// fichier incomplet :
@@ -1181,15 +1194,19 @@ impl Claude {
 
     /// Les règles de fichiers et de réseau d'une main posée dans `bac` : ce que ses commandes ne lisent pas (le dossier
     /// personnel, le dossier de Kraken, le dossier de connexion de Claude que nomme `CLAUDE_CONFIG_DIR` puis le
-    /// dossier de configuration de gh, si l'un ou l'autre est nommé), ce qu'elles lisent (le bac, le git commun, puis
-    /// `lecture`) et les domaines qu'elles joignent (`reseau`). Le `--settings` de la main, les réglages de srt du
-    /// rejeu et les listes du mur natif les prennent ici.
+    /// dossier de configuration de gh, si l'un ou l'autre est nommé), ce qu'elles lisent (le bac, le git commun, puis,
+    /// sous un mur exigé (`exige` ou `natif`) et si le profil a un exécutable de Lydite, ce fichier seul, jamais son
+    /// dossier, puis `lecture`) et les domaines qu'elles joignent (`reseau`). Sous un mur demandé, l'exécutable n'y
+    /// entre pas : la preuve prêtée sort du bac à sable par `excludedCommands`, et se lit déjà. Le `--settings` de la
+    /// main, les réglages de srt du rejeu et les listes du mur natif les prennent ici.
     fn regles(&self, bornes: &Bornes, bac: &Path) -> (Vec<String>, Vec<String>, Vec<String>) {
         let config = bornes.config.iter().cloned();
         let gh = bornes.gh.iter().map(|(gh, _)| gh.clone());
         let fermes = ["~/".to_string(), bornes.dossier.clone()].into_iter().chain(config).chain(gh).collect();
+        let lydite = self.lydite.iter().filter(|_| !matches!(self.mur, Mur::Demande));
+        let lydite = lydite.map(|lydite| lydite.to_string_lossy().into_owned());
         let lus = [bac.to_string_lossy().into_owned(), bornes.git_commun.clone()].into_iter();
-        (fermes, lus.chain(self.lecture.clone()).collect(), self.reseau.clone())
+        (fermes, lus.chain(lydite).chain(self.lecture.clone()).collect(), self.reseau.clone())
     }
 }
 
@@ -1272,6 +1289,7 @@ pub(crate) fn lire(
         ligne_lecture: (0, String::new()),
         bornes: None,
         srt: "srt".into(),
+        lydite: None,
     };
     let lieu = claude.lieu();
     let refusee = |n: usize, ligne: &str, regle: &str| ligne_refusee(&lieu, nom, n, ligne, regle);
