@@ -24,6 +24,7 @@ mod coeur {
     pub(crate) mod protocole;
     pub(crate) mod remarques;
     pub(crate) mod texte;
+    pub(crate) mod verrou;
 }
 
 mod commande;
