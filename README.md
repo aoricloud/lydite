@@ -22,8 +22,8 @@ network. A *wave* is one launch: an objective, its tasks, one pull request.
 
 > [!NOTE]
 > **Status: early.** Lydite builds itself and two public test repositories (the *benches*); nobody else has run it
-> yet. It is a small Rust program with no crate dependencies. Its commands and messages are still in French (`lancer`,
-> `etat`; a table below translates the words you need); English is in progress. The wall only works on Linux. A wave
+> yet. It is a small Rust program with no crate dependencies. Its commands and flags are in English, but the keys of its profiles
+> and plans are still in French (a table below translates the words you need); English is in progress. The wall only works on Linux. A wave
 > runs Claude Code sessions on your own account or provider key. Expect rough edges.
 
 ## What a Lydite pull request says
@@ -97,7 +97,7 @@ justify" in the pull request). It does not judge whether your tests are good.
 ## How a wave goes
 
 1. You give an objective (or an issue) and **the command that proves the work done**.
-2. A hand splits it into tasks; Lydite reads the plan itself. With `--observer` it stops here and shows the plan.
+2. A hand splits it into tasks; Lydite reads the plan itself. With `--dry-run` it stops here and shows the plan.
 3. Each task goes to a hand in its own git worktree and branch, behind the wall, with a filtered network exit.
 4. When a hand says it is done, Lydite replays your proof itself, in a new sandboxed process. Green: the work is
    merged into the wave's branch, and the proof is replayed after every merge. Red: one retry, with the error given to
@@ -109,7 +109,7 @@ justify" in the pull request). It does not judge whether your tests are good.
    (8011).
 
 Everything that happens is appended to a journal outside the repository (the *thread*), sealed by its SHA-256 before
-the pull request is written. `lydite etat` reads it back and recomputes every seal.
+the pull request is written. `lydite status` reads it back and recomputes every seal.
 
 ## Try it
 
@@ -160,25 +160,25 @@ delai_preuve = 300
 A proof that downloads something (dependencies, say) also needs a `reseau` line naming the domains it may reach.
 
 ```bash
-lydite accepter first     # shows the profile and accepts its fingerprint; a changed profile must be accepted again
-lydite profil first       # read-only: what Lydite understood (models, efforts, wall, ceiling, timeouts)
+lydite accept first       # shows the profile and accepts its fingerprint; a changed profile must be accepted again
+lydite profile first      # read-only: what Lydite understood (models, efforts, wall, ceiling, timeouts)
 ```
 
 **Look at a plan first.** Run this from your repository: it checks the wall, checks that your proof passes on the
 base, runs one hand that splits the objective into tasks, prints the plan, and stops.
 
 ```bash
-lydite lancer first "Add a test for the empty-input case of parse()" --decouper --verifier "cargo test" --observer
+lydite launch first "Add a test for the empty-input case of parse()" --split --verify "cargo test" --dry-run
 ```
 
 **Then run the wave** and get a pull request against `main`:
 
 ```bash
-lydite lancer first "Add a test for the empty-input case of parse()" --decouper --verifier "cargo test" --pr main
-lydite etat               # where the last wave stands; `lydite attendre` waits for a running one
+lydite launch first "Add a test for the empty-input case of parse()" --split --verify "cargo test" --pr main
+lydite status             # where the last wave stands; `lydite wait` waits for a running one
 ```
 
-Progress and the pull request's address are printed as the wave goes. `lancer` exits 0 only if every task was taken
+Progress and the pull request's address are printed as the wave goes. `launch` exits 0 only if every task was taken
 and its proof replayed green, 1 otherwise, and 2 for a refusal before anything started.
 
 **What it costs.** A pull request is the work of several hands. On our own repositories their estimated cost for one
@@ -186,20 +186,17 @@ pull request is $0.31 on average on DeepSeek (26 receipts on Givre Lab) and abou
 receipts here). Each hand has a ceiling, `plafond` (20 dollars by default), enforced by Claude Code; with another
 provider (`api`) it may never trigger.
 
-**The French words you will type:**
+**The French words left in a profile:**
 
 | Word | Meaning |
 |---|---|
-| `lancer` | launch a wave |
-| `etat` / `attendre` | status of the last wave / wait for the running one |
-| `accepter` / `profil` | accept a profile / show how Lydite reads it |
-| `--verifier` | your proof command |
-| `--decouper` / `--observer` | let a hand split the objective into tasks / show the plan and stop |
-| `--depot` | path of the repository, if you are not in it |
 | `sorte`, `modele`, `relance` | profile: kind of hand, its model, the model of the retry |
 | `mur = exige` / `demande` | the wall is required / only requested |
 | `lecture`, `reseau` | paths the hands' commands may read, domains they may reach |
 | `plafond` | the most one hand may spend, in dollars |
+
+The French commands and flags of before (`lancer`, `etat`, `attendre`, `accepter`, `profil`, `remarques`, `lecons`,
+`--verifier`, `--depot`, `--decouper`, `--observer`, `plan --decoupe`) are still read as their English words.
 
 **Another provider.** Any API in Anthropic's format works, with no Claude account. The profile names the URL and the
 *name* of the environment variable that holds your key, never the key:
@@ -218,7 +215,7 @@ mur = exige
 Set `decoupeur` and `relecteur` too: they default to `opus`, a name your provider may not know. An optional `prix`
 line gives the provider's prices, so that receipts carry a cost.
 
-**Windows.** The wall (the sandbox) is required everywhere, Windows included: a profile with no `mur` line, and the built-in `claude` profile, require it. But Claude Code's sandbox and srt do not hold under Windows, so the wall check fails there (6028) before any hand. To launch anyway, knowingly, write `mur = demande` in the profile (for the built-in profile, a file `profils/claude.profil` that repeats its text with `mur = demande`), then `lydite accepter <name>`. Under a requested wall the hand's commands may run outside Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed outside the wall. Lydite also refuses `--issue` there (6029), and replays your proof through `cmd /C`. WSL2 gives you the Linux path, wall included.
+**Windows.** The wall (the sandbox) is required everywhere, Windows included: a profile with no `mur` line, and the built-in `claude` profile, require it. But Claude Code's sandbox and srt do not hold under Windows, so the wall check fails there (6028) before any hand. To launch anyway, knowingly, write `mur = demande` in the profile (for the built-in profile, a file `profils/claude.profil` that repeats its text with `mur = demande`), then `lydite accept <name>`. Under a requested wall the hand's commands may run outside Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed outside the wall. Lydite also refuses `--issue` there (6029), and replays your proof through `cmd /C`. WSL2 gives you the Linux path, wall included.
 
 ## Where it stands
 
@@ -240,8 +237,8 @@ line gives the provider's prices, so that receipts carry a cost.
 
 - Windows: only with `mur = demande`, knowingly. The wall does not hold there: the hands' commands run outside the
   sandbox and see a provider key if there is one. No `--issue`.
-- English: this README, the Hermes plugin and the labels of the pull request body. Commands, refusals and
-  `lydite etat` are in French, and so are the reviewers' lines in our own pull requests.
+- English: this README, the Hermes plugin, the labels of the pull request body, and the commands and their flags.
+  The keys of profiles and plans are still in French, and so are the reviewers' lines in our own pull requests.
 - The Hermes plugin: Linux only.
 - Providers: we run Claude and DeepSeek. The format allows others; we have not run them.
 - Anyone but us: Lydite has only run on our own three repositories.
@@ -297,7 +294,7 @@ your proof replayed by Lydite itself, a pull request with its receipt. The plugi
   Claude Code can read it too.
 
 It needs Linux (the wall is held there only), the `lydite` binary already installed, and a profile that a human accepted
-with `lydite accepter`. The plugin never accepts one and never merges. The workers are Lydite's Claude Code sessions,
+with `lydite accept`. The plugin never accepts one and never merges. The workers are Lydite's Claude Code sessions,
 never Hermes agents. Install and settings: [`hermes/README.md`](hermes/README.md).
 
 ## Reference
@@ -308,18 +305,18 @@ Until the reference pages exist, the full format of profiles, plans and the thre
 ### One launch per state folder
 
 The state folder (below) holds the thread, `fil.jsonl`, and the day's quota. One
-`lydite lancer` (with or without `--decouper`) holds the folder alone until its process ends, CI included: a second
+`lydite launch` (with or without `--split`) holds the folder alone until its process ends, CI included: a second
 launch on the same folder is refused with 6032 (`lancer.dossier_pris`), and its correction says to wait for the other
 one or to take another folder (`LYDITE_DOSSIER`). The waves of one launch do not refuse each other. The hold is an
 operating-system file lock on `lancer.verrou` in the folder, never on the thread: a process that dies or is killed
-loses it and leaves nothing to clean. `lydite etat` and `lydite accepter` do not take it. A launch that meets the
-lock for an instant (the probe of `lydite attendre`, below) retries for about 200 ms before it refuses.
+loses it and leaves nothing to clean. `lydite status` and `lydite accept` do not take it. A launch that meets the
+lock for an instant (the probe of `lydite wait`, below) retries for about 200 ms before it refuses.
 
 ### Waiting for a wave
 
-`lydite etat` returns 1 for a wave still running as well as for a red one. `lydite attendre`
+`lydite status` returns 1 for a wave still running as well as for a red one. `lydite wait`
 (no argument) waits while a launch holds the state folder (it probes the lock for an instant, every 2 seconds, and
-never keeps it), then, if the thread gained at least one note since it started, says the last wave like `lydite etat`
+never keeps it), then, if the thread gained at least one note since it started, says the last wave like `lydite status`
 and exits 0 if it is carried through and green, 1 if it is red or finished without its closing seal (a killed launch,
 even with no new note), 2 if the journal cannot be read or a seal is broken. If the folder was held and then freed
 with no new note (a launch refused before it opened its wave), it says so on stderr and exits 2. Run just before the
@@ -334,17 +331,17 @@ accepts it.
 
 The optional `proteges` key lists repository paths (files, or folders ending in `/`) that no hand may change, whatever the `fichiers` of its task, and the hand never runs `git commit`: Lydite commits its work itself. The lessons folder `.agents/skills/` is always protected, with or without the key: a hand never changes a lesson (a change there turns its attempt red, and at the freeze the task is refused with 7018), only the human does. A neighbouring path such as `.agents/other` stays free.
 
-The optional `plafond` key caps what each hand may spend, in dollars (20 by default; a positive number with two decimals at most, for example `plafond = 7.5`). Every Claude hand is started with `--max-budget-usd <plafond>`; a hand that reaches it is stopped and not retried: its task is refused with 7019, the rest of the wave goes on, and the decision comes back to the human (raise `plafond` in the profile, accept it with `lydite accepter`, then rerun the task in a new wave, or leave it). It is a ceiling, not a budget: high enough not to hold back a normal hand, it only stops a hand that runs away, sub-agents included. For a profile that names another provider (`api`), Claude Code counts the spend at the prices it knows, possibly zero, so the ceiling may never trigger.
+The optional `plafond` key caps what each hand may spend, in dollars (20 by default; a positive number with two decimals at most, for example `plafond = 7.5`). Every Claude hand is started with `--max-budget-usd <plafond>`; a hand that reaches it is stopped and not retried: its task is refused with 7019, the rest of the wave goes on, and the decision comes back to the human (raise `plafond` in the profile, accept it with `lydite accept`, then rerun the task in a new wave, or leave it). It is a ceiling, not a budget: high enough not to hold back a normal hand, it only stops a hand that runs away, sub-agents included. For a profile that names another provider (`api`), Claude Code counts the spend at the prices it knows, possibly zero, so the ceiling may never trigger.
 
-The optional `effort`, `effort_relance`, `effort_decoupeur` and `effort_relecteur` keys set Claude Code's effort (`low`, `medium`, `high`, `xhigh` or `max`) for the hand, its retry (also the hand that corrects a review), the splitter and the reviewer; a key becomes `--effort <value>` for that hand, and Lydite checks that Claude Code applied it. Without them Claude Code takes its own default (`medium` on 2.1.317), which `lydite profil` shows on its `effort:` row. Under `api`, Claude Code passes the effort along (measured on 2.1.317), but what the provider does with it is not measured.
+The optional `effort`, `effort_relance`, `effort_decoupeur` and `effort_relecteur` keys set Claude Code's effort (`low`, `medium`, `high`, `xhigh` or `max`) for the hand, its retry (also the hand that corrects a review), the splitter and the reviewer; a key becomes `--effort <value>` for that hand, and Lydite checks that Claude Code applied it. Without them Claude Code takes its own default (`medium` on 2.1.317), which `lydite profile` shows on its `effort:` row. Under `api`, Claude Code passes the effort along (measured on 2.1.317), but what the provider does with it is not measured.
 
-The optional `efforts_permis` key lists, separated by commas, the efforts a plan may ask for its tasks (`efforts_permis = low, medium`; values among `low`, `medium`, `high`, `xhigh` and `max`). Without it any effort is allowed. A plan task whose `effort :` line (see Plans) is not in the list is refused with 6033 (`lancer.effort_non_permis`) before any hand starts and before anything is written: its proof names the task and the effort, and its correction says to pick an allowed effort in the plan, or to widen `efforts_permis` and accept the profile again. The profile's own `effort*` keys are not judged by it, and `lydite profil` shows it on its `allowed efforts:` row.
+The optional `efforts_permis` key lists, separated by commas, the efforts a plan may ask for its tasks (`efforts_permis = low, medium`; values among `low`, `medium`, `high`, `xhigh` and `max`). Without it any effort is allowed. A plan task whose `effort :` line (see Plans) is not in the list is refused with 6033 (`lancer.effort_non_permis`) before any hand starts and before anything is written: its proof names the task and the effort, and its correction says to pick an allowed effort in the plan, or to widen `efforts_permis` and accept the profile again. The profile's own `effort*` keys are not judged by it, and `lydite profile` shows it on its `allowed efforts:` row.
 
-The optional `mesure` key is made for a measurement bench only, never for a real wave. It lists one or two settings, `sans-lecture` and `sans-a1`, to measure the effect of a lesson: `sans-lecture` keeps the lessons block in the system prompt but drops the reading instruction; `sans-a1` drops the two fixed sentences (honesty and perimeter) from a task hand's instruction, and keeps its list of files and everything else. Any other value is refused like any unknown profile value. The thread notes the active settings in `main.consigne.mesure`, and the receipt (the PR body and `lydite etat`) says so on a line of its own, `Measurement: <settings>.`, so a real wave is never weakened without saying it.
+The optional `mesure` key is made for a measurement bench only, never for a real wave. It lists one or two settings, `sans-lecture` and `sans-a1`, to measure the effect of a lesson: `sans-lecture` keeps the lessons block in the system prompt but drops the reading instruction; `sans-a1` drops the two fixed sentences (honesty and perimeter) from a task hand's instruction, and keeps its list of files and everything else. Any other value is refused like any unknown profile value. The thread notes the active settings in `main.consigne.mesure`, and the receipt (the PR body and `lydite status`) says so on a line of its own, `Measurement: <settings>.`, so a real wave is never weakened without saying it.
 
 ```bash
-lydite accepter <name>        # shows the profile and accepts its fingerprint; a changed profile must be accepted again
-lydite profil <name>          # read-only: loads the profile as `lancer` does and says its source, fingerprint, models, efforts, wall (required or requested), where the proof is replayed, the per-hand ceiling and the two timeouts
+lydite accept <name>         # shows the profile and accepts its fingerprint; a changed profile must be accepted again
+lydite profile <name>         # read-only: loads the profile as `launch` does and says its source, fingerprint, models, efforts, wall (required or requested), where the proof is replayed, the per-hand ceiling and the two timeouts
 ```
 
 ### Plans
@@ -356,7 +353,7 @@ splits it or leaves it out gets a red attempt.
 The optional task key `effort : <level>` (`low`, `medium`, `high`, `xhigh` or `max`; any other value refuses the plan
 line) sets Claude Code's effort for both attempts of the task, in place of the profile's `effort` and `effort_relance`,
 the way `modele` and `relance` replace its models. The profile must allow it (`efforts_permis`, otherwise 6033 at launch).
-`lydite etat` and the Receipt of the pull request say the effort of each role of the wave on an `Effort:` line, for
+`lydite status` and the Receipt of the pull request say the effort of each role of the wave on an `Effort:` line, for
 example `- Effort: hand: low, high; reviewer: Claude Code's default` (a role with no declared effort shows
 `Claude Code's default`).
 
@@ -367,7 +364,7 @@ It starts with a header of exactly `name: <name>` (the folder's name: `a-z`, dig
 `description: <the rule>` (one line, 1 to 200 characters), between two `---` lines. Then six sections, each once and in
 this order, each with text: `## What happened`, `## Why`, `## How it is checked`, `## Pitfall`, `## Files` (zero or
 more `- <path>` lines, written like a plan's `fichiers`; none means a general lesson) and `## Falls when`. UTF-8, 4096
-bytes at most. `lydite lecons <repository folder>` reads every lesson of a repository: it says nothing and exits 0 if
+bytes at most. `lydite lessons <repository folder>` reads every lesson of a repository: it says nothing and exits 0 if
 all are right, otherwise it refuses (6031) with the file and the line of the first wrong one. A lesson is written by the
 session or the pilot, in the pull request that fixes the mistake, never by a hand.
 
@@ -380,13 +377,13 @@ reviewer get the list of all lessons, one line each, the same way.
 
 ### The thread and its seal
 
-- **One thread of facts.** Everything that happens is appended to a journal outside the repository, and `lydite etat`
+- **One thread of facts.** Everything that happens is appended to a journal outside the repository, and `lydite status`
   is read from it. A fact only declared by a hand is never shown as a fact Lydite observed. Before a hand leaves, a
   `main.consigne` line says what it received: its role, the SHA-256 of the exact text sent, the SHA-256 of its system
   prompt file, and the lessons given and set aside. Both texts are kept in `consignes/<SHA-256>.txt`.
 - **A sealed thread.** Before it builds the body of its PR, and again when it ends (on every exit, published or not),
   a wave writes a `vague.sceau` line: the journal's length in bytes and the SHA-256 of those bytes. The PR receipt
-  repeats the first one (`Thread sealed at <bytes> bytes: sha256 <hash>.`). `lydite etat` recomputes every seal, names
+  repeats the first one (`Thread sealed at <bytes> bytes: sha256 <hash>.`). `lydite status` recomputes every seal, names
   the first one that no longer matches (its wave, its bytes) on stderr, and exits 2. A seal shows a line changed or
   removed before it. It does not show a line appended after it, nor a journal rewritten with its seals redone (the
   receipt in the PR, off the machine, keeps its own).

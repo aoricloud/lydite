@@ -168,7 +168,7 @@ fn chaque_code_a_sa_regle() {
 const ENTETE_DE_LA_PAGE: &str = "# Lydite refusals
 
 A refusal that stops Lydite before any wave exits with code 2, on four lines: `lydite : <code> <name>`, then `rule:`, \
-`seen:` and `fix:`. The same codes name the refusals of a wave, which `lydite etat` shows. A code and its name never \
+`seen:` and `fix:`. The same codes name the refusals of a wave, which `lydite status` shows. A code and its name never \
 change; a rule may be reworded. The codes come in four blocks of a thousand:
 
 - 1000, `contrat`: the command line and the thread.
