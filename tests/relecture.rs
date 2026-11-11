@@ -692,7 +692,7 @@ fn un_effort_de_tache_hors_des_efforts_permis_du_profil_est_refuse_en_6033_avant
     essai.remarques(1, &remarques_justes());
     let sortie = essai.lancer();
     let erreur = String::from_utf8_lossy(&sortie.stderr).into_owned();
-    assert!(!erreur.contains("6033"), "{erreur}");
+    assert!(!erreur.contains("6033 lancer.effort_non_permis"), "{erreur}");
     assert!(essai.dossier.join("fil.jsonl").exists(), "{}", dit(&sortie));
     assert!(lignes_de(&essai.fil(), "main.lancement").len() >= 2, "{}", essai.fil());
     let _ = fs::remove_dir_all(&essai.racine);

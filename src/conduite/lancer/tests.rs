@@ -1164,7 +1164,7 @@ fn un_dossier_qui_ne_peut_pas_garder_la_consigne_arrete_la_vague_sans_lecon() {
     let menee = lancer_sur(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL, &base).unwrap();
     assert!(menee.arretee);
     let issue = menee.issues[0].1.as_ref().unwrap_err();
-    assert!(issue.contains("écriture de la consigne") && issue.contains("7012"), "{issue}");
+    assert!(issue.contains("écriture de la consigne") && issue.contains("(7012)"), "{issue}");
     // La fausse main écrit `entree.txt` dans son bac : aucun bac n'en porte, elle n'est pas partie.
     let partie = trouves(&kraken, &|nom| nom == "entree.txt");
     assert!(partie.is_empty() && consignes_notees(&kraken).is_empty(), "{partie:?}");
