@@ -877,15 +877,16 @@ fn observer_ecrit_le_plan_sur_stdout_sans_rien_construire() {
     assert!(fil.contains(&format!(r#""type":"vague.decoupage","vague":"{d}","taches":2,"#)), "{fil}");
     assert!(!fil.contains(r#""type":"vague.joue""#) && !fil.contains(r#""type":"vague.assemblage""#), "{fil}");
     assert_eq!(git(&essai.depot, &["branch", "--list", "lydite/*"]), "");
-    // `lydite etat` ne dit que la ligne du découpage et celle de son reçu, et sort en 0. La durée du reçu suit
-    // l'horloge : le test n'en fige que le début de la ligne.
+    // `lydite etat` ne dit que la ligne du découpage et celles de son reçu (le coût, l'effort), et sort en 0. La durée
+    // du reçu suit l'horloge : le test n'en fige que le début de la ligne.
     let etat = essai.etat();
     let montre = String::from_utf8_lossy(&etat.stdout);
     let lignes: Vec<&str> = montre.trim_end().lines().collect();
-    let [ligne, recu] = &lignes[..] else { panic!("{montre}") };
+    let [ligne, recu, effort] = &lignes[..] else { panic!("{montre}") };
     assert_eq!(etat.status.code(), Some(0));
     assert_eq!(*ligne, format!("Découpage : 2 tâches · main-{d}-1 · prise (constatée)"));
     assert!(recu.starts_with("Coût : inconnu · 1 main, 0 relance, 0 classée"), "{montre}");
+    assert_eq!(*effort, "Effort: splitter: Claude Code's default", "{montre}");
     let _ = fs::remove_dir_all(&essai.racine);
 }
 

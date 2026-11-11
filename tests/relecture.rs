@@ -614,6 +614,87 @@ fn le_relecteur_et_la_correction_partent_chacun_sur_leur_effort() {
     let _ = fs::remove_dir_all(&essai.racine);
 }
 
+/// Le plan des essais, dont la tâche `a` demande l'effort `a_effort` et la tâche `b` l'effort `b_effort`.
+fn plan_a_efforts(a_effort: &str, b_effort: &str) -> String {
+    PLAN.replace("tache a\n", &format!("tache a\neffort : {a_effort}\n"))
+        .replace("tache b\n", &format!("tache b\neffort : {b_effort}\n"))
+}
+
+#[test]
+fn l_effort_d_une_tache_remplace_celui_du_profil_pour_ses_deux_tentatives_et_se_dit_au_recu() {
+    let essai = Essai::nouveau("effort-de-tache", Some("claude-opus-5-5"));
+    // Le profil pose `high` à la main et à sa relance (donc à la correction), et permet `low` et `high`. Les deux
+    // tâches (haiku) demandent `low` : Claude Code leur applique `low`, que Lydite ne tolère que si c'est ce que la
+    // tâche a déclaré. La correction (sonnet) déclare `effort_relance`, `high`. Le relecteur n'a pas de clé.
+    essai.poser_les_efforts(
+        "effort = high\neffort_relance = high\nefforts_permis = low, high\n",
+        &[("haiku", "low"), ("sonnet", "high")],
+    );
+    fs::write(essai.racine.join("plan.lydite"), plan_a_efforts("low", "low")).unwrap();
+    essai.remarques(1, &remarques_justes());
+    let sortie = essai.lancer();
+    assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
+    let fil = essai.fil();
+    // Au fil, chaque lancement dit l'effort de sa tentative : `low` aux tâches, `high` à la correction, rien au
+    // relecteur, dont le profil ne pose pas l'effort.
+    let lancements = lignes_de(&fil, "main.lancement");
+    let de = |modele: &str| -> Vec<&str> {
+        let cle = format!(r#""modele":"{modele}""#);
+        lancements.iter().copied().filter(|ligne| ligne.contains(&cle)).collect()
+    };
+    let (taches, correction, relecteur) = (de("haiku"), de("sonnet"), de("claude-opus-5-5"));
+    assert_eq!((taches.len(), correction.len(), relecteur.len()), (2, 1, 1), "{lancements:?}");
+    assert!(taches.iter().all(|ligne| ligne.contains(r#""modele":"haiku","effort":"low","mur""#)), "{taches:?}");
+    assert!(correction[0].contains(r#""modele":"sonnet","effort":"high","mur""#), "{correction:?}");
+    assert!(!relecteur[0].contains(r#""effort":"#), "{relecteur:?}");
+    // `lydite etat` dit l'effort de chaque rôle de la vague, et du défaut de Claude Code pour le relecteur.
+    let etat = essai.etat();
+    let dit_etat = String::from_utf8_lossy(&etat.stdout).into_owned();
+    let ligne = "Effort: hand: low; reviewer: Claude Code's default; correction: high";
+    assert!(dit_etat.lines().any(|vue| vue == ligne), "{dit_etat}");
+    let _ = fs::remove_dir_all(&essai.racine);
+
+    // La preuve que le plan, et non le profil, a donné `low` : sans la ligne `effort` du plan, les mêmes mains
+    // déclarent `high` à leur première tentative, et Claude Code, qui leur applique `low`, y fait un écart qui les
+    // tue (la relance, à `high`, passe).
+    let essai = Essai::nouveau("effort-du-profil-seul", Some("claude-opus-5-5"));
+    essai.poser_les_efforts("effort = high\neffort_relance = high\n", &[("haiku", "low"), ("sonnet", "high")]);
+    essai.remarques(1, &remarques_justes());
+    let sortie = essai.lancer();
+    let ecart = r#"applied.effort \"low\", déclaré \"high\""#;
+    assert!(essai.fil().contains(ecart), "{}\n{}", dit(&sortie), essai.fil());
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn un_effort_de_tache_hors_des_efforts_permis_du_profil_est_refuse_en_6033_avant_toute_main() {
+    let essai = Essai::nouveau("effort-non-permis", Some("claude-opus-5-5"));
+    essai.poser_les_efforts("efforts_permis = low, high\n", &[]);
+    // La tâche `a` demande `max`, que le profil ne permet pas ; la tâche `b` demande `low`, qu'il permet.
+    fs::write(essai.racine.join("plan.lydite"), plan_a_efforts("max", "low")).unwrap();
+    let sortie = essai.lancer();
+    assert_eq!(sortie.status.code(), Some(2), "{}", dit(&sortie));
+    let erreur = String::from_utf8_lossy(&sortie.stderr).into_owned();
+    assert!(erreur.contains("lydite : 6033 lancer.effort_non_permis"), "{erreur}");
+    assert!(erreur.contains("Un plan ne demande qu'un effort que le profil permet (`efforts_permis`)."), "{erreur}");
+    assert!(erreur.contains("la tâche a demande l'effort max"), "la preuve nomme la tâche et l'effort : {erreur}");
+    assert!(!erreur.contains("la tâche b"), "{erreur}");
+    assert!(erreur.contains("élargis `efforts_permis`") && erreur.contains("lydite accepter"), "{erreur}");
+    // Rien n'est parti : ni vague ni main au fil, qui n'existe même pas.
+    assert!(!essai.dossier.join("fil.jsonl").exists(), "le fil ne doit pas exister");
+    // Le même plan avec un effort permis part, et écrit son fil au même endroit : la vérification ci-dessus peut voir
+    // un fil quand il y en a un.
+    fs::write(essai.racine.join("plan.lydite"), plan_a_efforts("low", "low")).unwrap();
+    essai.poser_les_efforts("", &[("haiku", "low")]);
+    essai.remarques(1, &remarques_justes());
+    let sortie = essai.lancer();
+    let erreur = String::from_utf8_lossy(&sortie.stderr).into_owned();
+    assert!(!erreur.contains("6033"), "{erreur}");
+    assert!(essai.dossier.join("fil.jsonl").exists(), "{}", dit(&sortie));
+    assert!(lignes_de(&essai.fil(), "main.lancement").len() >= 2, "{}", essai.fil());
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
 #[test]
 fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     let essai = Essai::nouveau("relue", Some("claude-opus-5-5"));

@@ -377,7 +377,7 @@ fn observer_montre_le_plan_sans_rien_construire() {
     // `lydite etat` ne dit que la ligne du découpage, et le code est 0.
     let dit = rendu(&etat(&evenements), PLUS_TARD);
     let ligne = format!("Découpage : 2 tâches · main-{d}-1 · prise (constatée)");
-    assert_eq!(dit, format!("{ligne}\nCoût : inconnu · 1 main, 0 relance, 0 classée"));
+    assert_eq!(dit, format!("{ligne}\nCoût : inconnu · 1 main, 0 relance, 0 classée\nEffort: Claude Code's default"));
     assert_eq!(etat_dans(&essai.kraken), Ok(ExitCode::SUCCESS));
     let _ = fs::remove_dir_all(&essai.racine);
 }
@@ -418,6 +418,7 @@ fn avec_pr_la_vague_d_un_plan_decoupe_va_jusqu_a_sa_pr() {
     let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
     let recu = format!(
         "Receipt\n- Cost: unknown\n- 3 hands, 0 retries, 0 set aside\n\
+         - Effort: splitter: Claude Code's default; hand: Claude Code's default\n\
          - Thread sealed at {octets} bytes: sha256 {empreinte}.\n\
          - Proof settings changed: none\n\n"
     );
@@ -432,8 +433,9 @@ fn avec_pr_la_vague_d_un_plan_decoupe_va_jusqu_a_sa_pr() {
     assert!(pr && ci, "{evenements:?}");
     // `lydite etat` dit toute la chaîne : le découpage, la vague, sa PR verte ; le code est 0.
     let dit = rendu(&etat(&evenements), PLUS_TARD);
-    // La ligne de reçu a ses propres essais : ici, le reste du texte.
-    let dit = dit.lines().filter(|ligne| !ligne.starts_with("Coût : ")).collect::<Vec<_>>().join("\n");
+    // Les lignes de reçu (le coût, l'effort) ont leurs propres essais : ici, le reste du texte.
+    let recu = |ligne: &&str| ligne.starts_with("Coût : ") || ligne.starts_with("Effort: ");
+    let dit = dit.lines().filter(|ligne| !recu(ligne)).collect::<Vec<_>>().join("\n");
     assert!(dit.starts_with(&format!("Découpage : 2 tâches · main-{d}-1 · prise (constatée)\n")), "{dit}");
     assert!(dit.ends_with(&format!("PR 12 · {PR} · CI verte (constatée)")), "{dit}");
     assert_eq!(etat_dans(&essai.kraken), Ok(ExitCode::SUCCESS));

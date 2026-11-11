@@ -330,6 +330,8 @@ The optional `plafond` key caps what each hand may spend, in dollars (20 by defa
 
 The optional `effort`, `effort_relance`, `effort_decoupeur` and `effort_relecteur` keys set Claude Code's effort (`low`, `medium`, `high`, `xhigh` or `max`) for the hand, its retry (also the hand that corrects a review), the splitter and the reviewer; a key becomes `--effort <value>` for that hand, and Lydite checks that Claude Code applied it. Without them Claude Code takes its own default (`medium` on 2.1.317), which `lydite profil` shows on its `effort:` row. Under `api`, Claude Code passes the effort along (measured on 2.1.317), but what the provider does with it is not measured.
 
+The optional `efforts_permis` key lists, separated by commas, the efforts a plan may ask for its tasks (`efforts_permis = low, medium`; values among `low`, `medium`, `high`, `xhigh` and `max`). Without it any effort is allowed. A plan task whose `effort :` line (see Plans) is not in the list is refused with 6033 (`lancer.effort_non_permis`) before any hand starts and before anything is written: its proof names the task and the effort, and its correction says to pick an allowed effort in the plan, or to widen `efforts_permis` and accept the profile again. The profile's own `effort*` keys are not judged by it, and `lydite profil` shows it on its `allowed efforts:` row.
+
 The optional `mesure` key is made for a measurement bench only, never for a real wave. It lists one or two settings, `sans-lecture` and `sans-a1`, to measure the effect of a lesson: `sans-lecture` keeps the lessons block in the system prompt but drops the reading instruction; `sans-a1` drops the two fixed sentences (honesty and perimeter) from a task hand's instruction, and keeps its list of files and everything else. Any other value is refused like any unknown profile value. The thread notes the active settings in `main.consigne.mesure`, and the receipt (the PR body and `lydite etat`) says so on a line of its own, `Measurement: <settings>.`, so a real wave is never weakened without saying it.
 
 ```bash
@@ -342,6 +344,13 @@ lydite profil <name>          # read-only: loads the profile as `lancer` does an
 In a plan, the repeatable task key `exact : <file> : <text>` makes Lydite check itself, byte for byte and without a
 model, that the text appears in that file of the task (the file must be covered by the task's `fichiers`); a hand that
 splits it or leaves it out gets a red attempt.
+
+The optional task key `effort : <level>` (`low`, `medium`, `high`, `xhigh` or `max`; any other value refuses the plan
+line) sets Claude Code's effort for both attempts of the task, in place of the profile's `effort` and `effort_relance`,
+the way `modele` and `relance` replace its models. The profile must allow it (`efforts_permis`, otherwise 6033 at launch).
+`lydite etat` and the Receipt of the pull request say the effort of each role of the wave on an `Effort:` line, for
+example `- Effort: hand: low, high; reviewer: Claude Code's default` (a role with no declared effort shows
+`Claude Code's default`).
 
 ### Lessons
 

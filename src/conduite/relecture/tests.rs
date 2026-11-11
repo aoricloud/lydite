@@ -629,6 +629,7 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     let (octets, empreinte) = (sceaux[0].octets, &sceaux[0].empreinte);
     let attendu = format!(
         "Receipt\n- Cost: unknown\n- 3 hands, 0 retries, 0 set aside\n\
+         - Effort: hand: Claude Code's default; reviewer: Claude Code's default\n\
          - Thread sealed at {octets} bytes: sha256 {empreinte}.\n\
          - Proof settings changed: none\n\n\
          Ecrire deux fichiers\n\nProof: exit 0 → green\n\na: Ecrire le fichier critique\nb: Ecrire \
@@ -660,8 +661,9 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     assert_eq!(git(&essai.depot, &["status", "--porcelain", "--untracked-files=all"]), "");
     // La PR est partie de la tête de la vague : `lydite etat` dit la relecture, sa PR verte, et sort en 0.
     let dit = rendu(&etat(&fil), PLUS_TARD);
-    // La ligne de reçu a ses propres essais : ici, le reste du texte.
-    let dit = dit.lines().filter(|ligne| !ligne.starts_with("Coût : ")).collect::<Vec<_>>().join("\n");
+    // Les lignes de reçu (le coût, l'effort) ont leurs propres essais : ici, le reste du texte.
+    let recu = |ligne: &&str| ligne.starts_with("Coût : ") || ligne.starts_with("Effort: ");
+    let dit = dit.lines().filter(|ligne| !recu(ligne)).collect::<Vec<_>>().join("\n");
     assert!(dit.contains("Relecture : 1 remarques, dont 0 bloquantes"), "{dit}");
     assert!(dit.ends_with(&format!("PR 12 · {PR} · CI verte (constatée)")), "{dit}");
     assert_eq!(etat_dans(&essai.kraken), Ok(ExitCode::SUCCESS));
@@ -806,8 +808,9 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     assert_eq!((rangements(v), rangements(c)), (1, 1), "la forge range la vague et sa correction");
     // `lydite etat` montre la chaîne entière, la correction assemblée, et sort en 0.
     let dit = rendu(&etat(&fil), PLUS_TARD);
-    // La ligne de reçu a ses propres essais : ici, le reste du texte.
-    let dit = dit.lines().filter(|ligne| !ligne.starts_with("Coût : ")).collect::<Vec<_>>().join("\n");
+    // Les lignes de reçu (le coût, l'effort) ont leurs propres essais : ici, le reste du texte.
+    let recu = |ligne: &&str| ligne.starts_with("Coût : ") || ligne.starts_with("Effort: ");
+    let dit = dit.lines().filter(|ligne| !recu(ligne)).collect::<Vec<_>>().join("\n");
     let ligne = format!("Correction : main-{c}-1 correction : assemblée");
     assert!(dit.contains("Relecture : 2 remarques, dont 1 bloquantes") && dit.contains(&ligne), "{dit}");
     assert!(dit.ends_with(&format!("PR 12 · {PR} · CI verte (constatée)")), "{dit}");

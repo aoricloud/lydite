@@ -67,6 +67,7 @@ const TABLE: &[(u16, &str)] = &[
     (6030, "lancer.quota"),
     (6031, "lancer.lecon_mal_formee"),
     (6032, "lancer.dossier_pris"),
+    (6033, "lancer.effort_non_permis"),
     // --- 7000 : vague ---
     (7001, "vague.bac_impossible"),
     (7002, "vague.main_active"),

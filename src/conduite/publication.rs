@@ -17,6 +17,7 @@
 //! - Enfin le rangement de ce qui est poussé ([`Proposition::ranger`]), relance comprise ; les deux gestes de git d'un
 //!   retrait ([`retirer`]) passent par la forge comme les autres.
 
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -28,10 +29,10 @@ use crate::branchements::git::faire_borne;
 use crate::branchements::github::{Ci, Forge, GIT_FORGE, PrOuverte, a_pousser, distant, en_echec};
 use crate::coeur::erreur::{Code, Refus, queue};
 use crate::coeur::fil::{
-    self, Base, Couleur, Evenement, Foi, Note, SceauVague, Vague, correction_de, etat, relecture_de,
+    self, Base, Couleur, Evenement, Foi, Note, Role, SceauVague, Vague, correction_de, etat, relecture_de,
 };
 use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
-use crate::coeur::profil::{SANS_A1, SANS_LECTURE};
+use crate::coeur::profil::{EFFORT_PAR_DEFAUT, SANS_A1, SANS_LECTURE};
 use crate::coeur::remarques::lire_fichier;
 use crate::conduite::alarmes;
 use crate::conduite::lancer::Menee;
@@ -762,6 +763,9 @@ pub(crate) struct Recu {
     /// Les réglages de mesure (`main.consigne.mesure`) que les mains de ces vagues ont reçus, sans doublon, dans
     /// l'ordre `sans-lecture`, `sans-a1`. Vide pour une vraie vague.
     mesure: Vec<&'static str>,
+    /// L'effort déclaré (`main.lancement`) des tentatives de chaque rôle de ces vagues (`main.consigne`), sans doublon,
+    /// dans l'ordre où le fil les note ; `EFFORT_PAR_DEFAUT` pour une tentative qui n'en déclare aucun.
+    efforts: Vec<(Role, Vec<String>)>,
 }
 
 /// Le reçu de la vague `id` parmi `vagues` : elle, son découpage, ses relectures, ses corrections et ses relances, et
@@ -804,6 +808,7 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
         recu.refusees += mains.filter(|main| matches!(main.issue, Some(fil::Issue::Refusee { .. }))).count();
     }
     let (mut debut, mut fin): (Option<u128>, Option<u128>) = (None, None);
+    let mut lances: HashMap<(&str, usize, usize), Option<&str>> = HashMap::new();
     for note in notes.iter().filter(|note| est_liee(note.evenement.vague())) {
         if let Evenement::Usage { micro_dollars, base, .. } = &note.evenement {
             recu.micro_dollars = recu.micro_dollars.saturating_add(*micro_dollars);
@@ -813,7 +818,22 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
                 Base::Inconnu => recu.inconnu = true,
             }
         }
-        if let Evenement::Consigne { mesure, .. } = &note.evenement {
+        // Le lancement d'une tentative se note avant sa consigne : le rôle de la consigne prend l'effort du lancement.
+        if let Evenement::Lancement { vague, main, tentative, effort, .. } = &note.evenement {
+            lances.insert((vague, *main, *tentative), effort.as_deref());
+        }
+        if let Evenement::Consigne { vague, main, tentative, role, mesure, .. } = &note.evenement {
+            let effort = lances.get(&(vague, *main, *tentative)).copied().flatten().unwrap_or(EFFORT_PAR_DEFAUT);
+            let place = match recu.efforts.iter().position(|(vu, _)| vu == role) {
+                Some(place) => place,
+                None => {
+                    recu.efforts.push((*role, Vec::new()));
+                    recu.efforts.len() - 1
+                }
+            };
+            if !recu.efforts[place].1.iter().any(|vu| vu == effort) {
+                recu.efforts[place].1.push(effort.to_string());
+            }
             for reglage in [SANS_LECTURE, SANS_A1] {
                 if mesure.lines().any(|ligne| ligne == reglage) && !recu.mesure.contains(&reglage) {
                     recu.mesure.push(reglage);
@@ -927,11 +947,35 @@ impl Recu {
         (!self.mesure.is_empty()).then(|| format!("Measurement: {}.", self.mesure.join(", ")))
     }
 
+    /// La ligne à part qui dit l'effort de chaque rôle des vagues, dans l'ordre où le fil les note :
+    /// `Effort: hand: low, high; reviewer: Claude Code's default` (les efforts d'un rôle, séparés par des virgules ;
+    /// les rôles, par des points-virgules). Le rôle d'une main de plan est `hand`, puis `splitter`, `reviewer`,
+    /// `correction` et `CI retry`. Sans aucune main, `Effort: Claude Code's default`.
+    pub(crate) fn ligne_d_effort(&self) -> String {
+        if self.efforts.is_empty() {
+            return format!("Effort: {EFFORT_PAR_DEFAUT}");
+        }
+        let role = |role: &Role| match role {
+            Role::Main => "hand",
+            Role::Decoupeur => "splitter",
+            Role::Relecteur => "reviewer",
+            Role::Correction => "correction",
+            Role::Relance => "CI retry",
+        };
+        let roles: Vec<String> =
+            self.efforts.iter().map(|(vu, efforts)| format!("{}: {}", role(vu), efforts.join(", "))).collect();
+        format!("Effort: {}", roles.join("; "))
+    }
+
     /// Les lignes du bloc « Receipt » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la
-    /// durée ; puis, si des réglages de mesure sont posés, `- Measurement: <réglages>.` ; puis, si le reçu porte un
-    /// sceau, `- Thread sealed at <octets> bytes: sha256 <empreinte>.`
+    /// durée ; puis `- Effort: <efforts>` ; puis, si des réglages de mesure sont posés, `- Measurement: <réglages>.` ;
+    /// puis, si le reçu porte un sceau, `- Thread sealed at <octets> bytes: sha256 <empreinte>.`
     pub(crate) fn lignes_de_pr(&self) -> Vec<String> {
-        let mut lignes = vec![format!("- Cost: {}", self.cout_de_pr()), format!("- {}", self.mains_de_pr())];
+        let mut lignes = vec![
+            format!("- Cost: {}", self.cout_de_pr()),
+            format!("- {}", self.mains_de_pr()),
+            format!("- {}", self.ligne_d_effort()),
+        ];
         lignes.extend(self.ligne_de_mesure().map(|ligne| format!("- {ligne}")));
         lignes.extend(
             self.sceau.iter().map(|s| format!("- Thread sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)),

@@ -11,6 +11,7 @@
 //! preuve : <commande de la tâche>
 //! modele : <modèle de la première tentative>
 //! relance : <modèle de la seconde>
+//! effort : <niveau des deux tentatives>
 //! fichiers : <chemin> <dossier>/
 //! critique : oui
 //!     <objectif de la tâche, en lignes indentées>
@@ -34,8 +35,10 @@
 //! - sous `tache <id>`, avant l'objectif, toutes facultatives : `depend`, des ids séparés par des blancs (aucun, si
 //!   elle est vide) ; `preuve`, que ne porte aucune tâche d'un plan découpé ; `modele` et `relance`, les modèles de la
 //!   première tentative de la tâche et de sa relance, en `[a-z0-9.-]` sans `-` de tête, comme au profil, dont ils
-//!   prennent la place ; `fichiers`, les chemins que la tâche peut changer, séparés par des blancs ; `critique`, de
-//!   seule valeur `oui`, pour une tâche dont le travail va à la relecture.
+//!   prennent la place ; `effort`, l'effort de Claude Code des deux tentatives de la tâche, un de `low`, `medium`,
+//!   `high`, `xhigh`, `max`, qui prend la place des clés `effort` et `effort_relance` du profil, et que le profil doit
+//!   permettre (`efforts_permis`, refus 6033 au lancement) ; `fichiers`, les chemins que la tâche peut changer,
+//!   séparés par des blancs ; `critique`, de seule valeur `oui`, pour une tâche dont le travail va à la relecture.
 //!
 //! Ce que le plan dit :
 //!
@@ -73,7 +76,7 @@
 //! - 6016 : la première ligne n'est pas `plan 1` ;
 //! - 6017 : de l'UTF-16, ou un octet hors de l'UTF-8 (son rang) ;
 //! - 6018 : une ligne hors de la forme (colonne 0 inconnue, clé inconnue, redite ou hors de sa place, ligne indentée
-//!   hors tâche), une valeur hors de son domaine (`modele`, `relance`, `critique`), ou une 10 001e tâche ;
+//!   hors tâche), une valeur hors de son domaine (`modele`, `relance`, `effort`, `critique`), ou une 10 001e tâche ;
 //! - 6019 : un id qui n'est pas un mot de cette grammaire, ou redit ;
 //! - 6020 : une dépendance inconnue ou à soi, ou un cycle, que le refus nomme et dont il cite la première ligne
 //!   `depend` ;
@@ -96,6 +99,7 @@ use std::str;
 
 use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::fil::NOMBRE_MAX;
+use crate::coeur::profil::EFFORTS;
 use crate::coeur::texte;
 
 /// Ce qu'un plan pèse au plus : 1 Mo.
@@ -110,7 +114,7 @@ pub(crate) const FICHIERS_MAX: usize = 100;
 
 /// Les clés de l'en-tête, puis celles d'une tâche.
 const CLES_ENTETE: [&str; 2] = ["objectif", "preuve"];
-const CLES_TACHE: [&str; 7] = ["depend", "preuve", "modele", "relance", "fichiers", "critique", "exact"];
+const CLES_TACHE: [&str; 8] = ["depend", "preuve", "modele", "relance", "effort", "fichiers", "critique", "exact"];
 
 /// Les caractères d'une ligne qu'une preuve cite : au-delà, la citation est coupée.
 const CITE_MAX: usize = 200;
@@ -125,8 +129,8 @@ const REECRIRE: &str = concat!(
 const FORME: &str = concat!(
     "Une ligne de plan est vide, `tache <id>`, `<clé> : <valeur>`, ou indentée (l'objectif de la tâche qui la ",
     "précède). Avant la première tâche, les clés sont `objectif` et `preuve` ; sous `tache <id>`, `depend`, `preuve`, ",
-    "`modele`, `relance`, `fichiers`, `critique` et `exact` (qui peut se répéter), puis l'objectif en lignes ",
-    "indentées ; chaque autre clé une fois."
+    "`modele`, `relance`, `effort`, `fichiers`, `critique` et `exact` (qui peut se répéter), puis l'objectif en ",
+    "lignes indentées ; chaque autre clé une fois."
 );
 
 /// La correction d'une ligne `exact` hors de sa forme.
@@ -140,6 +144,10 @@ const MODELE: &str = concat!(
     "Écris un modèle en [a-z0-9.-], qui ne commence pas par `-`, comme au profil : un alias (haiku, sonnet, opus) ou ",
     "un nom complet (claude-sonnet-5-5)."
 );
+
+/// La correction d'un effort hors de son domaine.
+const EFFORT: &str = "Écris un effort parmi low, medium, high, xhigh et max, ou retire la ligne : la tâche prend alors \
+                      ceux du profil.";
 
 /// La correction d'un chemin de `fichiers` hors de la forme.
 const CHEMIN: &str = concat!(
@@ -188,6 +196,8 @@ pub(crate) struct Tache {
     /// Le modèle de sa première tentative, puis celui de sa relance ; à défaut, ceux du profil.
     pub(crate) modele: Option<String>,
     pub(crate) relance: Option<String>,
+    /// L'effort de ses deux tentatives ; à défaut, ceux du profil.
+    pub(crate) effort: Option<String>,
     /// Les chemins qu'elle peut changer, tels que le plan les écrit, un dossier fini par `/` ; `None` : rien ne la
     /// borne.
     pub(crate) fichiers: Option<Vec<String>>,
@@ -312,6 +322,7 @@ struct Brouillon<'a> {
     preuve: Option<&'a str>,
     modele: Option<&'a str>,
     relance: Option<&'a str>,
+    effort: Option<&'a str>,
     fichiers: Option<Vec<&'a str>>,
     /// Ses lignes `exact`, chacune avec son fichier et son texte.
     exacts: Vec<(Ligne<'a>, &'a str, &'a str)>,
@@ -330,6 +341,7 @@ impl Brouillon<'_> {
             "preuve" => self.preuve.is_some(),
             "modele" => self.modele.is_some(),
             "relance" => self.relance.is_some(),
+            "effort" => self.effort.is_some(),
             "fichiers" => self.fichiers.is_some(),
             "exact" => false,
             _ => self.critique,
@@ -419,6 +431,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             preuve: None,
             modele: None,
             relance: None,
+            effort: None,
             fichiers: None,
             exacts: Vec::new(),
             critique: false,
@@ -440,7 +453,11 @@ impl<'a, 'd> Lecteur<'a, 'd> {
         let (permises, lieu, liste): (&[&str], _, _) = if entete {
             (&CLES_ENTETE, "de l'en-tête", "`objectif` ou `preuve`")
         } else {
-            (&CLES_TACHE, "d'une tâche", "`depend`, `preuve`, `modele`, `relance`, `fichiers`, `critique` ou `exact`")
+            (
+                &CLES_TACHE,
+                "d'une tâche",
+                "`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique` ou `exact`",
+            )
         };
         if !permises.contains(&cle) {
             return Err(faute(format!("la clé {} n'est pas une clé {lieu} ({liste})", cite(cle))));
@@ -486,6 +503,11 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             }
             "modele" => tache.modele = Some(valeur),
             "relance" => tache.relance = Some(valeur),
+            "effort" if !EFFORTS.contains(&valeur) => {
+                let quoi = format!("l'effort {} n'est ni low, ni medium, ni high, ni xhigh, ni max", cite(valeur));
+                return Err(refus(Code::PlanLigne, ligne, quoi, EFFORT));
+            }
+            "effort" => tache.effort = Some(valeur),
             "fichiers" => {
                 let chemins: Vec<&str> = valeur.split_whitespace().collect();
                 // Avant tout chemin : le passage en série compare ceux de deux tâches deux à deux.
@@ -615,6 +637,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                 objectif: objectif_de(&brouillon.objectif),
                 modele: brouillon.modele.map(str::to_string),
                 relance: brouillon.relance.map(str::to_string),
+                effort: brouillon.effort.map(str::to_string),
                 fichiers: brouillon.fichiers.as_ref().map(|chemins| chemins.iter().map(|c| c.to_string()).collect()),
                 exacts: brouillon
                     .exacts
@@ -649,6 +672,7 @@ fn blanche(entete: bool, cle: &str) -> String {
         (false, "modele" | "relance") => {
             format!("Écris le modèle après `{cle} :`, ou retire la ligne : la tentative prend alors celui du profil.")
         }
+        (false, "effort") => format!("Écris le niveau après `effort :`, ou retire la ligne : {EFFORT}"),
         (false, "fichiers") => "Écris après `fichiers :` les chemins que la tâche peut changer, ou retire la ligne : \
                                 rien ne borne alors la tâche."
             .into(),
