@@ -1926,6 +1926,9 @@ fn une_panique_de_main_devient_son_message() {
     );
     let (_, _, verdict) = en_message(|| panic!("boum {}", 2));
     assert_eq!(verdict.unwrap_err(), Echec::Erreur("the hand panicked: boum 2".to_string()));
+    // Une charge ni `&str` ni `String` n'a pas de message lisible : le repli le dit, en anglais.
+    let (_, _, verdict) = en_message(|| std::panic::panic_any(1));
+    assert_eq!(verdict.unwrap_err(), Echec::Erreur("the hand panicked: no message".to_string()));
     // Sans panique, ce que la main rend passe tel quel, son constat compris.
     let lu = Constat { version: Some("2.1.312".into()), mur_actif: Some(false), ..Constat::default() };
     let pris = Ok(Pris { sortie: "fait".into(), prouve: true });

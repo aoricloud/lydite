@@ -232,7 +232,11 @@ fn une_erreur_d_e_s_devient_6006_avec_son_message() {
     let refus = Refus::from(erreur);
     assert_eq!((refus.code.numero(), refus.code.nom()), (6006, "lancer.entree_sortie"));
     assert_eq!(refus.preuve, "fil.jsonl : accès refusé");
-    assert!(!refus.correction.is_empty());
+    assert_eq!(
+        refus.correction,
+        "Check that the path, or the program of the proof, exists and that Lydite can read, write or run it, \
+         then retry."
+    );
     // `?` convertit seul : un vrai fichier absent donne le message de l'erreur du système.
     let lire = |chemin: &Path| -> Result<Vec<u8>, Refus> { Ok(fs::read(chemin)?) };
     let absent = env::temp_dir().join(format!("lydite-test-erreur-{}", lot())).join("fil.jsonl");
