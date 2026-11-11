@@ -1127,6 +1127,30 @@ fn les_regles_de_chemin_suivent_le_systeme() {
 }
 
 #[test]
+fn les_regles_qui_ferment_le_dossier_de_lydite_portent_les_noms_du_coeur() {
+    let regle = regle_k();
+    let reglages = reglages(&borne("sorte = claude\n"), None);
+    let attendues = [
+        format!("Edit({regle}/{FIL})"),
+        format!("Edit({regle}/{PROFILS}/**)"),
+        format!("Read({regle}/{DEBUT_SRT}*.json)"),
+        format!("Edit({regle}/{DEBUT_SRT}*.json)"),
+    ];
+    for attendue in attendues {
+        assert!(reglages.contains(&format!("\"{attendue}\"")), "{attendue} : {reglages}");
+    }
+    // Les réglages de srt du rejeu portent le même début de nom, que la règle `srt-*.json` ferme.
+    let exige = borne("sorte = claude\nmur = exige\n");
+    let srt = exige.rejeu(&absolu("w"), &absolu("t")).unwrap().unwrap();
+    let nom = srt.fichier.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(nom.starts_with(DEBUT_SRT), "{nom}");
+    // Le mode des éditions est celui de la ligne de commande.
+    let argv = borne("sorte = claude\n").demande(&absolu("w"), None, false).argv;
+    let place = argv.iter().position(|mot| mot == "--permission-mode").unwrap();
+    assert_eq!(argv[place + 1], crate::coeur::protocole::MODE_DES_EDITIONS);
+}
+
+#[test]
 fn les_outils_ouvrent_le_bac_et_ferment_le_reste() {
     // Les permis d'office, puis WebFetch par domaine de reseau ; les dix-neuf sortants fermés, dans l'ordre (ce qui
     // réveille, ce qui parle, ce qui publie, ce qui demande, ce qui fait entrer du contenu extérieur), les deux
