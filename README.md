@@ -67,8 +67,9 @@ The receipt counts the hands, their retries and the tasks set aside, and seals t
 Four more things to notice. The proof line is your command, run again by Lydite after the hands have finished, not by
 them. The points to justify are found by Lydite itself, without a model: here a test of the base lost lines, and the
 reviewer had to say why. The commit line names the exact commit that was replayed (and reviewed, when the plan marked
-a task critical): on this repository, a required check refuses to merge a Lydite pull request whose head's files
-differ from that commit's. And the last block is what the review could **not** see replayed. Lydite prints it.
+a task critical): on this repository, a required check refuses to merge a Lydite pull request unless its head's files
+are those of a commit named as reviewed and replayed, in its body or in a correction merged into its branch. And the
+last block is what the review could **not** see replayed. Lydite prints it.
 
 As of 11 November 2026, on our own repositories:
 
@@ -418,11 +419,12 @@ lock for an instant (the probe of `lydite wait`, below) retries for about 200 ms
 (no argument) waits while a launch holds the state folder (it probes the lock for an instant, every 2 seconds, and
 never keeps it), then, if the thread gained at least one note since it started, says the last wave like `lydite status`
 and exits 0 if it is carried through and green, 1 if it is red or its wave carries no seal at all (a launch killed
-before its first seal, even with no new note), 2 if the journal cannot be read or a seal is broken. Lydite seals a
-wave just before it writes the pull request, and at every exit: a launch killed after that first seal is not caught.
-If the folder was held and then freed with no new note (a launch refused before it opened its wave), it says so on
-stderr and exits 2. Run just before the launch takes the folder, it waits at most 60 seconds for a note to come; with
-no new note and no held folder it says so and exits 2.
+before its first seal), 2 if the journal cannot be read or a seal is broken. Lydite seals a wave just before it writes
+the pull request, and at every exit once the wave has opened; a split alone is never sealed. So a launch killed after
+that first seal, or a `--split` launch killed between its split and its wave, is not caught: `wait` then exits as
+`lydite status` would, possibly 0. If the folder was held and then freed with no new note (a launch refused before it
+opened its wave), it says so on stderr and exits 2. Run just before the launch takes the folder, it waits at most 60
+seconds for a note to come; with no new note and no held folder it says so and exits 2.
 
 ### A profile
 
