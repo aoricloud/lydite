@@ -63,7 +63,7 @@ const FERMES: [&str; 19] = [
 const GET_SETTINGS: &str = concat!(
     r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_settings","response":{"applied":"#,
     r#"{"model":"MODELE"},"effective":{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox":{"enabled":true,"f"#,
-    r#"ailIfUnavailable":true,"allowUnsandboxedCommands":false,"filesystem":{"denyRead":["~/",@DOSSIER@]},"#,
+    r#"ailIfUnavailable":true,"allowUnsandboxedCommands":false,"filesystem":{"denyRead":["~/",@DOSSIER@,@CONFIG@]},"#,
     r#""network":{"allowedDomains":[],"strictAllowlist":true"#,
     r#"},"credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
     r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}}},"#,
@@ -403,6 +403,7 @@ impl Essai {
         for modele in ["haiku", "sonnet", "opus", "claude-opus-5-5"] {
             let reglages = GET_SETTINGS
                 .replace("@DOSSIER@", &json_chaine(&self.dossier.to_string_lossy()))
+                .replace("@CONFIG@", &json_chaine(&self.racine.join("config").to_string_lossy()))
                 .replace("MODELE", modele);
             let controle = [reglages.as_str(), &regles, GET_HOOKS_LISTING, GET_SANDBOX_DIALOG].join("\n") + "\n";
             fs::write(self.main.join(format!("controle-{modele}.jsonl")), controle).unwrap();

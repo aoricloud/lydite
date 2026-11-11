@@ -7,12 +7,14 @@ use super::*;
 use crate::essais::mains::{dossier, profil_borne};
 use std::collections::BTreeSet;
 
-/// Un décor : un dossier neuf (chemin réel), son faux dossier personnel, le dossier de Kraken du profil, le git commun
-/// du dépôt visé, le bac et le dossier temporaire du bac (qui n'existe qu'une fois le rejeu préparé).
+/// Un décor : un dossier neuf (chemin réel), son faux dossier personnel, le dossier de Kraken du profil, le faux
+/// dossier de connexion de Claude que nomme `CLAUDE_CONFIG_DIR` (hors du dossier personnel, donc fermé à son tour),
+/// le git commun du dépôt visé, le bac et le dossier temporaire du bac (qui n'existe qu'une fois le rejeu préparé).
 struct Decor {
     dir: PathBuf,
     maison: PathBuf,
     kraken: PathBuf,
+    config: PathBuf,
     commun: PathBuf,
     bac: PathBuf,
     temporaire: PathBuf,
@@ -36,13 +38,13 @@ fn decor_dans(dir: PathBuf) -> Decor {
     // `canonicalize` y rend un chemin verbatim (`\\?\C:\...`), que le profil borné refuse.
     #[cfg(unix)]
     let dir = fs::canonicalize(dir).unwrap();
-    let (maison, kraken, commun, bac) =
-        (dir.join("personnel"), dir.join("lydite"), dir.join("depot").join(".git"), dir.join("bac"));
-    for dossier in [&maison, &kraken, &commun, &bac] {
+    let (maison, kraken, config) = (dir.join("personnel"), dir.join("lydite"), dir.join("config"));
+    let (commun, bac) = (dir.join("depot").join(".git"), dir.join("bac"));
+    for dossier in [&maison, &kraken, &config, &commun, &bac] {
         fs::create_dir_all(dossier).unwrap();
     }
     let temporaire = temporaire_de(&bac).unwrap();
-    Decor { dir, maison, kraken, commun, bac, temporaire }
+    Decor { dir, maison, kraken, config, commun, bac, temporaire }
 }
 
 impl Decor {
@@ -81,8 +83,9 @@ impl Decor {
     }
 }
 
-/// Les arguments d'un mur monté par ce décor, sans domaine : les fermés (le dossier personnel, le dossier de Kraken),
-/// les lus (le bac, le git commun, puis `lus`), les écrits (le bac, son temporaire), le git commun refusé en écriture.
+/// Les arguments d'un mur monté par ce décor, sans domaine : les fermés (le dossier personnel, le dossier de Kraken,
+/// le dossier de connexion de Claude), les lus (le bac, le git commun, puis `lus`), les écrits (le bac, son
+/// temporaire), le git commun refusé en écriture.
 fn mur_attendu(d: &Decor, lus: &[&Path]) -> Vec<String> {
     let texte = |chemin: &Path| chemin.to_string_lossy().into_owned();
     let mut args: Vec<String> = [
@@ -102,7 +105,7 @@ fn mur_attendu(d: &Decor, lus: &[&Path]) -> Vec<String> {
     ]
     .map(String::from)
     .into();
-    args.extend([texte(&d.maison), "--tmpfs".into(), texte(&d.kraken)]);
+    args.extend([texte(&d.maison), "--tmpfs".into(), texte(&d.kraken), "--tmpfs".into(), texte(&d.config)]);
     let lus = [d.bac.as_path(), d.commun.as_path()].into_iter().chain(lus.iter().copied());
     for lu in lus {
         args.extend(["--ro-bind".into(), texte(lu), texte(lu)]);
@@ -225,6 +228,31 @@ fn un_programme_qui_ne_part_pas_est_dit_et_ne_laisse_rien() {
     let faux = d.faux();
     assert_eq!(d.rejouer(&faux, &d.profil(""), "true").1, Ok(()));
     assert_eq!(notes_du_faux(&d, "filtres.txt").len(), 1);
+    let _ = fs::remove_dir_all(&d.dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn le_dossier_de_connexion_ferme_s_il_est_absent_est_saute_et_dit_en_tete_du_journal() {
+    // Le dossier que nomme `CLAUDE_CONFIG_DIR` est fermé par le profil ; absent, il n'y a rien à fermer, et le journal
+    // le dit. Présent (les autres tests), le mur le monte en `--tmpfs` (`mur_attendu`).
+    let d = decor("natif-config-absent");
+    fs::remove_dir(&d.config).unwrap();
+    let faux = d.faux();
+    let (verif, rejeu) = d.rejouer(&faux, &d.profil(""), "echo MARQUE-NATIF");
+    assert_eq!(rejeu, Ok(()));
+    let note = format!("mur natif : fermé par le profil, absent : {}\n", d.config.display());
+    assert_eq!(verif, Some(format!("{note}MARQUE-NATIF\n")));
+    let appels = crate::essais::appels_du_faux_bwrap(&d.dir);
+    assert!(!appels[0].contains(&d.config.to_string_lossy().into_owned()), "{:?}", appels[0]);
+    let _ = fs::remove_dir_all(&d.dir);
+    // Le même regard sur un décor où il est présent : le mur le monte, et le journal ne dit rien de lui.
+    let d = decor("natif-config-present");
+    let faux = d.faux();
+    let (verif, rejeu) = d.rejouer(&faux, &d.profil(""), "echo MARQUE-NATIF");
+    assert_eq!((rejeu, verif.as_deref()), (Ok(()), Some("MARQUE-NATIF\n")));
+    let appels = crate::essais::appels_du_faux_bwrap(&d.dir);
+    assert!(appels[0].contains(&d.config.to_string_lossy().into_owned()), "{:?}", appels[0]);
     let _ = fs::remove_dir_all(&d.dir);
 }
 
