@@ -740,7 +740,7 @@ fn les_listes_qui_ouvrent_le_mur_se_jugent_par_leurs_entrees_effectives() {
         ecart,
         concat!(
             "hand: settings not applied: get_settings : ",
-            r#"effective.sandbox.filesystem.allowRead : entry "/srv/autre" outside the declared"#,
+            r#"effective.sandbox.filesystem.allowRead : entry "/srv/autre" outside the declared list"#,
         )
     );
     // Une entrée de moins ferme davantage le mur, et une clé absente de l'effectif vaut une liste vide : pris.
@@ -757,13 +757,13 @@ fn les_listes_qui_ouvrent_le_mur_se_jugent_par_leurs_entrees_effectives() {
     for effectif in [r#"["a.test","b.test"]"#, r#"["b.test"]"#] {
         let ecart = jugement_du_mur(&declare, domaines, &format!(r#""allowedDomains":{effectif}"#)).unwrap_err();
         assert!(
-            ecart.contains(r#"effective.sandbox.network.allowedDomains : entry "b.test" outside the declared"#),
+            ecart.contains(r#"effective.sandbox.network.allowedDomains : entry "b.test" outside the declared list"#),
             "{ecart}"
         );
     }
     // Rien de déclaré : toute entrée effective est de trop.
     let ecart = jugement_du_mur(REGLAGES, domaines, r#""allowedDomains":["b.test"]"#).unwrap_err();
-    assert!(ecart.contains(r#"allowedDomains : entry "b.test" outside the declared"#), "{ecart}");
+    assert!(ecart.contains(r#"allowedDomains : entry "b.test" outside the declared list"#), "{ecart}");
 }
 
 #[test]
@@ -815,7 +815,8 @@ fn ecart_de_regle(regle: &str, source: &str) -> String {
     format!(
         "hand: settings not applied: list_permission_rules : allow \"{regle}\" seen at \"{source}\", not declared : \
          remove this rule from {lieu} to launch Lydite. \
-         A rule on Bash or PowerShell stays allowed, under a required wall (sandbox.failIfUnavailable true)"
+         A rule on Bash or PowerShell stays allowed \
+         under a profile that requires the wall (`mur = exige` or `mur = natif`)"
     )
 }
 
@@ -826,8 +827,8 @@ fn l_ecart_d_une_regle_allow_de_user_settings_se_dit_en_entier() {
         "hand: settings not applied: list_permission_rules : ",
         r#"allow "Read(/srv/gh/**)" seen at "userSettings", not declared : "#,
         "remove this rule from ~/.claude/settings.json (or the settings.json in the folder CLAUDE_CONFIG_DIR names) ",
-        "to launch Lydite. A rule on Bash or PowerShell stays allowed, ",
-        "under a required wall (sandbox.failIfUnavailable true)",
+        "to launch Lydite. A rule on Bash or PowerShell stays allowed ",
+        "under a profile that requires the wall (`mur = exige` or `mur = natif`)",
     );
     assert_eq!(juger_reponses(&attendu(REGLAGES), &reponses).1, Err(dit.to_string()));
     // Une autre source : son nom seul, pas un fichier que Lydite ne connaît pas.
@@ -903,7 +904,7 @@ fn les_dossiers_de_plus_des_outils_de_fichiers_sont_un_ecart() {
         ecart,
         concat!(
             "hand: settings not applied: get_settings : ",
-            r#"effective.permissions.additionalDirectories : directory "/srv/gh" outside the declared (none) : "#,
+            r#"effective.permissions.additionalDirectories : directory "/srv/gh" outside the declared list (none) : "#,
             "remove this entry from permissions.additionalDirectories in ",
             "the settings of the source that adds it to launch Lydite",
         )
@@ -921,7 +922,7 @@ fn les_dossiers_de_plus_des_outils_de_fichiers_sont_un_ecart() {
         ecart,
         concat!(
             "hand: settings not applied: get_settings : ",
-            r#"effective.permissions.additionalDirectories : directory "/srv/gh" outside the declared (none), "#,
+            r#"effective.permissions.additionalDirectories : directory "/srv/gh" outside the declared list (none), "#,
             r#"seen at "userSettings" : remove this entry from permissions.additionalDirectories in "#,
             "~/.claude/settings.json (or the settings.json in the folder CLAUDE_CONFIG_DIR names) to launch Lydite",
         )
