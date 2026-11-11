@@ -122,7 +122,7 @@ fn eprouver_la_base_efface_son_temporaire() {
     let (racine, depot, kraken, base) = vise("base-temporaire");
     // Sous un mur exigé, par un faux srt qui le tient, le rejeu de la preuve crée le dossier temporaire du worktree.
     let mut exige = crate::coeur::profil::lire("essai", "sorte = claude\nmur = exige\n", None, None).unwrap();
-    exige.borner(&kraken, &depot.join(".git"), None, None).unwrap();
+    exige.borner(&kraken, &depot.join(".git"), None, None, None).unwrap();
     exige.avec_srt(crate::essais::faux_srt(&racine, true));
     fs::create_dir_all(&kraken).unwrap();
     eprouver_la_base(&depot, &kraken, &exige, &base, "exit 0").unwrap();

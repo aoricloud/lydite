@@ -911,9 +911,10 @@ impl Profil {
         dossier: &Path,
         git_commun: &Path,
         config: Option<&Path>,
+        gh: Option<&Path>,
         personnel: Option<&Path>,
     ) -> Result<(), Refus> {
-        self.borner_selon(dossier, git_commun, config, personnel, connexion_presente)
+        self.borner_selon(dossier, git_commun, config, gh, personnel, connexion_presente)
     }
 }
 

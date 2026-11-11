@@ -1321,7 +1321,7 @@ fn profil_declare(texte: &str, kraken: &Path, depot: &Path) -> Profil {
     let texte = crate::essais::avec_mur_demande(texte);
     let mut profil = crate::coeur::profil::lire("essai", &texte, None, None).unwrap();
     let (config, personnel) = (kraken.with_file_name("config"), kraken.with_file_name("personnel"));
-    profil.borner(kraken, &depot.join(".git"), Some(&config), Some(&personnel)).unwrap();
+    profil.borner(kraken, &depot.join(".git"), Some(&config), None, Some(&personnel)).unwrap();
     profil
 }
 

@@ -118,6 +118,8 @@ fn kraken(racine: &Path, args: &[&str]) -> Output {
         .env("USERPROFILE", &personnel)
         .env("HOME", personnel)
         .env("CLAUDE_CONFIG_DIR", racine.join("config"))
+        .env_remove("GH_CONFIG_DIR")
+        .env_remove("XDG_CONFIG_HOME")
         .output()
         .unwrap()
 }
