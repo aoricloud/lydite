@@ -530,7 +530,7 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
             Some(Json::Liste(effectives)) => {
                 for entree in effectives {
                     if !matches!(entree, Json::Texte(texte) if declarees.contains(&texte.as_str())) {
-                        ecarts.push(format!("{cle} : entry {} outside the declared", montre(Some(entree))));
+                        ecarts.push(format!("{cle} : entry {} outside the declared list", montre(Some(entree))));
                     }
                 }
             }
@@ -552,7 +552,7 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
                     }
                 };
                 ecarts.push(format!(
-                    "effective.{DOSSIERS} : directory {nom} outside the declared (none){vu} : \
+                    "effective.{DOSSIERS} : directory {nom} outside the declared list (none){vu} : \
                      remove this entry from {DOSSIERS} in {ou} to launch Lydite"
                 ));
             }
@@ -648,7 +648,8 @@ fn regles(corps: Option<&Json>, declare: &Json) -> Vec<String> {
         };
         ecarts.push(format!(
             "allow {} seen {ou}, not declared : remove this rule from {} to launch Lydite. \
-             A rule on Bash or PowerShell stays allowed, under a required wall (sandbox.failIfUnavailable true)",
+             A rule on Bash or PowerShell stays allowed \
+             under a profile that requires the wall (`mur = exige` or `mur = natif`)",
             montre(champ(vue, "rule")),
             lieu_de_source(source),
         ));

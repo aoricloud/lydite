@@ -1421,7 +1421,7 @@ fn une_main_dont_les_reglages_n_ont_pas_pris_est_tuee_avant_la_consigne() {
     assert_eq!(sortie.status.code(), Some(1), "{}", dit(&sortie));
     let stderr = String::from_utf8_lossy(&sortie.stderr);
     assert!(stderr.contains(&format!("échec classé : main-{}-1", essai.vague())), "{}", dit(&sortie));
-    assert!(stderr.contains("hand: settings not applied: get_settings :"), "{}", dit(&sortie));
+    assert!(stderr.contains("hand: settings not applied: get_settings : "), "{}", dit(&sortie));
     // La consigne n'est jamais partie : la fausse claude n'a lu que ses demandes, si elle en a lu.
     assert!(essai.entree().iter().all(|ligne| !ligne.contains(r#""type":"user""#)), "{:?}", essai.entree());
     assert_eq!(essai.argv_recus().len(), 2, "lancée deux fois, tuée deux fois");
@@ -1429,7 +1429,7 @@ fn une_main_dont_les_reglages_n_ont_pas_pris_est_tuee_avant_la_consigne() {
     let fins = lignes_de(&fil, "main.fin");
     assert_eq!(fins.len(), 2, "{fil}");
     for ligne in fins {
-        let rouge = r#""couleur":"rouge","foi":"constate","texte":"hand: settings not applied: get_settings :"#;
+        let rouge = r#""couleur":"rouge","foi":"constate","texte":"hand: settings not applied: get_settings : "#;
         assert!(ligne.contains(rouge), "{ligne}");
         assert!(ligne.contains("flagSettings") && ligne.contains("claude-settings.json"), "{ligne}");
     }
@@ -1444,7 +1444,7 @@ fn une_main_dont_les_reglages_n_ont_pas_pris_est_tuee_avant_la_consigne() {
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(1), "{}", dit(&etat));
     let etat = String::from_utf8_lossy(&etat.stdout).into_owned();
-    assert!(etat.contains(" : set aside: hand: settings not applied: get_settings :"), "{etat}");
+    assert!(etat.contains(" : set aside: hand: settings not applied: get_settings : "), "{etat}");
     // Le reçu : deux lignes, le coût, puis l'effort.
     let lignes: Vec<&str> = etat.trim_end().lines().collect();
     let [.., derniere_de_la_main, cout, effort] = &lignes[..] else { panic!("{etat}") };
