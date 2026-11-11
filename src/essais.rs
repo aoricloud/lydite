@@ -683,6 +683,10 @@ pub(crate) fn etat_de_claude(bac: &Path) {
 /// court que son sommeil.
 pub(crate) const ARBRE: Duration = Duration::from_secs(10);
 
+/// La borne de l'attente de la marque du petit-enfant ([`marque`]) quand rien ne presse : l'attente rend la main dès
+/// que la marque est là, et un PowerShell lent à démarrer sous charge (vu sous Windows) ne fait plus rougir le test.
+pub(crate) const ATTENTE_DE_LA_MARQUE: Duration = Duration::from_secs(60);
+
 /// Une commande dont l'enfant, la coquille, lance un petit-enfant (PowerShell sous Windows, `sleep` ailleurs) qui écrit
 /// son pid dans `marque`, au dossier courant, puis dort 30 s.
 pub(crate) const LENTE: &str = if cfg!(windows) {
