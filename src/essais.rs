@@ -629,6 +629,31 @@ pub(crate) fn script(chemin: &Path, corps: &str) {
     }
 }
 
+/// Lance le script qu'on vient d'écrire, une fois, sans entrée ni sortie et avec `--version` pour seul argument, et
+/// n'en juge pas le code : il ne sert qu'à passer le premier `exec`. Un autre test qui lance un processus au même
+/// instant tient un moment le descripteur d'écriture du script, et son `exec` rend alors « Text file busy » : l'appel
+/// est repris jusqu'à ce qu'il parte, et sans cela le test qui lance ce script tomberait au hasard de la charge. Le
+/// délai (30 s) est un garde-fou, non une attente. Pour un script qui ne fait rien de ses arguments ni de ses effets.
+#[cfg(unix)]
+pub(crate) fn chauffer(chemin: &Path) {
+    use std::process::Stdio;
+    let debut = Instant::now();
+    loop {
+        let lancement = Command::new(chemin)
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        match lancement {
+            Err(e) if e.kind() == io::ErrorKind::ExecutableFileBusy && debut.elapsed() < Duration::from_secs(30) => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            autre => return assert!(autre.is_ok(), "{} ne part pas : {autre:?}", chemin.display()),
+        }
+    }
+}
+
 /// Un chemin que la coquille de git lit tel quel : avec des `/`, car elle prendrait une `\` pour un échappement.
 pub(crate) fn pour_sh(chemin: &Path) -> String {
     chemin.to_string_lossy().replace('\\', "/")

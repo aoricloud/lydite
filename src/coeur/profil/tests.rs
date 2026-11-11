@@ -2263,7 +2263,8 @@ fn les_reglages_de_la_main_sont_les_memes_sous_exige_et_sous_natif() {
 }
 
 #[test]
-fn sous_natif_le_rejeu_est_refuse_tant_que_le_mur_natif_n_est_pas_branche_mais_les_listes_sont_celles_de_exige() {
+fn sous_natif_les_reglages_de_srt_sont_refuses_et_ne_font_jamais_une_coquille_nue_mais_les_listes_sont_celles_de_exige()
+{
     let corps = "reseau = exemple.test\nlecture = ~/.cargo\n";
     let (exige, natif) = (
         borne(&format!("sorte = claude\nmur = exige\n{corps}")),
@@ -2272,10 +2273,12 @@ fn sous_natif_le_rejeu_est_refuse_tant_que_le_mur_natif_n_est_pas_branche_mais_l
     let worktree = absolu("k").join("bacs").join("main-1");
     let temporaire = crate::branchements::bac::temporaire_de(&worktree).unwrap();
     assert!(exige.rejeu(&worktree, &temporaire).unwrap().is_some(), "srt rejoue sous exige");
-    assert!(
-        natif.rejeu(&worktree, &temporaire).unwrap_err().contains("pas encore branché"),
-        "la preuve ne se rejoue pas dans la coquille sous natif"
-    );
+    // Le mur natif rejoue par ses propres moyens (`mur_du_rejeu`) : des réglages de srt, ici, sont une erreur, et non
+    // `Ok(None)`, qui voudrait dire « la coquille, sans mur ».
+    assert_eq!((exige.mur_du_rejeu(), natif.mur_du_rejeu()), (MurDuRejeu::Srt, MurDuRejeu::Natif));
+    let erreur = natif.rejeu(&worktree, &temporaire).unwrap_err();
+    assert!(erreur.contains("n'a pas de réglages de srt"), "{erreur}");
+    assert!(!erreur.contains("pas encore branché"), "le mur natif est branché : {erreur}");
     let listes = natif.listes_du_mur(&worktree, &temporaire).unwrap().expect("le mur natif lit ces listes");
     assert_eq!(Some(listes), exige.listes_du_mur(&worktree, &temporaire).unwrap());
     // Un mur natif que `borner` n'a pas borné reste une erreur, comme sous srt.

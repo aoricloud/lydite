@@ -2095,16 +2095,44 @@ fn un_mur_exige_se_constate_actif_ou_la_main_est_tuee() {
 }
 
 #[test]
-fn un_mur_natif_non_branche_est_refuse_en_6028_et_la_preuve_ne_se_rejoue_pas_dans_la_coquille() {
-    // Le faux srt de l'essai jouerait `true` et passerait : seul le refus du rejeu sous `mur = natif` arrête le
-    // lancement, avant toute main et avant toute preuve.
-    let essai = Essai::nouveau("natif-non-branche");
+fn un_mur_natif_sans_bwrap_est_refuse_en_6028_qui_nomme_bubblewrap_et_la_preuve_ne_se_rejoue_nulle_part() {
+    // Le faux srt de l'essai jouerait `true` et passerait : seul le refus du mur natif, dont le `bwrap` ne part pas,
+    // arrête le lancement, avant toute main et avant toute preuve. Rien ne s'est rejoué dans la coquille, ni par srt.
+    let essai = Essai::nouveau("natif-sans-bwrap");
     essai.profil_accepte("veille", "mur = natif\n");
-    let refus = lire_refus(essai.kraken().args(["lancer", "veille", OBJECTIF, "--verifier", VERIFIER]));
+    let absent = essai.racine.join("bwrap-absent");
+    let mut lancement = essai.kraken();
+    lancement.env("LYDITE_BWRAP", &absent).args(["lancer", "veille", OBJECTIF, "--verifier", VERIFIER]);
+    let refus = lire_refus(&mut lancement);
     assert_eq!(refus.code, "lydite : 6028 lancer.mur_refuse");
-    assert!(refus.preuve.contains("le mur natif n'est pas encore branché"), "{refus:?}");
+    assert!(refus.preuve.starts_with("the native wall (`mur = natif`) needs bubblewrap (LYDITE_BWRAP)"), "{refus:?}");
+    assert!(refus.preuve.contains(&absent.display().to_string()), "la preuve nomme le programme : {refus:?}");
+    assert!(refus.correction.contains("install it") && refus.correction.contains("set LYDITE_BWRAP"), "{refus:?}");
+    assert!(refus.correction.contains("`mur = exige`") && refus.correction.contains("through srt"), "{refus:?}");
     assert!(essai.note("args.txt").is_none(), "la fausse claude n'est pas partie");
     assert!(!essai.dossier.join("fil.jsonl").exists(), "aucun fil n'est écrit");
+    essai.nettoyer();
+}
+
+#[test]
+fn un_mur_natif_sans_lydite_reseau_est_refuse_en_6028_qui_nomme_le_filtre() {
+    // Le profil des essais permet `exemple.test` : le mur natif veut son filtre. Le faux srt de l'essai tient lieu de
+    // `bwrap` qui part : il ne joue rien, car le filtre manque avant que `bwrap` soit lancé pour la preuve.
+    let essai = Essai::nouveau("natif-sans-reseau");
+    essai.profil_accepte("veille", "mur = natif\n");
+    let absent = essai.racine.join("lydite-reseau-absent");
+    let mut lancement = essai.kraken();
+    lancement.env("LYDITE_BWRAP", essai.faux_srt()).env("LYDITE_RESEAU", &absent);
+    lancement.args(["lancer", "veille", OBJECTIF, "--verifier", VERIFIER]);
+    let refus = lire_refus(&mut lancement);
+    assert_eq!(refus.code, "lydite : 6028 lancer.mur_refuse");
+    let debut = "the native wall (`mur = natif`) needs lydite-reseau (LYDITE_RESEAU)";
+    assert!(refus.preuve.starts_with(debut), "{refus:?}");
+    assert!(refus.preuve.contains(&absent.display().to_string()), "la preuve nomme le chemin : {refus:?}");
+    let construire = "cargo build --release --manifest-path reseau/Cargo.toml";
+    assert!(refus.correction.contains(construire) && refus.correction.contains("set LYDITE_RESEAU"), "{refus:?}");
+    assert!(refus.correction.contains("`mur = exige`"), "{refus:?}");
+    assert!(essai.note("args.txt").is_none(), "la fausse claude n'est pas partie");
     essai.nettoyer();
 }
 

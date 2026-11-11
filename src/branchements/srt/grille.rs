@@ -1,5 +1,6 @@
 //! La grille d'essais réels du mur : chaque cas joue une commande `sh` dans le vrai mur, par le vrai chemin du rejeu de
-//! la preuve ([`rejouer`], sous un profil au mur exigé et borné comme `lancer` le borne), et constate ce qu'un mur doit
+//! la preuve ([`rejouer`], sous un profil au mur exigé, `mur = exige` ou `mur = natif`, et borné comme `lancer` le
+//! borne), et constate ce qu'un mur doit
 //! tenir. Le constat est celui de la grille, non celui du mur essayé : un cas que le mur ne tient pas est un constat de
 //! la grille, pas une faute du cas.
 //!
@@ -9,9 +10,9 @@
 //!
 //! La table des cas s'écrit une fois ([`TABLE`]) ; le mur joué est un paramètre ([`Mur`]), pour qu'un second mur la
 //! rejoue sans la recopier. Le mur natif (bwrap lancé par Lydite, sans srt : [`crate::branchements::natif`]) la rejoue
-//! par les tests `natif_*`, qui demandent bwrap, un `lydite-reseau` construit et le réseau de la machine (ses témoins
-//! le joignent, le mur non) : `LYDITE_RESEAU` doit désigner ce `lydite-reseau` (`LYDITE_BWRAP` nomme le bwrap, sinon
-//! `bwrap`). Pour la jouer :
+//! par les tests `natif_*`, sous un profil `mur = natif` que [`rejouer`] aiguille vers lui, et qui demandent bwrap, un
+//! `lydite-reseau` construit et le réseau de la machine (ses témoins le joignent, le mur non) : `LYDITE_RESEAU` doit
+//! désigner ce `lydite-reseau` (`LYDITE_BWRAP` nomme le bwrap, sinon `bwrap`). Pour la jouer :
 //! `cargo build --manifest-path reseau/Cargo.toml`, puis
 //! `LYDITE_GRILLE=natif LYDITE_RESEAU=<reseau/target/debug/lydite-reseau> cargo test grille::natif_ -- --ignored`. Le
 //! profil de la grille permet les mêmes domaines sous les deux murs : sous
@@ -112,7 +113,7 @@ for debut, fin, marque in ((sys.argv[1], sys.argv[2], sys.argv[5]), (sys.argv[3]
 #[derive(Clone, Copy)]
 enum Mur {
     Srt,
-    /// bwrap lancé par Lydite, sans srt ([`natif::rejouer`]).
+    /// bwrap lancé par Lydite, sans srt : un profil `mur = natif`, que [`rejouer`] rejoue par [`natif::rejouer`].
     Natif,
 }
 
@@ -126,10 +127,11 @@ impl Mur {
         }
     }
 
-    /// La ligne du profil qui exige ce mur.
+    /// La ligne du profil qui exige ce mur : `mur = exige` pour srt, `mur = natif` pour le mur natif.
     fn ligne(self) -> &'static str {
         match self {
-            Mur::Srt | Mur::Natif => "mur = exige",
+            Mur::Srt => "mur = exige",
+            Mur::Natif => "mur = natif",
         }
     }
 
@@ -141,31 +143,13 @@ impl Mur {
         }
     }
 
-    /// Le profil rejoue la preuve par ce programme. Le mur natif n'a rien à y poser : le programme va à
-    /// [`Mur::rejouer`].
+    /// Le profil rejoue la preuve par ce programme. Le mur natif n'a rien à y poser : [`rejouer`] lit son `bwrap` dans
+    /// `LYDITE_BWRAP` et son dossier personnel dans `HOME` (la grille le pose le temps du rejeu), comme
+    /// [`Mur::programme`] les a lus.
     fn brancher(self, profil: &mut Profil, programme: &OsStr) {
         match self {
             Mur::Srt => profil.avec_srt(programme.to_os_string()),
             Mur::Natif => {}
-        }
-    }
-
-    /// Rejoue `commande` dans `bac` sous ce mur : [`rejouer`] pour srt, [`natif::rejouer`] pour le mur natif, dont le
-    /// dossier personnel est le `HOME` du processus (la grille le pose le temps du rejeu).
-    fn rejouer(
-        self,
-        programme: &OsStr,
-        profil: &Profil,
-        commande: &str,
-        bac: &Path,
-        journal: &Path,
-    ) -> (Option<String>, Result<(), String>) {
-        match self {
-            Mur::Srt => rejouer(profil, commande, bac, journal),
-            Mur::Natif => match natif::maison() {
-                Ok(maison) => natif::rejouer(programme, &maison, profil, commande, bac, journal),
-                Err(erreur) => (None, Err(erreur)),
-            },
         }
     }
 }
@@ -879,9 +863,9 @@ fn t2(d: &Decor) -> Cas {
     Cas::new(d, corps, Fin::Delai).voit(&lance).en_secondes(20).avec_temoin(Temoin::Restes(vec![premier, second]))
 }
 
-/// Joue le cas `id` de la [`TABLE`] dans le mur : monte son décor, rejoue sa commande par [`Mur::rejouer`]
-/// ([`rejouer`] sous srt, [`natif::rejouer`] sous le mur natif) sous un profil au mur exigé, et constate. Panique, en
-/// le disant, si la grille est éteinte.
+/// Joue le cas `id` de la [`TABLE`] dans le mur : monte son décor, rejoue sa commande par [`rejouer`], seule entrée,
+/// sous un profil au mur exigé (`mur = exige` pour srt, `mur = natif` pour le mur natif, que le profil choisit), et
+/// constate. Panique, en le disant, si la grille est éteinte.
 fn jouer(mur: Mur, id: &str) {
     let trouve = TABLE.iter().find(|(nom, _)| *nom == id);
     let (_, fabrique) = trouve.unwrap_or_else(|| panic!("{id} n'est pas dans la table"));
@@ -898,7 +882,7 @@ fn jouer(mur: Mur, id: &str) {
     let journal = decor.dir.join("journal.tmp");
     let (verif, rejeu) = {
         let _pose = Pose::nouvelle(&variables);
-        mur.rejouer(&programme, &profil, &cas.commande, &decor.bac, &journal)
+        rejouer(&profil, &cas.commande, &decor.bac, &journal)
     };
     let dossier = decor.dir.display();
     let dit = format!("{id} dans {dossier} : {}\nsortie : {verif:?}\nrejeu : {rejeu:?}", cas.commande);

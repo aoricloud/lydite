@@ -16,10 +16,6 @@
 //!   haute (le noyau ne lit que la moitié basse : c'est un `int`) ;
 //! - tout le reste passe.
 
-#![cfg_attr(not(test), expect(dead_code))]
-// raccourci : rien n'appelle encore cette fonction ; l'appelant qui installe le filtre avant la main la prendra, et
-// rustc dira alors cette attente inutile
-
 /// L'architecture que le filtre garde : celle du processus de la main.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Architecture {
