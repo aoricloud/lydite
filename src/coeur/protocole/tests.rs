@@ -783,6 +783,108 @@ fn la_liste_qui_ferme_le_mur_garde_chaque_entree_declaree() {
     assert_eq!(jugement_du_mur(REGLAGES, fermes, fermes), Ok(()));
 }
 
+/// Les réponses justes, avec cette règle de plus dans `list_permission_rules`.
+fn avec_regle(comportement: &str, source: &str, regle: &str) -> BTreeMap<String, Json> {
+    let plus = format!(r#"{{"behavior":"{comportement}","source":"{source}","rule":"{regle}"}}]"#);
+    let fin = r#""rule":"Read(~/.ssh/**)"}"#;
+    let liste = LIST_PERMISSION_RULES.replace(&format!("{fin}]"), &format!("{fin},{plus}"));
+    assert!(liste != LIST_PERMISSION_RULES);
+    avec(&liste)
+}
+
+/// Les mêmes réponses au mur exigé, que Claude Code dit actif, avec le `--settings` qui le déclare.
+fn au_mur_exige(mut reponses: BTreeMap<String, Json>) -> (String, BTreeMap<String, Json>) {
+    let declare = REGLAGES.replace(r#""failIfUnavailable":false"#, r#""failIfUnavailable":true"#);
+    let settings = GET_SETTINGS.replace(r#""failIfUnavailable":false"#, r#""failIfUnavailable":true"#);
+    let dialogue = GET_SANDBOX_DIALOG.replace(r#""enabled":false"#, r#""enabled":true"#);
+    assert!(declare != REGLAGES && settings != GET_SETTINGS && dialogue != GET_SANDBOX_DIALOG);
+    reponses.extend(rangees(&[&settings, &dialogue]));
+    (declare, reponses)
+}
+
+fn ecart_de_regle(regle: &str, source: &str) -> String {
+    format!(
+        "main : réglages non pris : list_permission_rules : allow \"{regle}\" vue à \"{source}\", non déclarée : \
+         la retirer des réglages de cette source pour lancer Lydite"
+    )
+}
+
+#[test]
+fn une_regle_allow_non_declaree_d_une_autre_source_est_un_ecart() {
+    for regle in ["Read(/srv/gh/**)", "WebFetch", "mcp__serveur__outil", "Glob", "Skill"] {
+        let ecart = ecart_de_regle(regle, "userSettings");
+        // Au mur demandé : un écart qui nomme la règle et sa source.
+        let (_, jugement) = {
+            let reponses = avec_regle("allow", "userSettings", regle);
+            juger_reponses(&attendu(REGLAGES), &reponses)
+        };
+        assert_eq!(jugement, Err(ecart.clone()));
+        // Au mur exigé : de même, l'exception ne vaut que pour Bash et PowerShell.
+        let (declare, reponses) = au_mur_exige(avec_regle("allow", "userSettings", regle));
+        assert_eq!(juger_reponses(&attendu(&declare), &reponses).1, Err(ecart));
+    }
+    // Une règle non déclarée vue à `flagSettings` même, un écart aussi.
+    let reponses = avec_regle("allow", "flagSettings", "Read(/etc/**)");
+    assert_eq!(juger_reponses(&attendu(REGLAGES), &reponses).1, Err(ecart_de_regle("Read(/etc/**)", "flagSettings")));
+}
+
+#[test]
+fn une_regle_allow_bash_ou_powershell_n_est_un_ecart_qu_au_mur_seulement_demande() {
+    for regle in ["Bash", "Bash(git status:*)", "PowerShell", "PowerShell(Get-Date)"] {
+        let (declare, reponses) = au_mur_exige(avec_regle("allow", "userSettings", regle));
+        assert_eq!(juger_reponses(&attendu(&declare), &reponses), (Some(true), Ok(())), "{regle}");
+        let reponses = avec_regle("allow", "userSettings", regle);
+        assert_eq!(
+            juger_reponses(&attendu(REGLAGES), &reponses).1,
+            Err(ecart_de_regle(regle, "userSettings")),
+            "{regle}"
+        );
+    }
+    // Un outil dont le nom ne fait que commencer par `Bash` n'est pas `Bash`.
+    let (declare, reponses) = au_mur_exige(avec_regle("allow", "userSettings", "BashOutput"));
+    assert_eq!(juger_reponses(&attendu(&declare), &reponses).1, Err(ecart_de_regle("BashOutput", "userSettings")));
+}
+
+#[test]
+fn une_regle_declaree_vue_a_flag_settings_ou_une_regle_deny_d_une_autre_source_n_est_pas_un_ecart() {
+    // Les réponses justes portent déjà `WebSearch` en `allow` à `flagSettings`, déclarée.
+    assert_eq!(juger_reponses(&attendu(REGLAGES), &rangees(&JUSTES)), (Some(false), Ok(())));
+    // Une règle `deny` ou `ask` d'une autre source ferme ou ne répond à rien : pris.
+    for comportement in ["deny", "ask"] {
+        let reponses = avec_regle(comportement, "userSettings", "Read(/srv/gh/**)");
+        assert_eq!(juger_reponses(&attendu(REGLAGES), &reponses), (Some(false), Ok(())), "{comportement}");
+    }
+}
+
+#[test]
+fn les_dossiers_de_plus_des_outils_de_fichiers_sont_un_ecart() {
+    let avec_dossiers = |dossiers: &str| {
+        let settings = GET_SETTINGS.replace(
+            r#""effective":{"#,
+            &format!(r#""effective":{{"permissions":{{"additionalDirectories":{dossiers}}},"#),
+        );
+        assert!(settings != GET_SETTINGS);
+        juger_reponses(&attendu(REGLAGES), &avec(&settings)).1
+    };
+    let ecart = avec_dossiers(r#"["/srv/gh"]"#).unwrap_err();
+    assert_eq!(
+        ecart,
+        concat!(
+            "main : réglages non pris : get_settings : ",
+            r#"effective.permissions.additionalDirectories : dossier "/srv/gh" "#,
+            "hors du déclaré (aucun)",
+        )
+    );
+    // Chaque entrée est nommée ; une valeur qui n'est pas une liste n'est pas lue comme vide.
+    let ecart = avec_dossiers(r#"["/a","/b"]"#).unwrap_err();
+    assert!(ecart.contains(r#"dossier "/a" hors"#) && ecart.contains(r#"dossier "/b" hors"#), "{ecart}");
+    let ecart = avec_dossiers(r#""tout""#).unwrap_err();
+    assert!(ecart.contains(r#"additionalDirectories "tout", déclaré une liste vide"#), "{ecart}");
+    // Une liste vide, et une clé absente (les réponses justes), ne sont pas un écart.
+    assert_eq!(avec_dossiers("[]"), Ok(()));
+    assert_eq!(juger_reponses(&attendu(REGLAGES), &rangees(&JUSTES)).1, Ok(()));
+}
+
 /// Les chemins des feuilles de ce JSON sous `chemin` : un objet se parcourt, tout autre valeur, liste comprise, est
 /// une feuille.
 fn feuilles(json: &Json, chemin: &str, sortie: &mut Vec<String>) {

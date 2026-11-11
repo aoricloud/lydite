@@ -30,16 +30,21 @@
 //!    entrée est un tuyau que Lydite tient ouvert : le filtre s'arrête quand elle se ferme. Lydite attend sa ligne
 //!    `ready` jusqu'à une échéance ; un filtre qui meurt avant, ou qui se tait, est un refus : rien n'est lancé,
 //!    rien ne reste.
-//! 2. Dans le bac, le dossier du socket est monté en écriture et `lydite-reseau` en lecture seule, après les
-//!    montages du mur, et la chaîne devient :
+//! 2. Dans le bac, le dossier du socket et `lydite-reseau` sont montés en lecture seule, après les montages du mur,
+//!    et la chaîne devient :
 //!
 //! ```text
-//! <bwrap> <arguments du mur> --bind <dossier> <dossier> --ro-bind <lydite-reseau> <lydite-reseau>
+//! <bwrap> <arguments du mur> --ro-bind <dossier> <dossier> --ro-bind <lydite-reseau> <lydite-reseau>
 //!   -- <lydite-reseau> relais --ecoute 127.0.0.1:3128 --vers <socket> -- sh -c '<POSE_LE_VERROU>' sh …
 //! ```
 //!
 //! Le relais écoute avant de lancer la commande, donc avant le verrou ; la commande, elle, reste sous le verrou, et ne
-//! sort que par `127.0.0.1:3128`, où les variables de proxy la mènent. À la fin, quelle qu'elle soit (succès, échec,
+//! sort que par `127.0.0.1:3128`, où les variables de proxy la mènent. Le verrou ne refuse que la création d'un socket
+//! Unix : la commande pourrait sinon changer ce que le chemin du socket désigne, et le relais, hors du verrou, se
+//! connecterait à autre chose. Le dossier est donc monté en lecture seule (rien ne s'y crée, ne s'y retire ni ne s'y
+//! renomme), et le relais épingle sa cible avant de lancer la commande : il refuse de partir si le dossier est un lien
+//! ou si l'entrée n'est pas un socket, ouvre le dossier une fois, et ne se connecte plus que par ce descripteur, jamais
+//! par le chemin d'origine. À la fin, quelle qu'elle soit (succès, échec,
 //! délai dépassé), Lydite ferme l'entrée du filtre, l'attend jusqu'à une échéance, tue son arbre s'il ne sort pas,
 //! puis retire le dossier du socket. Le relais ne transmet pas les signaux : la mise à mort vise l'arbre entier.
 //!
@@ -620,7 +625,8 @@ fn jouer_la_commande(
     verification.args(&mur.arguments);
     if let Some(reseau) = &mur.reseau {
         // Après tous les montages du mur : ni la fermeture d'un dossier ni la racine ne les recouvrent.
-        verification.arg("--bind").arg(&reseau.dossier).arg(&reseau.dossier);
+        // Le dossier du socket est en lecture seule : rien ne s'y crée, ne s'y retire ni ne s'y renomme.
+        verification.arg("--ro-bind").arg(&reseau.dossier).arg(&reseau.dossier);
         verification.arg("--ro-bind").arg(&reseau.programme).arg(&reseau.programme);
     }
     verification.arg("--");

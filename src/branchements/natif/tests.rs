@@ -473,8 +473,8 @@ fn avec_des_domaines_le_filtre_est_pret_avant_le_bac_et_les_deux_appels_ont_leur
     assert_eq!(filtre, [&attendu[..], &["--journal", &journal]].concat());
     assert_eq!(notes_du_faux_reseau(&d, "dossiers.txt"), ["drwx------"]);
     assert_eq!(notes_du_faux_reseau(&d, "entrees.txt"), ["tuyau"]);
-    // Le bwrap extérieur : les arguments du mur, le dossier du socket et `lydite-reseau` montés, puis le relais, qui
-    // lance la ligne du verrou.
+    // Le bwrap extérieur : les arguments du mur, le dossier du socket et `lydite-reseau` montés en lecture seule, puis
+    // le relais, qui lance la ligne du verrou.
     let programme = fs::canonicalize(reglage.filtre.as_ref().unwrap()).unwrap().to_string_lossy().into_owned();
     let dossier_texte = dossier.to_string_lossy().into_owned();
     let appels = crate::essais::appels_du_faux_bwrap(&d.dir);
@@ -486,7 +486,7 @@ fn avec_des_domaines_le_filtre_est_pret_avant_le_bac_et_les_deux_appels_ont_leur
     assert!(Path::new(&bpf).starts_with(&d.temporaire), "{bpf}");
     let relais = ["relais", "--ecoute", "127.0.0.1:3128", "--vers", &socket.to_string_lossy(), "--"].map(String::from);
     let ligne = ["sh", "-c", POSE_LE_VERROU, "sh", &bpf, &faux.to_string_lossy(), &commande].map(String::from);
-    let montages = ["--bind", &dossier_texte, &dossier_texte, "--ro-bind", &programme, &programme, "--", &programme];
+    let montages = ["--ro-bind", &dossier_texte, &dossier_texte, "--ro-bind", &programme, &programme, "--", &programme];
     let relayee: Vec<String> = relais.iter().chain(&ligne).cloned().collect();
     let attendu: Vec<String> = montages.map(String::from).into_iter().chain(relayee.clone()).collect();
     assert_eq!(exterieur[mur.len()..], attendu[..]);
