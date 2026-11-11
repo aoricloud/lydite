@@ -70,6 +70,7 @@ fn executer() -> Result<ExitCode, Refus> {
         Commande::LirePlan { fichier, decoupe } => return plan_cmd(&fichier, decoupe),
         Commande::LireRemarques { fichier } => return remarques_cmd(&fichier),
         Commande::LireLecons { dossier } => return lecons_cmd(&dossier),
+        Commande::Version => return version_cmd(),
     };
     let (gh, personnel) = (github::programme_gh(), env::home_dir());
     let lieu = Lieu {
@@ -198,6 +199,12 @@ fn etat_cmd() -> Result<ExitCode, Refus> {
 /// `lydite attendre` : attend la fin du lancement qui tient le dossier, puis dit la dernière vague comme `etat`.
 fn attendre_cmd() -> Result<ExitCode, Refus> {
     etat::attendre_dans(&dossier::dossier()?, etat::DELAI_D_OUVERTURE, etat::PAUSE_DE_L_ATTENTE)
+}
+
+/// `lydite --version` : dit la version du binaire, lue de `CARGO_PKG_VERSION` du `Cargo.toml`, sur stdout.
+fn version_cmd() -> Result<ExitCode, Refus> {
+    println!("lydite {}", env!("CARGO_PKG_VERSION"));
+    Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(test)]

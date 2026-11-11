@@ -23,6 +23,7 @@ const USAGE: &str = concat!(
     " or lydite doctor [<profile>]",
     " or lydite etat",
     " or lydite attendre",
+    " or lydite --version",
 );
 
 /// Les drapeaux de `lancer` qui prennent une valeur, chacun une fois : `--pr` et `--issue` n'y vont qu'avec
@@ -51,6 +52,8 @@ pub(crate) enum Commande {
     Doctor(Option<String>),
     /// La dernière vague du fil.
     Etat,
+    /// `lydite --version` : la version du binaire, du `CARGO_PKG_VERSION` du `Cargo.toml`.
+    Version,
     /// Attend la fin du lancement qui tient le dossier, puis dit la dernière vague comme `Etat`.
     Attendre,
     /// Le plan du fichier, lu comme `--plan` le lit, ou en plan découpé, sans rien lancer. Le chemin garde son
@@ -125,6 +128,7 @@ pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
     };
     match (commande.to_str(), reste) {
         (Some("etat"), []) => Ok(Commande::Etat),
+        (Some("--version"), []) | (Some("-V"), []) => Ok(Commande::Version),
         (Some("etat"), [autre, ..]) => {
             let preuve = format!("`etat` takes no argument, and {} follows it", mot(autre));
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
