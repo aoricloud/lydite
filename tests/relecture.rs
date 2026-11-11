@@ -343,6 +343,25 @@ impl Essai {
         assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
     }
 
+    /// Le profil `essai` avec `plus` en dernières lignes, accepté de nouveau ; et la fausse claude dit désormais
+    /// `applied.effort` à l'effort donné pour les mains de chaque modèle donné, comme Claude Code qui a pris
+    /// `--effort`.
+    fn poser_les_efforts(&self, plus: &str, appliques: &[(&str, &str)]) {
+        let chemin = self.dossier.join("profils").join("essai.profil");
+        let texte = fs::read_to_string(&chemin).unwrap();
+        fs::write(&chemin, format!("{texte}{plus}")).unwrap();
+        let sortie = self.kraken().args(["accepter", "essai"]).output().unwrap();
+        assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
+        for (modele, effort) in appliques {
+            let controle = self.main.join(format!("controle-{modele}.jsonl"));
+            let dit_modele = format!(r#"{{"model":"{modele}"}}"#);
+            let lu = fs::read_to_string(&controle).unwrap();
+            assert!(lu.contains(&dit_modele), "{lu}");
+            let applique = format!(r#"{{"model":"{modele}","effort":"{effort}"}}"#);
+            fs::write(&controle, lu.replace(&dit_modele, &applique)).unwrap();
+        }
+    }
+
     /// Ce que la fausse claude répond à toute main : les quatre réponses de contrôle, au modèle de la main (un fichier
     /// par modèle), dont la liste des règles porte celles de toutes les mains, puis l'ouverture et un résultat vert.
     fn poser_les_reponses(&self) {
@@ -545,6 +564,54 @@ fn modeles_de(fil: &str, vague: &str) -> String {
         ligne[debut..].split('"').next().unwrap().to_string()
     };
     siens.map(modele).collect::<Vec<_>>().join(",")
+}
+
+#[test]
+fn le_relecteur_et_la_correction_partent_chacun_sur_leur_effort() {
+    // Claude Code applique `max` au relecteur (opus) et `low` à la correction (sonnet), comme ces mains le déclarent :
+    // `effort_relecteur` pour l'un, `effort_relance` pour l'autre. Les tâches (haiku) ne déclarent rien : `effort`
+    // n'est pas posé, et leur `applied.effort` ne se compare à rien.
+    let essai = Essai::nouveau("efforts-relecture", Some("claude-opus-5-5"));
+    essai.poser_les_efforts(
+        "effort_relecteur = max\neffort_relance = low\n",
+        &[("claude-opus-5-5", "max"), ("sonnet", "low"), ("haiku", "high")],
+    );
+    essai.remarques(1, &remarques_justes());
+    let sortie = essai.lancer();
+    assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
+    let fil = essai.fil();
+    assert!(!fil.contains("applied.effort"), "{fil}");
+    let erreur = String::from_utf8_lossy(&sortie.stderr);
+    assert!(erreur.contains("relecture prise : "), "{erreur}");
+    assert!(erreur.contains("correction assemblée : "), "{erreur}");
+    let _ = fs::remove_dir_all(&essai.racine);
+
+    // Les deux rôles croisés : le relecteur déclare `max` et Claude Code lui applique `low` : l'écart le tue, et sa
+    // relecture est classée.
+    let essai = Essai::nouveau("efforts-relecteur-ecart", Some("claude-opus-5-5"));
+    essai.poser_les_efforts(
+        "effort_relecteur = max\neffort_relance = low\n",
+        &[("claude-opus-5-5", "low"), ("sonnet", "low"), ("haiku", "high")],
+    );
+    essai.remarques(1, &remarques_justes());
+    let sortie = essai.lancer();
+    assert_ne!(sortie.status.code(), Some(0), "{}", dit(&sortie));
+    let ecart = r#"applied.effort \"low\", déclaré \"max\""#;
+    assert!(essai.fil().contains(ecart), "{}", essai.fil());
+    let _ = fs::remove_dir_all(&essai.racine);
+
+    // La correction déclare `low` (`effort_relance`) et Claude Code lui applique `max` : l'écart la tue.
+    let essai = Essai::nouveau("efforts-correction-ecart", Some("claude-opus-5-5"));
+    essai.poser_les_efforts(
+        "effort_relecteur = max\neffort_relance = low\n",
+        &[("claude-opus-5-5", "max"), ("sonnet", "max"), ("haiku", "high")],
+    );
+    essai.remarques(1, &remarques_justes());
+    let sortie = essai.lancer();
+    assert_ne!(sortie.status.code(), Some(0), "{}", dit(&sortie));
+    let ecart = r#"applied.effort \"max\", déclaré \"low\""#;
+    assert!(essai.fil().contains(ecart), "{}", essai.fil());
+    let _ = fs::remove_dir_all(&essai.racine);
 }
 
 #[test]

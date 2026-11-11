@@ -92,6 +92,8 @@ pub(crate) struct Attendu<'a> {
     pub(crate) reglages: &'a str,
     /// Le modèle de `--model` : un alias (`sonnet`) ou un nom complet (`claude-sonnet-5-5`).
     pub(crate) modele: &'a str,
+    /// L'effort de `--effort`, `None` sans lui : `applied.effort` ne se compare alors à rien.
+    pub(crate) effort: Option<&'a str>,
     /// Les noms des serveurs du `mcpServers` de `--mcp-config`, `None` sans lui : un serveur de l'ouverture hors de ces
     /// noms est un écart, quel que soit son statut (`pending` compris) ; sans eux, `mcp_servers` est vide.
     pub(crate) mcp: Option<&'a [String]>,
@@ -231,7 +233,7 @@ pub(crate) fn juger_reponses(
             Some(reponse) => {
                 let corps = champ(reponse, "response");
                 match id {
-                    "get_settings" => reglages(corps, &declare, attendu.modele),
+                    "get_settings" => reglages(corps, &declare, attendu.modele, attendu.effort),
                     "list_permission_rules" => regles(corps, &declare),
                     "get_hooks_listing" => crochets(corps),
                     _ => mur(mur_actif, &declare),
@@ -445,8 +447,9 @@ fn micro_dollars(json: &Json, chemin: &str) -> u64 {
 }
 
 /// Les écarts de `get_settings` : une source `flagSettings`, aucune erreur, les réglages effectifs qui gardent la main,
-/// et le modèle appliqué, égal au déclaré ou qui en est le nom complet (`sonnet` donne `claude-sonnet-5-5`).
-fn reglages(corps: Option<&Json>, declare: &Json, modele: &str) -> Vec<String> {
+/// le modèle appliqué, égal au déclaré ou qui en est le nom complet (`sonnet` donne `claude-sonnet-5-5`), et, si un
+/// effort est déclaré, l'effort appliqué, égal à lui.
+fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&str>) -> Vec<String> {
     let vu = |chemin: &str| corps.and_then(|corps| champ(corps, chemin));
     let mut ecarts = Vec::new();
     let flag = |source: &Json| texte_de(source, "source") == Some("flagSettings");
@@ -514,6 +517,13 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str) -> Vec<String> {
         matches!(applique, Some(Json::Texte(nom)) if nom == modele || nom.starts_with(&format!("claude-{modele}-")));
     if !pris {
         ecarts.push(format!("applied.model {}, déclaré {modele:?}", montre(applique)));
+    }
+    // L'effort ne se juge que déclaré : sans clé, Claude Code prend son défaut, que rien ne compare.
+    if let Some(effort) = effort {
+        let applique = vu("applied.effort");
+        if !matches!(applique, Some(Json::Texte(vu)) if vu == effort) {
+            ecarts.push(format!("applied.effort {}, déclaré {effort:?}", montre(applique)));
+        }
     }
     ecarts
 }

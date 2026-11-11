@@ -186,7 +186,8 @@ fn decouper_de(
         Ok(())
     };
     let liens = Liens { juge: Some(&juge), ..Liens::default() };
-    let menee = lancer_avec(depot, dossier, profil, &plan, bail, base, liens)?;
+    // Le découpeur part à l'effort `effort_decoupeur`, à ses deux tentatives : la vague joue ce profil-ci.
+    let menee = lancer_avec(depot, dossier, &profil.pour_le_decoupeur(), &plan, bail, base, liens)?;
     let (main, issue) = menee.issues.into_iter().next().unwrap_or_else(|| {
         (format!("main-{}-1", menee.id), Err("la vague du découpeur n'a rendu aucune issue".into()))
     });

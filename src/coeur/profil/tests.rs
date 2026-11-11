@@ -495,6 +495,155 @@ fn la_relance_est_le_modele_de_la_main_qui_corrige() {
     assert_eq!(Profil::faux(vec!["x".into()], Duration::from_secs(1)).relance(), None);
 }
 
+/// Les valeurs d'effort que Claude Code accepte, et les quatre clés qui les portent avec ce que chacune lit.
+const VALEURS_D_EFFORT: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+const CLES_D_EFFORT: [&str; 4] = ["effort", "effort_relance", "effort_decoupeur", "effort_relecteur"];
+
+/// L'effort que le profil lit pour la clé `cle`.
+fn effort_lu<'a>(profil: &'a Profil, cle: &str) -> Option<&'a str> {
+    match cle {
+        "effort" => claude(profil).effort.as_deref(),
+        "effort_relance" => profil.effort_relance(),
+        "effort_decoupeur" => profil.effort_decoupeur(),
+        "effort_relecteur" => profil.effort_relecteur(),
+        autre => panic!("{autre} n'est pas une clé d'effort"),
+    }
+}
+
+/// Le drapeau `--effort` d'un argv : sa valeur, et ce qui le suit, `None` s'il manque. Il en part un seul au plus.
+fn effort_de(argv: &[String]) -> Option<(&str, Option<&str>)> {
+    assert!(argv.iter().filter(|arg| *arg == "--effort").count() <= 1, "{argv:?}");
+    let i = argv.iter().position(|arg| arg == "--effort")?;
+    Some((argv[i + 1].as_str(), argv.get(i + 2).map(String::as_str)))
+}
+
+#[test]
+fn chaque_cle_d_effort_se_lit_et_se_refuse_hors_de_son_domaine() {
+    for cle in CLES_D_EFFORT {
+        // Sans la clé, rien n'est posé : le défaut de Claude Code.
+        assert_eq!(effort_lu(&lu("sorte = claude\n").unwrap(), cle), None, "{cle}");
+        // Chaque valeur du domaine se lit, et ne change que sa clé.
+        for valeur in VALEURS_D_EFFORT {
+            let profil = lu(&format!("sorte = claude\n{cle} = {valeur}\n")).unwrap_or_else(|refus| panic!("{refus}"));
+            for autre in CLES_D_EFFORT {
+                assert_eq!(effort_lu(&profil, autre), (autre == cle).then_some(valeur), "{cle} = {valeur} : {autre}");
+            }
+        }
+        // Une autre valeur est la ligne refusée (6009), avec la règle de l'effort.
+        for valeur in ["Low", "HIGH", "extreme", "none", "xhigh2", "high medium", "1", "auto"] {
+            let refus = lu(&format!("sorte = claude\n{cle} = {valeur}\n")).err().unwrap_or_else(|| panic!("{valeur}"));
+            assert_eq!(refus.code, Code::ProfilLigneRefusee, "{cle} = {valeur} : {refus}");
+            let ligne = format!(":2 : « {cle} = {valeur} » : un effort vaut low, medium, high, xhigh ou max");
+            assert!(refus.preuve.contains(&ligne), "{refus}");
+        }
+        // Vide, en `-`, redite : refusée comme toute clé.
+        for ligne in [format!("{cle} ="), format!("{cle} = -high"), format!("{cle} = low\n{cle} = max")] {
+            let refus = lu(&format!("sorte = claude\n{ligne}\n")).err().unwrap_or_else(|| panic!("{ligne}"));
+            assert_eq!(refus.code, Code::ProfilLigneRefusee, "{ligne} : {refus}");
+        }
+        // Une clé du domaine de `CLES`.
+        assert!(CLES.contains(&cle), "{cle}");
+    }
+    // Les quatre se lisent ensemble, chacune à sa valeur.
+    let profil =
+        lu("sorte = claude\neffort = low\neffort_relance = medium\neffort_decoupeur = xhigh\neffort_relecteur = max\n")
+            .unwrap();
+    let lus: Vec<_> = CLES_D_EFFORT.iter().map(|cle| effort_lu(&profil, cle)).collect();
+    assert_eq!(lus, [Some("low"), Some("medium"), Some("xhigh"), Some("max")]);
+    // Une main brute n'a pas d'effort.
+    let brute = Profil::faux(vec!["x".into()], Duration::from_secs(1));
+    assert_eq!((brute.effort_decoupeur(), brute.effort_relecteur(), brute.effort_relance()), (None, None, None));
+}
+
+#[test]
+fn le_profil_integre_ne_pose_aucun_effort_et_garde_son_texte() {
+    let integre = integre("claude").unwrap();
+    assert!(!integre.contains("effort"), "{integre}");
+    // Le texte, donc l'empreinte, est celui d'avant les clés d'effort.
+    assert_eq!(empreinte(integre), "7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5");
+    let profil = lire("claude", integre, None, None).unwrap();
+    assert!(CLES_D_EFFORT.iter().all(|cle| effort_lu(&profil, cle).is_none()));
+}
+
+#[test]
+fn l_effort_d_une_cle_posee_part_apres_le_plafond_et_avant_les_lecons() {
+    let tous = "sorte = claude\nplafond = 7.5\neffort = low\neffort_relance = high\neffort_decoupeur = xhigh\n\
+                effort_relecteur = max\n";
+    let profil = borne(tous);
+    let sans = borne("sorte = claude\nplafond = 7.5\n");
+    let lecons = absolu("lecons.md");
+    // La main : `effort` à sa première tentative, `effort_relance` à sa relance, juste après le plafond et avant les
+    // leçons, jamais avant `--model`.
+    for (relance, effort) in [(false, "low"), (true, "high")] {
+        let Demande { argv, declaration } = profil.demande_avec(&absolu("bac"), None, relance, Some(&lecons));
+        let i = argv.iter().position(|arg| arg == "--max-budget-usd").expect("le plafond");
+        let attendu = ["--max-budget-usd", "7.5", "--effort", effort, "--append-system-prompt-file"];
+        assert_eq!(argv[i..i + 5], attendu, "relance {relance}");
+        assert_eq!(declaration.unwrap().effort.as_deref(), Some(effort), "relance {relance}");
+        // `--model` reste où il est sans la clé : des fausses claude le lisent à une position fixe.
+        let nu = sans.demande_avec(&absolu("bac"), None, relance, Some(&lecons)).argv;
+        let place = |argv: &[String]| argv.iter().position(|arg| arg == "--model").expect("--model");
+        assert_eq!(place(&argv), place(&nu), "relance {relance}");
+        assert_eq!(argv[..=place(&argv) + 1], nu[..=place(&nu) + 1], "relance {relance}");
+    }
+    // Sans clé, l'argv ne change pas : ni drapeau, ni effort déclaré.
+    for relance in [false, true] {
+        let Demande { argv, declaration } = sans.demande_avec(&absolu("bac"), None, relance, Some(&lecons));
+        assert_eq!(effort_de(&argv), None, "{argv:?}");
+        assert_eq!(declaration.unwrap().effort, None);
+        let fin = ["--max-budget-usd", "7.5", "--append-system-prompt-file", &lecons.to_string_lossy()];
+        assert_eq!(argv[argv.len() - 4..], fin, "relance {relance}");
+    }
+    // Le découpeur : `effort_decoupeur` à ses deux tentatives, et seulement lui.
+    for relance in [false, true] {
+        let Demande { argv, declaration } = profil.pour_le_decoupeur().demande(&absolu("bac"), None, relance);
+        assert_eq!(effort_de(&argv), Some(("xhigh", None)), "relance {relance}");
+        assert_eq!(declaration.unwrap().effort.as_deref(), Some("xhigh"));
+    }
+    // Le relecteur : `effort_relecteur` à ses deux tentatives.
+    for relance in [false, true] {
+        let argv = profil.pour_le_relecteur().demande(&absolu("bac"), None, relance).argv;
+        assert_eq!(effort_de(&argv), Some(("max", None)), "relance {relance}");
+    }
+    // La main de correction de la relecture : `effort_relance` à ses deux tentatives.
+    for relance in [false, true] {
+        let argv = profil.pour_la_correction().demande(&absolu("bac"), None, relance).argv;
+        assert_eq!(effort_de(&argv), Some(("high", None)), "relance {relance}");
+    }
+    // Le profil lui-même ne bouge pas : sa main garde `effort` puis `effort_relance`.
+    assert_eq!(effort_de(&profil.demande(&absolu("bac"), None, false).argv), Some(("low", None)));
+    assert_eq!(effort_de(&profil.demande(&absolu("bac"), None, true).argv), Some(("high", None)));
+    // Sans la clé du rôle, le rôle part sans `--effort`, même si la main en a un, et son argv est celui du profil sans
+    // clé aux modèles près.
+    let main_seule = borne("sorte = claude\nplafond = 7.5\neffort = low\neffort_relance = high\n");
+    for relance in [false, true] {
+        for role in [main_seule.pour_le_decoupeur(), main_seule.pour_le_relecteur()] {
+            let argv = role.demande(&absolu("bac"), None, relance).argv;
+            assert_eq!(argv, sans.demande(&absolu("bac"), None, relance).argv, "relance {relance}");
+        }
+    }
+    // La copie aux modèles d'une tâche garde l'effort.
+    let copie = profil.avec_modeles(Some("opus"), Some("haiku"));
+    assert_eq!(effort_de(&copie.demande(&absolu("bac"), None, false).argv), Some(("low", None)));
+    assert_eq!(effort_de(&copie.demande(&absolu("bac"), None, true).argv), Some(("high", None)));
+}
+
+#[test]
+fn lydite_profil_dit_l_effort_de_chaque_role_ou_le_defaut_de_claude_code() {
+    let rangee = |profil: &Profil| profil.rangees().into_iter().find(|rangee| rangee.starts_with("effort: ")).unwrap();
+    let defaut = "Claude Code's default";
+    assert_eq!(
+        rangee(&lu("sorte = claude\n").unwrap()),
+        format!("effort: {defaut}; retry: {defaut}; splitter: {defaut}; reviewer: {defaut}")
+    );
+    let profil = lu("sorte = claude\neffort_relecteur = max\neffort = low\n").unwrap();
+    assert_eq!(rangee(&profil), format!("effort: low; retry: {defaut}; splitter: {defaut}; reviewer: max"));
+    // Après la rangée du modèle.
+    let rangees = profil.rangees();
+    let place = |debut: &str| rangees.iter().position(|rangee| rangee.starts_with(debut)).unwrap();
+    assert_eq!(place("effort: "), place("model: ") + 1);
+}
+
 /// Un profil qui nomme un fournisseur : une API en https avec un port et un chemin, et la variable de sa clé.
 const FOURNISSEUR: &str = "sorte = claude\napi = https://api.exemple.test:8443/anthropic\ncle = CLE_ESSAI\n";
 
