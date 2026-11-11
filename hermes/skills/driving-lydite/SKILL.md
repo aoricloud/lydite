@@ -2,7 +2,7 @@
 name: driving-lydite
 description: Hand a coding job to Lydite and report what it recorded. Use when the user asks to give Lydite an issue, an objective or a plan file, or asks where a Lydite wave stands. Lydite runs isolated Claude Code workers, replays the user's proof command itself and opens a pull request.
 license: MIT
-compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat, lydite_lecons and lydite_plan; anywhere else the same steps are the commands lydite lancer, lydite etat, lydite lecons and lydite plan.
+compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat, lydite_lecons and lydite_plan; anywhere else the same steps are the commands lydite launch, lydite status, lydite lessons and lydite plan.
 ---
 
 # Driving Lydite
@@ -40,7 +40,7 @@ Have all of these. If one is missing, ask the user for it; do not invent it.
    It is the user's command, not yours. It must pass on the untouched base, or Lydite starts nothing. A plan carries
    its own `preuve :` line, so no proof is given with a plan.
 4. **The profile** is optional: the default is the plugin's setting. A profile works only after a human accepted it
-   with `lydite accepter <name>`. You cannot accept one, so do not try. Never ask for an API key in the chat.
+   with `lydite accept <name>`. You cannot accept one, so do not try. Never ask for an API key in the chat.
 
 ## Launch
 
@@ -96,11 +96,18 @@ If `lydite_lancer` and `lydite_etat` are not available here (Linux only, or the 
 From Claude Code or a shell, the steps are the same, with the commands:
 
 ```bash
-lydite lancer <profile> --issue 15 --decouper --verifier "<proof>" --pr main
-lydite lancer <profile> --plan <file> --pr main
-lydite etat
-lydite lecons <repository folder>
+lydite launch <profile> --issue 15 --split --verify "<proof>" --pr main
+lydite launch <profile> --plan <file> --pr main
+lydite status
+lydite lessons <repository folder>
 ```
 
-`lydite plan <file>` checks a plan without running anything. `lydite lecons <repository folder>` checks the lessons of
+`lydite plan <file>` checks a plan without running anything. `lydite lessons <repository folder>` checks the lessons of
 a repository and prints nothing when all are right. Accepting a profile, and merging, stay with the human.
+
+Before a first launch, run `lydite doctor`: it launches nothing and says what is missing on this machine. To wait for a
+running wave, run `lydite wait`: it returns when the launch has finished and says the last wave like `lydite status`.
+
+The exit codes are the same for `launch`, `status` and `wait`: 0 if the wave is carried through and green, 1 if it is
+red, not finished or finished without its closing seal, 2 if Lydite refused (nothing started) or the record cannot be
+read.

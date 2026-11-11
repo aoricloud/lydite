@@ -232,6 +232,20 @@ fn options_attendre_seul() {
 }
 
 #[test]
+fn options_skill_seul() {
+    // Le mot est le même dans les deux langues, et un mot de plus est le refus 1006, qui le nomme.
+    assert_eq!(options(&args(&["skill"])), Ok(Commande::Skill));
+    for mots in [&["skill", "x"][..], &["skill", "--n", "1"], &["skill", "x", "y"]] {
+        let refus = options(&args(mots)).unwrap_err();
+        assert_eq!(refus.code, Code::CommandeMalFormee, "{mots:?}");
+        assert!(refus.preuve.contains(&format!("« {} » follows it", mots[1])), "{refus}");
+        assert!(refus.correction.contains(USAGE), "la correction donne l'usage : {refus}");
+    }
+    // La dernière forme de l'usage, après toutes les autres.
+    assert!(USAGE.ends_with(" or lydite skill"), "{USAGE}");
+}
+
+#[test]
 fn options_etat_seul() {
     assert_eq!(options(&args(&["etat"])), Ok(Commande::Etat));
     // Ce qui valait None est le refus 1006 ; l'absence de commande aussi.

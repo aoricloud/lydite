@@ -70,6 +70,7 @@ fn executer() -> Result<ExitCode, Refus> {
         Commande::LirePlan { fichier, decoupe } => return plan_cmd(&fichier, decoupe),
         Commande::LireRemarques { fichier } => return remarques_cmd(&fichier),
         Commande::LireLecons { dossier } => return lecons_cmd(&dossier),
+        Commande::Skill => return skill_cmd(),
     };
     let (gh, personnel) = (github::programme_gh(), env::home_dir());
     let lieu = Lieu {
@@ -169,6 +170,18 @@ fn lecons_cmd(depot: &Path) -> Result<ExitCode, Refus> {
             Refus::new(refus.code, format!("{} : {}", fichier.display(), refus.preuve), refus.correction)
         })?;
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// La skill de pilotage, liée au binaire : le fichier du plugin Hermes reste sa seule source, lu à ce chemin.
+const SKILL: &str = include_str!("../hermes/skills/driving-lydite/SKILL.md");
+
+/// `lydite skill` : écrit sur stdout la skill de ce binaire, telle quelle. Elle ne lit ni profil, ni dossier de
+/// Lydite, ni dépôt, et n'écrit rien d'autre : elle marche partout.
+fn skill_cmd() -> Result<ExitCode, Refus> {
+    use std::io::Write;
+    let mut sortie = std::io::stdout().lock();
+    sortie.write_all(SKILL.as_bytes()).and_then(|()| sortie.flush())?;
     Ok(ExitCode::SUCCESS)
 }
 
