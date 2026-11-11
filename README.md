@@ -1,7 +1,7 @@
 # Lydite
 
-**Lydite runs cheap coding agents (called *hands*) on your repository, replays your proof command itself, and opens a
-pull request only for what passed, with a receipt.** The agents' word is never the proof.
+**Lydite runs coding agents (called *hands*) on your repository, each behind a sandbox wall, replays your proof
+command itself, and opens a pull request only for what passed, with a receipt.** The agents' word is never the proof.
 
 <p>
   <a href="https://aoricloud.github.io/givre-lab/"><img src="https://raw.githubusercontent.com/aoricloud/givre-lab/main/apercus/etape-3-planche.png" alt="Nine simulated snow crystals, from Givre Lab" height="240"></a>
@@ -12,63 +12,73 @@ pull request only for what passed, with a receipt.** The agents' word is never t
 [Givre Lab](https://github.com/aoricloud/givre-lab) (crystal growth) and
 [Mycelium Lab](https://github.com/aoricloud/mycelium-lab). Click an image to run it in your browser.*
 
-Lydite is the foreman that proves: it hands coding work to cheap agents, each in its own sandbox behind the same wall,
-replays your proof itself, and only returns verified pull requests, with their receipt. Today its workers run in Claude
-Code, on any model that speaks Anthropic's API format (Claude, DeepSeek…), with no Claude account needed for another
-provider. You launch it from Claude Code or from Hermes, whatever model your Hermes runs.
+Lydite is the foreman that proves. Each hand works in its own sandbox behind the same wall. Lydite replays your proof
+itself, after every merge, and returns a pull request with its receipt: what was replayed, what the review could not
+see replayed, and the seal of the run's journal. A hand that finds that no honest code can pass your proof says so,
+and its task comes back not proved, with its reason, instead of a blind fix. The hands run in Claude Code, on any model
+that speaks Anthropic's API format (Claude, DeepSeek…), with no Claude account needed for another provider. You launch
+Lydite from a shell, from Claude Code or another agent, or from Hermes, whatever model your Hermes runs.
 
 The *wall* is Claude Code's sandbox (`srt`): it confines what each hand's commands can read, write and reach on the
 network. A *wave* is one launch: an objective, its tasks, one pull request.
 
+Instead of srt, a profile can choose Lydite's own *native wall* (`mur = natif`) for the wall check and the replay of
+your proof; the hands' commands stay under Claude Code's sandbox. See [Native wall](#native-wall-optional).
+
 > [!NOTE]
 > **Status: early.** Lydite builds itself and two public test repositories (the *benches*); nobody else has run it
-> yet. It is a small Rust program with no crate dependencies. Its commands and their flags are in English, but the keys
-> of its profiles and plans are still in French (`sorte`, `modele`; a table below translates the words you need). The wall only works on Linux. A wave
-> runs Claude Code sessions on your own account or provider key. Expect rough edges.
+> yet. It is a small Rust program with no crate dependencies. What it prints is mostly in English; what is still in
+> French is listed under [Where it stands](#where-it-stands), and the keys of profiles and plans are among it (`sorte`,
+> `modele`; a table below translates the words you need). The wall only works on Linux. A wave runs Claude Code
+> sessions on your own account or provider key. Expect rough edges.
 
 ## What a Lydite pull request says
 
-This is the body of [mycelium-lab#55](https://github.com/aoricloud/mycelium-lab/pull/55), abridged (`[…]`). Lydite
-wrote it. The reviewer's lines at the end are still in French:
+This is the body of [#98](https://github.com/aoricloud/lydite/pull/98), the pull request that added `lydite skill`,
+abridged (`[…]`). Lydite wrote it. The task's text and the reviewer's lines are in French: we write our plans in
+French, and Lydite still instructs its reviewer in French.
 
 ```text
 Receipt
-- Cost: $0.12 estimated
+- Cost: subscription, ≈ $1.18
 - 2 hands, 0 retries, 0 set aside
-- Fil sealed at 280615 bytes: sha256 0056f995[…].
+- Effort: hand: high; reviewer: high
+- Thread sealed at 527750 bytes: sha256 434c57d7[…].
 - Proof settings changed: none
 
-mycelium lancer refuses a box too large to simulate instead of aborting (issue #53)
+Serve the skill that says how to drive Lydite from the binary itself (lydite skill), always at the binary's version
 
-Proof: cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check → green
+Proof: cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check && python3 […] → green
 
-refus-boite-geante: Fix issue #53 of this repository […]
+skill-servie-par-le-binaire: […]                       the task, as the plan wrote it
 
-Review: 1 remark, 0 blocking.
-Reviewed and replayed on commit 375275bd4ed8ae6e92cb4cac84bedec09842b385.
+Points to justify (found by Lydite without a model):
+- `hermes/tests/test_skill.py`: a test of the base changed (4 lines removed)
+
+Review: 2 remarks, 0 blocking.
+Reviewed and replayed on commit 464e455677e5504496ebb50ad88a37d879d2d867.
 Not replayed (from the review):
-[…]                                                    ten lines, in French; the first says that nothing replayed
-                                                       shows the new test failing on the code before the fix
+[…]                                                    ten lines, in French; they say that nothing replayed shows
+                                                       the hand made the new test fail on purpose, and that the
+                                                       proof ran on Linux only, never on Windows
 ```
 
-The receipt counts the hands, their retries and the tasks set aside, gives the estimated cost of the hands, and seals
-the journal of the run (the *thread*; this receipt still calls it `Fil`). Three more things to notice. The proof line
-is your command, run again by Lydite after the hands have finished, not by them. The commit line names the exact
-commit that was replayed (and reviewed, when the plan marked a task critical): on the benches, GitHub only merges a
-pull request whose head is that commit. And the last block is what the review could **not** see replayed. Lydite
-prints it.
+The receipt counts the hands, their retries and the tasks set aside, and seals the journal of the run (the *thread*).
+Four more things to notice. The proof line is your command, run again by Lydite after the hands have finished, not by
+them. The points to justify are found by Lydite itself, without a model: here a test of the base lost lines, and the
+reviewer had to say why. The commit line names the exact commit that was replayed (and reviewed, when the plan marked
+a task critical): on this repository, a required check refuses to merge a Lydite pull request whose head differs from
+that commit. And the last block is what the review could **not** see replayed. Lydite prints it.
 
-As of 9 November 2026, three days after the first one was merged, on our own repositories:
+As of 11 November 2026, on our own repositories:
 
-| Repository | Pull requests by Lydite, merged | Hands | Retries | Estimated cost of the hands, from the receipts |
+| Repository | Pull requests by Lydite with a receipt, merged | Hands | Retries | Tasks set aside |
 |---|---|---|---|---|
-| [lydite](https://github.com/aoricloud/lydite/pulls?q=is%3Apr+is%3Amerged) (it builds itself) | 27 | 82 | 3 | ≈ $55 on 26 receipts: an API-price equivalent, run on a Claude subscription, nothing billed per token |
-| [mycelium-lab](https://github.com/aoricloud/mycelium-lab/pulls?q=is%3Apr+is%3Amerged) | 34, of which 16 carry a receipt | 92 (on those 16) | 1 (on those 16) | $4.67 (on those 16) |
-| [givre-lab](https://github.com/aoricloud/givre-lab/pulls?q=is%3Apr+is%3Amerged) | 26 | 148 | 6 | $7.95 |
+| [lydite](https://github.com/aoricloud/lydite/pulls?q=is%3Apr+is%3Amerged) (it builds itself) | 69 | 212 | 7 | 0 |
+| [mycelium-lab](https://github.com/aoricloud/mycelium-lab/pulls?q=is%3Apr+is%3Amerged) | 30 | 140 | 1 | 0 |
+| [givre-lab](https://github.com/aoricloud/givre-lab/pulls?q=is%3Apr+is%3Amerged) | 37 | 204 | 7 | 1 |
 
-These figures are read from the pull request bodies. The costs are estimates (tokens counted, at a listed price), and
-they count the hands only: not the session that wrote each plan, nor the CI. The benches' hands run on a low-cost model
-(DeepSeek).
+These figures are read from the receipts in the pull request bodies. The hands ran on Claude models and on DeepSeek.
 
 ## What Lydite refuses to do
 
@@ -77,22 +87,29 @@ Each refusal has a number, says what it saw, and says what to do.
 - **Lydite itself never merges.** It opens the pull request and reads its CI. Merging is your rule. (On our two
   benches, the repository's own workflow asks GitHub to auto-merge a head Lydite replayed, once the CI is green on
   Linux and Windows. On Lydite itself, a pull request is merged by hand.)
-- **It never takes a hand's word.** A fact a hand only declared is shown as declared, never as observed.
+- **It never takes a hand's word.** A hand ends its report with a `PREUVE:` line, its own word on its proof. Lydite
+  replays your proof itself; without `--verify`, that word is all there is, and the work stays declared. A fact a hand
+  only declared is shown as declared, never as observed.
 - **It starts nothing if your proof is already red** on the base commit (6022): a red proof proves nothing afterwards.
-- **It starts nothing under a wall that does not hold** (6028), and takes no issue as input without the wall (6029): an
-  issue is text from outside.
+- **It starts nothing if the wall does not start** (6028): before any hand, it runs a command under the wall. That
+  check shows the wall starts, not what it closes. It takes no issue as input without the wall (6029): an issue is
+  text from outside.
 - **It keeps a hand inside its task**: a change outside the task's list of files (7013), to a protected path or a
   lesson (7018), or to a `.claude/` folder (7006) is refused; a hand does not run `git commit` (Lydite commits).
 - **It does not push a hand to cheat.** A hand that finds a test no honest code can pass says `IMPOSSIBLE: <reason>`;
   Lydite sets the task aside, replays nothing, retries nothing and merges nothing from it.
-- **It does not publish a change under `.github/`** (8005), nor take a pull request whose CI stays silent (8008).
+- **It does not publish** a change under `.github/`, a path of your machine, or a line of your `garde` file (8005),
+  nor take a pull request whose CI stays silent (8008). The `garde` file, in the state folder, holds one word or name
+  per line (`#` starts a comment), matched without case: write your private names there. Without it, only `.github/`
+  and the paths are checked, so we recommend writing one.
 - **It never opens your Claude login file**, and puts no provider key in a profile or a pull request (see below).
 
 What it does not do for you: a green proof is worth what your proof is worth. Lydite replays it and flags, without a
 model, a test of the base that lost lines and an assertion or a tolerance that was removed or changed ("Points to
 justify" in the pull request). It does not judge whether your tests are good.
 
-[docs/refusals.md](docs/refusals.md) lists every refusal code with its rule.
+[docs/refusals.md](https://github.com/aoricloud/lydite/blob/main/docs/refusals.md) lists every refusal code with its
+rule.
 
 ## How a wave goes
 
@@ -120,7 +137,7 @@ your own account or provider key: even looking at a plan runs one hand.
 |---|---|---|
 | `git`, and `gh` logged in | the pull request | `gh auth status`. To verify the download you need `gh` 2.67 or later; Debian 13's packaged 2.46 has no `gh attestation` (use the `.sha256` file instead) |
 | [Claude Code](https://claude.com/claude-code), signed in | the hands | Lydite reads Claude Code's output in a precise form, checked on 2.1.312 to 2.1.317; another version may break it |
-| Node and npm; `srt` | the wall | `sudo apt install bubblewrap socat ripgrep`, then `sudo npm install -g @anthropic-ai/sandbox-runtime`. Its current version (0.0.81) needs Node 22.12 or later; with Debian 13's Node 20, install `@anthropic-ai/sandbox-runtime@0.0.78`, the version we run. Install it outside your home folder: the wall closes your home, and an `srt` under it fails with 6028 unless a `lecture` line of the profile opens its folder. `LYDITE_SRT` names an `srt` that is not on your `PATH`. On Ubuntu 24.04 and later, see the sandbox runtime's note on AppArmor and user namespaces |
+| Node and npm; `srt` | the wall | `sudo apt install bubblewrap socat ripgrep`, then `sudo npm install -g @anthropic-ai/sandbox-runtime`. Its current version (0.0.81) needs Node 22.12 or later; with Debian 13's Node 20, install `@anthropic-ai/sandbox-runtime@0.0.78`, the version we run. Install it outside your home folder: the wall closes your home, and an `srt` under it fails with 6028 unless a `lecture` line of the profile opens its folder. `LYDITE_SRT` names an `srt` that is not on your `PATH`. On Ubuntu 24.04 and later, see the sandbox runtime's note on AppArmor and user namespaces. With `mur = natif`, Lydite neither looks for nor runs `srt` (see [Native wall](#native-wall-optional)) |
 | a target repository | the work | on GitHub, with a branch you may push to, a CI that runs on pull requests, and a proof command that is green today |
 
 **Install.** Download the archive, verify it was built by this repository's GitHub Actions, and put the binary on your
@@ -138,7 +155,10 @@ Or build it: `cargo build --release`, and `cargo build --release --manifest-path
 **Check your setup.** Run `lydite doctor`: it launches no hand, writes nothing, and says for `git`, `gh`, Claude Code,
 `srt` and the state folder whether they are in order. Then, from your repository once the profile is accepted, run
 `lydite doctor <profile>`: it also reads the profile and plays the wall check (the only thing it writes). Every
-`missing` line says what to do.
+`missing` line says what to do. Without a profile, `ready` means the wall was not tried: only the run with your
+profile plays it. With a profile, its line ends with `wall checked` only under `mur = exige` or `natif`; under
+`mur = demande` (on Windows, say), `ready` says nothing of the wall. `LYDITE_GH`, `LYDITE_CLAUDE` and `LYDITE_SRT`
+name a `gh`, `claude` or `srt` that is not on your `PATH`.
 
 **A profile** says what the hands are lent. Write `~/.local/state/lydite/profils/first.profil` (the default state
 folder; `LYDITE_DOSSIER` moves it). This one is for a Rust project:
@@ -151,11 +171,16 @@ relance = sonnet
 decoupeur = sonnet
 relecteur = sonnet
 mur = exige
-# the wall closes your home folder: open what your proof's tools need to read there
-lecture = ~/.cargo, ~/.rustup
+# the wall closes your home folder: open what your proof's tools need to read there, and lydite's folder
+lecture = ~/.cargo, ~/.rustup, ~/.local/bin
 delai_main = 3600
 delai_preuve = 300
 ```
+
+Why `~/.local/bin`: the hands that split an objective and review a task check their work with `lydite` itself, behind
+the wall, and the wall closes your home folder. A `lydite` installed under it, as above, is not found there unless the
+profile lends its folder for reading. Lending it makes everything in that folder readable by the hands; install
+`lydite` outside your home folder if you would rather not.
 
 A proof that downloads something (dependencies, say) also needs a `reseau` line naming the domains it may reach.
 
@@ -178,22 +203,26 @@ lydite launch first "Add a test for the empty-input case of parse()" --split --v
 lydite status             # where the last wave stands; `lydite wait` waits for a running one
 ```
 
-Progress and the pull request's address are printed as the wave goes. `launch` exits 0 only if every task was taken
-and its proof replayed green, 1 otherwise, and 2 for a refusal before anything started.
+Progress and the pull request's address are printed as the wave goes. `launch` exits 0 only if every task was taken,
+its proof replayed green and, with `--pr`, the pull request's CI green; 1 otherwise, a split Lydite did not take
+included; and 2 for a refusal before anything started. [Commands](#commands) gives every command's exit codes.
 
-**What it costs.** A pull request is the work of several hands. On our own repositories their estimated cost for one
-pull request is $0.31 on average on DeepSeek (26 receipts on Givre Lab) and about $2.12 at Claude's API prices (26
-receipts here). Each hand has a ceiling, `plafond` (20 dollars by default), enforced by Claude Code; with another
-provider (`api`) it may never trigger.
+**A ceiling per hand.** Each hand has a ceiling, `plafond` (20 dollars by default), enforced by Claude Code: a hand
+that reaches it is stopped, and its task comes back to you. With another provider (`api`) it may never trigger.
 
-**The French words left in a profile:**
+**The French words left in a profile or a plan:**
 
 | Word | Meaning |
 |---|---|
 | `sorte`, `modele`, `relance` | profile: kind of hand, its model, the model of the retry |
+| `decoupeur`, `relecteur` | profile: the models of the hand that splits an objective and of the hand that reviews |
 | `mur = exige` / `demande` / `natif` | the wall is required (srt replays your proof) / only requested / required, and Lydite's native wall replays your proof (see "Native wall") |
 | `lecture`, `reseau` | paths the hands' commands may read, domains they may reach |
 | `plafond` | the most one hand may spend, in dollars |
+| `delai_main`, `delai_preuve` | how long a hand, and a replay of your proof, may run, in seconds |
+| `api`, `cle`, `prix` | another provider: its URL, the name of the variable that holds its key, its prices |
+| `proteges`, `efforts_permis` | paths no hand may change; the efforts a plan may ask (see [A profile](#a-profile)) |
+| `tache`, `objectif`, `preuve`, `fichiers`, `depend`, `critique` | plan: a task, its objective, its proof, its files, the tasks it waits for, whether it is reviewed |
 
 The French commands and flags of earlier versions (`lancer`, `--verifier`, `--depot`…) are still read.
 
@@ -216,19 +245,30 @@ line gives the provider's prices, so that receipts carry a cost.
 
 **Windows.** The wall (the sandbox) is required everywhere, Windows included: a profile with no `mur` line, and the built-in `claude` profile, require it. But Claude Code's sandbox and srt do not hold under Windows, so the wall check fails there (6028) before any hand. To launch anyway, knowingly, write `mur = demande` in the profile (for the built-in profile, a file `profils/claude.profil` that repeats its text with `mur = demande`), then `lydite accept <name>`. Under a requested wall the hand's commands may run outside Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed outside the wall. Lydite also refuses `--issue` there (6029), and replays your proof through `cmd /C`. WSL2 gives you the Linux path, wall included.
 
+For that use, each release also has a Windows build: download it with `gh release download --repo aoricloud/lydite
+--pattern 'lydite-*-windows-x86_64.zip*'`, verify it with `gh attestation verify` as above (or compare `Get-FileHash`
+with its `.sha256` file), unzip it, and put `lydite.exe` on your `PATH`.
+
 ## Where it stands
 
 **Works today**, each seen in a public pull request:
 
 - A wave from a plan, and its pull request with a receipt
   ([givre-lab#29](https://github.com/aoricloud/givre-lab/pull/29)).
-- A review that judges on the replayed proof and names the commit; a merge check that refuses a head Lydite did not
-  replay ([#21](https://github.com/aoricloud/lydite/pull/21), [#22](https://github.com/aoricloud/lydite/pull/22),
-  [mycelium-lab#47](https://github.com/aoricloud/mycelium-lab/pull/47)).
+- A review that judges on the replayed proof and names the commit; on this repository's own pull requests, a merge
+  check that refuses a head Lydite did not review and replay. It reads that commit from the pull request body: a line
+  of text, not a signature ([#21](https://github.com/aoricloud/lydite/pull/21),
+  [#22](https://github.com/aoricloud/lydite/pull/22), [mycelium-lab#47](https://github.com/aoricloud/mycelium-lab/pull/47)).
 - The honest way out, `IMPOSSIBLE` ([#6](https://github.com/aoricloud/lydite/pull/6)); protected paths and the exact
   text of a plan ([#14](https://github.com/aoricloud/lydite/pull/14)).
 - The sealed thread ([#21](https://github.com/aoricloud/lydite/pull/21)); written lessons given to each hand
   ([#26](https://github.com/aoricloud/lydite/pull/26)).
+- Commands that launch no hand: `lydite doctor` checks a machine before the first wave
+  ([#74](https://github.com/aoricloud/lydite/pull/74)), `lydite wait` waits for a running one
+  ([#33](https://github.com/aoricloud/lydite/pull/33)), and `lydite skill` prints the skill an agent follows to drive
+  Lydite ([#98](https://github.com/aoricloud/lydite/pull/98)). Every refusal is listed with its rule in
+  [docs/refusals.md](https://github.com/aoricloud/lydite/blob/main/docs/refusals.md)
+  ([#80](https://github.com/aoricloud/lydite/pull/80)).
 - Linux and Windows builds, with binaries attested by GitHub Actions; the tests run on both in CI, against a stand-in
   for Claude Code.
 
@@ -236,14 +276,21 @@ line gives the provider's prices, so that receipts carry a cost.
 
 - Windows: only with `mur = demande`, knowingly. The wall does not hold there: the hands' commands run outside the
   sandbox and see a provider key if there is one. No `--issue`.
-- English: this README, the Hermes plugin, the labels of the pull request body, and the commands and their flags. The
-  keys of profiles and plans are still in French, and so are the reviewers' lines in our own pull requests.
+- English: the commands and their flags, the help, the rule of every refusal, `lydite status`, `lydite doctor`, the
+  pull request body, this README and the Hermes plugin (not its tool names, such as `lydite_lancer`). Still in French:
+  what a refusal saw and its fix when it comes from reading a plan, a profile, the thread or a hand's report, or from
+  the wall; the lines `lydite launch` prints as the wave goes (`assemblée`, `classée`, `branche de la vague`…); the
+  keys of profiles and plans; the names of the refusal codes (`lancer.dossier_pris`); a few fixes that still name a
+  command by its French name (`lydite accepter`, still read); and the instructions Lydite gives
+  its hands, so a reviewer's lines in a pull request usually come out in French too.
 - The Hermes plugin: Linux only.
+- The native wall (`mur = natif`), Linux only: it holds the wall check and the replay of your proof, not yet the
+  hands' commands, which stay under Claude Code's sandbox. srt stays the default.
 - Providers: we run Claude and DeepSeek. The format allows others; we have not run them.
 - Anyone but us: Lydite has only run on our own three repositories.
 
-**Not there yet:** a command that checks your installation; a start guide replayed on a fresh machine; reference pages
-for profiles, plans, the thread and the refusals; binaries for macOS and ARM; a judge for tests that prove nothing.
+**Not there yet:** a start guide replayed on a fresh machine; reference pages for profiles, plans and the thread;
+binaries for macOS and ARM; a judge for tests that prove nothing.
 
 Lydite is designed so that a human decides in five cases only: merging into `main`, putting something on a real system,
 spending beyond a quota, giving root, and publishing.
@@ -262,21 +309,50 @@ account, their own API key or their provider's key, as they would without Lydite
 - **What the agents inherit.** Your `ANTHROPIC_*` variables and `CLAUDE_CONFIG_DIR` reach them (with a provider
   profile, its URL and key replace `ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY`, and `ANTHROPIC_AUTH_TOKEN` is
   dropped). Other `CLAUDE*` variables (a `CLAUDE_CODE_OAUTH_TOKEN`, say), GitHub tokens and SSH agents are not passed
-  on: an agent is never lent a right to act as you. The `gh` configuration folder, where `gh` keeps your token, is
-  closed to the agents too, even outside your home folder (`GH_CONFIG_DIR`, `XDG_CONFIG_HOME`). Sign in with `claude` itself, or use an API key. The agent keeps
-  the key to reach its model, but the commands it runs in the sandbox do not see `ANTHROPIC_API_KEY` or
+  on: an agent is never lent a right to act as you. Every other variable of your environment does reach the hands,
+  their commands and the replayed proof (a key for another service, say): launch Lydite from an environment that holds
+  no other secret. The `gh` configuration folder, where `gh` keeps your token, is closed to the agents too, even
+  outside your home folder (`GH_CONFIG_DIR`, `XDG_CONFIG_HOME`), and so is the folder `CLAUDE_CONFIG_DIR` names,
+  where Claude Code keeps your sign-in: both are closed to the hands' commands and to the replayed proof. Sign in with `claude` itself, or use an API key. The
+  agent keeps the key to reach its model, but the commands it runs in the sandbox do not see `ANTHROPIC_API_KEY` or
   `ANTHROPIC_AUTH_TOKEN`.
+- **Your own Claude Code settings.** A hand loads your Claude Code settings (`~/.claude/settings.json`). An `allow` rule there that
+  Lydite did not declare, on any tool but `Bash` and `PowerShell` (the file tools, WebFetch, WebSearch, an MCP tool…),
+  or an `additionalDirectories` entry, would let a hand reach outside its sandbox: Lydite stops the hand before it
+  gets its task, names the rule and where it was found, and says to remove it. Your `allow` rules on `Bash` and
+  `PowerShell` pass under a required wall (the default), because the sandbox still holds those commands; under a wall
+  that is only requested, they are refused too.
 - **Subscriptions.** Anthropic's advertised limits for the Pro, Max and Ultra plans assume ordinary, individual use of
   Claude Code, and a wave runs many sessions: for large waves, prefer an API key or a provider profile.
 
 Lydite is an independent project, not made or endorsed by Anthropic. "Claude Code" and "Anthropic" only name what
 Lydite runs; see Anthropic's [legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance).
 
+## From Claude Code or another agent
+
+An agent that drives Lydite needs to know how: when to hand it a job, how to read what Lydite recorded, and to quote a
+refusal and stop instead of redoing the work itself. `lydite skill` prints that skill, in the open `SKILL.md` format,
+as the binary you run knows it. It reads and writes nothing else.
+
+So that a copy never ages, give your agent a pointer, not the text. For Claude Code, write
+`~/.claude/skills/lydite/SKILL.md`:
+
+```markdown
+---
+name: lydite
+description: Hand a coding job to Lydite and report what it recorded. Use when asked to give Lydite an issue, an objective or a plan file, or where a Lydite wave stands.
+---
+
+Run `lydite skill` and follow what it prints. Run it again after Lydite is upgraded.
+```
+
+Any agent that reads `SKILL.md` files can take the same pointer.
+
 ## From Hermes
 
-[`hermes/`](hermes/README.md) is a [Hermes Agent](https://hermes-agent.nousresearch.com) plugin. You talk to Hermes,
+[`hermes/`](https://github.com/aoricloud/lydite/blob/main/hermes/README.md) is a [Hermes Agent](https://hermes-agent.nousresearch.com) plugin. You talk to Hermes,
 Hermes hands the job to Lydite, and Lydite does what it does anywhere else: its own Claude Code workers behind the wall,
-your proof replayed by Lydite itself, a pull request with its receipt. The plugin adds four tools and one skill:
+your proof replayed by Lydite itself, a pull request with its receipt. The plugin adds five tools and one skill:
 
 - `lydite_lancer` starts a wave from an issue, an objective or a plan file, with your proof command. Hermes shows you
   the repository, the work, the proof and the profile, and waits for your approval before anything starts.
@@ -288,18 +364,43 @@ your proof replayed by Lydite itself, a pull request with its receipt. The plugi
 - `lydite_plan` checks a plan file with Lydite before a launch (`lydite plan <file>`): whether Lydite
   accepts it, or its refusal and the fix, so that the plan is corrected with the human before the launch
   is approved. It starts nothing and costs nothing.
+- `lydite_findings` reads the findings export of the hermes-security plugin and writes one Lydite plan per finding you
+  choose: prove it by a failing test, then fix it. It starts nothing: each plan is launched with `lydite_lancer`, with
+  your approval, and only under a required wall. A finding that no test can show comes back as not proved, with
+  nothing changed.
 - The skill `lydite:driving-lydite` tells the model when to hand a job to Lydite, how to read what `lydite_etat`
-  returns, and to quote a refusal and stop instead of redoing the work itself. It is in the open `SKILL.md` format, so
-  Claude Code can read it too.
+  returns, and to quote a refusal and stop instead of redoing the work itself. It is the text `lydite skill` prints.
 
 It needs Linux (the wall is held there only), the `lydite` binary already installed, and a profile that a human accepted
 with `lydite accept`. The plugin never accepts one and never merges. The workers are Lydite's Claude Code sessions,
-never Hermes agents. Install and settings: [`hermes/README.md`](hermes/README.md).
+never Hermes agents. Install and settings:
+[`hermes/README.md`](https://github.com/aoricloud/lydite/blob/main/hermes/README.md).
 
 ## Reference
 
-Until the reference pages exist, the full format of profiles, plans and the thread is at the top of
-`src/coeur/profil.rs`, `src/coeur/plan.rs` and `src/coeur/fil.rs` (in French).
+Every refusal code, with its rule, is in
+[docs/refusals.md](https://github.com/aoricloud/lydite/blob/main/docs/refusals.md). Until the other reference pages
+exist, the full format of profiles, plans and the thread is at the top of `src/coeur/profil.rs`, `src/coeur/plan.rs`
+and `src/coeur/fil.rs` (in French).
+
+### Commands
+
+Every command exits 2 when it refuses: the refusal says its code, its rule, what it saw and its fix. Otherwise:
+
+| Command | What it does | Exits |
+|---|---|---|
+| `lydite launch` | runs a wave (see [Try it](#try-it)) | 0 if every task was taken, its proof replayed green and, with `--pr`, the CI green; 1 otherwise |
+| `lydite status` | says the last wave, read from the thread | 0 if it was carried through and green, or there is none; 1 if it is running, red or ended without its closing seal; 2 if the thread cannot be read or a seal is broken |
+| `lydite wait` | waits for a running launch, then says the last wave | see [Waiting for a wave](#waiting-for-a-wave) |
+| `lydite doctor [<profile>]` | checks this machine, and the wall when a profile is named | 0 if ready, 1 if something is missing |
+| `lydite plan [--split] <file>` | reads a plan as `launch` would, and runs nothing | 0 |
+| `lydite remarks <file>` | reads a reviewer's remarks file | 0 |
+| `lydite lessons <folder>` | reads a repository's lessons | 0 |
+| `lydite accept <profile>` | shows a profile and accepts its fingerprint | 0 |
+| `lydite profile <profile>` | shows what Lydite understood of a profile | 0 |
+| `lydite skill` | prints the skill an agent follows to drive Lydite | 0 |
+| `lydite --help` (or `-h`) | prints the usage, one form per line; anywhere else on the line, `--help` and `-h` are refused | 0 |
+| `lydite --version` (or `-V`) | prints the version | 0 |
 
 ### One launch per state folder
 
@@ -412,7 +513,8 @@ python3 -m unittest discover -s hermes/tests -t hermes     # the Hermes plugin
 ```
 
 The code is in three layers (`coeur`, `branchements`, `conduite`, under `commande`); `tests/couches.rs` keeps each one
-from naming the layers above it. The code and its comments are in French, like the interface.
+from naming the layers above it. The code, its identifiers and its comments are in French; what Lydite prints is
+moving to English (see [Where it stands](#where-it-stands)).
 
 ## Why the name
 
@@ -420,4 +522,4 @@ Lydite is the touchstone: the black stone on which gold was rubbed to tell it fr
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/aoricloud/lydite/blob/main/LICENSE).
