@@ -23,7 +23,9 @@ workflow, which is why GitHub shows it merged by `github-actions[bot]`.
 ## Before you start (about an hour)
 
 - **Linux on x86-64.** Lydite's wall holds there only; elsewhere the tools do not appear.
-- **The `lydite` binary**, from an attested release. **This plugin ships and downloads no binary.**
+- **The `lydite` binary**, from an attested release, **Lydite 0.4.0 or later**: the plugin reads the `wall:` line of
+  `lydite profil <name>` before it launches a plan from `lydite_findings`, and earlier versions do not write that line.
+  **This plugin ships and downloads no binary.**
 
   ```bash
   gh release download --repo aoricloud/lydite --pattern 'lydite-*-linux-x86_64.tar.gz*'
@@ -35,7 +37,7 @@ workflow, which is why GitHub shows it merged by `github-actions[bot]`.
 - **`git`, `gh` signed in** (2.67 or later for `gh attestation`), **Claude Code signed in**, and **`srt`** for the
   wall: [the table in Lydite's README](https://github.com/aoricloud/lydite#try-it) says how to install each.
 - **A Lydite profile, written and accepted by a human** ([A profile](https://github.com/aoricloud/lydite#a-profile),
-  then `lydite accepter <name>`). The plugin never accepts one.
+  then `lydite accept <name>`). The plugin never accepts one.
 - Hermes `>= 0.23.0`.
 
 Without the binary, an accepted profile or `srt`, a launch is refused before anything starts, and the answer says
@@ -58,7 +60,8 @@ It also ships one skill, `lydite:driving-lydite`, in the open `SKILL.md` format 
 Claude Code can read it too. It tells the model when to hand a job to Lydite, what to have before launching (the
 repository, the work, your proof), how to read what `lydite_etat` returns (what Lydite observed against what a worker
 only declared; what the cost line means), and to quote a refusal and stop rather than redo the work itself. Hermes
-lists it for the model while the plugin is enabled, on Linux, and does not copy it into `~/.hermes/skills/`.
+lists it for the model while the plugin is enabled, on Linux, and does not copy it into `~/.hermes/skills/`. The Lydite
+binary carries the same skill, and `lydite skill` writes it, for an agent outside Hermes.
 
 The workers are **Claude Code sessions that Lydite starts itself**, on the model and provider of the Lydite profile
 (for example a DeepSeek endpoint). They are never Hermes agents or Hermes child processes.
@@ -86,7 +89,7 @@ The format read is the `1.0` JSON export of hermes-security. No code of hermes-s
 The titles and claims of a report are text written by someone else. They enter the worker's instruction quoted as
 data, bounded and on one line, and a plan written from a report only runs under a required wall: before such a launch
 the plugin asks `lydite profil <name>` (read-only) and refuses unless it says `wall: required`. To use it, put
-`mur = exige` in the profile, and have a human run `lydite accepter <name>`; or use another profile. The check goes by
+`mur = exige` in the profile, and have a human run `lydite accept <name>`; or use another profile. The check goes by
 where the plan is: under the plugin's `findings/` data folder. A plan copied out of that folder goes like a plan
 written by hand.
 
@@ -122,7 +125,8 @@ hermes config set LYDITE_CLE_FOURNISSEUR <the provider key>
 Then, in the chat: "do issue 15 of /home/you/project, the proof is `cargo test && cargo clippy -- -D warnings`".
 Or hand it a plan you wrote: "run the plan /home/you/plan.txt on /home/you/project". A plan names the model of each
 task, which an issue cannot do reliably today (Lydite's planner chooses them); `lydite_plan` checks one without
-running anything.
+running anything. The only proof of a plan is the one in its header, and a plan whose task carries its own `preuve :`
+line is refused, because Lydite would run the task's proof, which the human is not shown.
 
 Hermes shows at most ten rows of an approval, and the plugin's message holds in nine: the repository, the work, the
 proof, the profile and the target branch. A plan file is shown by its name, its size, its number of tasks, its proof
