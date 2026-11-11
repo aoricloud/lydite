@@ -1243,14 +1243,6 @@ class Findings(AvecFindings):
         self.assertIn("one at a time", rendu["note"])
         self.assertIn("wall", rendu["note"])
 
-    def test_un_plan_ecrit_est_celui_que_lydite_lancer_lit(self):
-        """Le plan écrit passe les bornes de `lydite_lancer` pour un plan : le même fichier, la même empreinte."""
-        rendu = self.appeler(ids=[ID_FINDING], proof=PREUVE)
-        chemin = rendu["plans"][0]["plan"]
-        self.faux_lydite("echo 'wall: required'")  # ce plan est sous `findings/` : il ne part que sous un mur exigé
-        demande = self.outils()._demande({"depot": str(self.depot), "plan": chemin})
-        self.assertEqual(hashlib.sha256(demande["plan_octets"]).hexdigest(), rendu["plans"][0]["sha256"])
-
     def test_un_second_appel_remplace_le_fichier(self):
         premier = self.appeler(ids=[ID_FINDING], proof=PREUVE)
         chemin = Path(premier["plans"][0]["plan"])
@@ -1395,6 +1387,14 @@ class FindingsSysteme(AvecFindings):
         rendu = self.appeler(ids=[ID_FINDING], proof=PREUVE)
         self.assertIn("is a link", rendu["error"])
         self.assertEqual(list(dehors.iterdir()), [])
+
+    def test_un_plan_ecrit_est_celui_que_lydite_lancer_lit(self):
+        """Le plan écrit passe les bornes de `lydite_lancer` pour un plan : le même fichier, la même empreinte."""
+        rendu = self.appeler(ids=[ID_FINDING], proof=PREUVE)
+        chemin = rendu["plans"][0]["plan"]
+        self.faux_lydite("echo 'wall: required'")  # ce plan est sous `findings/` : il ne part que sous un mur exigé
+        demande = self.outils()._demande({"depot": str(self.depot), "plan": chemin})
+        self.assertEqual(hashlib.sha256(demande["plan_octets"]).hexdigest(), rendu["plans"][0]["sha256"])
 
 
 @unittest.skipUnless(LINUX, "the fake Lydite is a shell script: Linux only")
