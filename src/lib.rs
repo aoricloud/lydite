@@ -7,6 +7,7 @@ mod branchements {
     pub(crate) mod dossier;
     pub(crate) mod git;
     pub(crate) mod github;
+    pub(crate) mod natif;
     pub(crate) mod processus;
     pub(crate) mod srt;
 }

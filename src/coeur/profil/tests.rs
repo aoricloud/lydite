@@ -1309,6 +1309,45 @@ fn les_reglages_de_srt_portent_toutes_leurs_cles_et_les_regles_de_la_main() {
 }
 
 #[test]
+fn les_listes_du_mur_sont_celles_des_reglages_de_srt() {
+    let exige = borne("sorte = claude\nmur = exige\nreseau = exemple.test\nlecture = ~/.cargo\n");
+    let worktree = absolu("k").join("bacs").join("main-1");
+    let temporaire = crate::branchements::bac::temporaire_de(&worktree).unwrap();
+    let texte = |chemin: PathBuf| chemin.to_string_lossy().into_owned();
+    let commun = texte(absolu("depot").join(".git"));
+    let listes = exige.listes_du_mur(&worktree, &temporaire).unwrap().expect("le mur est exigé");
+    let attendu = ListesDuMur {
+        fermes: vec!["~/".into(), texte(absolu("k"))],
+        lus: vec![texte(worktree.clone()), commun.clone(), "~/.cargo".into()],
+        ecrits: vec![texte(worktree.clone()), texte(temporaire.clone())],
+        refuses: vec![commun],
+        domaines: vec!["exemple.test".into()],
+    };
+    assert_eq!(listes, attendu);
+    // `rejeu` les écrit, dans l'ordre des clés de srt : ce sont les mêmes listes, pas une copie qui peut dériver.
+    let reglages = exige.rejeu(&worktree, &temporaire).unwrap().expect("le mur est exigé").reglages;
+    for (cle, liste) in [
+        ("denyRead", &listes.fermes),
+        ("allowRead", &listes.lus),
+        ("allowWrite", &listes.ecrits),
+        ("denyWrite", &listes.refuses),
+        ("allowedDomains", &listes.domaines),
+    ] {
+        let ecrit = format!(r#""{cle}":{}"#, tableau(liste.clone()));
+        assert!(reglages.contains(&ecrit), "{ecrit} manque de {reglages}");
+    }
+    // Sans lecture ni réseau, les listes le disent par du vide : le mur est exigé, rien ne s'y ajoute.
+    let nu = borne("sorte = claude\nmur = exige\n").listes_du_mur(&worktree, &temporaire).unwrap().unwrap();
+    assert!(nu.domaines.is_empty() && nu.lus.len() == 2, "{nu:?}");
+    // Sous un mur demandé, pour une main brute : pas de mur. Un mur exigé non borné est une erreur, comme pour `rejeu`.
+    assert_eq!(borne("sorte = claude\n").listes_du_mur(&worktree, &temporaire), Ok(None));
+    let brute = Profil::faux(vec!["x".into()], DELAI_PREUVE);
+    assert_eq!(brute.listes_du_mur(&worktree, &temporaire), Ok(None));
+    let erreur = lu("sorte = claude\nmur = exige\n").unwrap().listes_du_mur(&worktree, &temporaire).unwrap_err();
+    assert!(erreur.contains("pas borné"), "{erreur}");
+}
+
+#[test]
 fn les_regles_de_chemin_suivent_le_systeme() {
     // Sous Windows, la lettre de lecteur en minuscule et des barres obliques ; ailleurs, `//` devant le chemin.
     assert_eq!(regle_de_chemin(r"C:\Users\x\.lydite", true), Ok("//c/Users/x/.lydite".into()));

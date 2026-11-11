@@ -873,6 +873,38 @@ impl Profil {
     /// se rejoue par la coquille. Un mur exigé que `borner` n'a pas borné est une erreur : la preuve ne se rejoue
     /// pas.
     pub(crate) fn rejeu(&self, worktree: &Path, temporaire: &Path) -> Result<Option<Srt>, String> {
+        let Some((claude, bornes, listes)) = self.mur_exige(worktree, temporaire)? else { return Ok(None) };
+        let reglages = format!(
+            concat!(
+                r#"{{"filesystem":{{"denyRead":{fermes},"allowRead":{lus},"allowWrite":{ecrits},"#,
+                r#""denyWrite":{refuses}}},"#,
+                r#""network":{{"allowedDomains":{domaines},"deniedDomains":[]}}}}"#,
+            ),
+            fermes = tableau(listes.fermes),
+            lus = tableau(listes.lus),
+            ecrits = tableau(listes.ecrits),
+            refuses = tableau(listes.refuses),
+            domaines = tableau(listes.domaines),
+        );
+        Ok(Some(Srt {
+            programme: claude.srt.clone(),
+            fichier: Path::new(&bornes.dossier).join(format!("{DEBUT_SRT}{}.json", lot())),
+            reglages,
+            temporaire: temporaire.into(),
+        }))
+    }
+
+    /// Sous un mur exigé, les listes de règles que [`Profil::rejeu`] met dans les réglages de srt, pour le même
+    /// `worktree` et le même `temporaire` : `denyRead`, `allowRead`, `allowWrite` et `denyWrite`, telles quelles
+    /// (chemins avec leur `~` en tête, non dépliés), et les domaines permis. `None` sous un mur demandé et pour une
+    /// main brute ; un mur exigé que `borner` n'a pas borné est une erreur, comme pour `rejeu`.
+    pub(crate) fn listes_du_mur(&self, worktree: &Path, temporaire: &Path) -> Result<Option<ListesDuMur>, String> {
+        Ok(self.mur_exige(worktree, temporaire)?.map(|(_, _, listes)| listes))
+    }
+
+    /// Ce que le mur exigé du profil tient pour `worktree` et `temporaire` : la main Claude, ses bornes, et ses listes.
+    /// `None` sous un mur demandé et pour une main brute.
+    fn mur_exige(&self, worktree: &Path, temporaire: &Path) -> Result<Option<(&Claude, &Bornes, ListesDuMur)>, String> {
         let Sorte::Claude(claude) = &self.sorte else { return Ok(None) };
         if !claude.exige {
             return Ok(None);
@@ -881,24 +913,9 @@ impl Profil {
             return Err("le mur est exigé, et le profil n'est pas borné : la preuve ne se rejoue pas".into());
         };
         let (fermes, lus, domaines) = claude.regles(bornes, worktree);
-        let reglages = format!(
-            concat!(
-                r#"{{"filesystem":{{"denyRead":{fermes},"allowRead":{lus},"allowWrite":{ecrits},"#,
-                r#""denyWrite":{commun}}},"#,
-                r#""network":{{"allowedDomains":{domaines},"deniedDomains":[]}}}}"#,
-            ),
-            fermes = tableau(fermes),
-            lus = tableau(lus),
-            ecrits = tableau([worktree, temporaire].map(|chemin| chemin.to_string_lossy().into_owned())),
-            commun = tableau([bornes.git_commun.clone()]),
-            domaines = tableau(domaines),
-        );
-        Ok(Some(Srt {
-            programme: claude.srt.clone(),
-            fichier: Path::new(&bornes.dossier).join(format!("{DEBUT_SRT}{}.json", lot())),
-            reglages,
-            temporaire: temporaire.into(),
-        }))
+        let ecrits = [worktree, temporaire].map(|chemin| chemin.to_string_lossy().into_owned()).to_vec();
+        let listes = ListesDuMur { fermes, lus, ecrits, refuses: vec![bornes.git_commun.clone()], domaines };
+        Ok(Some((claude, bornes, listes)))
     }
 
     /// La ligne de commande d'une tentative dans `bac`, et sa déclaration ; pure, deux appels rendent la même. Une
@@ -1141,6 +1158,21 @@ pub(crate) struct Srt {
     pub(crate) reglages: String,
     /// Le dossier temporaire du rejeu (`bac::temporaire_de`), ouvert en écriture.
     pub(crate) temporaire: PathBuf,
+}
+
+/// Les règles du mur exigé d'un rejeu (voir [`Profil::listes_du_mur`]), telles que le JSON de srt les porte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ListesDuMur {
+    /// `denyRead`.
+    pub(crate) fermes: Vec<String>,
+    /// `allowRead`.
+    pub(crate) lus: Vec<String>,
+    /// `allowWrite` : le worktree, puis son dossier temporaire.
+    pub(crate) ecrits: Vec<String>,
+    /// `denyWrite` : le git commun.
+    pub(crate) refuses: Vec<String>,
+    /// `allowedDomains`, qui ne sont pas des chemins : un mur qui ne relaie rien les lit pour refuser.
+    pub(crate) domaines: Vec<String>,
 }
 
 /// Le profil `nom` lu de son texte, au format de l'en-tête, sans rien lire d'autre : `chemin` est son fichier, `None`
