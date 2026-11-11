@@ -68,7 +68,7 @@ that launch's log. Do not poll in a tight loop.
 What Lydite prints is the report. Relay it as it is written:
 
 - `code`: 0, the last wave finished (or there is none); 1, it is not finished (running or failed); 2, the record
-  cannot be read.
+  cannot be read or a seal is broken.
 - `(observed)` means Lydite observed it. `(declared)` and `declared, not proven` mean a worker only said so: present
   it as a claim, never as a fact. An older version of Lydite writes these words in French: `constaté` or `constatée`
   for observed, `déclaré` or `déclarée` for declared.
@@ -115,7 +115,8 @@ The exit codes, command by command:
 - `lydite status`: 0 if the last wave was carried through and green, or there is none; 1 if it is running or red; 2 if
   the thread cannot be read or a seal is broken. It does not check that the wave was sealed (a killed launch can read
   green): `lydite wait` does.
-- `lydite wait`: the codes of `lydite status`, with a 1 more for a last wave that carries no seal at all (a launch
-  killed before its first seal). It exits 2 if the thread cannot be read or a seal is broken; if the folder was held
-  and then freed with no new note (a launch refused before it opened its wave); or if, after 60 seconds, there is no
-  new note and no launch holds the folder: there is nothing to wait for.
+- `lydite wait`: 0 if the last wave was carried through and green; 1 if it is red or carries no seal at all (a launch
+  killed before its first seal); 2 if the thread cannot be read or a seal is broken; if the folder was held and then
+  freed with no new note (a launch refused before it opened its wave), unless the last wave of the thread carries no
+  seal and is not a split alone, which is 1; or if, after 60 seconds, no note has come and no launch holds the folder:
+  there is nothing to wait for.
