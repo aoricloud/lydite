@@ -778,6 +778,54 @@ pub(crate) fn faux_srt(dir: &Path, tient: bool) -> OsString {
     chemin.into_os_string()
 }
 
+/// Un faux `bwrap`, un `sh` d'un dossier neuf de `dir`, `bwrap/` : il note son appel, puis joue ce qui suit son premier
+/// `--`, sans mur, et rend le code de cette commande. À chaque appel il écrit, dans son dossier : ses arguments, un par
+/// ligne, fermés par une ligne `---` (`appels.txt`) ; le `TMPDIR` et le dossier courant qu'il reçoit (`env.txt`) ; pour
+/// chaque argument qui finit en `.bpf`, `present <chemin>` ou `absent <chemin>` selon que ce fichier existe à cet
+/// instant (`filtres.txt`) ; et, quand il reçoit `--seccomp`, le contenu du descripteur 9, que le vrai `bwrap` lirait
+/// (`filtre.bin`). Rend son chemin. Unix seulement : le mur natif est bwrap.
+#[cfg(unix)]
+pub(crate) fn faux_bwrap(dir: &Path) -> OsString {
+    use std::os::unix::fs::PermissionsExt;
+    let notes = dir.join("bwrap");
+    fs::create_dir_all(&notes).unwrap();
+    let lignes = [
+        "#!/bin/sh",
+        r#"ici=$(dirname "$0")"#,
+        r#"{ for a in "$@"; do printf '%s\n' "$a"; done; echo '---'; } >> "$ici/appels.txt""#,
+        r#"printf 'tmpdir=%s\ncwd=%s\n' "$TMPDIR" "$(pwd -P)" >> "$ici/env.txt""#,
+        r#"for a in "$@"; do"#,
+        r#"  case "$a" in"#,
+        r#"    *.bpf) if [ -f "$a" ]; then echo "present $a"; else echo "absent $a"; fi >> "$ici/filtres.txt" ;;"#,
+        r#"    --seccomp) cat <&9 > "$ici/filtre.bin" ;;"#,
+        "  esac",
+        "done",
+        r#"while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done"#,
+        "[ $# -gt 0 ] && shift",
+        r#"exec "$@""#,
+    ];
+    let chemin = notes.join("faux-bwrap.sh");
+    fs::write(&chemin, lignes.iter().map(|ligne| format!("{ligne}\n")).collect::<String>()).unwrap();
+    fs::set_permissions(&chemin, fs::Permissions::from_mode(0o755)).unwrap();
+    chemin.into_os_string()
+}
+
+/// Les appels que le [`faux_bwrap`] de `dir` a notés, dans l'ordre, chacun la liste de ses arguments : vide s'il n'a
+/// jamais été appelé.
+#[cfg(unix)]
+pub(crate) fn appels_du_faux_bwrap(dir: &Path) -> Vec<Vec<String>> {
+    let texte = fs::read_to_string(dir.join("bwrap").join("appels.txt")).unwrap_or_default();
+    let (mut appels, mut courant) = (Vec::new(), Vec::new());
+    for ligne in texte.lines() {
+        if ligne == "---" {
+            appels.push(std::mem::take(&mut courant));
+        } else {
+            courant.push(ligne.to_string());
+        }
+    }
+    appels
+}
+
 /// Lance le plan dans le dépôt visé : chaque tâche par une main, dans un bac neuf sous le dossier de Kraken, deux
 /// tentatives au plus, la seconde avec l'erreur de la première en contexte, chacune sous un bail de durée `bail`. Rend
 /// la branche de la vague (`None` pour des copies) et l'issue de chaque tâche, dans l'ordre du plan : `Ok`, sa prise,
