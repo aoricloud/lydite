@@ -258,16 +258,16 @@ fn sous_windows_srt_est_saute_meme_absent() {
 fn le_profil_nomme_se_dit_accepte_ou_refuse() {
     let dir = racine("doctor-profil");
     let programmes = tout_present(&dir);
-    let vu = |fournisseur, mur| Ok(ProfilVu { fournisseur, mur, natif: false });
+    let vu = |fournisseur, mur| Ok(ProfilVu { fournisseur, mur });
     for (mur, fin) in [(true, ", wall checked"), (false, "")] {
-        let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &vu(false, mur))), false);
+        let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme("p", false, &vu(false, mur))), false);
         let mut attendues = lignes_pretes();
         attendues[6] = format!("ok profile: p accepted, ready to launch here{fin}");
         assert_eq!((lignes, code), (attendues, 0));
     }
     // Un refus : sa ligne, son numéro, puis ses quatre lignes, chacune sous deux espaces.
     let refus = Refus::new(Code::ProfilNonAccepte, "le profil p n'est pas accepté", "Lance : lydite accepter p.");
-    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &Err(refus.clone()))), false);
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme("p", false, &Err(refus.clone()))), false);
     let mut attendues = lignes_pretes();
     attendues.splice(6..7, ["missing profile: p, refusal 6011".to_string()]);
     attendues.splice(7..7, refus.to_string().lines().map(|ligne| format!("  {ligne}")));
@@ -282,22 +282,27 @@ fn le_profil_nomme_se_dit_accepte_ou_refuse() {
 fn un_profil_qui_nomme_un_fournisseur_n_a_pas_besoin_d_un_compte_claude() {
     let dir = racine("doctor-fournisseur");
     let programmes = Programmes { claude: faux_claude(&dir, 1), ..tout_present(&dir) };
-    let profil = Ok(ProfilVu { fournisseur: true, mur: true, natif: false });
-    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("api", &profil)), false);
+    let profil = Ok(ProfilVu { fournisseur: true, mur: true });
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme("api", false, &profil)), false);
     let saute = "skipped claude login: the profile names another provider, whose hands need no Claude account.";
     assert_eq!(lignes[3], saute);
     assert_eq!((lignes.last().unwrap().as_str(), code), ("ready", 0));
     // Sans fournisseur, le même `claude auth status` rouge est un manque.
-    let profil = Ok(ProfilVu { fournisseur: false, mur: true, natif: false });
-    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("claude", &profil)), false);
+    let profil = Ok(ProfilVu { fournisseur: false, mur: true });
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme("claude", false, &profil)), false);
     assert!(lignes[3].starts_with("missing claude login: not signed in."), "{}", lignes[3]);
     assert_eq!(code, 1);
     effacer(&dir);
 }
 
-/// Le profil `p`, accepté, au mur natif ou non.
-fn profil_vu(natif: bool) -> Result<ProfilVu, Refus> {
-    Ok(ProfilVu { fournisseur: false, mur: true, natif })
+/// Le profil `nom`, dit au mur natif ou non, avec ce que `preparer` en a dit.
+fn nomme<'a>(nom: &'a str, natif: bool, vu: &'a Result<ProfilVu, Refus>) -> ProfilNomme<'a> {
+    ProfilNomme { nom, natif, vu }
+}
+
+/// Un profil que `preparer` a accepté, au mur exigé.
+fn accepte() -> Result<ProfilVu, Refus> {
+    Ok(ProfilVu { fournisseur: false, mur: true })
 }
 
 /// La ligne de `doctor` qui parle du programme `nom` (`ok <nom>:`, `skipped <nom>:` ou `missing <nom>:`), ou `None`.
@@ -312,7 +317,7 @@ fn un_profil_natif_verifie_bwrap_et_lydite_reseau_a_la_place_de_srt() {
     let dir = racine("doctor-natif");
     // srt manque, et le profil n'en a pas besoin : rien ne manque.
     let programmes = Programmes { srt: absent(&dir), ..tout_present(&dir) };
-    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &profil_vu(true))), false);
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme("p", true, &accepte())), false);
     let reseau = faux_reseau(&dir);
     let attendues = [
         "ok git: git version 9.9".to_string(),
@@ -331,7 +336,7 @@ fn un_profil_natif_verifie_bwrap_et_lydite_reseau_a_la_place_de_srt() {
     assert_eq!(code, 0);
     // Le même regard, sur le même profil qui n'est pas natif : srt se vérifie, bwrap et lydite-reseau non. Il voit
     // donc bien ce qu'il cherche.
-    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &profil_vu(false))), false);
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme("p", false, &accepte())), false);
     assert!(ligne_de(&lignes, "srt").is_some_and(|ligne| ligne.starts_with("missing srt: `")), "{lignes:?}");
     assert_eq!((ligne_de(&lignes, "bwrap"), ligne_de(&lignes, "lydite-reseau")), (None, None), "{lignes:?}");
     assert_eq!(code, 1);
@@ -352,7 +357,7 @@ fn un_profil_natif_dit_pour_chaque_manque_quoi_faire() {
     // `bwrap` ne part pas, `lydite-reseau` n'est pas là où on le cherche.
     let absent_reseau = dir.join("lydite-reseau-absent");
     let programmes = Programmes { bwrap: absent(&dir), reseau: Ok(absent_reseau.clone()), ..tout_present(&dir) };
-    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &profil_vu(true))), false);
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme("p", true, &accepte())), false);
     let bwrap = ligne_de(&lignes, "bwrap").unwrap();
     let commande = format!("{} --version", absent(&dir).to_string_lossy());
     assert!(bwrap.starts_with(&format!("missing bwrap: `{commande}` could not start: ")), "{bwrap}");
@@ -363,12 +368,12 @@ fn un_profil_natif_dit_pour_chaque_manque_quoi_faire() {
     assert_eq!(code, 1);
     // Un dossier n'est pas `lydite-reseau`.
     let programmes = Programmes { reseau: Ok(dir.clone()), ..tout_present(&dir) };
-    let (lignes, _) = verifier(&programmes, &dossier_court(), Some(("p", &profil_vu(true))), false);
+    let (lignes, _) = verifier(&programmes, &dossier_court(), Some(nomme("p", true, &accepte())), false);
     let attendue = format!("missing lydite-reseau: {} is not a file. Fix: {construire}", dir.display());
     assert_eq!(ligne_de(&lignes, "lydite-reseau"), Some(&attendue));
     // Aucun chemin à chercher : ni `LYDITE_RESEAU`, ni dossier de l'exécutable.
     let programmes = Programmes { reseau: Err("inconnu".into()), ..tout_present(&dir) };
-    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &profil_vu(true))), false);
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme("p", true, &accepte())), false);
     let attendue = format!(
         "missing lydite-reseau: there is no path to it: LYDITE_RESEAU is not set, and the folder of the Lydite \
          executable is unknown. Fix: {construire}"
@@ -385,23 +390,65 @@ fn un_profil_que_le_mur_natif_a_refuse_se_lit_natif_et_ne_demande_pas_srt() {
     let programmes = Programmes { srt: absent(&dir), bwrap: absent(&dir), ..tout_present(&dir) };
     let natif = Refus::new(
         Code::MurRefuse,
-        format!("{PREUVE_DU_MUR_NATIF} needs bubblewrap (LYDITE_BWRAP), and `bwrap` cannot start: x"),
+        "the native wall (`mur = natif`) needs bubblewrap (LYDITE_BWRAP), and `bwrap` cannot start: x",
         "Install bubblewrap.",
     );
-    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &Err(natif.clone()))), false);
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme("p", true, &Err(natif.clone()))), false);
     assert!(ligne_de(&lignes, "bwrap").is_some_and(|ligne| ligne.starts_with("missing bwrap: `")), "{lignes:?}");
     assert!(ligne_de(&lignes, "srt").is_some_and(|ligne| ligne.starts_with("skipped srt: ")), "{lignes:?}");
     assert!(lignes.contains(&"missing profile: p, refusal 6028".to_string()), "{lignes:?}");
     assert_eq!(lignes.last().map(String::as_str), Some("not ready: 2 missing"));
     assert_eq!(code, 1);
-    // Le refus 6028 de srt, ou un autre refus, ne dit rien du mur natif : srt se vérifie comme avant.
+    // Un profil qui dit `mur = exige` est vérifié par srt, quel que soit son refus, même 6028 au texte du mur natif.
     let de_srt = Refus::new(Code::MurRefuse, "le mur est exigé, et srt ne joue pas `true` : x", "Installe srt.");
-    let autre = Refus::new(Code::ProfilNonAccepte, format!("{PREUVE_DU_MUR_NATIF} n'est pas accepté"), "Accepte-le.");
-    for refus in [de_srt, autre] {
-        let (lignes, _) = verifier(&programmes, &dossier_court(), Some(("p", &Err(refus))), false);
+    for refus in [de_srt, natif] {
+        let (lignes, _) = verifier(&programmes, &dossier_court(), Some(nomme("p", false, &Err(refus))), false);
         assert!(ligne_de(&lignes, "srt").is_some_and(|ligne| ligne.starts_with("missing srt: `")), "{lignes:?}");
         assert_eq!((ligne_de(&lignes, "bwrap"), ligne_de(&lignes, "lydite-reseau")), (None, None), "{lignes:?}");
     }
+    effacer(&dir);
+}
+
+#[test]
+fn un_profil_natif_pas_encore_accepte_ne_demande_pas_srt() {
+    let dir = racine("doctor-natif-non-accepte");
+    let programmes = Programmes { srt: absent(&dir), ..tout_present(&dir) };
+    // Les refus d'avant le mur (6011 : pas d'empreinte, 6012 : changé) et un refus d'une autre cause : le profil dit
+    // `mur = natif`, srt n'est ni vérifié ni conseillé, bwrap et lydite-reseau le sont.
+    let refus = [
+        Refus::new(Code::ProfilNonAccepte, "le profil p n'a pas d'empreinte acceptée", "Accepte-le."),
+        Refus::new(Code::ProfilChange, "le profil p a changé", "Réaccepte-le."),
+        Refus::new(Code::ProfilNonAccepte, "autre chose", "Autre."),
+    ];
+    for refus in refus {
+        let numero = refus.code.numero();
+        let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme("p", true, &Err(refus))), false);
+        assert!(ligne_de(&lignes, "srt").is_some_and(|ligne| ligne.starts_with("skipped srt: ")), "{lignes:?}");
+        assert!(ligne_de(&lignes, "bwrap").is_some_and(|ligne| ligne.starts_with("ok bwrap: ")), "{lignes:?}");
+        assert!(ligne_de(&lignes, "lydite-reseau").is_some_and(|ligne| ligne.starts_with("ok ")), "{lignes:?}");
+        assert!(lignes.contains(&format!("missing profile: p, refusal {numero}")), "{lignes:?}");
+        assert_eq!((lignes.last().map(String::as_str), code), (Some("not ready: 1 missing"), 1));
+        assert!(!lignes.iter().any(|ligne| ligne.contains("missing srt")), "{lignes:?}");
+    }
+    effacer(&dir);
+}
+
+#[test]
+fn doctor_lit_le_mur_dans_le_fichier_du_profil_qu_il_soit_accepte_ou_non() {
+    let dir = racine("doctor-lit-natif");
+    let dossier = Ok(dir.join("kraken"));
+    let profils = dir.join("kraken").join("profils");
+    fs::create_dir_all(&profils).unwrap();
+    // Aucun fichier `.empreinte` : aucun de ces profils n'est accepté.
+    fs::write(profils.join("natif.profil"), "sorte = claude\nmur = natif\n").unwrap();
+    fs::write(profils.join("exige.profil"), "sorte = claude\nmur = exige\n").unwrap();
+    fs::write(profils.join("demande.profil"), "sorte = claude\nmur = demande\n").unwrap();
+    assert!(lire_natif("natif", &dossier));
+    assert!(!lire_natif("exige", &dossier));
+    assert!(!lire_natif("demande", &dossier));
+    // Un profil qui n'existe pas, un dossier qui ne se donne pas : rien ne se lit, ce n'est pas un mur natif.
+    assert!(!lire_natif("absent", &dossier));
+    assert!(!lire_natif("natif", &Err(Refus::new(Code::ProfilNonAccepte, "x", "y"))));
     effacer(&dir);
 }
 

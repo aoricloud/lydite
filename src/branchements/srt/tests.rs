@@ -356,3 +356,76 @@ fn un_mur_natif_que_le_systeme_ferme_ou_qui_ne_joue_pas_true_est_refuse_en_6028_
     assert!(!refus.preuve.contains("namespaces") && !refus.correction.contains("userns"), "{refus}");
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// Le refus 6028 que rend le mur natif pour l'erreur de rejeu `erreur`, diagnostiquée comme `eprouver_le_mur` le fait.
+fn refus_pour(erreur: &str) -> Refus {
+    refus_du_mur_natif(OsStr::new("bwrap"), &Cause::Rejeu(natif::manque(erreur), erreur.to_string()))
+}
+
+const CONSTRUIRE: &str = "Build lydite-reseau";
+
+#[test]
+fn un_lydite_reseau_introuvable_se_corrige_en_le_construisant() {
+    let erreur = "vérification « true » impossible : the profile allows domains, so the native wall needs \
+                  lydite-reseau, and /srv/outils/lydite-reseau cannot be read (No such file or directory (os error \
+                  2)): set LYDITE_RESEAU to the path of a built lydite-reseau, or put lydite-reseau next to the \
+                  Lydite executable";
+    let refus = refus_pour(erreur);
+    assert_eq!(refus.code, Code::MurRefuse, "{refus}");
+    assert!(refus.preuve.starts_with(&format!("{PREUVE_DU_MUR_NATIF} needs lydite-reseau")), "{refus}");
+    assert!(refus.correction.starts_with(CONSTRUIRE), "{refus}");
+}
+
+#[test]
+fn un_socket_trop_long_se_corrige_par_un_dossier_d_etat_plus_court() {
+    let erreur = "vérification « true » impossible : the network filter socket path /srv/k/bacs/x.net/s is 130 bytes \
+                  long, and a Unix socket path holds 107 at most: use a shorter sandbox folder";
+    let refus = refus_pour(erreur);
+    assert_eq!(refus.code, Code::MurRefuse, "{refus}");
+    assert!(refus.preuve.starts_with(PREUVE_DU_MUR_NATIF) && refus.preuve.contains("130 bytes long"), "{refus}");
+    assert!(refus.correction.starts_with("Use a shorter Lydite state folder"), "{refus}");
+    assert!(refus.correction.contains("LYDITE_DOSSIER"), "{refus}");
+    assert!(!refus.correction.contains(CONSTRUIRE), "{refus}");
+}
+
+#[test]
+fn un_lydite_reseau_present_qui_meurt_se_corrige_en_lisant_ce_qu_il_a_dit() {
+    let erreur = "vérification « true » impossible : the network filter /srv/outils/lydite-reseau exited before it \
+                  said ready (exit status: 3): boom";
+    let refus = refus_pour(erreur);
+    assert_eq!(refus.code, Code::MurRefuse, "{refus}");
+    assert!(refus.preuve.contains("exited before it said ready (exit status: 3): boom"), "{refus}");
+    assert!(refus.correction.contains("read what it said"), "{refus}");
+    assert!(!refus.correction.contains(CONSTRUIRE), "{refus}");
+}
+
+#[test]
+fn la_sortie_de_la_commande_ne_choisit_pas_la_correction_du_filtre() {
+    // `bwrap` part, mais la sortie de la commande porte les mots du filtre : le mur n'a rien dit de lui-même.
+    let erreur = "vérification « true » rouge (exit status: 1) :\nlydite-reseau: not found; the network filter socket \
+                  path is too long";
+    let refus = refus_pour(erreur);
+    assert!(refus.preuve.starts_with(&format!("{PREUVE_DU_MUR_NATIF} does not play `true`: ")), "{refus}");
+    assert!(!refus.correction.contains(CONSTRUIRE) && !refus.correction.contains("LYDITE_DOSSIER"), "{refus}");
+}
+
+#[test]
+fn toute_correction_du_mur_natif_dit_lydite_accept_et_jamais_accepter() {
+    let erreurs = [
+        "vérification « true » impossible : the profile allows domains, so the native wall needs lydite-reseau, and x",
+        "vérification « true » impossible : the network filter socket path /s is 130 bytes long",
+        "vérification « true » impossible : the network filter /srv/l exited before it said ready",
+        "vérification « true » rouge (exit status: 1) :\nbwrap: setting up uid map: Permission denied",
+        "vérification « true » rouge (exit status: 1) :\nboum",
+    ];
+    for erreur in erreurs {
+        let refus = refus_pour(erreur);
+        assert!(refus.correction.contains("`lydite accept <profile>`"), "{refus}");
+        assert!(!refus.correction.contains("accepter"), "{refus}");
+    }
+    let bwrap = refus_du_mur_natif(OsStr::new("bwrap"), &Cause::Bwrap("x".into()));
+    assert!(
+        bwrap.correction.contains("`lydite accept <profile>`") && !bwrap.correction.contains("accepter"),
+        "{bwrap}"
+    );
+}

@@ -143,13 +143,12 @@ fn eprouver_le_mur_avec(profil: &Profil, dossier: &Path, natif: &MurNatif) -> Re
     })
 }
 
-/// Le début de la preuve de tout refus 6028 du mur natif : `lydite doctor` y reconnaît un profil `mur = natif` que le
-/// mur a refusé ([`refus_du_mur_natif`]).
-pub(crate) const PREUVE_DU_MUR_NATIF: &str = "the native wall (`mur = natif`)";
+/// Le début de la preuve de tout refus 6028 du mur natif ([`refus_du_mur_natif`]).
+const PREUVE_DU_MUR_NATIF: &str = "the native wall (`mur = natif`)";
 
 /// Le repli que la correction de tout refus du mur natif propose : srt rejoue l'épreuve et la preuve.
 const REPLI_SRT: &str = "To use srt instead, write `mur = exige` in the profile, accept it again with `lydite \
-                         accepter <profile>`, and launch again: the wall check and the replay of your proof then go \
+                         accept <profile>`, and launch again: the wall check and the replay of your proof then go \
                          through srt.";
 
 /// Pourquoi le mur natif est refusé.
@@ -177,6 +176,21 @@ fn refus_du_mur_natif(programme: &OsStr, cause: &Cause) -> Refus {
             format!("needs lydite-reseau (LYDITE_RESEAU), its network filter, and does not play `true`: {erreur}"),
             "Build lydite-reseau (`cargo build --release --manifest-path reseau/Cargo.toml`) and put it next to the \
              `lydite` executable, or set LYDITE_RESEAU to the path of a built lydite-reseau that runs."
+                .to_string(),
+        ),
+        Cause::Rejeu(Manque::SocketLong, erreur) => (
+            format!(
+                "needs a socket path for lydite-reseau, its network filter, that a Unix socket holds, and the Lydite \
+                 state folder is too long for it: {erreur}"
+            ),
+            "Use a shorter Lydite state folder: set LYDITE_DOSSIER to a shorter absolute path (`lydite doctor` says \
+             how long it may be)."
+                .to_string(),
+        ),
+        Cause::Rejeu(Manque::FiltreMort, erreur) => (
+            format!("needs lydite-reseau (LYDITE_RESEAU), its network filter, to say ready, and it does not: {erreur}"),
+            "lydite-reseau starts, but stops or stays silent before it says ready: read what it said, in the proof \
+             above, and fix what it names. LYDITE_RESEAU names the lydite-reseau that runs."
                 .to_string(),
         ),
         Cause::Rejeu(Manque::Espaces, erreur) => (
