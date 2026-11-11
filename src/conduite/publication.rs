@@ -35,7 +35,8 @@ use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
 use crate::coeur::profil::{EFFORT_PAR_DEFAUT, SANS_A1, SANS_LECTURE};
 use crate::coeur::remarques::lire_fichier;
 use crate::conduite::alarmes;
-use crate::conduite::lancer::Menee;
+use crate::conduite::lancer::{Issues, Menee};
+use crate::conduite::relecture::exacts_de;
 
 /// La correction du refus 8011.
 const ROUGE: &str = "The PR stays open and red, and Lydite does not retry it twice: read its CI, then fix it yourself.";
@@ -47,7 +48,10 @@ const CORRIGER: &str = "Corrige au plus petit ce que le contexte nomme, et rien 
 /// dépendance. Elle joue la preuve de la vague relancée, et son objectif est [`CORRIGER`], puis le `contexte` : les
 /// checks en échec et la fin du journal de la CI. Ses `fichiers` sont l'union de ceux des tâches de la vague relancée,
 /// dans leur ordre et sans doublon, quand chacune en a ; aucun sinon : une tâche que rien ne bornait a pu tout changer.
-fn plan_de_relance(plan: &Plan, numero: u64, contexte: &str) -> Plan {
+/// Ses `exacts` sont l'union de ceux des tâches assemblées de la vague (`issues`, issue `Ok`, lues comme la relecture
+/// lit les siennes), dans leur ordre et sans doublon, qu'elles aient ou non des `fichiers` : une tâche mise de côté,
+/// impossible ou refusée n'a pas posé son texte, et l'exiger rendrait la relance rouge pour rien.
+fn plan_de_relance(plan: &Plan, issues: &Issues, numero: u64, contexte: &str) -> Plan {
     let contexte = contexte.trim_end();
     let objectif = if contexte.is_empty() { CORRIGER.to_string() } else { format!("{CORRIGER}\n{contexte}") };
     let fichiers = plan.taches.iter().try_fold(Vec::new(), |mut unis: Vec<String>, tache| {
@@ -58,7 +62,10 @@ fn plan_de_relance(plan: &Plan, numero: u64, contexte: &str) -> Plan {
         }
         Some(unis)
     });
-    let tache = Tache { id: "ci".into(), depend: Vec::new(), preuve: None, objectif, fichiers, ..Tache::default() };
+    let assemblees = plan.taches.iter().zip(issues).filter(|(_, (_, issue))| issue.is_ok()).map(|(tache, _)| tache);
+    let exacts = exacts_de(assemblees);
+    let tache =
+        Tache { id: "ci".into(), depend: Vec::new(), preuve: None, objectif, fichiers, exacts, ..Tache::default() };
     Plan { objectif: format!("Make the CI of PR {numero} green"), preuve: plan.preuve.clone(), taches: vec![tache] }
 }
 
@@ -518,7 +525,7 @@ impl Proposition<'_> {
         self.noter_la_pr(&suite.fil, &menee.id, &publication, tete)?;
         eprintln!("PR {} · {}", publication.pr.numero, publication.pr.url);
         let Some(rouge) = self.lire_la_ci(suite, &menee.id, &publication, tete, None)? else { return Ok(()) };
-        self.relancer(suite, plan, lancer, &publication, &rouge)
+        self.relancer(suite, plan, &menee.issues, lancer, &publication, &rouge)
     }
 
     /// Note `forge.pr` sous `vague` : la PR de `publication` porte `sha` dans sa branche.
@@ -582,6 +589,7 @@ impl Proposition<'_> {
         &self,
         suite: &mut Suite,
         plan: &Plan,
+        issues: &Issues,
         lancer: &dyn Fn(&Plan, &str) -> Result<Menee, Refus>,
         publication: &Publication,
         rouge: &Rouge,
@@ -597,7 +605,7 @@ impl Proposition<'_> {
         }
         self.forge.base_a_bouge(&self.branche, tete).map_err(Arret::Refus)?;
         eprintln!("CI red: one retry, the wave restarts from {tete}");
-        let relance = plan_de_relance(plan, numero, &rouge.contexte());
+        let relance = plan_de_relance(plan, issues, numero, &rouge.contexte());
         let ouverte = lancer(&relance, tete).map_err(|echec| {
             refus(format!("the retry wave of PR {numero} does not open, {}: {}", echec.code, echec.preuve))
         })?;
