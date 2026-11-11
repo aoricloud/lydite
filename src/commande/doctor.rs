@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::branchements::bac::temporaire_de;
 use crate::branchements::dossier;
@@ -43,7 +43,11 @@ pub(crate) struct Programmes {
     pub(crate) gh: OsString,
     pub(crate) claude: OsString,
     pub(crate) srt: OsString,
-    pub(crate) delai: Duration,
+    pub(crate) delai_git: Duration,
+    pub(crate) delai_gh: Duration,
+    /// Le délai de `claude --version` et de `claude auth status`.
+    pub(crate) delai_claude: Duration,
+    pub(crate) delai_srt: Duration,
 }
 
 /// Ce que `doctor` retient d'un profil que `preparer` a accepté.
@@ -84,16 +88,21 @@ fn jouer(programme: &OsStr, args: &[&str], delai: Duration, lire: bool) -> Appel
         });
         reception
     });
-    match attendre(&mut enfant, echeance(delai)) {
+    let echeance = echeance(delai);
+    match attendre(&mut enfant, echeance) {
         Ok(Some(statut)) => {
-            let octets = lecteur.and_then(|reception| reception.recv_timeout(Duration::from_secs(1)).ok());
+            // Le fil lecteur s'attend jusqu'à la même échéance que le programme : sous charge, il peut tarder.
+            let reste = echeance.saturating_duration_since(Instant::now());
+            let octets = lecteur.and_then(|reception| reception.recv_timeout(reste).ok());
             let octets = octets.unwrap_or_default();
             let ligne = String::from_utf8_lossy(&octets).lines().next().unwrap_or("").trim().to_string();
             Appel::Fini { code: statut.code(), ligne: en_ligne(&ligne) }
         }
         Ok(None) => {
-            let mort =
-                tuer_et_attendre(&mut enfant).err().map_or_else(String::new, |e| format!(" ; stopping it failed: {e}"));
+            // Le texte de l'échec est cité tel quel : il peut être en français, la phrase reste en anglais.
+            let mort = tuer_et_attendre(&mut enfant)
+                .err()
+                .map_or_else(String::new, |e| format!(" ; stopping it failed: \"{e}\""));
             Appel::Depasse(mort)
         }
         Err(e) => {
@@ -198,7 +207,6 @@ pub(crate) fn verifier(
     windows: bool,
 ) -> (Vec<String>, u8) {
     let mut rapport = Rapport::default();
-    let delai = programmes.delai;
     let installer_git = "install git.";
     Controle {
         nom: "git",
@@ -208,7 +216,7 @@ pub(crate) fn verifier(
         absent: installer_git,
         rouge: (None, installer_git),
     }
-    .jouer(delai, &mut rapport);
+    .jouer(programmes.delai_git, &mut rapport);
     Controle {
         nom: "gh",
         programme: &programmes.gh,
@@ -217,7 +225,7 @@ pub(crate) fn verifier(
         absent: "install gh (https://cli.github.com) or name its path in LYDITE_GH.",
         rouge: (Some("not logged in."), "run `gh auth login`."),
     }
-    .jouer(delai, &mut rapport);
+    .jouer(programmes.delai_gh, &mut rapport);
     let installer_claude = "install Claude Code (https://claude.com/claude-code) or name its path in LYDITE_CLAUDE.";
     Controle {
         nom: "claude",
@@ -227,7 +235,7 @@ pub(crate) fn verifier(
         absent: installer_claude,
         rouge: (None, installer_claude),
     }
-    .jouer(delai, &mut rapport);
+    .jouer(programmes.delai_claude, &mut rapport);
     let connexion = "run `claude auth login`. A profile that names another provider (`api`) needs no Claude account.";
     if profil.is_some_and(|(_, vu)| vu.as_ref().is_ok_and(|vu| vu.fournisseur)) {
         rapport.saute("claude login", "the profile names another provider, whose hands need no Claude account.");
@@ -240,7 +248,7 @@ pub(crate) fn verifier(
             absent: connexion,
             rouge: (Some("not signed in."), connexion),
         }
-        .jouer(delai, &mut rapport);
+        .jouer(programmes.delai_claude, &mut rapport);
     }
     if windows {
         let detail =
@@ -256,7 +264,7 @@ pub(crate) fn verifier(
             absent: installer,
             rouge: (None, installer),
         }
-        .jouer(delai, &mut rapport);
+        .jouer(programmes.delai_srt, &mut rapport);
     }
     dossier_de_lydite(&mut rapport, dossier, windows);
     match profil {
@@ -289,7 +297,10 @@ pub(crate) fn doctor_cmd(nom: Option<&str>) -> Result<ExitCode, Refus> {
         gh: programme_gh(),
         claude: programme("LYDITE_CLAUDE", "claude"),
         srt: programme("LYDITE_SRT", "srt"),
-        delai: DELAI,
+        delai_git: DELAI,
+        delai_gh: DELAI,
+        delai_claude: DELAI,
+        delai_srt: DELAI,
     };
     let profil = nom.map(|nom| {
         let vu = preparer(nom, None)

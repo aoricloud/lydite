@@ -75,7 +75,10 @@ fn tout_present(dir: &Path) -> Programmes {
         gh: faux_gh(dir, 0),
         claude: faux_claude(dir, 0),
         srt: faux_srt(dir),
-        delai: DELAI,
+        delai_git: DELAI,
+        delai_gh: DELAI,
+        delai_claude: DELAI,
+        delai_srt: DELAI,
     }
 }
 
@@ -300,7 +303,8 @@ fn rien_de_ce_que_rendent_les_programmes_ne_s_affiche_hors_de_la_premiere_ligne_
 fn un_programme_qui_ne_repond_pas_est_un_manque_et_ne_bloque_pas() {
     let dir = racine("doctor-delai");
     let lent = faux(&dir, "lent", "sleep 30", "ping -n 30 127.0.0.1 >nul");
-    let programmes = Programmes { git: lent.clone(), delai: Duration::from_secs(5), ..tout_present(&dir) };
+    // Le délai court ne vaut que pour le programme lent : les autres gardent `DELAI`, même sous charge.
+    let programmes = Programmes { git: lent.clone(), delai_git: Duration::from_secs(5), ..tout_present(&dir) };
     let (lignes, code) = verifier(&programmes, &dossier_court(), None, false);
     let commande = format!("{} --version", lent.to_string_lossy());
     let manque = format!("missing git: `{commande}` did not answer in 5 s. Fix: run `{commande}` yourself to see why.");
