@@ -689,13 +689,13 @@ fn les_listes_qui_ouvrent_le_mur_se_jugent_par_leurs_entrees_effectives() {
     let lus = r#""allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git"]"#;
     // Une entrée de plus à l'effectif, qu'une autre source ajouterait : un écart qui nomme la clé et l'entrée.
     let ecart =
-        jugement_du_mur(REGLAGES, lus, r#""allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git","/home/humain"]"#)
+        jugement_du_mur(REGLAGES, lus, r#""allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git","/srv/autre"]"#)
             .unwrap_err();
     assert_eq!(
         ecart,
         concat!(
             "main : réglages non pris : get_settings : ",
-            r#"effective.sandbox.filesystem.allowRead : entrée "/home/humain" hors du déclaré"#,
+            r#"effective.sandbox.filesystem.allowRead : entrée "/srv/autre" hors du déclaré"#,
         )
     );
     // Une entrée de moins ferme davantage le mur, et une clé absente de l'effectif vaut une liste vide : pris.
