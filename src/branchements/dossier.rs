@@ -184,7 +184,7 @@ fn dossier_selon(
 }
 
 /// Le fichier du fil, dans le dossier de Kraken.
-pub(crate) const FICHIER: &str = "fil.jsonl";
+pub(crate) const FICHIER: &str = profil::FIL;
 
 /// Une séance du fil d'un dossier de Kraken : son id, son origine et son compteur, que les mains se prêtent.
 pub(crate) struct Fil {
@@ -328,7 +328,7 @@ pub(crate) fn lire_sceaux(kraken: &Path) -> Vec<SceauVague> {
 /// plus (`5`, `12.50`) ; un BOM de tête et les fins de ligne sont tolérés. Absent, `None` : rien ne se vérifie.
 /// Illisible ou mal formé, c'est le refus 6030, qui nomme le fichier.
 pub(crate) fn lire_quota(kraken: &Path) -> Result<Option<u64>, Refus> {
-    let chemin = kraken.join("profils").join("quota");
+    let chemin = kraken.join(profil::PROFILS).join("quota");
     let refus = |preuve: String| {
         let correction = format!(
             "Écris dans {} une ligne : un nombre positif de dollars par jour, deux décimales au plus (12.50) ; ou \
@@ -456,7 +456,7 @@ fn fichier(nom: &str, dossier: &Path) -> Result<PathBuf, Refus> {
              <dossier de Lydite>/profils/<nom>.profil.",
         ));
     }
-    Ok(dossier.join("profils").join(format!("{nom}.profil")))
+    Ok(dossier.join(profil::PROFILS).join(format!("{nom}.profil")))
 }
 
 /// Le texte du fichier du profil `nom`, `None` s'il est absent. Une lecture ratée, ou des octets qui ne sont pas de

@@ -99,6 +99,16 @@ use crate::coeur::fil::lot;
 use crate::coeur::fil::{Evenement, Mur};
 use crate::coeur::json::{self, Json};
 use crate::coeur::plan::hors_forme;
+use crate::coeur::protocole::MODE_DES_EDITIONS;
+
+/// Le fichier du fil dans le dossier de Lydite : `dossier.rs` l'écrit sous ce nom, et la règle `Edit` de la main le
+/// ferme.
+pub(crate) const FIL: &str = "fil.jsonl";
+/// Le dossier des profils dans le dossier de Lydite : `dossier.rs` y range les profils, et la règle `Edit` de la
+/// main le ferme.
+pub(crate) const PROFILS: &str = "profils";
+/// Le début du nom des réglages de srt du rejeu, `srt-<lot>.json`, que les règles `Read` et `Edit` de la main ferment.
+pub(crate) const DEBUT_SRT: &str = "srt-";
 
 /// Les délais d'un profil qui ne les dit pas : une heure pour la main, cinq minutes pour la preuve que Kraken rejoue.
 const DELAI_MAIN: Duration = Duration::from_secs(3600);
@@ -269,7 +279,7 @@ struct Claude {
     /// Le modèle du relecteur, pour ses deux tentatives.
     relecteur: String,
     /// Le fournisseur que le profil nomme, `None` pour une main qui parle chez Anthropic.
-    fournisseur: Option<Fournisseur>,
+    fournisseur: Option<FournisseurDuProfil>,
     /// Les prix déclarés (`prix`) : le modèle, puis ses [`Prix`]. Vide sans `api`.
     prix: Vec<(String, Prix)>,
     /// Le mur exigé (`failIfUnavailable`), et non seulement demandé.
@@ -287,12 +297,35 @@ struct Claude {
     srt: OsString,
 }
 
+/// Le fournisseur tel que la main le reçoit ([`Profil::fournisseur`]) : trois champs nommés, que rien ne permet
+/// d'échanger sans le voir. Son `Debug` ne montre jamais la clé.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Fournisseur<'a> {
+    /// L'URL de l'API (`ANTHROPIC_BASE_URL`).
+    pub(crate) api: &'a str,
+    /// La clé (`ANTHROPIC_API_KEY`), qui ne va qu'à la main.
+    pub(crate) cle: &'a str,
+    /// Le nom de la variable d'environnement de Kraken qui tient la clé.
+    pub(crate) variable: &'a str,
+}
+
+impl std::fmt::Debug for Fournisseur<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let masque = "…";
+        f.debug_struct("Fournisseur")
+            .field("api", &self.api)
+            .field("cle", &masque)
+            .field("variable", &self.variable)
+            .finish()
+    }
+}
+
 /// Le fournisseur d'une main Claude, quand son profil en nomme un : une API au format d'Anthropic, et la variable
 /// d'environnement de Kraken qui tient sa clé. Sans la valeur de la variable, que [`Profil::fournir`] lit au
 /// lancement, la main ne part pas : elle parlerait à l'URL du fournisseur avec les identifiants de l'humain. Aucun
 /// `Debug` : la valeur ne s'écrit nulle part.
 #[derive(Clone)]
-struct Fournisseur {
+struct FournisseurDuProfil {
     /// L'URL de l'API, telle que le profil l'écrit (`ANTHROPIC_BASE_URL` de la main).
     api: String,
     /// Son hôte, port compris, que le fil note : un jeton, de l'ASCII sans blanc.
@@ -484,13 +517,18 @@ impl Profil {
         }
     }
 
-    /// Ce que la main reçoit de son fournisseur, `(URL de l'API, clé)`, soit `ANTHROPIC_BASE_URL` et
-    /// `ANTHROPIC_API_KEY`. `None` sans fournisseur, une main brute comprise, et tant que [`Profil::fournir`] n'a pas
-    /// lu la clé : la main d'un tel profil ne part pas alors (voir [`Profil::demande`]).
-    pub(crate) fn fournisseur(&self) -> Option<(&str, &str)> {
+    /// Ce que la main reçoit de son fournisseur : l'URL de l'API (`ANTHROPIC_BASE_URL`), la clé
+    /// (`ANTHROPIC_API_KEY`) et le nom de la variable qui la tient. `None` sans fournisseur, une main brute comprise,
+    /// et tant que [`Profil::fournir`] n'a pas lu la clé : la main d'un tel profil ne part pas alors (voir
+    /// [`Profil::demande`]).
+    pub(crate) fn fournisseur(&self) -> Option<Fournisseur<'_>> {
         let Sorte::Claude(claude) = &self.sorte else { return None };
         let fournisseur = claude.fournisseur.as_ref()?;
-        Some((fournisseur.api.as_str(), fournisseur.valeur.as_deref()?))
+        Some(Fournisseur {
+            api: fournisseur.api.as_str(),
+            cle: fournisseur.valeur.as_deref()?,
+            variable: fournisseur.cle.as_str(),
+        })
     }
 
     /// Le nom de la variable d'environnement qui tient la clé du fournisseur, `None` sans fournisseur : la preuve que
@@ -727,7 +765,7 @@ impl Profil {
         );
         Ok(Some(Srt {
             programme: claude.srt.clone(),
-            fichier: Path::new(&bornes.dossier).join(format!("srt-{}.json", lot())),
+            fichier: Path::new(&bornes.dossier).join(format!("{DEBUT_SRT}{}.json", lot())),
             reglages,
             temporaire: temporaire.into(),
         }))
@@ -834,8 +872,8 @@ impl Profil {
             .iter()
             .filter(|sortant| !declare(sortant))
             .map(|sortant| sortant.to_string())
-            .chain(["fil.jsonl", "profils/**"].map(|garde| format!("Edit({}/{garde})", bornes.regle)))
-            .chain(["Read", "Edit"].map(|outil| format!("{outil}({}/srt-*.json)", bornes.regle)))
+            .chain([FIL.to_string(), format!("{PROFILS}/**")].map(|garde| format!("Edit({}/{garde})", bornes.regle)))
+            .chain(["Read", "Edit"].map(|outil| format!("{outil}({}/{DEBUT_SRT}*.json)", bornes.regle)))
             .chain(bornes.connexions.iter().flat_map(connexion))
             .chain([format!("Edit({}/**)", bornes.commun)])
             .chain(COMMIT_REFUSE.map(String::from))
@@ -876,7 +914,7 @@ impl Profil {
                 "stream-json",
                 "--verbose",
                 "--permission-mode",
-                "acceptEdits",
+                MODE_DES_EDITIONS,
                 "--permission-prompts",
                 "none",
                 "--strict-mcp-config",
@@ -1158,7 +1196,7 @@ pub(crate) fn lire(
     claude.fournisseur = match (api, variable) {
         (None, None) => None,
         (Some((_, api, hote)), Some((_, cle))) => {
-            Some(Fournisseur { api: api.into(), hote: hote.into(), cle: cle.into(), valeur: None })
+            Some(FournisseurDuProfil { api: api.into(), hote: hote.into(), cle: cle.into(), valeur: None })
         }
         (Some((n, ..)), None) => return Err(seule(n, "api", "cle = <NOM_DE_LA_VARIABLE>")),
         (None, Some((n, _))) => return Err(seule(n, "cle", "api = https://<hôte>/<chemin>")),

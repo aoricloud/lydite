@@ -17,6 +17,7 @@ use crate::branchements::processus::{
     SORTIE, attendre, echeance, retire_de_l_env, sans_session, tuer_et_attendre, tuer_les_restes,
 };
 use crate::coeur::erreur::queue;
+use crate::coeur::profil::Fournisseur;
 use crate::coeur::protocole::{self, Attendu, Constat, DEMANDES, Ligne};
 
 /// Le temps qu'ont les quatre réponses de contrôle, puis l'ouverture, chacune, jamais plus que ce qui reste du délai de
@@ -39,7 +40,7 @@ pub(crate) fn jouer(
     delai: Duration,
     attendu: Option<&Attendu>,
     kraken: bool,
-    fournisseur: Option<(&str, &str, &str)>,
+    fournisseur: Option<Fournisseur>,
 ) -> (Option<Constat>, Result<String, ErreurMain>) {
     let mut constat = Constat::default();
     let jeu =
@@ -139,7 +140,7 @@ fn partir(
     bac: &Path,
     delai: Duration,
     kraken: bool,
-    fournisseur: Option<(&str, &str, &str)>,
+    fournisseur: Option<Fournisseur>,
 ) -> Result<Partie, String> {
     let fin = echeance(delai);
     let Some((programme, args)) = argv.split_first() else {
@@ -149,12 +150,12 @@ fn partir(
     commande.args(args).current_dir(bac).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     // Ses commits sont ceux de Kraken : ni le nom ni l'adresse de l'humain.
     commande.envs(IDENTITE);
-    if let Some((api, cle, nom)) = fournisseur {
+    if let Some(fournisseur) = fournisseur {
         commande
             .env_remove("ANTHROPIC_AUTH_TOKEN")
-            .env_remove(nom)
-            .env("ANTHROPIC_BASE_URL", api)
-            .env("ANTHROPIC_API_KEY", cle);
+            .env_remove(fournisseur.variable)
+            .env("ANTHROPIC_BASE_URL", fournisseur.api)
+            .env("ANTHROPIC_API_KEY", fournisseur.cle);
     }
     if kraken {
         commande.env("PATH", path_de_kraken()?);

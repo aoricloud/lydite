@@ -11,6 +11,7 @@ const GET_SETTINGS: &str = concat!(
     r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_settings","response""#,
     r#":{"applied":{"model":"claude-sonnet-5-5"},"effective":{"disableAllHooks":true,"autoMemoryEnabled""#,
     r#":false,"sandbox":{"enabled":true,"failIfUnavailable":false,"allowUnsandboxedCommands":false,"#,
+    r#""filesystem":{"denyRead":["~/","/srv/lydite"],"allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git"]},"#,
     r#""network":{"allowedDomains":[],"strictAllowlist":true},"credentials":{"envVars":[{"name":"#,
     r#""ANTHROPIC_API_KEY","mode":"deny"},{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}}},"#,
     r#""sources":[{"source":"userSettings","#,
@@ -459,7 +460,16 @@ fn les_reglages_d_un_vrai_profil_se_jugent_pris_par_une_main_fidele() {
     assert!(declaration.reglages.contains(&fermes), "{}", declaration.reglages);
     let attendu =
         Attendu { reglages: &declaration.reglages, modele: &declaration.modele, mcp: declaration.mcp.as_deref() };
-    let settings = GET_SETTINGS.replace(r#""failIfUnavailable":false"#, r#""failIfUnavailable":true"#);
+    // Une main fidèle rend le `filesystem` déclaré, tel quel, à l'effectif.
+    let systeme = |texte: &str| {
+        let debut = texte.find(r#""filesystem":"#).unwrap();
+        (debut, debut + texte[debut..].find(r#","network""#).unwrap())
+    };
+    let (debut, fin) = systeme(&declaration.reglages);
+    let (de, a) = systeme(GET_SETTINGS);
+    let mut settings = GET_SETTINGS.to_string();
+    settings.replace_range(de..a, &declaration.reglages[debut..fin]);
+    let settings = settings.replace(r#""failIfUnavailable":false"#, r#""failIfUnavailable":true"#);
     let mur = GET_SANDBOX_DIALOG.replace(r#""enabled":false"#, r#""enabled":true"#);
     let regles = regles_fideles(&declaration.reglages);
     let mut gestes = vec![Geste::Lire];
@@ -721,7 +731,9 @@ fn la_main_ne_recoit_pas_l_epuration_de_l_environnement_des_commandes_avec_ou_sa
     let (dir, bac) = bac_jetable("epuration");
     let liste: Vec<String> =
         if cfg!(windows) { vec!["cmd".into(), "/C".into(), "set".into()] } else { vec!["env".into()] };
-    for fournisseur in [None, Some(("https://api.exemple.test/anthropic", "leurre-de-la-cle", "CLE_ESSAI"))] {
+    let api = "https://api.exemple.test/anthropic";
+    let fourni = Fournisseur { api, cle: "leurre-de-la-cle", variable: "CLE_ESSAI" };
+    for fournisseur in [None, Some(fourni)] {
         let sortie = jouer(&liste, &bac, "", DELAI, None, false, fournisseur).1.unwrap();
         let vues: Vec<_> = sortie
             .lines()
