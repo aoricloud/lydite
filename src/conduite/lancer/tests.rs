@@ -1361,7 +1361,7 @@ fn l_effort_d_une_tache_se_note_au_lancement_et_hors_des_efforts_permis_refuse_l
     assert_eq!(refus.code, Code::EffortNonPermis, "{refus}");
     assert_eq!(refus.code.numero(), 6033);
     assert!(refus.preuve.contains("task 2 asks for effort xhigh"), "{refus}");
-    assert!(!refus.preuve.contains("la tâche 1"), "{refus}");
+    assert!(!refus.preuve.contains("task 1 "), "{refus}");
     let nomme = refus.correction.contains("efforts_permis") && refus.correction.contains("lydite accept <profile>");
     assert!(nomme, "{refus}");
     // Rien n'est parti : le dossier de Kraken n'a pas de fil, que la vague permise écrit plus bas.
