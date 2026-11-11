@@ -737,7 +737,13 @@ impl Essai {
         deny: &[String],
     ) -> String {
         let commun = git(&self.depot, &["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-        let lus = [self.bac().to_string_lossy().into_owned(), commun];
+        let mut lus = vec![self.bac().to_string_lossy().into_owned(), commun];
+        // Sous un mur exigé, le fichier réel de l'exécutable de Lydite se lit aussi, lui seul, après le git commun ;
+        // sous un mur demandé, rien n'y est ajouté.
+        if exige {
+            let lydite = fs::canonicalize(env!("CARGO_BIN_EXE_lydite")).unwrap();
+            lus.push(lydite.to_string_lossy().into_owned());
+        }
         // Le dossier de Lydite, puis celui de `CLAUDE_CONFIG_DIR` : hors du dossier personnel, ils se ferment aux
         // commandes (`denyRead`).
         let fermes = [

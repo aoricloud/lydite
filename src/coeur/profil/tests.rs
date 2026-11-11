@@ -1395,6 +1395,52 @@ fn les_listes_du_mur_sont_celles_des_reglages_de_srt() {
 }
 
 #[test]
+fn sous_un_mur_exige_le_fichier_de_lydite_est_lu_par_les_commandes_et_lui_seul() {
+    let reel = absolu("outils").join("bin").join("lydite");
+    let reel_texte = reel.to_string_lossy().into_owned();
+    let worktree = absolu("k").join("bacs").join("main-1");
+    let temporaire = crate::branchements::bac::temporaire_de(&worktree).unwrap();
+    let commun = absolu("depot").join(".git").to_string_lossy().into_owned();
+    let bac = worktree.to_string_lossy().into_owned();
+    for mur in ["exige", "natif"] {
+        let mut profil = borne(&format!("sorte = claude\nmur = {mur}\nlecture = ~/.cargo\n"));
+        // Sans exécutable, rien n'est prêté de plus : le bac, le git commun, `lecture`.
+        let sans = profil.listes_du_mur(&worktree, &temporaire).unwrap().unwrap();
+        assert_eq!(sans.lus, [bac.clone(), commun.clone(), "~/.cargo".to_string()], "{mur}");
+        profil.avec_lydite(reel.clone());
+        let listes = profil.listes_du_mur(&worktree, &temporaire).unwrap().unwrap();
+        // Le fichier entre après le git commun et avant `lecture` ; ni son dossier, ni rien d'autre ne change.
+        let attendu = [bac.clone(), commun.clone(), reel_texte.clone(), "~/.cargo".to_string()];
+        assert_eq!(listes.lus, attendu, "{mur}");
+        assert!(!listes.lus.iter().any(|lu| Path::new(lu) == reel.parent().unwrap()), "le dossier du fichier, {mur}");
+        assert_eq!((&listes.fermes, &listes.ecrits, &listes.refuses), (&sans.fermes, &sans.ecrits, &sans.refuses));
+        assert_eq!(listes.domaines, sans.domaines);
+        // Le `--settings` de la main le porte, au même endroit.
+        let chemins = [&bac, &commun, &reel_texte].map(|chemin| json::chaine(chemin)).join(",");
+        let ecrit = format!(r#""allowRead":[{chemins},"~/.cargo"]"#);
+        let main = profil.demande(&worktree, None, false).declaration.unwrap().reglages;
+        assert!(main.contains(&ecrit), "{ecrit} manque de {main}");
+    }
+    // Les réglages de srt du rejeu l'écrivent d'après les mêmes listes, sous `exige`.
+    let mut exige = borne("sorte = claude\nmur = exige\nlecture = ~/.cargo\n");
+    exige.avec_lydite(reel.clone());
+    let lus = exige.listes_du_mur(&worktree, &temporaire).unwrap().unwrap().lus;
+    let rejeu = exige.rejeu(&worktree, &temporaire).unwrap().expect("le mur est exigé").reglages;
+    let ecrit = format!(r#""allowRead":{}"#, tableau(lus));
+    assert!(rejeu.contains(&ecrit) && rejeu.contains(&json::chaine(&reel_texte)), "{ecrit} manque de {rejeu}");
+    // Sous un mur demandé, le fichier n'est nulle part : la preuve prêtée sort du bac à sable, et se lit déjà.
+    let mut demande = borne("sorte = claude\nmur = demande\nlecture = ~/.cargo\n");
+    demande.avec_lydite(reel.clone());
+    assert!(!reglages(&demande, None).contains(&json::chaine(&reel_texte)));
+    assert!(!reglages(&demande, None).contains("outils"));
+    assert_eq!(demande.listes_du_mur(&worktree, &temporaire), Ok(None));
+    // Une main brute n'a rien à prêter : la méthode n'y change rien.
+    let mut brute = Profil::faux(vec!["x".into()], DELAI_PREUVE);
+    brute.avec_lydite(reel);
+    assert_eq!(brute.listes_du_mur(&worktree, &temporaire), Ok(None));
+}
+
+#[test]
 fn le_dossier_de_lydite_est_celui_que_borner_a_pose() {
     // Le même dossier que celui que `denyRead` ferme : un autre le séparerait du mur.
     let exige = borne("sorte = claude\nmur = exige\n");

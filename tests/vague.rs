@@ -892,7 +892,10 @@ fn une_vague_sous_un_mur_natif_rejoue_la_preuve_par_le_mur_natif_et_ne_lance_jam
     assert_eq!(jouees("exit 0"), 3, "les trois rejeux de la preuve : {bwrap:?}");
     // Les `bwrap` extérieurs disent où chaque rejeu monte son bac : l'épreuve, deux fois la vague, une fois la tâche.
     let exterieurs: Vec<&String> = bwrap.iter().filter(|ligne| ligne.starts_with("--new-session")).collect();
-    let dans = |bac: &str| exterieurs.iter().filter(|ligne| ligne.contains(&format!("/bacs/{bac}"))).count();
+    // Le motif part du dossier de Kraken de l'essai : le fichier de Lydite, que le mur lit, peut vivre sous un dossier
+    // `bacs/main-…` d'ailleurs (le worktree d'une main), qu'un simple `/bacs/main-` compterait.
+    let bacs = format!("{}/bacs/", dossier.display());
+    let dans = |bac: &str| exterieurs.iter().filter(|ligne| ligne.contains(&format!("{bacs}{bac}"))).count();
     assert_eq!((exterieurs.len(), dans("mur-"), dans("vague-"), dans("main-")), (4, 1, 2, 1), "{exterieurs:?}");
     // Chaque rejeu sort par le filtre du réseau : un `filtre` et un `relais` pour chacun, quatre rejeux en tout.
     let reseau = faux.appels("reseau.log");

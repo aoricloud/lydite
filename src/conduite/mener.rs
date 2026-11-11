@@ -2,6 +2,7 @@
 
 use std::env;
 use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::path::{self, Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -75,9 +76,16 @@ pub(crate) struct Lieu<'a> {
 ///    srt (`LYDITE_SRT` s'il est posé, lu ici) joue `true` sous des réglages de rejeu.
 ///
 /// Le profil se lit après le dépôt : il vit dans le dossier de Kraken, qu'on sait alors hors du dépôt visé.
+///
+/// L'exécutable de Lydite se résout ici, une fois : `env::current_exe()`, puis `fs::canonicalize`, le fichier réel au
+/// bout des liens. Le profil le garde, et sous un mur exigé ses commandes le lisent, lui seul (voir
+/// `Profil::avec_lydite`) : un `lydite` installé sous le dossier personnel, fermé, se lancerait sinon pas, et les
+/// preuves prêtées qui l'appellent par son nom échoueraient. S'il ne se résout pas, rien n'est prêté de plus, et ce
+/// n'est pas un refus.
 pub(crate) fn preparer(profil: &str, depot: Option<&Path>) -> Result<(Profil, PathBuf, PathBuf), Refus> {
     let config = env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from);
     let gh = dossier_de_gh(|nom| env::var_os(nom));
+    let lydite = env::current_exe().and_then(fs::canonicalize).ok();
     let (mut profil, depot, dossier) = preparer_dans(
         profil,
         depot,
@@ -85,6 +93,7 @@ pub(crate) fn preparer(profil: &str, depot: Option<&Path>) -> Result<(Profil, Pa
         config.as_deref(),
         gh.as_deref(),
         env::home_dir().as_deref(),
+        lydite,
     )?;
     profil.fournir(|variable| env::var_os(variable))?;
     if let Some(srt) = env::var_os("LYDITE_SRT") {
@@ -103,8 +112,9 @@ fn dossier_de_gh(lire: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
 }
 
 /// `preparer` à partir du dossier de Kraken, de `CLAUDE_CONFIG_DIR` (`config`), du dossier de configuration de gh
-/// (`gh`, voir [`dossier_de_gh`]) et du dossier personnel (`personnel`), lus une fois par `preparer` : les tests n'ont
-/// pas à toucher l'environnement de l'humain.
+/// (`gh`, voir [`dossier_de_gh`]), du dossier personnel (`personnel`) et du fichier réel de l'exécutable de Lydite
+/// (`lydite`, `None` s'il ne s'est pas résolu), lus une fois par `preparer` : les tests n'ont pas à toucher
+/// l'environnement de l'humain.
 fn preparer_dans(
     nom: &str,
     depot: Option<&Path>,
@@ -112,6 +122,7 @@ fn preparer_dans(
     config: Option<&Path>,
     gh: Option<&Path>,
     personnel: Option<&Path>,
+    lydite: Option<PathBuf>,
 ) -> Result<(Profil, PathBuf, PathBuf), Refus> {
     let depot = match depot {
         Some(depot) => path::absolute(depot).map_err(|e| nommee(e, format!("chemin absolu de {}", depot.display())))?,
@@ -122,6 +133,9 @@ fn preparer_dans(
     let mut profil = dossier::charger_dans(nom, &dossier)?;
     profil.garder_selon(dossier::lire_empreinte)?;
     profil.borner_selon(&dossier, &git_commun, config, gh, personnel, dossier::connexion_presente)?;
+    if let Some(lydite) = lydite {
+        profil.avec_lydite(lydite);
+    }
     Ok((profil, depot, dossier))
 }
 
