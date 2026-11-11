@@ -261,9 +261,9 @@ fn assert_regle(refus: &Refus) {
     assert!(!regle.is_empty() && regle.ends_with('.'), "la règle est une phrase : {refus:?}");
 }
 
-/// La correction d'un refus de la ligne de commande donne l'usage de `lancer`, avec ses trois drapeaux.
+/// La correction d'un refus de la ligne de commande donne l'usage de `launch`, avec ses trois drapeaux.
 fn assert_usage(refus: &Refus) {
-    let usage = r#"lydite lancer <profile> "<objective>" [--n N] [--verifier "<command>"] [--depot <path>]"#;
+    let usage = r#"lydite launch <profile> "<objective>" [--n N] [--verify "<command>"] [--repo <path>]"#;
     assert!(refus.correction.contains(usage), "la correction donne l'usage : {refus:?}");
 }
 
@@ -815,8 +815,8 @@ fn un_verifier_blanc_est_refuse() {
         let refus = lire_refus(essai.kraken().args(["lancer", "veille", OBJECTIF, "--verifier", blanche]));
         assert_eq!(refus.code, "lydite : 6014 lancer.preuve_vide", "{blanche:?}");
         assert_regle(&refus);
-        assert!(refus.preuve.contains("--verifier") && refus.preuve.contains("a blank command"), "{refus:?}");
-        assert!(refus.correction.contains("--verifier"), "{refus:?}");
+        assert!(refus.preuve.contains("--verify") && refus.preuve.contains("a blank command"), "{refus:?}");
+        assert!(refus.correction.contains("--verify"), "{refus:?}");
     }
     // Un --verifier blanc après d'autres drapeaux est refusé de même.
     let ligne = ["lancer", "veille", OBJECTIF, "--n", "2", "--verifier", " "];

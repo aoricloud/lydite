@@ -141,7 +141,7 @@ fn aucun_litteral_de_src_ne_dit_kraken() {
 fn l_usage_dit_lydite_et_jamais_kraken() {
     let sortie = Command::new(env!("CARGO_BIN_EXE_lydite")).output().unwrap();
     let dit = format!("{}{}", String::from_utf8_lossy(&sortie.stdout), String::from_utf8_lossy(&sortie.stderr));
-    assert!(dit.contains("lydite lancer"), "{dit}");
+    assert!(dit.contains("lydite launch"), "{dit}");
     assert!(!dit.to_lowercase().contains("kraken"), "{dit}");
 }
 

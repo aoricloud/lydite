@@ -117,11 +117,11 @@ fn assert_regle(refus: &Refus) {
     assert!(!regle.is_empty() && regle.ends_with('.'), "la règle est une phrase : {refus:?}");
 }
 
-/// La correction d'un refus de la ligne de commande donne l'usage : les trois commandes de la liste fermée, `lancer`
-/// avec ses trois drapeaux.
+/// La correction d'un refus de la ligne de commande donne l'usage, en mots anglais : les trois commandes de la liste
+/// fermée, `launch` avec ses trois drapeaux.
 fn assert_usage(refus: &Refus) {
-    let lancer = r#"lydite lancer <profile> "<objective>" [--n N] [--verifier "<command>"] [--depot <path>]"#;
-    for morceau in [lancer, "lydite accepter <profile>", "lydite profil <profile>", "lydite etat", "lydite attendre"] {
+    let lancer = r#"lydite launch <profile> "<objective>" [--n N] [--verify "<command>"] [--repo <path>]"#;
+    for morceau in [lancer, "lydite accept <profile>", "lydite profile <profile>", "lydite status", "lydite wait"] {
         assert!(refus.correction.contains(morceau), "la correction donne l'usage ({morceau}) : {refus:?}");
     }
 }
@@ -321,8 +321,8 @@ fn une_preuve_blanche_est_refusee_avant_tout_dossier() {
             lire_refus(kraken_dans(&dossier, &depot).args(["lancer", "claude", "objectif", "--verifier", blanche]));
         assert_eq!(refus.code, "lydite : 6014 lancer.preuve_vide", "{blanche:?}");
         assert_regle(&refus);
-        assert!(refus.preuve.contains("--verifier") && refus.preuve.contains("blank"), "{refus:?}");
-        assert!(refus.correction.contains("--verifier"), "{refus:?}");
+        assert!(refus.preuve.contains("--verify") && refus.preuve.contains("blank"), "{refus:?}");
+        assert!(refus.correction.contains("--verify"), "{refus:?}");
     }
     assert_eq!(noms(&dossier), Vec::<String>::new(), "aucun dossier, aucun bac, aucun fil");
     assert_eq!(noms(&depot), [".git"]);

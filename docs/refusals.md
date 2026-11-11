@@ -1,6 +1,6 @@
 # Lydite refusals
 
-A refusal that stops Lydite before any wave exits with code 2, on four lines: `lydite : <code> <name>`, then `rule:`, `seen:` and `fix:`. The same codes name the refusals of a wave, which `lydite etat` shows. A code and its name never change; a rule may be reworded. The codes come in four blocks of a thousand:
+A refusal that stops Lydite before any wave exits with code 2, on four lines: `lydite : <code> <name>`, then `rule:`, `seen:` and `fix:`. The same codes name the refusals of a wave, which `lydite status` shows. A code and its name never change; a rule may be reworded. The codes come in four blocks of a thousand:
 
 - 1000, `contrat`: the command line and the thread.
 - 6000, `lancer`: everything before a wave opens (the command line, the profile, the repository, Lydite's folder and the plan).
@@ -26,9 +26,9 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 6009 | `lancer.profil_ligne_refusee` | Each line of the profile is `key = value` for a known key, its value in its domain, each key once; no budget. |
 | 6010 | `lancer.profil_incomplet` | A profile says its kind. |
 | 6011 | `lancer.profil_non_accepte` | A profile in a file is launched only once its fingerprint is accepted. |
-| 6012 | `lancer.profil_change` | The launched profile has the accepted fingerprint; a new fingerprint is accepted again by `lydite accepter`. |
+| 6012 | `lancer.profil_change` | The launched profile has the accepted fingerprint; a new fingerprint is accepted again by `lydite accept`. |
 | 6013 | `lancer.profil_sans_fichier` | Only a profile in a file is accepted; the built-in profile has no fingerprint to keep. |
-| 6014 | `lancer.preuve_vide` | `--verifier`, if given, carries a command that is not blank. |
+| 6014 | `lancer.preuve_vide` | `--verify`, if given, carries a command that is not blank. |
 | 6015 | `lancer.dossier_sous_le_depot` | Lydite's folder is outside the target repository. |
 | 6016 | `lancer.plan_version` | A plan starts with its version, `plan 1`, which Lydite reads before anything else. |
 | 6017 | `lancer.plan_encodage` | A plan is UTF-8 text, a leading BOM tolerated; a plan in UTF-16 is rewritten in UTF-8. |
@@ -43,7 +43,7 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 6026 | `lancer.plan_entete` | A split plan carries the header that Lydite asked for: the human's objective and proof, as they are. |
 | 6027 | `lancer.fournisseur` | A profile that names a provider gives `api`, an https URL, and `cle`, the name of an environment variable that is set and not empty, never the key itself. |
 | 6028 | `lancer.mur_refuse` | Under a required wall, srt plays `true` under replay settings before any hand and before the base check; otherwise nothing is launched. |
-| 6029 | `lancer.issue_sans_mur` | `--issue` only runs under a profile whose wall is required, because the text of an issue comes from someone else: `mur = exige` in the profile, then `lydite accepter <profile>`, or an objective typed by hand. |
+| 6029 | `lancer.issue_sans_mur` | `--issue` only runs under a profile whose wall is required, because the text of an issue comes from someone else: `mur = exige` in the profile, then `lydite accept <profile>`, or an objective typed by hand. |
 | 6030 | `lancer.quota` | Under a daily quota that is set (`profils/quota`, in dollars), a hand does not start when the estimated spend of the UTC day reaches it, when the file cannot be read, or when its profile with `api` has no `prix` for its model; spending beyond it is for the human. |
 | 6031 | `lancer.lecon_mal_formee` | A lesson is a `.agents/skills/<name>/SKILL.md` of 4096 bytes at most, in UTF-8: a header `name` (the folder) and `description` (one line), then `## What happened`, `## Why`, `## How it is checked`, `## Pitfall`, `## Files` (lines `- <path>`) and `## Falls when`, each once, in order, with text. |
 | 6032 | `lancer.dossier_pris` | A launch holds Lydite's folder for itself until its process ends: a second launch on the same folder is refused, because they would write the same thread and read the same quota. |
