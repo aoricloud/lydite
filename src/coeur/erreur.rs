@@ -145,11 +145,11 @@ codes! {
         "A profile in a file is launched only once its fingerprint is accepted.";
     ProfilChange = 6012, "lancer.profil_change",
         "The launched profile has the accepted fingerprint; a new fingerprint is accepted again by `lydite \
-         accepter`.";
+         accept`.";
     ProfilSansFichier = 6013, "lancer.profil_sans_fichier",
         "Only a profile in a file is accepted; the built-in profile has no fingerprint to keep.";
     PreuveVide = 6014, "lancer.preuve_vide",
-        "`--verifier`, if given, carries a command that is not blank.";
+        "`--verify`, if given, carries a command that is not blank.";
     DossierSousLeDepot = 6015, "lancer.dossier_sous_le_depot",
         "Lydite's folder is outside the target repository.";
     PlanVersion = 6016, "lancer.plan_version",
@@ -190,7 +190,7 @@ codes! {
          check; otherwise nothing is launched.";
     IssueSansMur = 6029, "lancer.issue_sans_mur",
         "`--issue` only runs under a profile whose wall is required, because the text of an issue comes from \
-         someone else: `mur = exige` in the profile, then `lydite accepter <profile>`, or an objective typed by \
+         someone else: `mur = exige` in the profile, then `lydite accept <profile>`, or an objective typed by \
          hand.";
     Quota = 6030, "lancer.quota",
         "Under a daily quota that is set (`profils/quota`, in dollars), a hand does not start when the estimated \

@@ -22,8 +22,8 @@ The tests never start a real Claude Code or a real `gh`: they use stand-ins. You
   For a security problem, do not open an issue: see [SECURITY.md](SECURITY.md).
 - **Keep it small**: one change per pull request, with a test that fails without it.
 - **Language**: the code, its comments and its tests are written in French. What a user reads is moving to English:
-  the README, the Hermes plugin and the pull request receipts already are; the commands, the refusals and
-  `lydite etat` are still in French and move one by one. Keep the language you find in the file you change.
+  the README, the Hermes plugin and the pull request receipts already are; the commands and their flags are too;
+  the keys of profiles and plans are still in French. Keep the language you find in the file you change.
 - **Layers**: the code is in three layers (`coeur`, `branchements`, `conduite`, under `commande`); `tests/couches.rs`
   keeps each one from naming the layers above it.
 
