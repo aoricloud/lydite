@@ -187,6 +187,35 @@ class Garde(unittest.TestCase):
         self.assertNotIn("aaaaaaa", sortie)
         self.sans_rien_de_trouve(sortie)
 
+    def test_l_adresse_d_un_auteur_ne_passe_que_par_la_liste(self):
+        # L'adresse qu'un contributeur publie avec son commit passe, sur un fork comme ailleurs.
+        exterieur = {"name": "someone", "email": COURRIEL}
+        commit = dict(PROPRE, sha="d" * 40, a=exterieur, c=exterieur)
+        for variables in ({}, {"LISTE": "fork"}):
+            with self.subTest(**variables):
+                code, sortie = jouer(commits=(commit,), **variables)
+                self.assertEqual(code, 0, sortie)
+                self.assertNotIn("::error", sortie)
+        # La même adresse ailleurs que dans l'auteur et le committer reste une faute.
+        message = dict(commit, m=f"Un message\n\n{COURRIEL}")
+        code, sortie = jouer(commits=(message,), pr={"corps": COURRIEL}, LISTE="fork")
+        self.assertEqual(code, 1)
+        self.assertIn("An e-mail address appears in the message of commit ddddddd.", sortie)
+        self.assertIn("An e-mail address appears in the body.", sortie)
+        self.assertNotIn("author or committer", sortie)
+        # Les autres motifs jugent encore l'auteur : seul celui des adresses électroniques s'en retire.
+        reseau = dict(commit, a={"name": "x", "email": "x@" + "nas.l" + "an"})
+        code, sortie = jouer(commits=(reseau,), LISTE="fork")
+        self.assertEqual(code, 1)
+        self.assertIn("A private network name appears in the author or committer of commit ddddddd.", sortie)
+        # Une adresse de la liste dans l'auteur reste une faute.
+        liste = dict(commit, a={"name": "x", "email": f"{MOT.lower()}@" + "mailbox.org"})
+        code, sortie = jouer(commits=(liste,))
+        self.assertEqual(code, 1)
+        self.assertIn("Line 4 of the guard list appears in the author or committer of commit ddddddd.", sortie)
+        self.assertNotIn("An e-mail address", sortie)
+        self.sans_rien_de_trouve(sortie, "mailbox")
+
     def test_les_motifs_generiques(self):
         cas = (
             (RESEAU, "A private network address"),
