@@ -1,5 +1,5 @@
-"""Lydite pour Hermes : quatre outils (`<préfixe>_lancer`, `<préfixe>_etat`, `<préfixe>_lecons`, `<préfixe>_plan`)
-et le verrou d'approbation du lancement.
+"""Lydite pour Hermes : cinq outils (`<préfixe>_lancer`, `<préfixe>_etat`, `<préfixe>_lecons`, `<préfixe>_plan`,
+`<préfixe>_findings`) et le verrou d'approbation du lancement.
 
 Le plugin ne fait que lancer le binaire de Lydite déjà présent sur la machine et lire ce que Lydite a constaté. Les
 mains sont des sessions Claude Code que Lydite lance lui-même derrière son mur ; ce ne sont jamais des agents Hermes.
@@ -9,9 +9,9 @@ Voir README.md.
 import re
 from pathlib import Path
 
-from .nom import ETAT, LANCER, LECONS, PLAN, PREFIXE
+from .nom import ETAT, FINDINGS, LANCER, LECONS, PLAN, PREFIXE
 from .outils import Outils
-from .schemas import SCHEMA_ETAT, SCHEMA_LANCER, SCHEMA_LECONS, SCHEMA_PLAN
+from .schemas import SCHEMA_ETAT, SCHEMA_FINDINGS, SCHEMA_LANCER, SCHEMA_LECONS, SCHEMA_PLAN
 
 # La skill de pilotage, au format ouvert `SKILL.md` : Hermes la rend sous `lydite:driving-lydite`. Sa description est
 # celle de son fichier, lue ici (une seule ligne) pour n'être écrite qu'une fois.
@@ -20,7 +20,7 @@ FICHIER_SKILL = Path(__file__).resolve().parent / "skills" / SKILL / "SKILL.md"
 
 
 def register(ctx):
-    """Enregistre ce que `plugin.yaml` déclare (quatre outils et un crochet `pre_tool_call`) et la skill de pilotage."""
+    """Enregistre ce que `plugin.yaml` déclare (cinq outils et un crochet `pre_tool_call`) et la skill de pilotage."""
     outils = Outils(ctx)
     ctx.register_tool(
         name=LANCER,
@@ -56,6 +56,15 @@ def register(ctx):
         handler=outils.plan,
         check_fn=outils.disponible,
         description="Check a plan file with Lydite, run nothing",
+        emoji="🐙",
+    )
+    ctx.register_tool(
+        name=FINDINGS,
+        toolset=PREFIXE,
+        schema=SCHEMA_FINDINGS,
+        handler=outils.findings,
+        check_fn=outils.disponible,
+        description="Read a hermes-security export and write one Lydite plan per finding, run nothing",
         emoji="🐙",
     )
     ctx.register_hook("pre_tool_call", outils.verrou)

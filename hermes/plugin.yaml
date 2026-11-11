@@ -10,6 +10,7 @@ provides_tools:
   - lydite_etat
   - lydite_lecons
   - lydite_plan
+  - lydite_findings
 provides_hooks:
   - pre_tool_call
 config_schema:
