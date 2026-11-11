@@ -59,7 +59,7 @@ fn plan_de_relance(plan: &Plan, numero: u64, contexte: &str) -> Plan {
         Some(unis)
     });
     let tache = Tache { id: "ci".into(), depend: Vec::new(), preuve: None, objectif, fichiers, ..Tache::default() };
-    Plan { objectif: format!("Rendre verte la CI de la PR {numero}"), preuve: plan.preuve.clone(), taches: vec![tache] }
+    Plan { objectif: format!("Make the CI of PR {numero} green"), preuve: plan.preuve.clone(), taches: vec![tache] }
 }
 
 /// Le corps de la PR, public, écrit en anglais : d'abord le bloc « Receipt », écrit à l'ouverture de la PR : le coût
