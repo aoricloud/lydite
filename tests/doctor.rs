@@ -190,6 +190,9 @@ fn doctor_d_un_profil_dit_le_refus_avant_accepter_et_sort_en_0_apres() {
     }
 }
 
+// Le mur natif n'existe que sous Linux, et srt n'y tient pas sous Windows : `doctor` y dit « skipped srt » pour tout
+// profil. Ce test, qui attend `missing srt` pour le profil `mur = exige`, ne se joue que là où le mur existe.
+#[cfg(unix)]
 #[test]
 fn doctor_d_un_profil_natif_verifie_bwrap_et_lydite_reseau_a_la_place_de_srt() {
     let (dir, (dossier, _)) = (neuf("natif"), dossier_de_lydite("natif"));
@@ -232,6 +235,16 @@ fn doctor_d_un_profil_natif_verifie_bwrap_et_lydite_reseau_a_la_place_de_srt() {
     assert_eq!(code, 1, "{lignes:?}");
     assert!(a(&lignes, "missing srt: `") && a(&lignes, "missing profile: s, refusal 6028"), "{lignes:?}");
     assert!(!a(&lignes, "missing bwrap") && !a(&lignes, "ok bwrap") && !a(&lignes, "ok lydite-reseau"), "{lignes:?}");
+    // Un profil natif pas encore accepté (6011) : le mur se lit dans son fichier, et srt n'est pas demandé.
+    fs::write(dossier.join("profils").join("n.profil"), "sorte = claude\nmur = natif\n").unwrap();
+    let (lignes, code) = jouer(doctor().args(["doctor", "n"]));
+    assert_eq!(code, 1, "{lignes:?}");
+    assert!(a(&lignes, "missing profile: n, refusal 6011"), "{lignes:?}");
+    assert!(
+        a(&lignes, "missing bwrap: `") && a(&lignes, "skipped srt: the profile uses the native wall"),
+        "{lignes:?}"
+    );
+    assert!(!a(&lignes, "missing srt"), "{lignes:?}");
     for dir in [&dir, &dossier] {
         fs::remove_dir_all(dir).unwrap();
     }

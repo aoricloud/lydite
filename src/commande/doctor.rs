@@ -24,8 +24,7 @@ use crate::branchements::dossier;
 use crate::branchements::github::programme_gh;
 use crate::branchements::natif;
 use crate::branchements::processus::{attendre, echeance, tuer_et_attendre};
-use crate::branchements::srt::PREUVE_DU_MUR_NATIF;
-use crate::coeur::erreur::{Code, Refus};
+use crate::coeur::erreur::Refus;
 use crate::coeur::profil::MurDuRejeu;
 use crate::coeur::texte::en_ligne;
 use crate::conduite::mener::preparer;
@@ -65,8 +64,17 @@ pub(crate) struct ProfilVu {
     pub(crate) fournisseur: bool,
     /// Le profil exige le mur, que `preparer` a éprouvé.
     pub(crate) mur: bool,
-    /// Le mur est le mur natif (`mur = natif`) : bubblewrap et `lydite-reseau` à la place de srt.
+}
+
+/// Le profil nommé, tel que `doctor` le regarde.
+pub(crate) struct ProfilNomme<'a> {
+    pub(crate) nom: &'a str,
+    /// Le profil dit `mur = natif` : bubblewrap et `lydite-reseau` à la place de srt. Lu dans le fichier du profil,
+    /// que `preparer` l'ait accepté ou non : un profil pas encore accepté (6011, 6012) ou refusé pour une autre
+    /// raison n'a pas besoin de srt non plus.
     pub(crate) natif: bool,
+    /// Ce que `preparer` en a dit.
+    pub(crate) vu: &'a Result<ProfilVu, Refus>,
 }
 
 /// Comment un programme a fini.
@@ -208,14 +216,14 @@ fn dossier_de_lydite(rapport: &mut Rapport, dossier: &Result<PathBuf, Refus>, wi
     rapport.ok("state folder", format!("{}{neuf}", dossier.display()));
 }
 
-/// Le profil nommé est-il un profil `mur = natif` ? Un profil que `preparer` a accepté le dit ; un profil que le mur
-/// natif a refusé (6028, dont la preuve commence par [`PREUVE_DU_MUR_NATIF`]) l'est aussi : `doctor` dit alors ce qui
-/// manque à ce mur, et ne demande pas srt. Un autre refus ne dit rien du mur.
-fn mur_natif(vu: &Result<ProfilVu, Refus>) -> bool {
-    match vu {
-        Ok(vu) => vu.natif,
-        Err(refus) => refus.code == Code::MurRefuse && refus.preuve.starts_with(PREUVE_DU_MUR_NATIF),
-    }
+/// Le profil nommé dit-il `mur = natif`, d'après son fichier (ou le profil intégré), que `preparer` l'ait accepté ou
+/// non ? Un profil qui ne se lit pas ne dit rien du mur : `false`, et son refus se dit à la ligne du profil.
+fn lire_natif(nom: &str, dossier: &Result<PathBuf, Refus>) -> bool {
+    dossier
+        .as_ref()
+        .ok()
+        .and_then(|dossier| dossier::charger_dans(nom, dossier).ok())
+        .is_some_and(|profil| profil.mur_du_rejeu() == MurDuRejeu::Natif)
 }
 
 /// Les contrôles du mur natif, à la place de srt : `bwrap` part, et `lydite-reseau` est un fichier là où Lydite le
@@ -251,7 +259,7 @@ fn mur_natif_present(programmes: &Programmes, rapport: &mut Rapport) {
 pub(crate) fn verifier(
     programmes: &Programmes,
     dossier: &Result<PathBuf, Refus>,
-    profil: Option<(&str, &Result<ProfilVu, Refus>)>,
+    profil: Option<ProfilNomme>,
     windows: bool,
 ) -> (Vec<String>, u8) {
     let mut rapport = Rapport::default();
@@ -285,7 +293,7 @@ pub(crate) fn verifier(
     }
     .jouer(programmes.delai_claude, &mut rapport);
     let connexion = "run `claude auth login`. A profile that names another provider (`api`) needs no Claude account.";
-    if profil.is_some_and(|(_, vu)| vu.as_ref().is_ok_and(|vu| vu.fournisseur)) {
+    if profil.as_ref().is_some_and(|p| p.vu.as_ref().is_ok_and(|vu| vu.fournisseur)) {
         rapport.saute("claude login", "the profile names another provider, whose hands need no Claude account.");
     } else {
         Controle {
@@ -298,7 +306,7 @@ pub(crate) fn verifier(
         }
         .jouer(programmes.delai_claude, &mut rapport);
     }
-    if profil.is_some_and(|(_, vu)| mur_natif(vu)) {
+    if profil.as_ref().is_some_and(|p| p.natif) {
         mur_natif_present(programmes, &mut rapport);
         let detail = "the profile uses the native wall (`mur = natif`), which runs bubblewrap itself: it needs no srt.";
         rapport.saute("srt", detail);
@@ -324,11 +332,11 @@ pub(crate) fn verifier(
             "profile",
             "name a profile, from your repository, to check it and its wall: lydite doctor <profile>",
         ),
-        Some((nom, Ok(vu))) => {
+        Some(ProfilNomme { nom, vu: Ok(vu), .. }) => {
             let mur = if vu.mur { ", wall checked" } else { "" };
             rapport.ok("profile", format!("{nom} accepted, ready to launch here{mur}"));
         }
-        Some((nom, Err(refus))) => {
+        Some(ProfilNomme { nom, vu: Err(refus), .. }) => {
             rapport.manques += 1;
             rapport.lignes.push(format!("missing profile: {nom}, refusal {}", refus.code.numero()));
             rapport.lignes.extend(refus.to_string().lines().map(|ligne| format!("  {ligne}")));
@@ -357,16 +365,14 @@ pub(crate) fn doctor_cmd(nom: Option<&str>) -> Result<ExitCode, Refus> {
         delai_srt: DELAI,
         delai_bwrap: DELAI,
     };
+    let dossier = dossier::dossier();
     let profil = nom.map(|nom| {
-        let vu = preparer(nom, None).map(|(profil, ..)| ProfilVu {
-            fournisseur: profil.fournisseur().is_some(),
-            mur: profil.exige(),
-            natif: profil.mur_du_rejeu() == MurDuRejeu::Natif,
-        });
-        (nom, vu)
+        let vu = preparer(nom, None)
+            .map(|(profil, ..)| ProfilVu { fournisseur: profil.fournisseur().is_some(), mur: profil.exige() });
+        (nom, lire_natif(nom, &dossier), vu)
     });
-    let (lignes, code) =
-        verifier(&programmes, &dossier::dossier(), profil.as_ref().map(|(nom, vu)| (*nom, vu)), cfg!(windows));
+    let nomme = profil.as_ref().map(|(nom, natif, vu)| ProfilNomme { nom, natif: *natif, vu });
+    let (lignes, code) = verifier(&programmes, &dossier, nomme, cfg!(windows));
     for ligne in lignes {
         println!("{ligne}");
     }
