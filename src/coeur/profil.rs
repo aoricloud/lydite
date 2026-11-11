@@ -434,29 +434,26 @@ impl Profil {
     /// le modèle et la relance, le mur, la preuve, le plafond par main, les deux délais. Tout vient du profil lu, et
     /// rien d'autre n'est lu. Une main brute n'a pas de fichier : une seule rangée.
     pub(crate) fn rangees(&self) -> Vec<String> {
-        let Sorte::Claude(claude) = &self.sorte else { return vec!["main brute : aucun profil à lire".into()] };
-        let source = claude.fichier.as_ref().map_or_else(|| "intégré".to_string(), |f| f.display().to_string());
+        let Sorte::Claude(claude) = &self.sorte else { return vec!["raw hand: no profile to read".into()] };
+        let source = claude.fichier.as_ref().map_or_else(|| "built-in".to_string(), |f| f.display().to_string());
         let (mur, preuve) = if claude.exige {
-            (
-                "exigé : les commandes de la main tournent dans le bac à sable de Claude Code",
-                "rejouée par srt, dans le mur",
-            )
+            ("required: the hand's commands run in Claude Code's sandbox", "replayed by srt, inside the wall")
         } else {
             (
-                "demandé : les commandes de la main peuvent tourner hors du bac à sable, et y voient la clé du \
-                 fournisseur s'il y en a un",
-                "rejouée hors du mur",
+                "requested: the hand's commands may run outside the sandbox, and see the provider's key if there is \
+                 one",
+                "replayed outside the wall",
             )
         };
         vec![
-            format!("profil : {} ({source})", claude.nom),
-            format!("empreinte : {}", claude.empreinte),
-            format!("modèle : {} ; relance : {}", claude.modele, claude.relance),
-            format!("mur : {mur}"),
-            format!("preuve : {preuve}"),
-            format!("plafond par main : {} $", self.plafond()),
-            format!("délai de la main : {} s", self.delai_main.as_secs()),
-            format!("délai de la preuve : {} s", self.delai_preuve.as_secs()),
+            format!("profile: {} ({source})", claude.nom),
+            format!("fingerprint: {}", claude.empreinte),
+            format!("model: {}; retry: {}", claude.modele, claude.relance),
+            format!("wall: {mur}"),
+            format!("proof: {preuve}"),
+            format!("ceiling per hand: ${}", self.plafond()),
+            format!("hand timeout: {} s", self.delai_main.as_secs()),
+            format!("proof timeout: {} s", self.delai_preuve.as_secs()),
         ]
     }
 
