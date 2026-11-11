@@ -600,7 +600,7 @@ fn le_relecteur_et_la_correction_partent_chacun_sur_leur_effort() {
     essai.remarques(1, &remarques_justes());
     let sortie = essai.lancer();
     assert_ne!(sortie.status.code(), Some(0), "{}", dit(&sortie));
-    let ecart = r#"applied.effort \"low\", déclaré \"max\""#;
+    let ecart = r#"applied.effort \"low\", declared \"max\""#;
     assert!(essai.fil().contains(ecart), "{}", essai.fil());
     let _ = fs::remove_dir_all(&essai.racine);
 
@@ -613,7 +613,7 @@ fn le_relecteur_et_la_correction_partent_chacun_sur_leur_effort() {
     essai.remarques(1, &remarques_justes());
     let sortie = essai.lancer();
     assert_ne!(sortie.status.code(), Some(0), "{}", dit(&sortie));
-    let ecart = r#"applied.effort \"max\", déclaré \"low\""#;
+    let ecart = r#"applied.effort \"max\", declared \"low\""#;
     assert!(essai.fil().contains(ecart), "{}", essai.fil());
     let _ = fs::remove_dir_all(&essai.racine);
 }
@@ -665,7 +665,7 @@ fn l_effort_d_une_tache_remplace_celui_du_profil_pour_ses_deux_tentatives_et_se_
     essai.poser_les_efforts("effort = high\neffort_relance = high\n", &[("haiku", "low"), ("sonnet", "high")]);
     essai.remarques(1, &remarques_justes());
     let sortie = essai.lancer();
-    let ecart = r#"applied.effort \"low\", déclaré \"high\""#;
+    let ecart = r#"applied.effort \"low\", declared \"high\""#;
     assert!(essai.fil().contains(ecart), "{}\n{}", dit(&sortie), essai.fil());
     let _ = fs::remove_dir_all(&essai.racine);
 }
