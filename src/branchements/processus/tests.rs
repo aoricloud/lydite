@@ -27,14 +27,30 @@ fn l_arbre_se_lit_dans_les_stats() {
 #[test]
 fn un_code_non_nul_de_kill_n_est_un_echec_que_si_un_pid_vit_encore() {
     let pids = ["10".to_string(), "11".to_string(), "12".to_string()];
-    // Code nul : jamais un échec, même si un pid passe pour vivant.
-    assert!(!coup_en_echec(true, &pids, |_| true));
-    assert!(!coup_en_echec(true, &pids, |_| false));
+    let loin = Instant::now() + SORTIE;
+    let maintenant = Instant::now();
+    // Code nul : jamais un échec, et rien ne se lit.
+    let lectures = std::cell::Cell::new(0_u32);
+    let compte = |_: &str| {
+        lectures.set(lectures.get() + 1);
+        true
+    };
+    assert!(!coup_en_echec(true, &pids, compte, maintenant));
+    assert_eq!(lectures.get(), 0, "un code nul ne lit rien");
     // Code non nul, tous les pids sont morts : un descendant est sorti entre le relevé et le coup.
-    assert!(!coup_en_echec(false, &pids, |_| false));
-    // Code non nul, un seul pid vit encore : un échec.
-    assert!(coup_en_echec(false, &pids, |pid| pid == "11"));
-    assert!(coup_en_echec(false, &pids, |_| true));
+    assert!(!coup_en_echec(false, &pids, |_| false, maintenant));
+    // Code non nul, un seul pid vit encore à l'échéance : un échec.
+    assert!(coup_en_echec(false, &pids, |pid| pid == "11", maintenant));
+    // Un pid qui vit toujours à l'échéance (nulle ici) est un échec.
+    assert!(coup_en_echec(false, &pids, |_| true, maintenant));
+    // La racine frappée se lit vivante deux fois, puis sort : la décision attend, et n'y voit pas d'échec.
+    let relectures = std::cell::Cell::new(0_u32);
+    let sort_apres_deux_lectures = |_: &str| {
+        relectures.set(relectures.get() + 1);
+        relectures.get() <= 2
+    };
+    assert!(!coup_en_echec(false, &pids[..1], sort_apres_deux_lectures, loin));
+    assert_eq!(relectures.get(), 3, "relue jusqu'à ce que plus rien ne vive");
     // Le pid de la fonction `vivant` : le test lui-même vit, un pid hors de portée des pid ne vit pas.
     let moi = std::process::id().to_string();
     assert!(vivant(&moi));
