@@ -186,8 +186,9 @@ codes! {
         "A profile that names a provider gives `api`, an https URL, and `cle`, the name of an environment \
          variable that is set and not empty, never the key itself.";
     MurRefuse = 6028, "lancer.mur_refuse",
-        "Under a required wall, srt plays `true` under replay settings before any hand and before the base \
-         check; otherwise nothing is launched.";
+        "Under a required wall, the wall that replays the proof plays `true` before any hand and before the base \
+         check (srt under `mur = exige`, Lydite's native wall under `mur = natif`); otherwise nothing is \
+         launched.";
     IssueSansMur = 6029, "lancer.issue_sans_mur",
         "`--issue` only runs under a profile whose wall is required, because the text of an issue comes from \
          someone else: `mur = exige` in the profile, then `lydite accept <profile>`, or an objective typed by \

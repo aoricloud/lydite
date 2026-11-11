@@ -12,7 +12,8 @@
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Display;
-use std::io::Read;
+use std::fs;
+use std::io::{self, Read};
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::mpsc;
@@ -25,7 +26,7 @@ use crate::branchements::github::programme_gh;
 use crate::branchements::natif;
 use crate::branchements::processus::{attendre, echeance, tuer_et_attendre};
 use crate::coeur::erreur::Refus;
-use crate::coeur::profil::MurDuRejeu;
+use crate::coeur::profil::{MurDuRejeu, PROFILS, integre};
 use crate::coeur::texte::en_ligne;
 use crate::conduite::mener::preparer;
 
@@ -48,7 +49,7 @@ pub(crate) struct Programmes {
     /// Le `bwrap` du mur natif (`LYDITE_BWRAP`), que `doctor` ne lance que pour un profil `mur = natif`.
     pub(crate) bwrap: OsString,
     /// Le chemin de `lydite-reseau` (`LYDITE_RESEAU`, sinon à côté de `lydite`), ou pourquoi il n'y en a pas : `doctor`
-    /// ne le regarde que pour un profil `mur = natif`.
+    /// ne le regarde que pour un profil `mur = natif` qui permet des domaines.
     pub(crate) reseau: Result<PathBuf, String>,
     pub(crate) delai_git: Duration,
     pub(crate) delai_gh: Duration,
@@ -73,6 +74,8 @@ pub(crate) struct ProfilNomme<'a> {
     /// que `preparer` l'ait accepté ou non : un profil pas encore accepté (6011, 6012) ou refusé pour une autre
     /// raison n'a pas besoin de srt non plus.
     pub(crate) natif: bool,
+    /// Le profil permet des domaines (une ligne `reseau`) : seul un mur natif qui en a besoin cherche `lydite-reseau`.
+    pub(crate) domaines: bool,
     /// Ce que `preparer` en a dit.
     pub(crate) vu: &'a Result<ProfilVu, Refus>,
 }
@@ -226,9 +229,28 @@ fn lire_natif(nom: &str, dossier: &Result<PathBuf, Refus>) -> bool {
         .is_some_and(|profil| profil.mur_du_rejeu() == MurDuRejeu::Natif)
 }
 
-/// Les contrôles du mur natif, à la place de srt : `bwrap` part, et `lydite-reseau` est un fichier là où Lydite le
-/// cherche. Chaque manque dit quoi faire.
-fn mur_natif_present(programmes: &Programmes, rapport: &mut Rapport) {
+/// Le profil nommé permet-il des domaines (une ligne `reseau`, jamais vide) ? Lu dans son fichier, ou le profil
+/// intégré, comme [`lire_natif`] : `charger_dans` a déjà lu le profil sans refus, mais il n'en rend pas la liste. Un
+/// texte qui ne se relit pas compte comme des domaines : mieux vaut un contrôle de trop qu'un manque tu.
+fn lire_domaines(nom: &str, dossier: &Result<PathBuf, Refus>) -> bool {
+    let Ok(dossier) = dossier else { return false };
+    let fichier = dossier.join(PROFILS).join(format!("{nom}.profil"));
+    let texte = match fs::read_to_string(&fichier) {
+        Ok(texte) => texte,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => match integre(nom) {
+            Some(integre) => integre.to_string(),
+            None => return false,
+        },
+        Err(_) => return true,
+    };
+    let texte = texte.strip_prefix('\u{feff}').unwrap_or(&texte);
+    let ligne_utile = |ligne: &&str| !ligne.trim().is_empty() && !ligne.trim_start().starts_with('#');
+    texte.lines().filter(ligne_utile).any(|ligne| ligne.split_once('=').is_some_and(|(cle, _)| cle.trim() == "reseau"))
+}
+
+/// Les contrôles du mur natif, à la place de srt : `bwrap` part, et, si le profil permet des domaines (`domaines`),
+/// `lydite-reseau` est un fichier là où Lydite le cherche. Chaque manque dit quoi faire.
+fn mur_natif_present(programmes: &Programmes, domaines: bool, rapport: &mut Rapport) {
     let installer = "install bubblewrap (Linux only; on Debian and Ubuntu, `apt install bubblewrap`) or name its path \
                      in LYDITE_BWRAP.";
     Controle {
@@ -240,8 +262,13 @@ fn mur_natif_present(programmes: &Programmes, rapport: &mut Rapport) {
         rouge: (None, installer),
     }
     .jouer(programmes.delai_bwrap, rapport);
-    let construire = "build it (`cargo build --release --manifest-path reseau/Cargo.toml`) and put it next to the \
-                      `lydite` executable, or name its path in LYDITE_RESEAU.";
+    // Le rejeu ne cherche `lydite-reseau` qu'avec des domaines (`natif::preparer`) : sans eux, il ne manque pas.
+    if !domaines {
+        let detail = "the profile allows no domain, so the native wall needs no network filter.";
+        return rapport.saute("lydite-reseau", detail);
+    }
+    let construire = "the Linux archive ships it next to `lydite`: put it there, or name its path in LYDITE_RESEAU \
+                      (from the source: `cargo build --release --manifest-path reseau/Cargo.toml`).";
     match &programmes.reseau {
         Ok(chemin) if chemin.is_file() => rapport.ok("lydite-reseau", chemin.display()),
         Ok(chemin) => rapport.manque("lydite-reseau", format!("{} is not a file.", chemin.display()), construire),
@@ -306,8 +333,8 @@ pub(crate) fn verifier(
         }
         .jouer(programmes.delai_claude, &mut rapport);
     }
-    if profil.as_ref().is_some_and(|p| p.natif) {
-        mur_natif_present(programmes, &mut rapport);
+    if let Some(natif) = profil.as_ref().filter(|p| p.natif) {
+        mur_natif_present(programmes, natif.domaines, &mut rapport);
         let detail = "the profile uses the native wall (`mur = natif`), which runs bubblewrap itself: it needs no srt.";
         rapport.saute("srt", detail);
     } else if windows {
@@ -369,9 +396,10 @@ pub(crate) fn doctor_cmd(nom: Option<&str>) -> Result<ExitCode, Refus> {
     let profil = nom.map(|nom| {
         let vu = preparer(nom, None)
             .map(|(profil, ..)| ProfilVu { fournisseur: profil.fournisseur().is_some(), mur: profil.exige() });
-        (nom, lire_natif(nom, &dossier), vu)
+        (nom, lire_natif(nom, &dossier), lire_domaines(nom, &dossier), vu)
     });
-    let nomme = profil.as_ref().map(|(nom, natif, vu)| ProfilNomme { nom, natif: *natif, vu });
+    let nomme =
+        profil.as_ref().map(|(nom, natif, domaines, vu)| ProfilNomme { nom, natif: *natif, domaines: *domaines, vu });
     let (lignes, code) = verifier(&programmes, &dossier, nomme, cfg!(windows));
     for ligne in lignes {
         println!("{ligne}");

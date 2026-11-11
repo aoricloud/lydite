@@ -295,10 +295,18 @@ fn un_profil_qui_nomme_un_fournisseur_n_a_pas_besoin_d_un_compte_claude() {
     effacer(&dir);
 }
 
-/// Le profil `nom`, dit au mur natif ou non, avec ce que `preparer` en a dit.
+/// Le profil `nom`, dit au mur natif ou non, avec ce que `preparer` en a dit. Un profil natif permet des domaines.
 fn nomme<'a>(nom: &'a str, natif: bool, vu: &'a Result<ProfilVu, Refus>) -> ProfilNomme<'a> {
-    ProfilNomme { nom, natif, vu }
+    ProfilNomme { nom, natif, domaines: natif, vu }
 }
+
+/// Le profil natif `nom` qui ne permet aucun domaine (aucune ligne `reseau`).
+fn nomme_sans_domaine<'a>(nom: &'a str, vu: &'a Result<ProfilVu, Refus>) -> ProfilNomme<'a> {
+    ProfilNomme { nom, natif: true, domaines: false, vu }
+}
+
+const SANS_FILTRE: &str =
+    "skipped lydite-reseau: the profile allows no domain, so the native wall needs no network filter.";
 
 /// Un profil que `preparer` a accepté, au mur exigé.
 fn accepte() -> Result<ProfilVu, Refus> {
@@ -352,8 +360,8 @@ fn un_profil_natif_dit_pour_chaque_manque_quoi_faire() {
     let dir = racine("doctor-natif-manques");
     let installer = "install bubblewrap (Linux only; on Debian and Ubuntu, `apt install bubblewrap`) or name its path \
                      in LYDITE_BWRAP.";
-    let construire = "build it (`cargo build --release --manifest-path reseau/Cargo.toml`) and put it next to the \
-                      `lydite` executable, or name its path in LYDITE_RESEAU.";
+    let construire = "the Linux archive ships it next to `lydite`: put it there, or name its path in LYDITE_RESEAU \
+                      (from the source: `cargo build --release --manifest-path reseau/Cargo.toml`).";
     // `bwrap` ne part pas, `lydite-reseau` n'est pas là où on le cherche.
     let absent_reseau = dir.join("lydite-reseau-absent");
     let programmes = Programmes { bwrap: absent(&dir), reseau: Ok(absent_reseau.clone()), ..tout_present(&dir) };
@@ -384,6 +392,26 @@ fn un_profil_natif_dit_pour_chaque_manque_quoi_faire() {
 }
 
 #[test]
+fn un_profil_natif_sans_domaine_ne_cherche_pas_lydite_reseau_et_rien_ne_manque() {
+    let dir = racine("doctor-natif-sans-domaine");
+    let reseaux =
+        [Err("inconnu".to_string()), Ok(dir.join("lydite-reseau-absent")), Ok(dir.clone()), Ok(faux_reseau(&dir))];
+    for reseau in reseaux {
+        let programmes = Programmes { reseau: reseau.clone(), ..tout_present(&dir) };
+        let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme_sans_domaine("p", &accepte())), false);
+        assert_eq!(ligne_de(&lignes, "lydite-reseau"), Some(&SANS_FILTRE.to_string()), "{reseau:?} : {lignes:?}");
+        assert_eq!((lignes.last().map(String::as_str), code), (Some("ready"), 0), "{reseau:?} : {lignes:?}");
+    }
+    // `bwrap`, lui, se vérifie toujours : le manque d'un autre contrôle se dit, et seul lui compte.
+    let programmes = Programmes { bwrap: absent(&dir), reseau: Err("inconnu".into()), ..tout_present(&dir) };
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(nomme_sans_domaine("p", &accepte())), false);
+    assert!(ligne_de(&lignes, "bwrap").is_some_and(|ligne| ligne.starts_with("missing bwrap: `")), "{lignes:?}");
+    assert_eq!(ligne_de(&lignes, "lydite-reseau"), Some(&SANS_FILTRE.to_string()), "{lignes:?}");
+    assert_eq!((lignes.last().map(String::as_str), code), (Some("not ready: 1 missing"), 1));
+    effacer(&dir);
+}
+
+#[test]
 fn un_profil_que_le_mur_natif_a_refuse_se_lit_natif_et_ne_demande_pas_srt() {
     let dir = racine("doctor-natif-refuse");
     // srt manque : un profil natif refusé n'en a pas besoin, mais `bwrap` et `lydite-reseau` se disent.
@@ -400,7 +428,7 @@ fn un_profil_que_le_mur_natif_a_refuse_se_lit_natif_et_ne_demande_pas_srt() {
     assert_eq!(lignes.last().map(String::as_str), Some("not ready: 2 missing"));
     assert_eq!(code, 1);
     // Un profil qui dit `mur = exige` est vérifié par srt, quel que soit son refus, même 6028 au texte du mur natif.
-    let de_srt = Refus::new(Code::MurRefuse, "le mur est exigé, et srt ne joue pas `true` : x", "Installe srt.");
+    let de_srt = Refus::new(Code::MurRefuse, "the wall is required, and srt does not play `true`: x", "Installe srt.");
     for refus in [de_srt, natif] {
         let (lignes, _) = verifier(&programmes, &dossier_court(), Some(nomme("p", false, &Err(refus))), false);
         assert!(ligne_de(&lignes, "srt").is_some_and(|ligne| ligne.starts_with("missing srt: `")), "{lignes:?}");
@@ -449,6 +477,29 @@ fn doctor_lit_le_mur_dans_le_fichier_du_profil_qu_il_soit_accepte_ou_non() {
     // Un profil qui n'existe pas, un dossier qui ne se donne pas : rien ne se lit, ce n'est pas un mur natif.
     assert!(!lire_natif("absent", &dossier));
     assert!(!lire_natif("natif", &Err(Refus::new(Code::ProfilNonAccepte, "x", "y"))));
+    effacer(&dir);
+}
+
+#[test]
+fn doctor_lit_les_domaines_dans_le_fichier_du_profil() {
+    let dir = racine("doctor-lit-domaines");
+    let dossier = Ok(dir.join("kraken"));
+    let profils = dir.join("kraken").join("profils");
+    fs::create_dir_all(&profils).unwrap();
+    let ecrire = |nom: &str, texte: &str| fs::write(profils.join(format!("{nom}.profil")), texte).unwrap();
+    ecrire("avec", "sorte = claude\nmur = natif\nreseau = docs.exemple.test, paquets.exemple.test\n");
+    ecrire("espaces", "sorte = claude\nmur = natif\n  reseau=docs.exemple.test\r\n");
+    ecrire("sans", "sorte = claude\nmur = natif\n");
+    // Un commentaire qui parle de `reseau`, ou une autre clé qui commence par lui, n'est pas une ligne `reseau`.
+    ecrire("commente", "sorte = claude\nmur = natif\n# reseau = docs.exemple.test\nlecture = /srv/reseau\n");
+    assert!(lire_domaines("avec", &dossier));
+    assert!(lire_domaines("espaces", &dossier));
+    assert!(!lire_domaines("sans", &dossier));
+    assert!(!lire_domaines("commente", &dossier));
+    // Le profil intégré n'a pas de domaine ; un profil qui n'existe pas, ou un dossier qui ne se donne pas, non plus.
+    assert!(!lire_domaines("claude", &dossier));
+    assert!(!lire_domaines("absent", &dossier));
+    assert!(!lire_domaines("avec", &Err(Refus::new(Code::ProfilNonAccepte, "x", "y"))));
     effacer(&dir);
 }
 
