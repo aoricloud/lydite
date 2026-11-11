@@ -1102,5 +1102,34 @@ class Identite(unittest.TestCase):
                 self.assertFalse(constats().identite_bien_formee(identite))
 
 
+class CaractereCache(unittest.TestCase):
+    def test_un_controle_un_format_ou_un_separateur_de_ligne_est_cache(self):
+        caches = (
+            "\x1b",
+            "\N{RIGHT-TO-LEFT OVERRIDE}",
+            "\N{ZERO WIDTH SPACE}",
+            "\x00",
+            "\t",
+            "\n",
+            "\r",
+            "\N{LINE SEPARATOR}",
+            "\N{PARAGRAPH SEPARATOR}",
+            "\N{NEXT LINE}",
+            chr(0xD800),
+            chr(0xE000),
+        )
+        for cache in caches:
+            with self.subTest(cache=cache):
+                self.assertTrue(constats().caractere_cache(f"a{cache}b"))
+
+    def test_un_texte_juste_n_en_porte_pas(self):
+        for texte in ("", "cargo test --all", "L'aperçu déjà vérifié à Noël · œuvre — 日本語", "a b", "/srv/dépôt"):
+            with self.subTest(texte=texte):
+                self.assertFalse(constats().caractere_cache(texte))
+
+    def test_un_seul_caractere_cache_suffit(self):
+        self.assertTrue(constats().caractere_cache("tout est lisible sauf la fin\N{ZERO WIDTH SPACE}"))
+
+
 if __name__ == "__main__":
     unittest.main()

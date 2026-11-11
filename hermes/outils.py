@@ -33,7 +33,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .constats import OCTETS_MAXIMUM, RapportRefuse, identite_bien_formee, lire, plan_de
+from .constats import OCTETS_MAXIMUM, RapportRefuse, caractere_cache, identite_bien_formee, lire, plan_de
 from .nom import ETAT, LANCER, PLAN, PREFIXE, SECRET_ENV
 
 # Les seules variables de l'environnement de Hermes qui passent à Lydite : celles qu'il faut pour trouver ses
@@ -149,6 +149,20 @@ def _json(objet) -> str:
     return json.dumps(objet, ensure_ascii=False)
 
 
+def _lignes_du_plan(texte: str) -> list:
+    """Les lignes d'un plan comme Lydite les lit : coupées sur `\\n` seul, puis un `\\r` final ôté de chacune
+    (`lire_en`, src/coeur/plan.rs). Jamais `splitlines()`, qui coupe aussi sur `\\r`, U+2028, U+0085 et d'autres : le
+    plugin y montrerait une ligne que Lydite ne voit pas."""
+    return [ligne.removesuffix("\r") for ligne in texte.split("\n")]
+
+
+def _exiger_lisible(champ: str, valeur: str) -> None:
+    """Refuse une valeur qui porte un caractère de contrôle, de format ou de sens d'écriture : il maquillerait ce que
+    l'humain approuve."""
+    if caractere_cache(valeur):
+        raise Refus(f"`{champ}` holds a hidden character: write it without control or formatting characters")
+
+
 def _maintenant() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -249,6 +263,7 @@ class Outils:
         chemin = Path(depot.strip()).expanduser()
         if not chemin.is_absolute():
             raise Refus(f"`repo` must be an absolute path, not {depot!r}")
+        _exiger_lisible("repo", depot)
         if not chemin.is_dir() or not (chemin / ".git").exists():
             raise Refus(f"`repo` {str(chemin)!r} is not a git checkout on this machine")
         return str(chemin)
@@ -275,6 +290,7 @@ class Outils:
             objectif = objectif.strip()
             if "\n" in objectif or "\r" in objectif or objectif.startswith("-"):
                 raise Refus("`objective` must be one line and must not start with '-'")
+            _exiger_lisible("objective", args["objectif"])
             if len(objectif) > LIMITE_DE_L_OBJECTIF:
                 raise Refus(f"`objective` is {len(objectif)} characters; keep it under {LIMITE_DE_L_OBJECTIF}")
 
@@ -286,12 +302,16 @@ class Outils:
                 raise Refus("a `plan` carries its own `preuve :` line: do not give `proof` with it")
             if args.get("observer") is True:
                 raise Refus("`observe` goes with `issue` or `objective`, not with `plan`")
+            _exiger_lisible("plan", plan)
             plan, plan_octets = self._lire_le_plan(plan)
+            _exiger_lisible("proof", self._valeur_brute_de_la_preuve(plan_octets.decode("utf-8")) or "")
             preuve = ""
         elif not isinstance(preuve, str) or not preuve.strip():
             raise Refus("`proof` is required: the command that proves the work done (Lydite replays it itself)")
         elif len(preuve.strip()) > LIMITE_DE_LA_PREUVE:
             raise Refus(f"`proof` is over {LIMITE_DE_LA_PREUVE} characters: put it in a script and run that")
+        else:
+            _exiger_lisible("proof", preuve)
 
         profil = args.get("profil")
         profil = profil.strip() if isinstance(profil, str) and profil.strip() else self._reglage("profil", "claude")
@@ -383,15 +403,23 @@ class Outils:
         return str(chemin), octets
 
     @staticmethod
-    def _preuve_du_plan(texte: str) -> str:
-        """La commande de la ligne `preuve :` de l'en-tête du plan, ou de quoi le dire si elle manque."""
-        for ligne in texte.splitlines():
+    def _valeur_brute_de_la_preuve(texte: str):
+        """La valeur de la ligne `preuve :` de l'en-tête du plan telle qu'elle est écrite, blancs des bords compris, ou
+        None si la ligne manque. Le `strip()` de Python ôte U+001C à U+001F, que Lydite garde (`trim()` de Rust) : le
+        refus des caractères cachés doit donc regarder cette valeur, jamais la valeur ôtée."""
+        for ligne in _lignes_du_plan(texte):
             if ligne == "tache" or ligne.startswith(("tache ", "tache\t")):
                 break
             cle, separateur, valeur = ligne.partition(":")
             if separateur and cle.strip() == "preuve":
-                return valeur.strip()
-        return "no `preuve :` line in the plan header"
+                return valeur
+        return None
+
+    @staticmethod
+    def _preuve_du_plan(texte: str) -> str:
+        """La commande de la ligne `preuve :` de l'en-tête du plan, ou de quoi le dire si elle manque."""
+        valeur = Outils._valeur_brute_de_la_preuve(texte)
+        return "no `preuve :` line in the plan header" if valeur is None else valeur.strip()
 
     @staticmethod
     def _commande(binaire: str, demande: dict) -> list:
@@ -504,7 +532,7 @@ class Outils:
         if demande["plan"]:
             texte = demande["plan_octets"].decode("utf-8")
             nom = Path(demande["plan"]).name
-            taches = sum(1 for ligne in texte.splitlines() if ligne.startswith("tache "))
+            taches = sum(1 for ligne in _lignes_du_plan(texte) if ligne.startswith("tache "))
             compte = "1 task" if taches == 1 else f"{taches} tasks"
             avant = [
                 ("repo", demande["depot"], "debut"),
@@ -560,9 +588,15 @@ class Outils:
         if demande["plan"]:
             self._plans_montres[(demande["depot"], demande["profil"], demande["plan"])] = empreinte
         message = self._message_de_l_approbation(demande, empreinte)
-        # L'accord « toujours » ne vaut que pour ce dépôt, ce profil et cette preuve (ou ce plan) exactement.
+        # L'accord « toujours » ne vaut que pour ce dépôt, ce profil, cette issue, cet objectif, cette branche cible, ce
+        # mode (essai à blanc ou lancement réel) et cette preuve (ou ce plan) exactement. Sept champs séparés par `\0`,
+        # chacun à une place fixe (un champ absent est une chaîne vide) : deux demandes différentes ne donnent jamais
+        # le même texte haché.
         corps = demande["plan_octets"].decode("utf-8") if demande["plan"] else demande["preuve"]
-        cle = _empreinte("\0".join([demande["depot"], demande["profil"], corps]).encode("utf-8"))
+        issue = "" if demande["issue"] is None else str(demande["issue"])
+        observer = "1" if demande["observer"] else ""
+        champs = [demande["depot"], demande["profil"], issue, demande["objectif"] or "", demande["pr"], observer, corps]
+        cle = _empreinte("\0".join(champs).encode("utf-8"))
         return {"action": "approve", "message": message, "rule_key": f"{LANCER}:{cle[:16]}"}
 
     # --- lancer ---------------------------------------------------------------------------------------------------
@@ -928,7 +962,7 @@ class Outils:
             "accepted": fin.returncode == 0,
             "plan": chemin,
             "sha256": _empreinte(octets),
-            "tasks": sum(1 for ligne in texte.splitlines() if ligne.startswith("tache ")),
+            "tasks": sum(1 for ligne in _lignes_du_plan(texte) if ligne.startswith("tache ")),
             "proof": self._preuve_du_plan(texte),
         }
         if fin.returncode == 0:
