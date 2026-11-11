@@ -1058,7 +1058,9 @@ fn les_sondes_de_la_grille_voient_ce_qui_est_la() {
     let duree = format!("200.{}", lot().replace('_', ""));
     assert_eq!(dormeurs(&duree), Vec::<u32>::new());
     let mut processus = Command::new("sleep").arg(&duree).stdin(Stdio::null()).spawn().unwrap();
-    assert_eq!(dormeurs(&duree), [processus.id()]);
+    // Juste après `spawn`, l'enfant n'a pas toujours fait son `exec` : sa ligne de commande n'est pas encore `sleep`.
+    let id = processus.id();
+    assert!(attendre_que(|| dormeurs(&duree) == [id], Duration::from_secs(10)), "le dormeur {id} ne se voit pas");
     processus.kill().unwrap();
     processus.wait().unwrap();
     assert!(dormeurs(&duree).is_empty());
