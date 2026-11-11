@@ -20,6 +20,7 @@ const USAGE: &str = concat!(
     " or lydite lecons <folder>",
     " or lydite accepter <profile>",
     " or lydite profil <profile>",
+    " or lydite doctor [<profile>]",
     " or lydite etat",
     " or lydite attendre",
 );
@@ -46,6 +47,8 @@ pub(crate) enum Commande {
     Accepter(String),
     /// Le nom du profil que `lydite profil` dit, en lecture seule.
     Profil(String),
+    /// `lydite doctor` : ce qui manque pour lancer une vague ; avec un profil, ce profil et son mur aussi.
+    Doctor(Option<String>),
     /// La dernière vague du fil.
     Etat,
     /// Attend la fin du lancement qui tient le dossier, puis dit la dernière vague comme `Etat`.
@@ -147,6 +150,16 @@ pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
         (Some("profil"), []) => Err(refus_de_ligne(Code::CommandeMalFormee, "`profil` : il manque le profil")),
         (Some("profil"), [_, autre, ..]) => {
             let preuve = format!("`profil` ne prend que le nom du profil, et {} le suit", mot(autre));
+            Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
+        }
+        (Some("doctor"), []) => Ok(Commande::Doctor(None)),
+        (Some("doctor"), [nom]) if nom.to_str().is_some_and(|nom| nom.starts_with('-')) => {
+            let preuve = format!("`doctor` veut le nom d'un profil, et {} est un drapeau", mot(nom));
+            Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
+        }
+        (Some("doctor"), [nom]) => Ok(Commande::Doctor(Some(texte(nom, "le profil")?))),
+        (Some("doctor"), [_, autre, ..]) => {
+            let preuve = format!("`doctor` ne prend que le nom d'un profil, et {} le suit", mot(autre));
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
         }
         (Some("lancer"), reste) if contient(reste, "--plan") && contient(reste, "--decouper") => {

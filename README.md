@@ -133,6 +133,11 @@ mkdir -p ~/.local/bin && install -m 755 lydite-*-linux-x86_64/lydite ~/.local/bi
 
 Or build it: `cargo build --release` (the toolchain is pinned by `rust-toolchain.toml`).
 
+**Check your setup.** Run `lydite doctor`: it launches no hand, writes nothing, and says for `git`, `gh`, Claude Code,
+`srt` and the state folder whether they are in order. Then, from your repository once the profile is accepted, run
+`lydite doctor <profile>`: it also reads the profile and plays the wall check (the only thing it writes). Every
+`missing` line says what to do.
+
 **A profile** says what the hands are lent. Write `~/.local/state/lydite/profils/first.profil` (the default state
 folder; `LYDITE_DOSSIER` moves it). This one is for a Rust project:
 
