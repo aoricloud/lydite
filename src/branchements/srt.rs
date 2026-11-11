@@ -1,24 +1,41 @@
-//! Le rejeu de la preuve d'une main, par la coquille ou sous srt, et l'épreuve du mur.
+//! Le rejeu de la preuve d'une main, par la coquille, sous srt ou sous le mur natif, et l'épreuve du mur.
 
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io;
-use std::path::{self, Path};
+use std::path::{self, Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
 use crate::branchements::bac::temporaire_de;
 use crate::branchements::claude::temporaire;
+use crate::branchements::natif::{self, Manque};
 use crate::branchements::processus::{
     attendre, coquille, echeance, retire_de_la_preuve, sans_session, tuer_et_attendre,
 };
 use crate::coeur::erreur::{Code, Refus, nommee, queue};
 use crate::coeur::fil::lot;
-use crate::coeur::profil::{Profil, Srt};
+use crate::coeur::profil::{MurDuRejeu, Profil, Srt};
+
+/// Le mur natif tel que l'environnement le donne : le `bwrap` (`LYDITE_BWRAP`) et le dossier personnel (`HOME`) que
+/// [`natif::rejouer`] prend. Lu une fois par [`rejouer`] et [`eprouver_le_mur`] ; un test le donne.
+struct MurNatif {
+    programme: OsString,
+    maison: Result<PathBuf, String>,
+}
+
+impl MurNatif {
+    fn de_l_environnement() -> MurNatif {
+        MurNatif { programme: natif::programme(), maison: natif::maison() }
+    }
+}
 
 /// Rejoue la commande de vérification dans le bac. Rend son `verif` : `None` si elle n'a pas pu partir, sinon la fin de
 /// sa sortie, « journal illisible : … » si son journal ne se lit pas ; et Ok si elle réussit avant le délai, sinon
 /// Err(erreur). Sa sortie passe par `journal`, un fichier temporaire effacé dans tous les cas. Une commande blanche ne
-/// part pas : elle ferait prendre toute main pour prouvée. Sous un mur exigé, elle se rejoue par srt ([`sous_le_mur`]).
+/// part pas : elle ferait prendre toute main pour prouvée. Le profil choisit le mur : sous `mur = exige`, elle se
+/// rejoue par srt ([`sous_le_mur`]) ; sous `mur = natif`, par le mur natif ([`natif::rejouer`]), sans chercher ni
+/// lancer srt, et une preuve qui ne s'y rejoue pas est une erreur, jamais une coquille nue.
 // raccourci : sous un mur demandé, la preuve se rejoue hors du mur, avec les droits de l'humain ; le code que la main
 // laisse peut y écrire le fil ou une empreinte ; monter avec le compte séparé du nœud
 pub(crate) fn rejouer(
@@ -27,8 +44,25 @@ pub(crate) fn rejouer(
     bac: &Path,
     journal: &Path,
 ) -> (Option<String>, Result<(), String>) {
+    rejouer_avec(profil, commande, bac, journal, &MurNatif::de_l_environnement())
+}
+
+/// [`rejouer`], avec le mur natif donné.
+fn rejouer_avec(
+    profil: &Profil,
+    commande: &str,
+    bac: &Path,
+    journal: &Path,
+    natif: &MurNatif,
+) -> (Option<String>, Result<(), String>) {
     if commande.trim().is_empty() {
         return (None, Err(format!("vérification « {commande} » blanche : rien ne se rejoue, rien n'est prouvé")));
+    }
+    if profil.mur_du_rejeu() == MurDuRejeu::Natif {
+        return match &natif.maison {
+            Ok(maison) => natif::rejouer(&natif.programme, maison, profil, commande, bac, journal),
+            Err(erreur) => (None, Err(format!("vérification « {commande} » impossible : {erreur}"))),
+        };
     }
     let delai = profil.delai_preuve();
     let srt = match sous_le_mur(profil, bac) {
@@ -74,21 +108,96 @@ const MUR_REFUSE: &str = if cfg!(windows) {
 /// dossier temporaire (journal `verif-<lot>-mur.tmp`, effacé). Si srt ne rend pas 0, ou ne se lance pas, c'est le refus
 /// 6028, et rien n'est lancé. Sous un mur demandé, rien ne se joue ni ne se crée. Un dossier qui ne se crée pas est le
 /// refus 6006.
+///
+/// Sous `mur = natif`, `true` se joue dans le mur natif ([`rejouer`]), avec le filtre du réseau si le profil demande
+/// des domaines, et srt n'est ni cherché ni lancé. Le refus 6028 nomme ce qui manque ([`refus_du_mur_natif`]) : un
+/// `bwrap` qui ne part pas est refusé avant que rien soit créé.
 pub(crate) fn eprouver_le_mur(profil: &Profil, dossier: &Path) -> Result<(), Refus> {
+    eprouver_le_mur_avec(profil, dossier, &MurNatif::de_l_environnement())
+}
+
+/// [`eprouver_le_mur`], avec le mur natif donné.
+fn eprouver_le_mur_avec(profil: &Profil, dossier: &Path, natif: &MurNatif) -> Result<(), Refus> {
     if !profil.exige() {
         return Ok(());
+    }
+    let sous_natif = profil.mur_du_rejeu() == MurDuRejeu::Natif;
+    if sous_natif && let Err(e) = natif::bwrap_part(&natif.programme) {
+        return Err(refus_du_mur_natif(&natif.programme, &Cause::Bwrap(e)));
     }
     let lot = lot();
     let worktree = dossier.join("bacs").join(format!("mur-{lot}"));
     fs::create_dir_all(&worktree).map_err(|e| nommee(e, format!("création du dossier {}", worktree.display())))?;
-    let (_, rejeu) = rejouer(profil, "true", &worktree, &dossier.join(format!("verif-{lot}-mur.tmp")));
+    let journal = dossier.join(format!("verif-{lot}-mur.tmp"));
+    let (_, rejeu) = rejouer_avec(profil, "true", &worktree, &journal, natif);
     let _ = fs::remove_dir_all(&worktree);
     if let Some(temporaire) = temporaire_de(&worktree) {
         let _ = fs::remove_dir_all(temporaire);
     }
     rejeu.map_err(|erreur| {
-        Refus::new(Code::MurRefuse, format!("le mur est exigé, et srt ne joue pas `true` : {erreur}"), MUR_REFUSE)
+        if sous_natif {
+            refus_du_mur_natif(&natif.programme, &Cause::Rejeu(natif::manque(&erreur), erreur))
+        } else {
+            Refus::new(Code::MurRefuse, format!("le mur est exigé, et srt ne joue pas `true` : {erreur}"), MUR_REFUSE)
+        }
     })
+}
+
+/// Le début de la preuve de tout refus 6028 du mur natif : `lydite doctor` y reconnaît un profil `mur = natif` que le
+/// mur a refusé ([`refus_du_mur_natif`]).
+pub(crate) const PREUVE_DU_MUR_NATIF: &str = "the native wall (`mur = natif`)";
+
+/// Le repli que la correction de tout refus du mur natif propose : srt rejoue l'épreuve et la preuve.
+const REPLI_SRT: &str = "To use srt instead, write `mur = exige` in the profile, accept it again with `lydite \
+                         accepter <profile>`, and launch again: the wall check and the replay of your proof then go \
+                         through srt.";
+
+/// Pourquoi le mur natif est refusé.
+enum Cause {
+    /// `bwrap` ne part pas : le texte de l'erreur.
+    Bwrap(String),
+    /// `true` ne s'est pas joué : ce qui manque d'après son erreur, et l'erreur.
+    Rejeu(Manque, String),
+}
+
+/// Le refus 6028 d'un mur natif qui ne tient pas, `programme` étant son `bwrap`. Sa preuve commence par
+/// [`PREUVE_DU_MUR_NATIF`] et nomme ce qui manque : bubblewrap (`LYDITE_BWRAP`), `lydite-reseau` (`LYDITE_RESEAU`), ou
+/// les espaces d'utilisateur que le système ferme. Sa correction dit quoi installer ou poser, et que `mur = exige`
+/// rejoue par srt.
+fn refus_du_mur_natif(programme: &OsStr, cause: &Cause) -> Refus {
+    let programme = programme.to_string_lossy();
+    let (preuve, correction) = match cause {
+        Cause::Bwrap(e) => (
+            format!("needs bubblewrap (LYDITE_BWRAP), and `{programme}` cannot start: {e}"),
+            "The native wall runs on Linux and needs bubblewrap: install it (`bwrap`; on Debian and Ubuntu, `apt \
+             install bubblewrap`), or set LYDITE_BWRAP to the path of a bubblewrap that runs."
+                .to_string(),
+        ),
+        Cause::Rejeu(Manque::Reseau, erreur) => (
+            format!("needs lydite-reseau (LYDITE_RESEAU), its network filter, and does not play `true`: {erreur}"),
+            "Build lydite-reseau (`cargo build --release --manifest-path reseau/Cargo.toml`) and put it next to the \
+             `lydite` executable, or set LYDITE_RESEAU to the path of a built lydite-reseau that runs."
+                .to_string(),
+        ),
+        Cause::Rejeu(Manque::Espaces, erreur) => (
+            format!(
+                "needs the user namespaces that bubblewrap sets its sandbox up with, and this system closes them, so \
+                 `true` does not play: {erreur}"
+            ),
+            "Open unprivileged user namespaces on this system (on Debian, `sysctl kernel.unprivileged_userns_clone=1`; \
+             on Ubuntu 24.04 and later, `sysctl kernel.apparmor_restrict_unprivileged_userns=0`; in a container, \
+             allow them to the container), or run Lydite on a system that has them."
+                .to_string(),
+        ),
+        Cause::Rejeu(Manque::Autre, erreur) => (
+            format!("does not play `true`: {erreur}"),
+            format!(
+                "Read what the proof says, and fix what it names. LYDITE_BWRAP names the bubblewrap that runs (here \
+                 `{programme}`) and LYDITE_RESEAU the lydite-reseau."
+            ),
+        ),
+    };
+    Refus::new(Code::MurRefuse, format!("{PREUVE_DU_MUR_NATIF} {preuve}"), format!("{correction} {REPLI_SRT}"))
 }
 
 /// La sortie de la vérification, lue dans son journal, qui s'efface ensuite. Un journal qui ne se lit pas le dit,

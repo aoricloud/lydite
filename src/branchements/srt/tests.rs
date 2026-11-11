@@ -208,3 +208,151 @@ fn un_mur_exige_que_srt_ne_tient_pas_est_refuse_et_rien_ne_reste() {
     assert_eq!(restes, ["bacs"], "ni réglages ni journal ne restent");
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// Un bac jetable où le mur natif a de quoi se monter : le dossier personnel, le dossier de Kraken, le dossier de
+/// connexion de Claude et le git commun, que `profil_borne` ferme ou lit, existent sous le dossier rendu.
+fn decor_natif(nom: &str) -> (PathBuf, PathBuf) {
+    let (dir, bac) = bac_jetable(nom);
+    for sous in ["personnel", "lydite", "config", "depot/.git"] {
+        fs::create_dir_all(dir.join(sous)).unwrap();
+    }
+    (dir, bac)
+}
+
+/// Un `bwrap` qui part (`--version`), puis rend `code` après avoir écrit `dit` sur ses erreurs : un faux mur qui ne
+/// tient pas. Rend son chemin.
+#[cfg(unix)]
+fn bwrap_qui_echoue(dir: &Path, dit: &str, code: u8) -> OsString {
+    let chemin = dir.join("bwrap-qui-echoue.sh");
+    crate::essais::script(&chemin, &format!("[ \"$1\" = --version ] && exit 0\necho '{dit}' >&2\nexit {code}"));
+    crate::essais::chauffer(&chemin);
+    chemin.into_os_string()
+}
+
+#[cfg(unix)]
+#[test]
+fn sous_un_mur_natif_la_preuve_se_rejoue_par_le_mur_natif_et_srt_n_est_pas_lance() {
+    let (dir, bac) = decor_natif("srt-natif");
+    let natif = MurNatif { programme: crate::essais::faux_bwrap(&dir), maison: Ok(dir.join("personnel")) };
+    let journal = dir.join("journal.tmp");
+    let mut profil = profil_borne("sorte = claude\nmur = natif\n", &dir);
+    profil.avec_srt(faux_srt(&dir, true));
+    let (verif, rejeu) = rejouer_avec(&profil, "echo MARQUE-NATIF", &bac, &journal, &natif);
+    assert_eq!(rejeu, Ok(()));
+    assert!(verif.as_deref().is_some_and(|sortie| sortie.ends_with("MARQUE-NATIF\n")), "{verif:?}");
+    // Un `bwrap` extérieur et le second, qui joue la commande ; le journal est effacé.
+    let appels = crate::essais::appels_du_faux_bwrap(&dir);
+    assert_eq!(appels.len(), 2, "{appels:?}");
+    assert_eq!(appels[1].last().map(String::as_str), Some("echo MARQUE-NATIF"), "{appels:?}");
+    assert!(!journal.exists());
+    assert!(!dir.join("srt").join("forme.txt").exists(), "srt n'est pas lancé sous `mur = natif`");
+    // Le même regard voit srt quand le profil l'exige, et `bwrap` alors ne part pas : l'assertion qui précède a pu
+    // échouer.
+    let mut exige = profil_borne("sorte = claude\nmur = exige\n", &dir);
+    exige.avec_srt(faux_srt(&dir, true));
+    rejouer_avec(&exige, "echo MARQUE-SRT", &bac, &journal, &natif).1.unwrap();
+    assert_eq!(note_de_srt(&dir, "forme.txt"), "--settings sh -c");
+    assert_eq!(crate::essais::appels_du_faux_bwrap(&dir).len(), 2, "sous exige, bwrap ne part pas");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn sous_un_mur_natif_une_preuve_qui_ne_se_rejoue_pas_est_une_erreur_et_jamais_une_coquille_nue() {
+    let (dir, bac) = decor_natif("natif-sans-maison");
+    let (journal, marque) = (dir.join("journal.tmp"), bac.join("marque.txt"));
+    let natif = MurNatif { programme: "bwrap-introuvable".into(), maison: Err("pas de HOME".into()) };
+    let mut profil = profil_borne("sorte = claude\nmur = natif\n", &dir);
+    profil.avec_srt(faux_srt(&dir, true));
+    let commande = if cfg!(windows) { "echo x> marque.txt" } else { "echo x > marque.txt" };
+    // Sans dossier personnel, le mur ne sait pas où fermer `~` : la preuve ne part pas, ni par la coquille ni par srt.
+    let (verif, rejeu) = rejouer_avec(&profil, commande, &bac, &journal, &natif);
+    assert_eq!(verif, None);
+    assert_eq!(rejeu, Err(format!("vérification « {commande} » impossible : pas de HOME")));
+    // Un `bwrap` qui ne part pas : l'erreur de son lancement, et la commande ne s'est pas jouée hors du mur.
+    let natif = MurNatif { programme: dir.join("bwrap-absent").into(), maison: Ok(dir.join("personnel")) };
+    let (verif, rejeu) = rejouer_avec(&profil, commande, &bac, &journal, &natif);
+    assert_eq!(verif, None);
+    assert!(rejeu.unwrap_err().starts_with(&format!("vérification « {commande} » impossible : ")));
+    assert!(!marque.exists(), "la commande ne s'est pas jouée");
+    assert!(!dir.join("srt").join("forme.txt").exists(), "srt n'est pas lancé non plus");
+    // Le même regard voit la marque quand la commande se joue (hors mur, sous un profil sans mur).
+    let sans_mur = Profil::faux(vec!["x".into()], DELAI);
+    rejouer_avec(&sans_mur, commande, &bac, &journal, &natif).1.unwrap();
+    assert!(marque.exists());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn sous_un_mur_natif_l_epreuve_joue_true_dans_le_mur_natif_et_ne_laisse_rien() {
+    let (dir, _) = decor_natif("epreuve-natif");
+    let kraken = dir.join("lydite");
+    let natif = MurNatif { programme: crate::essais::faux_bwrap(&dir), maison: Ok(dir.join("personnel")) };
+    let mut profil = profil_borne("sorte = claude\nmur = natif\n", &dir);
+    profil.avec_srt(faux_srt(&dir, true));
+    assert_eq!(eprouver_le_mur_avec(&profil, &kraken, &natif), Ok(()));
+    // La sonde de `bwrap`, puis le mur extérieur et le second, qui joue `true`.
+    let appels = crate::essais::appels_du_faux_bwrap(&dir);
+    assert_eq!(appels.len(), 3, "{appels:?}");
+    assert_eq!(appels[0], ["--version"]);
+    assert_eq!(appels[2].last().map(String::as_str), Some("true"), "{appels:?}");
+    assert!(!dir.join("srt").join("forme.txt").exists(), "srt n'est pas lancé sous `mur = natif`");
+    // Le dossier de `bacs/` que l'épreuve a créé est là, vide, et rien d'autre : ni worktree, ni journal, ni filtre.
+    let restes: Vec<_> = fs::read_dir(&kraken).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert_eq!(restes, ["bacs"]);
+    assert_eq!(fs::read_dir(kraken.join("bacs")).unwrap().count(), 0);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_mur_natif_dont_bwrap_ne_part_pas_est_refuse_en_6028_avant_que_rien_soit_cree() {
+    let (dir, _) = decor_natif("epreuve-sans-bwrap");
+    let kraken = dir.join("lydite");
+    let absent = dir.join("bwrap-absent");
+    let natif = MurNatif { programme: absent.clone().into(), maison: Ok(dir.join("personnel")) };
+    let mut profil = profil_borne("sorte = claude\nmur = natif\n", &dir);
+    profil.avec_srt(faux_srt(&dir, true));
+    let refus = eprouver_le_mur_avec(&profil, &kraken, &natif).unwrap_err();
+    assert_eq!(refus.code, Code::MurRefuse, "{refus}");
+    let debut =
+        format!("{PREUVE_DU_MUR_NATIF} needs bubblewrap (LYDITE_BWRAP), and `{}` cannot start: ", absent.display());
+    assert!(refus.preuve.starts_with(&debut), "{refus}");
+    assert!(refus.correction.contains("install it") && refus.correction.contains("set LYDITE_BWRAP"), "{refus}");
+    assert!(refus.correction.contains("`mur = exige`") && refus.correction.contains("through srt"), "{refus}");
+    // Rien n'est créé : le dossier de Kraken est vide (l'épreuve qui réussit y laisse `bacs/`, comme le voit le test
+    // voisin), et srt n'est pas lancé à la place.
+    assert_eq!(fs::read_dir(&kraken).unwrap().count(), 0);
+    assert!(!dir.join("srt").join("forme.txt").exists(), "srt n'est pas lancé à la place");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn un_mur_natif_que_le_systeme_ferme_ou_qui_ne_joue_pas_true_est_refuse_en_6028_et_rien_ne_reste() {
+    let (dir, _) = decor_natif("epreuve-ferme");
+    let kraken = dir.join("lydite");
+    let profil = profil_borne("sorte = claude\nmur = natif\n", &dir);
+    let eprouver = |programme: OsString| {
+        let natif = MurNatif { programme, maison: Ok(dir.join("personnel")) };
+        let refus = eprouver_le_mur_avec(&profil, &kraken, &natif).unwrap_err();
+        assert_eq!(refus.code, Code::MurRefuse, "{refus}");
+        assert!(refus.preuve.starts_with(PREUVE_DU_MUR_NATIF), "{refus}");
+        assert!(refus.correction.contains("`mur = exige`"), "{refus}");
+        // Le dossier de `bacs/` que l'épreuve crée reste vide : ni worktree, ni temporaire, ni filtre, ni journal.
+        assert_eq!(fs::read_dir(kraken.join("bacs")).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(&kraken).unwrap().count(), 1, "seul `bacs/` est dans le dossier de Kraken");
+        refus
+    };
+    // `bwrap` part et dit ce qu'il dit quand le système ferme les espaces d'utilisateur.
+    let dit = "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged \
+               user namespaces";
+    let refus = eprouver(bwrap_qui_echoue(&dir, dit, 1));
+    assert!(refus.preuve.contains("needs the user namespaces") && refus.preuve.contains(dit), "{refus}");
+    assert!(refus.correction.contains("kernel.unprivileged_userns_clone=1"), "{refus}");
+    // Un autre échec : l'erreur du rejeu, telle quelle, sans accuser les espaces d'utilisateur.
+    let refus = eprouver(bwrap_qui_echoue(&dir, "boum", 1));
+    assert!(refus.preuve.starts_with(&format!("{PREUVE_DU_MUR_NATIF} does not play `true`: ")), "{refus}");
+    assert!(refus.preuve.contains("rouge (") && refus.preuve.contains("boum"), "{refus}");
+    assert!(!refus.preuve.contains("namespaces") && !refus.correction.contains("userns"), "{refus}");
+    let _ = fs::remove_dir_all(&dir);
+}

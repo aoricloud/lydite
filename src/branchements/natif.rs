@@ -50,10 +50,6 @@
 //!
 //! Le programme se lit dans `LYDITE_RESEAU`, sinon `lydite-reseau` à côté de l'exécutable de Lydite.
 
-#![cfg_attr(not(all(test, target_os = "linux")), expect(dead_code))]
-// raccourci : rien dans le profil ne mène encore ici, seule la grille (des tests, sous Linux) appelle ce rejeu ;
-// l'appelant qui choisit le mur natif à la place de srt le prendra, et rustc dira alors cette attente inutile
-
 use std::cell::RefCell;
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -116,6 +112,48 @@ pub(crate) fn programme() -> OsString {
 /// Le programme qu'une valeur de `LYDITE_BWRAP` désigne : une valeur absente ou vide laisse `bwrap`.
 fn programme_selon(valeur: Option<OsString>) -> OsString {
     valeur.filter(|valeur| !valeur.is_empty()).unwrap_or_else(|| "bwrap".into())
+}
+
+/// Le programme `bwrap` part-il ? Il se lance en `--version`, hors de tout mur, sans rien créer : seul compte qu'il
+/// parte, son code de sortie n'est pas jugé. Le texte de l'erreur dit pourquoi il ne part pas. Un `bwrap` qui ne se
+/// termine pas avant l'échéance est tué : il est parti.
+pub(crate) fn bwrap_part(programme: &OsStr) -> Result<(), String> {
+    let mut enfant = Command::new(programme)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    if !matches!(attendre(&mut enfant, echeance(ATTENTE_DU_FILTRE)), Ok(Some(_))) {
+        let _ = tuer_et_attendre(&mut enfant);
+    }
+    Ok(())
+}
+
+/// Ce qui manque au mur natif quand il ne joue pas `true`, d'après l'erreur de son rejeu ([`manque`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Manque {
+    /// `lydite-reseau`, le filtre du réseau : absent, ou il ne part pas.
+    Reseau,
+    /// Les espaces d'utilisateur (ou les montages) que le système ferme : `bwrap` part, mais ne monte pas son mur.
+    Espaces,
+    /// Une autre cause : l'erreur du rejeu la dit.
+    Autre,
+}
+
+/// Ce que l'erreur d'un rejeu raté dit qui manque au mur natif. Le filtre réseau se reconnaît à ses deux noms
+/// (`lydite-reseau`, `network filter`), que tous ses refus portent ; les espaces d'utilisateur à ce que `bwrap` écrit
+/// quand le système les ferme (`namespace`, `uid map`, `not permitted`).
+pub(crate) fn manque(erreur: &str) -> Manque {
+    let bas = erreur.to_lowercase();
+    if ["lydite-reseau", "network filter"].iter().any(|nom| bas.contains(nom)) {
+        Manque::Reseau
+    } else if ["namespace", "uid map", "gid map", "not permitted"].iter().any(|dit| bas.contains(dit)) {
+        Manque::Espaces
+    } else {
+        Manque::Autre
+    }
 }
 
 /// Le dossier personnel, où se déplie `~` : `HOME`. Absent ou vide, ou pas absolu, il ne se déplie pas, et le mur ne
