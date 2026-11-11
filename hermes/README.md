@@ -119,8 +119,17 @@ hermes config set plugins.entries.lydite.settings.binaire /srv/lydite/bin/lydite
 hermes config set plugins.entries.lydite.settings.profil  my-profile
 # only if the profile names a provider key (its `cle` line); the value goes to Hermes' own .env:
 hermes config set plugins.entries.lydite.settings.cle_nom MY_PROVIDER_KEY
-hermes config set LYDITE_CLE_FOURNISSEUR <the provider key>
 ```
+
+Set the provider key without typing it as an argument: a key typed on the command line stays in the shell history
+and shows in the process list. Open Hermes' `.env` file in an editor and add the line
+`LYDITE_CLE_FOURNISSEUR=<the provider key>`:
+
+```bash
+"${EDITOR:-nano}" "$(hermes config env-path)"
+```
+
+If a secrets manager is already connected to Hermes, use `hermes secrets` instead.
 
 Then, in the chat: "do issue 15 of /srv/project, the proof is `cargo test && cargo clippy -- -D warnings`".
 Or hand it a plan you wrote: "run the plan /srv/plan.txt on /srv/project". A plan names the model of each
