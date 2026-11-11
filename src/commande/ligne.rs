@@ -25,6 +25,7 @@ const USAGE: &str = concat!(
     " or lydite doctor [<profile>]",
     " or lydite status",
     " or lydite wait",
+    " or lydite skill",
 );
 
 /// Le double français de chaque commande, qui a son mot anglais : `(français, anglais)`.
@@ -98,6 +99,8 @@ pub(crate) enum Commande {
     /// Les leçons `.agents/skills/*/SKILL.md` du dépôt de ce dossier, lues sans rien lancer. Le chemin garde son
     /// `OsString`.
     LireLecons { dossier: PathBuf },
+    /// `lydite skill` : écrit la skill de pilotage que ce binaire porte, sans rien lire ni écrire d'autre.
+    Skill,
 }
 
 /// Lit ce qui suit `lessons` : `<dossier>`, rien d'autre. Le dossier garde son `OsString`, et n'est pas un drapeau.
@@ -169,6 +172,11 @@ pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
         (Some("wait"), []) => Ok(Commande::Attendre),
         (Some("wait"), [autre, ..]) => {
             let preuve = format!("`wait` takes no argument, and {} follows it", mot(autre));
+            Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
+        }
+        (Some("skill"), []) => Ok(Commande::Skill),
+        (Some("skill"), [autre, ..]) => {
+            let preuve = format!("`skill` takes no argument, and {} follows it", mot(autre));
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
         }
         (Some("plan"), reste) => options_lire_plan(reste),
