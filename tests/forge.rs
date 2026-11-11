@@ -186,7 +186,7 @@ fn un_depot_sans_origin_est_refuse_en_8001() {
     depot(&racine);
     let (code, preuve) = lire_refus(&lancer_la_pr(&racine, "main"));
     assert_eq!(code, "lydite : 8001 forge.distant_illisible");
-    assert!(preuve.contains("n'a pas de distant origin"), "{preuve}");
+    assert!(preuve.contains("has no origin remote"), "{preuve}");
     assert!(appels(&racine).is_empty(), "gh n'est pas lancé");
     rien_n_est_parti(&racine);
     let _ = fs::remove_dir_all(&racine);

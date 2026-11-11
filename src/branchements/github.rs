@@ -45,14 +45,14 @@ pub(crate) const CHAMPS_DES_RUNS: &str = "workflowName,name,status,conclusion,st
 
 /// La correction du refus 8005.
 const PUBLIER: &str =
-    "Rien n'est poussé, et la branche de la vague reste locale : relis-la, puis pousse-la et ouvre sa PR toi-même.";
+    "Nothing is pushed, and the wave branch stays local: review it, then push it and open its PR yourself.";
 
 /// La correction du refus 8009.
-const REINTEGRER: &str = "La PR reste ouverte, et Lydite ne relance pas sa CI : réintègre la base dans la \
-                          branche de la PR, puis relance-la toi-même.";
+const REINTEGRER: &str = "The PR stays open, and Lydite does not retry its CI: merge the base back into the PR \
+                          branch, then retry it yourself.";
 
 /// La correction du refus 8010.
-const CHANGEE: &str = "Lydite s'arrête et ne touche plus à la PR : regarde qui l'a fermée, fusionnée ou poussée.";
+const CHANGEE: &str = "Lydite stops and no longer touches the PR: look at who closed, merged or pushed to it.";
 
 /// Le programme `gh` de la forge : celui que nomme `LYDITE_GH`, sinon `gh`. Le seul endroit où Kraken lit `LYDITE_GH`.
 pub(crate) fn programme_gh() -> OsString {
@@ -79,23 +79,22 @@ pub(crate) fn distant(dossier: &Path, depot: &Path) -> Result<Distant, Refus> {
         Refus::new(
             Code::DistantIllisible,
             preuve,
-            "Donne au dépôt visé un distant origin qui nomme sa forge (git remote add origin \
-             https://<hôte>/<propriétaire>/<dépôt>), ou lance la vague sans --pr.",
+            "Give the target repository an origin remote that names its forge (git remote add origin \
+             https://<host>/<owner>/<repository>), or run the wave without --pr.",
         )
     };
     let lue = jouer(git_forge(depot, &["config", "--get-all", "remote.origin.url"]), dossier, None, DELAI)
         .and_then(Rendu::reussi)
-        .map_err(|vu| refus(format!("le dépôt {} n'a pas de distant origin : {vu}", depot.display())))?;
+        .map_err(|vu| refus(format!("the repository {} has no origin remote: {vu}", depot.display())))?;
     let url = lue.lines().next().unwrap_or_default().trim();
     analyser(url).ok_or_else(|| {
         // Une URL https qui porte des identifiants ne se recopie pas dans la preuve, que stderr reçoit.
         let identifiants =
             url.strip_prefix("https://").is_some_and(|reste| reste.split('/').next().is_some_and(|a| a.contains('@')));
-        let vue =
-            if identifiants { "une URL https qui porte des identifiants".to_string() } else { format!("« {url} »") };
+        let vue = if identifiants { "an https URL that carries credentials".to_string() } else { format!("\"{url}\"") };
         refus(format!(
-            "l'URL d'origin, {vue}, ne nomme pas un hôte, un propriétaire et un dépôt : Lydite lit https://h/p/d, \
-             ssh://[u@]h[:port]/p/d et [u@]h:p/d, chacune avec ou sans .git"
+            "the origin URL, {vue}, does not name a host, an owner and a repository: Lydite reads https://h/p/d, \
+             ssh://[u@]h[:port]/p/d and [u@]h:p/d, each with or without .git"
         ))
     })
 }
@@ -177,7 +176,7 @@ impl Rendu {
             return Ok(self.sortie);
         }
         let dit = format!("{}{}", self.erreurs, self.sortie);
-        Err(format!("{} a échoué ({}) : {}", self.quoi, self.statut, queue(dit.trim())))
+        Err(format!("{} failed ({}): {}", self.quoi, self.statut, queue(dit.trim())))
     }
 }
 
@@ -212,22 +211,22 @@ fn jouer_borne(
     let fichiers = dossier.join(format!("forge-{}", lot()));
     let (sortie, erreurs) = (fichiers.with_extension("sortie"), fichiers.with_extension("erreurs"));
     let issue = match partir(&mut commande, dossier, entree, (&sortie, &erreurs)) {
-        Err(e) => Err(format!("lancement impossible de {quoi} : {e}")),
+        Err(e) => Err(format!("cannot start {quoi}: {e}")),
         Ok(mut enfant) => match attendre(&mut enfant, echeance(delai)) {
             Ok(Some(statut)) => Ok(statut),
             Ok(None) => {
                 let mise_a_mort =
-                    tuer_et_attendre(&mut enfant).err().map_or_else(String::new, |e| format!(" ; mise à mort : {e}"));
-                Err(format!("{quoi} : temps dépassé ({} s){mise_a_mort}", delai.as_secs_f32()))
+                    tuer_et_attendre(&mut enfant).err().map_or_else(String::new, |e| format!("; kill: {e}"));
+                Err(format!("{quoi}: timed out ({} s){mise_a_mort}", delai.as_secs_f32()))
             }
-            Err(e) => Err(format!("{quoi} : attente impossible : {e}")),
+            Err(e) => Err(format!("{quoi}: cannot wait for it: {e}")),
         },
     };
     let lire = |chemin: &Path| {
         let mut octets = Vec::new();
         let lu = File::open(chemin).and_then(|f| f.take(borne.saturating_add(1)).read_to_end(&mut octets));
         let _ = fs::remove_file(chemin);
-        lu.map(|_| octets).map_err(|e| format!("{quoi} : {} illisible : {e}", chemin.display()))
+        lu.map(|_| octets).map_err(|e| format!("{quoi}: {} unreadable: {e}", chemin.display()))
     };
     let (lue, dite) = (lire(&sortie), lire(&erreurs));
     let statut = issue?;
@@ -243,7 +242,7 @@ fn partir(
     entree: Option<&Path>,
     (sortie, erreurs): (&Path, &Path),
 ) -> io::Result<Child> {
-    fs::create_dir_all(dossier).map_err(|e| nommee(e, format!("dossier de Lydite {}", dossier.display())))?;
+    fs::create_dir_all(dossier).map_err(|e| nommee(e, format!("state folder {}", dossier.display())))?;
     let entree = match entree {
         Some(chemin) => Stdio::from(File::open(chemin).map_err(|e| nommee(e, chemin.display()))?),
         None => Stdio::null(),
@@ -261,7 +260,7 @@ fn decrire(commande: &Command) -> String {
         args.next();
     }
     let mots: Vec<_> = std::iter::once(commande.get_program().to_string_lossy()).chain(args).collect();
-    let dans = commande.get_current_dir().map_or_else(String::new, |dir| format!(" dans {}", dir.display()));
+    let dans = commande.get_current_dir().map_or_else(String::new, |dir| format!(" in {}", dir.display()));
     format!("{}{dans}", mots.join(" "))
 }
 
@@ -278,8 +277,8 @@ pub(crate) fn a_pousser(base: &str, tete: &str) -> Result<(), Refus> {
     }
     Err(Refus::new(
         Code::RienAPousser,
-        format!("la branche de la vague est restée sur sa base {base} : aucune tâche n'y est assemblée"),
-        "Rien ne se pousse ni ne s'ouvre : relance les tâches dans une vague neuve.",
+        format!("the wave branch stayed on its base {base}: no task is assembled in it"),
+        "Nothing is pushed or opened: retry the tasks in a new wave.",
     ))
 }
 
@@ -313,8 +312,8 @@ pub(crate) fn lire_issue(gh: &OsStr, dossier: &Path, depot: &Path, numero: u64) 
             Code::IssueIllisible,
             preuve,
             format!(
-                "Nomme par --issue une issue ouverte de {} (gh issue view {numero} --repo {}), connecte gh à son hôte, \
-                 puis relance.",
+                "Name with --issue an open issue of {} (gh issue view {numero} --repo {}), connect gh to its host, \
+                 then retry.",
                 distant.url, distant.depot
             ),
         )
@@ -323,7 +322,7 @@ pub(crate) fn lire_issue(gh: &OsStr, dossier: &Path, depot: &Path, numero: u64) 
         Refus::new(
             Code::IssueTropLongue,
             preuve,
-            "Raccourcis le titre et le corps de l'issue (64 Kio d'UTF-8 au plus), ou écris un plan, puis relance.",
+            "Shorten the issue's title and body (64 KiB of UTF-8 at most), or write a plan, then retry.",
         )
     };
     let n = numero.to_string();
@@ -333,19 +332,19 @@ pub(crate) fn lire_issue(gh: &OsStr, dossier: &Path, depot: &Path, numero: u64) 
         jouer_borne(vue, dossier, None, DELAI, SORTIE_D_UNE_ISSUE).map_err(illisible)?;
     if !statut.success() {
         // Ses erreurs seules : sa sortie peut porter le titre et le corps.
-        return Err(illisible(format!("{quoi} a échoué ({statut}) : {}", queue(erreurs.trim()))));
+        return Err(illisible(format!("{quoi} failed ({statut}): {}", queue(erreurs.trim()))));
     }
     if sortie.len() as u64 > SORTIE_D_UNE_ISSUE {
         return Err(trop_longue(format!(
-            "gh rend l'issue {numero} en plus de {SORTIE_D_UNE_ISSUE} octets : son titre et son corps passent \
-             {POIDS_D_UNE_ISSUE} octets"
+            "gh returns issue {numero} in more than {SORTIE_D_UNE_ISSUE} bytes: its title and body exceed \
+             {POIDS_D_UNE_ISSUE} bytes"
         )));
     }
     let Ok(json) = std::str::from_utf8(&sortie) else {
-        return Err(trop_longue(format!("gh ne rend pas l'issue {numero} en UTF-8")));
+        return Err(trop_longue(format!("gh does not return issue {numero} in UTF-8")));
     };
     let Ok(Json::Objet(lue)) = json::document(json) else {
-        return Err(illisible(format!("gh ne rend pas l'issue {numero} en un objet JSON ({} octets)", sortie.len())));
+        return Err(illisible(format!("gh does not return issue {numero} as a JSON object ({} bytes)", sortie.len())));
     };
     let texte = |cle: &str| match lue.get(cle) {
         Some(Json::Texte(texte)) => Some(texte.as_str()),
@@ -361,25 +360,23 @@ pub(crate) fn lire_issue(gh: &OsStr, dossier: &Path, depot: &Path, numero: u64) 
         let lus = lus.into_iter().chain([("body", corps.is_some()), ("url", url.is_some())]);
         let manquants: Vec<&str> = lus.filter(|(_, lu)| !lu).map(|(cle, _)| cle).collect();
         return Err(illisible(format!(
-            "gh ne rend pas, de l'issue {numero}, ces champs en leur type : {}",
+            "gh does not return, of issue {numero}, these fields with their type: {}",
             manquants.join(", ")
         )));
     };
     if lu != numero {
-        return Err(illisible(format!("gh rend l'issue {lu}, pas l'issue {numero}")));
+        return Err(illisible(format!("gh returns issue {lu}, not issue {numero}")));
     }
     if url.contains("/pull/") {
-        return Err(illisible(format!(
-            "le numéro {numero} est celui d'une PR, pas d'une issue : son url porte /pull/"
-        )));
+        return Err(illisible(format!("number {numero} is that of a PR, not of an issue: its url carries /pull/")));
     }
     if etat != "OPEN" {
-        return Err(illisible(format!("l'issue {numero} n'est pas ouverte : son état est {etat}")));
+        return Err(illisible(format!("issue {numero} is not open: its state is {etat}")));
     }
     let poids = titre.len() + corps.len();
     if poids > POIDS_D_UNE_ISSUE {
         return Err(trop_longue(format!(
-            "le titre et le corps de l'issue {numero} pèsent {poids} octets, plus que {POIDS_D_UNE_ISSUE}"
+            "the title and body of issue {numero} weigh {poids} bytes, more than {POIDS_D_UNE_ISSUE}"
         )));
     }
     Ok(Issue { numero, titre: titre.into(), corps: corps.into() })
@@ -450,7 +447,7 @@ impl Forge<'_> {
     pub(crate) fn base_distante(&self, branche: &str) -> Result<String, Refus> {
         let refus = |preuve: String| {
             let correction = format!(
-                "Donne à --pr une branche qui existe sur le distant {} (git ls-remote --heads {}), puis relance.",
+                "Give --pr a branch that exists on the remote {} (git ls-remote --heads {}), then retry.",
                 self.distant.url, self.distant.url
             );
             Refus::new(Code::BaseInconnue, preuve, correction)
@@ -459,7 +456,7 @@ impl Forge<'_> {
         if lue.trim_end() != branche {
             let lue = lue.trim_end();
             return Err(refus(format!(
-                "« {branche} » n'est pas une branche que git prend telle quelle : il y lit « {lue} »"
+                "\"{branche}\" is not a branch that git takes as it is: it reads \"{lue}\" there"
             )));
         }
         self.tete_distante(branche).map_err(refus)
@@ -488,7 +485,7 @@ impl Forge<'_> {
         entre();
         let lue = self.faire(self.git(&["rev-parse", "--verify", &format!("{ici}^{{commit}}")]), None);
         if let Err(vu) = self.faire(self.git(&["update-ref", "-d", &ici]), None) {
-            eprintln!("la ref {ici} ne se retire pas, elle reste dans le dépôt visé : {vu}");
+            eprintln!("the ref {ici} cannot be removed, it stays in the target repository: {vu}");
         }
         Ok(lue?.trim().to_string())
     }
@@ -501,8 +498,8 @@ impl Forge<'_> {
         self.faire(gh, None).map(drop).map_err(|vu| {
             let hote = &self.distant.hote;
             let correction = format!(
-                "Installe gh et connecte-le à {hote} (gh auth login --hostname {hote}), ou nomme par LYDITE_GH le \
-                 programme gh à lancer, puis relance."
+                "Install gh and connect it to {hote} (gh auth login --hostname {hote}), or name with LYDITE_GH the gh \
+                 program to run, then retry."
             );
             Refus::new(Code::GhInjoignable, vu, correction)
         })
@@ -555,10 +552,10 @@ impl Forge<'_> {
         let lire = |args: &[&str]| {
             let vu = |vu: String| match garde.trouve(&Texte::new(&vu)) {
                 Some(numero) => {
-                    let dit = "ce que Lydite publierait ne se lit pas";
-                    refus(format!("{dit} : la ligne {numero} de la garde paraît dans l'erreur de git"))
+                    let dit = "what Lydite would publish cannot be read";
+                    refus(format!("{dit}: line {numero} of the garde file appears in git's error"))
                 }
-                None => refus(format!("ce que Lydite publierait ne se lit pas : {vu}")),
+                None => refus(format!("what Lydite would publish cannot be read: {vu}")),
             };
             self.faire(self.git(args), None).map_err(vu)
         };
@@ -582,7 +579,7 @@ impl Forge<'_> {
         for ligne in &garde.lignes {
             let numero = ligne.numero;
             if noms_bas.iter().any(|nom| ligne.dans(nom)) {
-                return Err(refus(format!("la ligne {numero} de la garde paraît dans le nom d'un fichier changé")));
+                return Err(refus(format!("line {numero} of the garde file appears in the name of a changed file")));
             }
         }
         let github: Vec<&str> = noms
@@ -593,7 +590,7 @@ impl Forge<'_> {
             })
             .collect();
         if !github.is_empty() {
-            return Err(refus(format!("{} change entre la base {base} et la tête {tete}", github.join(", "))));
+            return Err(refus(format!("{} changes between the base {base} and the head {tete}", github.join(", "))));
         }
         let diff = lire(&[
             "diff",
@@ -635,25 +632,25 @@ impl Forge<'_> {
             let qui = if porte(&auteur) || porte(&committer) {
                 String::new()
             } else {
-                format!(" : auteur « {auteur} », committer « {committer} »")
+                format!(": author \"{auteur}\", committer \"{committer}\"")
             };
-            let preuve = format!("le commit {sha} n'est pas de Lydite{qui}, entre la base {base} et la tête {tete}");
+            let preuve = format!("commit {sha} is not Lydite's{qui}, between the base {base} and the head {tete}");
             return Err(refus(preuve));
         }
         let casse = |texte: &str| if cfg!(windows) { texte.to_lowercase() } else { texte.to_string() };
         let mut lieux = ajoutees(&diff);
         lieux.extend(
-            ajoutees(&historique).into_iter().map(|(lieu, texte)| (format!("{lieu} dans l'historique poussé"), texte)),
+            ajoutees(&historique).into_iter().map(|(lieu, texte)| (format!("{lieu} in the pushed history"), texte)),
         );
-        lieux.push(("les messages des commits poussés".into(), messages));
-        lieux.push(("le titre".into(), titre.into()));
-        lieux.push(("le corps".into(), corps.into()));
-        lieux.push(("le nom de la branche".into(), branche.into()));
+        lieux.push(("the messages of the pushed commits".into(), messages));
+        lieux.push(("the title".into(), titre.into()));
+        lieux.push(("the body".into(), corps.into()));
+        lieux.push(("the name of the branch".into(), branche.into()));
         let formes: Vec<Texte> = lieux.iter().map(|(_, texte)| Texte::new(texte)).collect();
         for ligne in &garde.lignes {
             if let Some(i) = formes.iter().position(|forme| ligne.dans(forme)) {
                 let (numero, lieu) = (ligne.numero, &lieux[i].0);
-                return Err(refus(format!("la ligne {numero} de la garde paraît dans {lieu}")));
+                return Err(refus(format!("line {numero} of the garde file appears in {lieu}")));
             }
         }
         let lieux: Vec<(String, String)> = lieux.into_iter().map(|(lieu, texte)| (lieu, casse(&texte))).collect();
@@ -662,7 +659,7 @@ impl Forge<'_> {
             for forme in [ecrit.replace('\\', "/"), ecrit.replace('/', "\\")] {
                 let cherche = casse(&forme);
                 if let Some((lieu, _)) = lieux.iter().find(|(_, texte)| texte.contains(&cherche)) {
-                    return Err(refus(format!("le chemin du poste {forme} paraît dans {lieu}")));
+                    return Err(refus(format!("the workstation path {forme} appears in {lieu}")));
                 }
             }
         }
@@ -676,15 +673,13 @@ impl Forge<'_> {
     pub(crate) fn pousser(&self, tete: &str, branche: &str) -> Result<(), Refus> {
         let refus = |preuve: String| {
             let correction = format!(
-                "Rien ne s'ouvre : regarde pourquoi le distant refuse {branche} (une branche du même nom, des droits), \
-                 puis pousse-la toi-même."
+                "Nothing is opened: look at why the remote refuses {branche} (a branch of the same name, permissions), \
+                 then push it yourself."
             );
             Refus::new(Code::PousseeRefusee, preuve, correction)
         };
         if !est_sha(tete) {
-            return Err(refus(format!(
-                "« {tete} » n'est pas un sha de 40 hexadécimaux : Lydite ne pousse qu'un commit"
-            )));
+            return Err(refus(format!("\"{tete}\" is not a sha of 40 hexadecimals: Lydite only pushes a commit")));
         }
         let cible = format!("{tete}:refs/heads/{branche}");
         let push = self.git(&[
@@ -715,15 +710,15 @@ impl Forge<'_> {
     ) -> Result<PrOuverte, Refus> {
         let refus = |preuve: String| {
             let correction = format!(
-                "La branche {branche} reste poussée, sans PR : ouvre-la toi-même contre {base}, ou retire la branche \
-                 du distant."
+                "The branch {branche} stays pushed, without a PR: open it yourself against {base}, or remove the \
+                 branch from the remote."
             );
             Refus::new(Code::PrImpossible, preuve, correction)
         };
         let fichier = self.dossier.join(format!("forge-{}.corps", lot()));
         fs::create_dir_all(self.dossier)
             .and_then(|()| fs::write(&fichier, corps))
-            .map_err(|e| refus(format!("le corps de la PR ne s'écrit pas dans {} : {e}", fichier.display())))?;
+            .map_err(|e| refus(format!("the body of the PR cannot be written to {}: {e}", fichier.display())))?;
         let cree = self.gh(&["pr", "create", "--base", base, "--head", branche, "--title", titre, "--body-file", "-"]);
         let creee = self.faire(cree, Some(&fichier));
         let _ = fs::remove_file(&fichier);
@@ -732,14 +727,14 @@ impl Forge<'_> {
             (creee, Ok(pr)) => {
                 if let Err(vu) = creee {
                     eprintln!(
-                        "gh pr create a échoué, mais la PR {} porte déjà {tete} : Lydite la prend ({vu})",
+                        "gh pr create failed, but PR {} already carries {tete}: Lydite takes it ({vu})",
                         pr.numero
                     );
                 }
                 Ok(pr)
             }
             (Ok(_), Err(relue)) => Err(refus(relue)),
-            (Err(vu), Err(relue)) => Err(refus(format!("{vu} ; la PR de la branche ne se relit pas : {relue}"))),
+            (Err(vu), Err(relue)) => Err(refus(format!("{vu}; the PR of the branch cannot be read back: {relue}"))),
         }
     }
 
@@ -773,8 +768,8 @@ impl Forge<'_> {
                 let secondes = delai.as_secs_f32();
                 return Err(Refus::new(
                     Code::CiMuette,
-                    format!("la CI de la PR {numero} n'a pas rendu de verdict en {secondes} s : {vu}"),
-                    "Regarde la CI de la PR sur la forge ; si la PR est ouverte, fusionne-la ou relance-la toi-même.",
+                    format!("the CI of PR {numero} gave no verdict in {secondes} s: {vu}"),
+                    "Look at the PR's CI on the forge; if the PR is open, merge it or retry it yourself.",
                 ));
             }
             thread::sleep(intervalle);
@@ -794,32 +789,32 @@ impl Forge<'_> {
             Err(vu) => return Tour::Attente(vu),
         };
         let Ok(Json::Objet(pr)) = json::document(&json) else {
-            return Tour::Attente(format!("gh ne rend pas la PR en un objet JSON : {}", queue(json.trim())));
+            return Tour::Attente(format!("gh does not return the PR as a JSON object: {}", queue(json.trim())));
         };
         let texte = |cle: &str| match pr.get(cle) {
             Some(Json::Texte(texte)) => Some(texte.as_str()),
             _ => None,
         };
         let (Some(etat), Some(oid)) = (texte("state"), texte("headRefOid")) else {
-            return Tour::Attente(format!("gh ne dit ni l'état ni la tête de la PR : {}", queue(json.trim())));
+            return Tour::Attente(format!("gh gives neither the state nor the head of the PR: {}", queue(json.trim())));
         };
         let arret = |code, preuve: String, correction| Tour::Arret(Refus::new(code, preuve, correction));
         let fusionnee = etat == "MERGED";
         if etat != "OPEN" && !fusionnee {
-            return arret(Code::PrChangee, format!("la PR {numero} est {etat}, et n'est plus ouverte"), CHANGEE);
+            return arret(Code::PrChangee, format!("PR {numero} is {etat}, and is no longer open"), CHANGEE);
         }
         if oid != tete {
             if avant == Some(oid) && !fusionnee {
-                return Tour::Attente(format!("la PR {numero} porte encore {oid}, pas le sha poussé {tete}"));
+                return Tour::Attente(format!("PR {numero} still carries {oid}, not the pushed sha {tete}"));
             }
             return arret(
                 Code::PrChangee,
-                format!("la PR {numero} est {etat} et porte {oid}, pas le sha poussé {tete}"),
+                format!("PR {numero} is {etat} and carries {oid}, not the pushed sha {tete}"),
                 CHANGEE,
             );
         }
         if !fusionnee && texte("mergeable") == Some("CONFLICTING") {
-            return arret(Code::AReintegrer, format!("la PR {numero} est en conflit avec sa base"), REINTEGRER);
+            return arret(Code::AReintegrer, format!("PR {numero} conflicts with its base"), REINTEGRER);
         }
         // raccourci : seuls les runs d'Actions et les statuts du commit se lisent, pas les check runs d'une autre
         // application, qu'un jeton à grain fin ne lit pas ; monter vers `gh api …/commits/<sha>/check-runs` quand une
@@ -839,17 +834,17 @@ impl Forge<'_> {
         let checks: Vec<Json> = runs.into_iter().chain(statuts).collect();
         match classer(&checks) {
             (Some(Couleur::Vert), texte) if n_runs >= COUPEE || n_statuts >= COUPEE => Tour::Attente(format!(
-                "la PR a {n_runs} runs et {n_statuts} statuts, et gh n'en rend que {COUPEE} de chaque au plus : \
-                 une liste est peut-être coupée, et un vert ne se prouve pas sur elle :\n{texte}"
+                "the PR has {n_runs} runs and {n_statuts} statuses, and gh returns at most {COUPEE} of each: \
+                 a list may be cut short, and a green cannot be proven on it:\n{texte}"
             )),
             (Some(Couleur::Rouge), texte) if fusionnee => arret(
                 Code::PrChangee,
-                format!("la PR {numero} est fusionnée et sa CI est rouge, rien n'est à relancer :\n{texte}"),
+                format!("PR {numero} is merged and its CI is red, nothing is left to retry:\n{texte}"),
                 CHANGEE,
             ),
             (Some(couleur), texte) => Tour::Verdict(Ci { couleur, texte }),
-            (None, texte) if texte.is_empty() => Tour::Attente("la PR n'a aucun check".into()),
-            (None, texte) => Tour::Attente(format!("des checks en cours, ou aucun qui ait réussi :\n{texte}")),
+            (None, texte) if texte.is_empty() => Tour::Attente("the PR has no check".into()),
+            (None, texte) => Tour::Attente(format!("checks still running, or none that succeeded:\n{texte}")),
         }
     }
 
@@ -865,7 +860,7 @@ impl Forge<'_> {
             },
             _ => None,
         };
-        lue.ok_or_else(|| format!("gh ne rend pas une liste : {}", queue(json.trim())))
+        lue.ok_or_else(|| format!("gh does not return a list: {}", queue(json.trim())))
     }
 
     /// La fin du journal d'une CI rouge sur `tete` : `gh run list … --commit <tete> --json databaseId,conclusion`, puis
@@ -901,13 +896,13 @@ impl Forge<'_> {
     pub(crate) fn base_a_bouge(&self, branche: &str, tete: &str) -> Result<(), Refus> {
         let refus = |preuve: String| Refus::new(Code::AReintegrer, preuve, REINTEGRER);
         let distante =
-            self.tete_distante(branche).map_err(|vu| refus(format!("la base {branche} ne se relit pas : {vu}")))?;
+            self.tete_distante(branche).map_err(|vu| refus(format!("the base {branche} cannot be read back: {vu}")))?;
         let ancetre = jouer(self.git(&["merge-base", "--is-ancestor", &distante, tete]), self.dossier, None, DELAI);
         let ancetre = ancetre.map_err(refus)?;
         match ancetre.statut.code() {
             Some(0) => Ok(()),
             Some(1) => Err(refus(format!(
-                "la base {branche} a bougé : sa tête distante {distante} n'est plus un ancêtre de {tete}"
+                "the base {branche} has moved: its remote head {distante} is no longer an ancestor of {tete}"
             ))),
             _ => Err(refus(ancetre.reussi().err().unwrap_or_default())),
         }
@@ -924,7 +919,7 @@ impl Forge<'_> {
 /// La PR que relit `gh pr view --json number,url,headRefOid` : un numéro positif, une adresse, et `tete` pour tête.
 fn lire_pr(json: &str, tete: &str) -> Result<PrOuverte, String> {
     let Ok(Json::Objet(pr)) = json::document(json) else {
-        return Err(format!("gh ne relit pas la PR en un objet JSON : {}", queue(json.trim())));
+        return Err(format!("gh does not read the PR back as a JSON object: {}", queue(json.trim())));
     };
     let numero = match pr.get("number") {
         Some(Json::Nombre(numero)) => numero.parse::<u64>().ok().filter(|numero| *numero > 0),
@@ -935,10 +930,10 @@ fn lire_pr(json: &str, tete: &str) -> Result<PrOuverte, String> {
         _ => None,
     };
     let (Some(numero), Some(url), Some(Json::Texte(oid))) = (numero, url, pr.get("headRefOid")) else {
-        return Err(format!("la PR relue n'a pas un numéro positif, une adresse et une tête : {}", queue(json.trim())));
+        return Err(format!("the PR read back lacks a positive number, an address or a head: {}", queue(json.trim())));
     };
     if oid != tete {
-        return Err(format!("la PR {numero} relue porte {oid}, pas le sha poussé {tete}"));
+        return Err(format!("PR {numero} read back carries {oid}, not the pushed sha {tete}"));
     }
     Ok(PrOuverte { numero, url: url.clone() })
 }
@@ -1132,8 +1127,8 @@ fn lire_la_garde(dossier: &Path) -> Result<Garde, Refus> {
         Ok(texte) => texte,
         Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
         Err(e) => {
-            let preuve = format!("la garde {} ne se lit pas : {e}", chemin.display());
-            let correction = "Rends-la lisible en UTF-8, ou retire-la, puis relance.";
+            let preuve = format!("the garde file {} cannot be read: {e}", chemin.display());
+            let correction = "Make it readable as UTF-8, or remove it, then retry.";
             return Err(Refus::new(Code::EntreeSortie, preuve, correction));
         }
     };
@@ -1160,7 +1155,7 @@ fn ajoutees(diff: &str) -> Vec<(String, String)> {
         } else if ligne.starts_with("@@") {
             dans_un_morceau = true;
         } else if !dans_un_morceau && let Some(nom) = ligne.strip_prefix("+++ ") {
-            fichiers.push((format!("les lignes ajoutées de {nom}"), String::new()));
+            fichiers.push((format!("the added lines of {nom}"), String::new()));
         } else if dans_un_morceau
             && let (Some(ajout), Some((_, texte))) = (ligne.strip_prefix('+'), fichiers.last_mut())
         {

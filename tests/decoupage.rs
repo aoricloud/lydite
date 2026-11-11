@@ -631,7 +631,7 @@ fn une_issue_fermee_est_refusee_en_8012() {
     essai.poser(1, &plan_de_l_issue());
     let (code, preuve) = lire_refus(&essai.lancer_l_issue("essai", &[]));
     assert_eq!(code, "lydite : 8012 forge.issue_illisible");
-    assert!(preuve.contains("n'est pas ouverte"), "{preuve}");
+    assert!(preuve.contains("is not open"), "{preuve}");
     assert_eq!(essai.appels(), [vue_de_l_issue()]);
     essai.rien_n_est_parti();
     let _ = fs::remove_dir_all(&essai.racine);
