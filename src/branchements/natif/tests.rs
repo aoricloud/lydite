@@ -19,7 +19,12 @@ struct Decor {
 }
 
 fn decor(nom: &str) -> Decor {
+    // Sous Unix, le chemin réel (`mur_attendu` compare des chemins réels) ; sous Windows, tel que le runner l'écrit :
+    // `canonicalize` y rend un chemin verbatim (`\\?\C:\...`), que le profil borné refuse.
+    #[cfg(unix)]
     let dir = fs::canonicalize(dossier(nom)).unwrap();
+    #[cfg(not(unix))]
+    let dir = dossier(nom);
     let (maison, kraken, commun, bac) =
         (dir.join("personnel"), dir.join("lydite"), dir.join("depot").join(".git"), dir.join("bac"));
     for dossier in [&maison, &kraken, &commun, &bac] {
@@ -295,6 +300,8 @@ fn temporaire_nom(d: &Decor) -> String {
     d.temporaire.file_name().unwrap().to_string_lossy().into_owned()
 }
 
+// La préparation entière lit le disque par `canonicalize`, verbatim sous Windows : elle ne se joue que sous Unix.
+#[cfg(unix)]
 #[test]
 fn sans_domaine_le_meme_profil_se_prepare() {
     // Le pendant du refus : sans `reseau`, la préparation aboutit, et crée le dossier temporaire et le filtre.
