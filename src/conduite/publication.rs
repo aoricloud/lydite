@@ -38,8 +38,7 @@ use crate::conduite::alarmes;
 use crate::conduite::lancer::Menee;
 
 /// La correction du refus 8011.
-const ROUGE: &str =
-    "La PR reste ouverte et rouge, et Lydite ne la relance pas deux fois : lis sa CI, puis corrige-la toi-même.";
+const ROUGE: &str = "The PR stays open and red, and Lydite does not retry it twice: read its CI, then fix it yourself.";
 
 /// La première ligne de l'objectif de la tâche de relance ; le contexte la suit.
 const CORRIGER: &str = "Corrige au plus petit ce que le contexte nomme, et rien d'autre, sans toucher à .github/";
@@ -223,9 +222,9 @@ fn non_rejoue_de_la_relecture(evenements: &[Evenement], id: &str) -> Vec<String>
 }
 
 /// La correction du refus 7016 d'une tête qui n'est pas celle que la relecture a jugée.
-const SANS_TETE_JUGEE: &str = "Rien ne se pousse : seule se pousse la tête que la relecture a jugée, ou la correction \
-                               qui vise cette relecture. Relance la vague, ou relis toi-même la tête avant de la \
-                               pousser.";
+const SANS_TETE_JUGEE: &str = "Nothing is pushed: only the head that the review judged is pushed, or the correction \
+                               that targets that review. Retry the wave, or review the head yourself before pushing \
+                               it.";
 
 /// Vrai si un `vague.fusion` de l'une des vagues `ids` porte le commit `sha` : la preuve y a été rejouée verte.
 fn rejouee_sur(evenements: &[Evenement], ids: &[&str], sha: &str) -> bool {
@@ -274,13 +273,13 @@ fn controler_la_tete(vagues: &[Vague], evenements: &[Evenement], id: &str, tete:
     let jugement = vagues.iter().find(|vague| vague.id == id).and_then(|vague| vague.jugement.as_ref());
     let Some(jugement) = jugement.filter(|j| relecteur.is_some_and(|r| r.id == j.relecteur)) else {
         return Err(refus(format!(
-            "la relecture de la vague {id} n'a pas de verdict au fil, et la tête à pousser est {tete}"
+            "the review of wave {id} has no verdict in the thread, and the head to push is {tete}"
         )));
     };
     let jugee = jugement.sha.as_str();
     if relecture.bloquantes == 0 {
         if tete != jugee {
-            return Err(refus(format!("la tête à pousser {tete} n'est pas la tête relue {jugee} de la vague {id}")));
+            return Err(refus(format!("the head to push {tete} is not the reviewed head {jugee} of wave {id}")));
         }
         return Ok(if rejouee_sur(evenements, &[id], jugee) {
             format!("Reviewed and replayed on commit {jugee}.")
@@ -290,21 +289,21 @@ fn controler_la_tete(vagues: &[Vague], evenements: &[Evenement], id: &str, tete:
     }
     let Some(correction) = correction_de(vagues, id) else {
         return Err(refus(format!(
-            "la relecture de la vague {id} a des remarques bloquantes sur la tête relue {jugee}, aucune correction ne \
-             les vise, et la tête à pousser est {tete}"
+            "the review of wave {id} has blocking remarks on the reviewed head {jugee}, no correction targets them, \
+             and the head to push is {tete}"
         )));
     };
     let corrigee = derniere_tete(evenements, &correction.id).filter(|corrigee| corrigee != jugee);
     let Some(corrigee) = corrigee else {
         return Err(refus(format!(
-            "la correction {} de la vague {id} n'a pas de tête autre que la tête relue {jugee}, et la tête à pousser \
-             est {tete}",
+            "correction {} of wave {id} has no head other than the reviewed head {jugee}, and the head to push is \
+             {tete}",
             correction.id
         )));
     };
     if tete != corrigee {
         return Err(refus(format!(
-            "la tête à pousser {tete} n'est pas la tête {corrigee} de la correction {} de la vague {id} (relue sur \
+            "the head to push {tete} is not the head {corrigee} of correction {} of wave {id} (reviewed on \
              {jugee})",
             correction.id
         )));
@@ -394,7 +393,7 @@ impl Rouge {
 
 /// Note l'événement dans la séance de la forge. Ratée, la note arrête la forge, et l'erreur nomme le fil.
 fn noter(fil: &Fil, evenement: &Evenement) -> Result<(), String> {
-    fil.noter(evenement).map_err(|e| format!("une note de la forge ne s'écrit pas : {e}"))
+    fil.noter(evenement).map_err(|e| format!("a note of the forge cannot be written: {e}"))
 }
 
 impl Proposition<'_> {
@@ -410,9 +409,9 @@ impl Proposition<'_> {
         let head = head.as_deref().map(str::trim);
         (head != Some(self.base.as_str())).then(|| {
             format!(
-                "HEAD du dépôt visé ({}) n'est pas la tête distante de {} ({}) : la vague part de celle-ci, sans les \
-                 commits locaux non poussés",
-                head.unwrap_or("illisible"),
+                "HEAD of the target repository ({}) is not the remote head of {} ({}): the wave starts from the \
+                 latter, without the local unpushed commits",
+                head.unwrap_or("unreadable"),
                 self.branche,
                 self.base
             )
@@ -470,7 +469,7 @@ impl Proposition<'_> {
             Ok(true) if assemblees && suite.ci == Some(Couleur::Vert) => ExitCode::SUCCESS,
             Ok(_) => ExitCode::FAILURE,
             Err(pourquoi) => {
-                eprintln!("la forge s'arrête : {pourquoi}");
+                eprintln!("the forge stops: {pourquoi}");
                 ExitCode::FAILURE
             }
         }
@@ -487,10 +486,10 @@ impl Proposition<'_> {
         ci: (Duration, Duration),
     ) -> Result<(), Arret> {
         if menee.arretee {
-            return Err(Arret::Net("la vague s'est arrêtée (7012), et rien ne se pousse".into()));
+            return Err(Arret::Net("the wave stopped (7012), and nothing is pushed".into()));
         }
         let (Some(branche), Some(tete)) = (&menee.branche, &menee.tete) else {
-            return Err(Arret::Net("la vague n'a pas d'assemblage, et rien ne se pousse".into()));
+            return Err(Arret::Net("the wave has no assembly, and nothing is pushed".into()));
         };
         a_pousser(&self.base, tete).map_err(Arret::Refus)?;
         let (vague, relecture, mut recu) = self.rejouee(menee, tete)?;
@@ -502,8 +501,10 @@ impl Proposition<'_> {
         };
         let points = self.points_a_justifier(tete).map_err(Arret::Net)?;
         // Le sceau du fil, noté juste avant le corps : le reçu le reprend.
-        let sceau =
-            suite.fil.sceller(&menee.id).map_err(|e| Arret::Net(format!("le sceau du fil ne s'écrit pas : {e}")))?;
+        let sceau = suite
+            .fil
+            .sceller(&menee.id)
+            .map_err(|e| Arret::Net(format!("the seal of the thread cannot be written: {e}")))?;
         recu.sceau = Some(sceau);
         let corps = corps(plan, &vague, relecture.as_deref(), self.issue, &recu, &reglages, &points);
         let chemins: Vec<&Path> = personnel.into_iter().chain([self.forge.dossier, self.forge.depot]).collect();
@@ -559,7 +560,7 @@ impl Proposition<'_> {
         let note = Evenement::Ci { vague: vague.into(), numero, sha: sha.into(), couleur, texte, foi: Foi::Constate };
         noter(&suite.fil, &note).map_err(Arret::Net)?;
         suite.ci = Some(couleur);
-        eprintln!("CI {} (constatée)", if couleur == Couleur::Vert { "verte" } else { "rouge" });
+        eprintln!("CI {} (observed)", if couleur == Couleur::Vert { "green" } else { "red" });
         Ok(rouge)
     }
 
@@ -591,14 +592,14 @@ impl Proposition<'_> {
             let echecs = rouge.echecs.lines().collect::<Vec<_>>().join(" ; ");
             let id = &critique.id;
             return Err(refus(format!(
-                "la CI de la PR {numero} est rouge, et sa tâche {id} est critique : pas de relance : {echecs}"
+                "the CI of PR {numero} is red, and its task {id} is critical: no retry: {echecs}"
             )));
         }
         self.forge.base_a_bouge(&self.branche, tete).map_err(Arret::Refus)?;
-        eprintln!("CI rouge : une relance, la vague repart de {tete}");
+        eprintln!("CI red: one retry, the wave restarts from {tete}");
         let relance = plan_de_relance(plan, numero, &rouge.contexte());
         let ouverte = lancer(&relance, tete).map_err(|echec| {
-            refus(format!("la vague de relance de la PR {numero} ne s'ouvre pas, {} : {}", echec.code, echec.preuve))
+            refus(format!("the retry wave of PR {numero} does not open, {}: {}", echec.code, echec.preuve))
         })?;
         let (id, nouvelle) = (ouverte.id.clone(), ouverte.tete.clone().filter(|nouvelle| nouvelle != tete));
         let assemblee = !ouverte.arretee && ouverte.issues.iter().all(|(_, issue)| issue.is_ok());
@@ -606,10 +607,10 @@ impl Proposition<'_> {
         suite.relance = Some(ouverte);
         if !assemblee {
             let dehors = dehors.unwrap_or_default();
-            return Err(refus(format!("la vague de relance {id} n'a pas assemblé sa tâche ci : {dehors}")));
+            return Err(refus(format!("the retry wave {id} did not assemble its task ci: {dehors}")));
         }
         let Some(nouvelle) = nouvelle else {
-            return Err(refus(format!("la vague de relance {id} n'a rien changé à la tête poussée {tete}")));
+            return Err(refus(format!("the retry wave {id} changed nothing in the pushed head {tete}")));
         };
         // raccourci : la relance pousse une tête que personne n'a relue, et le corps de la PR garde sa ligne de commit
         // relu et rejoué d'origine ; monter avec le contrôle de fusion de la CI
@@ -622,20 +623,20 @@ impl Proposition<'_> {
         suite.poussee = Some(nouvelle.clone());
         let locale = format!("refs/heads/{branche}");
         if let Err(vu) = self.forge.faire(self.forge.git(&["update-ref", &locale, &nouvelle, tete]), None) {
-            eprintln!("la branche locale {branche} n'avance pas : {vu}");
+            eprintln!("the local branch {branche} does not advance: {vu}");
         }
         self.noter_la_pr(&suite.fil, &id, publication, &nouvelle)?;
-        eprintln!("PR {numero} · {} : {branche} avance à {nouvelle}", publication.pr.url);
+        eprintln!("PR {numero} · {}: {branche} advances to {nouvelle}", publication.pr.url);
         let Some(encore) = self.lire_la_ci(suite, &id, publication, &nouvelle, Some(tete))? else { return Ok(()) };
         let echecs = encore.echecs.lines().collect::<Vec<_>>().join(" ; ");
-        Err(refus(format!("la CI de la PR {numero} est rouge encore sur la tête de la relance {nouvelle} : {echecs}")))
+        Err(refus(format!("the CI of PR {numero} is still red on the head of the retry {nouvelle}: {echecs}")))
     }
 
     /// La vague `menee` telle que le fil la rejoue, avec la ligne de sa relecture s'il y en a une
     /// ([`ligne_de_relecture`]) : le corps de la PR en tire l'issue de chaque tâche, et les nombres de la relecture.
     fn rejouee(&self, menee: &Menee, tete: &str) -> Result<(Vague, Option<String>, Recu), Arret> {
         let lue = dossier::lire(self.forge.dossier)
-            .map_err(|refus| Arret::Net(format!("le fil ne se relit pas : {}", refus.preuve)))?;
+            .map_err(|refus| Arret::Net(format!("the thread cannot be read back: {}", refus.preuve)))?;
         let evenements: Vec<Evenement> = lue.notes.iter().map(|note| note.evenement.clone()).collect();
         let mut vagues = etat(&evenements);
         // La tête à pousser est celle que la relecture a jugée, ou sa correction : sinon rien ne se pousse (7016).
@@ -647,7 +648,7 @@ impl Proposition<'_> {
         let relecture = Some(relecture.join("\n"));
         let recu = recu_de(&vagues, &lue.notes, &menee.id);
         let rang = vagues.iter().position(|vague| vague.id == menee.id);
-        let rang = rang.ok_or_else(|| Arret::Net(format!("le fil ne rejoue pas la vague {}", menee.id)))?;
+        let rang = rang.ok_or_else(|| Arret::Net(format!("the thread does not replay wave {}", menee.id)))?;
         Ok((vagues.swap_remove(rang), relecture, recu))
     }
 
@@ -656,8 +657,10 @@ impl Proposition<'_> {
     /// erreur : le corps ne dit pas « aucun » sans l'avoir lu.
     fn reglages_changes(&self, tete: &str) -> Result<Vec<String>, String> {
         let diff = self.forge.git(&["diff", "--name-only", "--no-renames", "-z", &self.base, tete]);
-        let noms =
-            self.forge.faire(diff, None).map_err(|vu| format!("le diff de la base à la tête ne se lit pas : {vu}"))?;
+        let noms = self
+            .forge
+            .faire(diff, None)
+            .map_err(|vu| format!("the diff from the base to the head cannot be read: {vu}"))?;
         Ok(reglages_changes(noms.split('\0').filter(|nom| !nom.is_empty())))
     }
 
@@ -668,7 +671,7 @@ impl Proposition<'_> {
         let mut args = alarmes::ARGUMENTS.to_vec();
         args.extend([self.base.as_str(), tete]);
         let (gardes, _) = faire_borne(self.forge.git(&args), TAILLE_MAX + 1)
-            .map_err(|vu| format!("le diff de la base à la tête ne se lit pas : {vu}"))?;
+            .map_err(|vu| format!("the diff from the base to the head cannot be read: {vu}"))?;
         Ok(alarmes::points(&String::from_utf8_lossy(&gardes)))
     }
 
@@ -729,7 +732,7 @@ impl Proposition<'_> {
         for (worktree, branche) in &retraits {
             let branche = branche.as_ref().map(|(nom, valeur)| (nom.as_str(), valeur.as_str()));
             if let Err(vu) = retirer(self.forge.depot, worktree, branche, par_la_forge) {
-                eprintln!("retrait raté, le reste de ce worktree demeure : {vu}");
+                eprintln!("removal failed, the rest of this worktree remains: {vu}");
             }
         }
         Ok(())
