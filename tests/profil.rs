@@ -856,9 +856,9 @@ fn un_drapeau_a_la_place_de_l_objectif_ne_lance_rien() {
         assert!(refus.preuve.contains(manque), "la preuve dit ce qui manque ({manque}) : {refus:?}");
         assert_usage(&refus);
     }
-    // Un mot qui n'est pas un drapeau de `lancer` reste un objectif : « --help » est refusé plus loin, par le profil.
+    // `--help` ne se lit que seul : après `lancer`, il n'est pas un objectif, et la ligne est refusée avant le profil.
     let refus = lire_refus(essai.kraken().args(["lancer", "inconnu", "--help"]));
-    assert_eq!(refus.code, "lydite : 6001 lancer.profil_inconnu");
+    assert_eq!(refus.code, "lydite : 1006 contrat.commande_mal_formee");
     essai.rien_ne_part();
     essai.nettoyer();
 }

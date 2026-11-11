@@ -76,8 +76,8 @@ fn options_lues() {
         assert_eq!((refus.code, refus.preuve.as_str()), (mal_formee, dit), "{mots:?}");
         assert!(refus.correction.contains(USAGE), "{refus}");
     }
-    // Seuls les drapeaux de `lancer` sont refusés à cette place : « --help » reste un objectif.
-    assert!(matches!(options(&args(&["lancer", "claude", "--help"])), Ok(Commande::Lancer(_))));
+    // `--help` ne se lit que seul : à la place de l'objectif, il est le refus 1006, non un objectif.
+    assert_eq!(code(&["lancer", "claude", "--help"]), mal_formee);
     // `--verifier` vide ou blanc est le refus 6014 : rejouée, une commande blanche réussirait toujours et ferait
     // prendre toute main pour prouvée. La preuve montre ce qui a été vu.
     for (blanc, vu) in [("", r#""""#), (" ", r#"" ""#), ("\t \r\n", r#""\t \r\n""#)] {
@@ -267,6 +267,60 @@ fn options_version_seul() {
         assert_eq!(refus.code, Code::CommandeInconnue, "{mots:?}");
     }
     assert!(USAGE.contains("lydite --version"), "{USAGE}");
+}
+
+#[test]
+fn options_aide_seule() {
+    assert_eq!(options(&args(&["--help"])), Ok(Commande::Aide));
+    assert_eq!(options(&args(&["-h"])), Ok(Commande::Aide));
+    // L'usage écrit : `Usage:`, puis une forme par ligne, la dernière étant `lydite skill`.
+    let texte = aide();
+    let lignes: Vec<&str> = texte.lines().collect();
+    assert_eq!(lignes[0], "Usage:");
+    assert_eq!(lignes.len(), 1 + USAGE.matches(" or ").count() + 1, "{texte}");
+    assert_eq!(lignes.last(), Some(&"  lydite skill"));
+    assert!(lignes[1..].iter().all(|ligne| ligne.starts_with("  lydite ")), "{texte}");
+    // Un morceau qui continue une forme reste sur sa ligne.
+    assert!(lignes.iter().any(|ligne| ligne.contains("[--repo <path>] [--pr <branch>]")), "{texte}");
+}
+
+#[test]
+fn l_aide_avec_un_mot_de_plus_est_le_refus_1006_qui_le_nomme() {
+    for mots in [&["--help", "x"][..], &["-h", "x"], &["--help", "-h"], &["-h", "--n", "1"]] {
+        let refus = options(&args(mots)).unwrap_err();
+        assert_eq!(refus.code, Code::CommandeMalFormee, "{mots:?}");
+        assert!(refus.preuve.contains(&format!("« {} » follows it", mots[1])), "{refus}");
+        assert!(refus.preuve.contains(&format!("« {} » takes no argument", mots[0])), "{refus}");
+        assert!(refus.correction.contains(USAGE), "{refus}");
+    }
+}
+
+#[test]
+fn l_aide_ailleurs_sur_la_ligne_est_le_refus_1006_qui_la_nomme() {
+    for aide in ["--help", "-h"] {
+        for mots in [
+            vec!["launch", "claude", aide],
+            vec!["launch", aide, "obj"],
+            vec!["launch", "claude", "obj", "--verify", aide],
+            vec!["launch", "claude", "--plan", aide],
+            vec!["launch", "claude", "--plan", "p.txt", aide],
+            vec!["lancer", "claude", aide],
+            vec!["accept", aide],
+            vec!["plan", aide],
+            vec!["status", aide],
+            vec!["bonjour", aide],
+        ] {
+            let refus = options(&args(&mots)).unwrap_err();
+            // Lu avant toute autre lecture : même le mot inconnu qui précède n'est pas le refus 1005.
+            assert_eq!(refus.code, Code::CommandeMalFormee, "{mots:?}");
+            assert!(refus.preuve.contains(&format!("« {aide} »")), "{mots:?} : {refus}");
+            assert!(refus.preuve.contains("`lydite --help`"), "{mots:?} : {refus}");
+            assert!(refus.correction.contains(USAGE), "{refus}");
+        }
+    }
+    // Seul le mot entier compte : un objectif qui contient `--help` dans son texte reste un objectif.
+    let lue = options(&args(&["launch", "claude", "fix the --help output"]));
+    assert!(matches!(lue, Ok(Commande::Lancer(Options { objectif, .. })) if objectif == "fix the --help output"));
 }
 
 #[test]

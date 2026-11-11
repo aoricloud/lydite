@@ -104,6 +104,20 @@ pub(crate) enum Commande {
     LireLecons { dossier: PathBuf },
     /// `lydite skill` : écrit la skill de pilotage que ce binaire porte, sans rien lire ni écrire d'autre.
     Skill,
+    /// `lydite --help` ou `lydite -h`, seul : écrit l'usage sur stdout, sans rien lire ni écrire d'autre.
+    Aide,
+}
+
+/// Si le mot est `--help` ou `-h`, mot entier.
+fn est_aide(arg: &OsStr) -> bool {
+    arg == "--help" || arg == "-h"
+}
+
+/// L'usage que `lydite --help` écrit : `Usage:`, puis chaque forme de `USAGE` sur sa ligne, après deux espaces. Un
+/// morceau qui continue une forme (` [--pr <branch>]`) reste sur la ligne de sa forme.
+pub(crate) fn aide() -> String {
+    let formes: Vec<String> = USAGE.split(" or ").map(|forme| format!("  {forme}\n")).collect();
+    format!("Usage:\n{}", formes.concat())
 }
 
 /// Lit ce qui suit `lessons` : `<dossier>`, rien d'autre. Le dossier garde son `OsString`, et n'est pas un drapeau.
@@ -166,6 +180,21 @@ pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
     let Some((commande, reste)) = args.split_first() else {
         return Err(refus_de_ligne(Code::CommandeMalFormee, "no command"));
     };
+    // `--help` et `-h` ne se lisent que seuls, avant toute autre lecture : ailleurs, ils seraient un mot de la
+    // commande.
+    if est_aide(commande) {
+        return match reste.first() {
+            None => Ok(Commande::Aide),
+            Some(autre) => {
+                let preuve = format!("{} takes no argument, and {} follows it", mot(commande), mot(autre));
+                Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
+            }
+        };
+    }
+    if let Some(aide) = reste.iter().find(|arg| est_aide(arg)) {
+        let preuve = format!("{} is read only alone: type `lydite --help` by itself", mot(aide));
+        return Err(refus_de_ligne(Code::CommandeMalFormee, preuve));
+    }
     match (commande.to_str().map(|mot| anglais(mot, &ALIAS_COMMANDES)), reste) {
         (Some("status"), []) => Ok(Commande::Etat),
         (Some("--version"), []) | (Some("-V"), []) => Ok(Commande::Version),
