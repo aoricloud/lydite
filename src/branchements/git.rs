@@ -178,7 +178,7 @@ pub(crate) fn racines(depot: &Path) -> Result<(PathBuf, PathBuf), Refus> {
         return Err(Refus::new(
             Code::DepotIntrouvable,
             format!("{} n'est pas un dossier qui existe", depot.display()),
-            "Lance Lydite depuis le dépôt visé, ou donne-le par --depot <chemin>.",
+            "Run Lydite from the target repository, or give it with --depot <path>.",
         ));
     }
     let git = geste(depot, &["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"])
@@ -195,7 +195,7 @@ pub(crate) fn racines(depot: &Path) -> Result<(PathBuf, PathBuf), Refus> {
                 git.status,
                 String::from_utf8_lossy(&git.stderr).trim()
             ),
-            "Vise un dépôt git, depuis son dossier ou par --depot <chemin>, puis relance.",
+            "Target a git repository, from its folder or with --depot <path>, then run again.",
         )),
     }
 }

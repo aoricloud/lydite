@@ -188,8 +188,9 @@ codes! {
         "Sous un mur exigé, srt joue `true` sous des réglages de rejeu avant toute main et avant l'épreuve de \
          la base ; sinon rien n'est lancé.";
     IssueSansMur = 6029, "lancer.issue_sans_mur",
-        "`--issue` ne se lance que sous un profil au mur exigé, car le texte d'une issue vient d'autrui : \
-         `mur = exige` dans le profil puis `lydite accepter <profil>`, ou un objectif tapé à la main.";
+        "`--issue` only runs under a profile whose wall is required, because the text of an issue comes from \
+         someone else: `mur = exige` in the profile, then `lydite accepter <profile>`, or an objective typed by \
+         hand.";
     Quota = 6030, "lancer.quota",
         "Sous un quota du jour posé (`profils/quota`, en dollars), une main ne part pas quand la dépense estimée \
          du jour UTC l'atteint, quand le fichier ne se lit pas, ni quand son profil à `api` n'a pas de `prix` \

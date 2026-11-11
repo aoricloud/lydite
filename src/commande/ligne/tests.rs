@@ -152,9 +152,9 @@ fn options_plan_seul() {
         ("plan --n 1", "« --n » est un drapeau"),
         ("plan --decoupe --decoupe p", "« --decoupe » est un drapeau"),
         ("plan --plan p", "« --plan » est un drapeau"),
-        ("plan p q", "et « q » le suit"),
-        ("plan p --decoupe", "et « --decoupe » le suit"),
-        ("plan --decoupe p ?", "le suit"),
+        ("plan p q", "`plan` takes only `[--decoupe] <file>`, and « q » follows it"),
+        ("plan p --decoupe", "and « --decoupe » follows it"),
+        ("plan --decoupe p ?", "follows it"),
     ] {
         let refus = options(&ligne(mots)).unwrap_err();
         assert_eq!(refus.code, Code::CommandeMalFormee, "{mots}");
@@ -181,9 +181,9 @@ fn options_remarques_seul() {
         ("remarques --n 1", "« --n » est un drapeau"),
         ("remarques --decoupe p", "« --decoupe » est un drapeau"),
         ("remarques -", "« - » est un drapeau"),
-        ("remarques p q", "`remarques` ne prend que `<fichier>`, et « q » le suit"),
-        ("remarques p --decoupe", "et « --decoupe » le suit"),
-        ("remarques p ?", "le suit"),
+        ("remarques p q", "`remarques` takes only `<file>`, and « q » follows it"),
+        ("remarques p --decoupe", "and « --decoupe » follows it"),
+        ("remarques p ?", "follows it"),
     ] {
         let refus = options(&ligne(mots)).unwrap_err();
         assert_eq!(refus.code, Code::CommandeMalFormee, "{mots}");
@@ -206,7 +206,7 @@ fn options_lecons_seul() {
         ("lecons", "`lecons` : il manque le dossier du dépôt"),
         ("lecons --n 1", "« --n » est un drapeau"),
         ("lecons -", "« - » est un drapeau"),
-        ("lecons p q", "`lecons` ne prend que `<dossier>`, et « q » le suit"),
+        ("lecons p q", "`lecons` takes only `<folder>`, and « q » follows it"),
     ] {
         let refus = options(&ligne(mots)).unwrap_err();
         assert_eq!(refus.code, Code::CommandeMalFormee, "{mots}");
@@ -580,6 +580,16 @@ fn l_usage_est_en_anglais() {
     for (francais, anglais) in francais.iter().zip(anglais.iter()) {
         assert!(!USAGE.contains(francais), "l'usage dit encore {francais} : {USAGE}");
         assert!(USAGE.contains(anglais), "l'usage ne dit pas {anglais} : {USAGE}");
+    }
+}
+
+#[test]
+fn les_preuves_de_mot_en_trop_sont_en_anglais() {
+    for (mots, mot_anglais) in [("lecons p q", "<folder>"), ("remarques p q", "<file>"), ("plan p q", "<file>")] {
+        let refus = options(&ligne(mots)).unwrap_err();
+        assert_eq!(refus.code, Code::CommandeMalFormee, "{mots}");
+        assert!(!refus.preuve.contains("<dossier>") && !refus.preuve.contains("<fichier>"), "{refus}");
+        assert!(refus.preuve.contains(mot_anglais), "{refus}");
     }
 }
 

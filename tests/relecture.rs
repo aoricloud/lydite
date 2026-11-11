@@ -518,7 +518,7 @@ fn kraken_remarques_veut_un_fichier_et_un_seul() {
     let cas: Vec<(Vec<&std::ffi::OsStr>, &str)> = vec![
         (vec![], "`remarques` : il manque le fichier des remarques"),
         (vec!["--decoupe".as_ref(), fichier.as_os_str()], "« --decoupe » est un drapeau"),
-        (vec![fichier.as_os_str(), "autre".as_ref()], "« autre » le suit"),
+        (vec![fichier.as_os_str(), "autre".as_ref()], "« autre » follows it"),
     ];
     for (args, vu) in cas {
         let sortie = Command::new(env!("CARGO_BIN_EXE_lydite")).arg("remarques").args(&args).output().unwrap();
