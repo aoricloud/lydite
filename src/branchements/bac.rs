@@ -15,8 +15,8 @@ pub(crate) fn bac(depot: &Path, dossier: &Path, id: &str, depart: &str) -> Resul
     let bac = dossier.join("bacs").join(id);
     poser(depot, &bac, &["-b", &format!("lydite/{id}")], depart).map_err(|vu| {
         let correction = format!(
-            "La tâche est refusée, et les autres continuent : vérifie que git se lance dans le dépôt visé, et que \
-             ni la branche lydite/{id} ni le dossier {} n'existent, puis relance-la dans une vague neuve.",
+            "The task is refused, and the others continue: check that git starts in the target repository, and that \
+             neither the branch lydite/{id} nor the folder {} exists, then run it again in a new wave.",
             bac.display()
         );
         Refus::new(Code::VagueBacImpossible, vu, correction)
@@ -36,7 +36,7 @@ pub(crate) fn poser(depot: &Path, worktree: &Path, options: &[&str], depart: &st
     let lu = faire(geste(worktree, &["rev-parse", "--path-format=absolute", "--git-dir", "--show-toplevel"]))?;
     let mut lignes = lu.lines();
     let (Some(git_dir), Some(work_tree)) = (lignes.next(), lignes.next()) else {
-        return Err(format!("git rev-parse ne dit pas le git-dir et le work-tree de {} : {lu}", worktree.display()));
+        return Err(format!("git rev-parse gives no git-dir and work-tree for {}: {lu}", worktree.display()));
     };
     lieux().push((worktree.to_path_buf(), git_dir.into(), work_tree.into()));
     Ok(())
@@ -61,7 +61,7 @@ pub(crate) fn retirer(
     retrait.arg(worktree);
     faire(retrait)?;
     if let Some(temporaire) = temporaire_de(worktree).filter(|temporaire| temporaire.exists()) {
-        fs::remove_dir_all(&temporaire).map_err(|e| format!("effacement de {} : {e}", temporaire.display()))?;
+        fs::remove_dir_all(&temporaire).map_err(|e| format!("erasing {}: {e}", temporaire.display()))?;
     }
     if let Some((nom, valeur)) = branche {
         faire(geste(depot, &["update-ref", "-d", &format!("refs/heads/{nom}"), valeur]))?;
@@ -135,8 +135,8 @@ pub(crate) fn sans_claude(bac: &Path, depart: &str) -> Result<(), Refus> {
     for (rang, mut commande) in [suivi, commite, non_suivi, index].into_iter().enumerate() {
         commande.args(CLAUDE);
         let sortie = faire(commande).map_err(|vu| {
-            let correction = "Vérifie que git se lance et que le bac est un worktree du dépôt visé : la tâche est \
-                              refusée sans être relancée ni figée.";
+            let correction = "Check that git starts and that the sandbox is a worktree of the target repository: the \
+                              task is refused without being retried or frozen.";
             Refus::new(Code::GitImpossible, vu, correction)
         })?;
         // Le rang 2 est le non-suivi : une butée du mur n'y compte pas.
@@ -150,10 +150,10 @@ pub(crate) fn sans_claude(bac: &Path, depart: &str) -> Result<(), Refus> {
     vus.dedup();
     Err(Refus::new(
         Code::ClaudeTouche,
-        format!("la main a touché un dossier .claude dans son bac {} : {}", bac.display(), vus.join(", ")),
-        "Lydite ne relance ni ne fige ce bac : lis ce que la main y a écrit, puis relance la tâche par un objectif qui \
-         ne touche à aucun dossier .claude. Un réglage, un crochet, une commande, une compétence, un agent ou une \
-         mémoire de projet se pose par l'humain, hors de la vague.",
+        format!("the hand touched a .claude folder in its sandbox {}: {}", bac.display(), vus.join(", ")),
+        "Lydite neither retries nor freezes this sandbox: read what the hand wrote there, then run the task again \
+         with an objective that touches no .claude folder. A setting, a hook, a command, a skill, an agent or a \
+         project memory is set by the human, outside the wave.",
     ))
 }
 
@@ -244,7 +244,7 @@ pub(crate) fn reglages_du_bac(bac: &Path) -> io::Result<String> {
         match fs::read(&chemin) {
             Ok(octets) => lignes.push(format!(".claude/{nom} {}", hex(&sha256(&octets)))),
             Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory) => {}
-            Err(e) => return Err(nommee(e, format!("lecture des réglages {}", chemin.display()))),
+            Err(e) => return Err(nommee(e, format!("reading the settings {}", chemin.display()))),
         }
     }
     Ok(lignes.join("\n"))

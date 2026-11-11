@@ -68,7 +68,7 @@ fn kraken_lecons_lit_les_lecons_du_depot_et_sort_en_0_ou_2() {
     let refus = lecons_cmd(&depot).unwrap_err();
     assert_eq!(refus.code, Code::LeconMalFormee, "{refus}");
     let fichier = skills.join("fausse").join("SKILL.md");
-    assert!(refus.preuve.starts_with(&format!("{} : ligne 9 :", fichier.display())), "{refus}");
+    assert!(refus.preuve.starts_with(&format!("{} : line 9:", fichier.display())), "{refus}");
     assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
     // La première fausse, dans l'ordre des noms.
     poser("accrochee", "pas une leçon\n");

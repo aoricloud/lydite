@@ -58,15 +58,15 @@ impl Baux {
                 let attendue = bail.tentative;
                 return Err(Refus::new(
                     Code::MainActive,
-                    format!("main {main} : {bail} ; une seconde main doublerait la sienne"),
-                    format!("Attends le message de sa tentative {attendue} : une relance ne part qu'après lui."),
+                    format!("hand {main}: {bail}; a second hand would double its own"),
+                    format!("Wait for the message of its attempt {attendue}: a retry starts only after it."),
                 ));
             }
             Some(bail @ Bail { etat: Etat::Expire, .. }) => {
                 return Err(Refus::new(
                     Code::MainActive,
-                    format!("main {main} : {bail} ; sa main peut tourner encore"),
-                    "Ne relance pas cette tâche, refusée à son expiration : reprends-la dans une vague neuve.",
+                    format!("hand {main}: {bail}; its hand may still be running"),
+                    "Do not retry this task, refused at its expiry: take it up again in a fresh wave.",
                 ));
             }
         };
@@ -84,12 +84,11 @@ impl Baux {
                 Ok(())
             }
             bail => {
-                let etat =
-                    bail.map_or_else(|| "aucun bail n'a été ouvert pour cette main".into(), |bail| bail.to_string());
+                let etat = bail.map_or_else(|| "no lease was opened for this hand".into(), |bail| bail.to_string());
                 Err(Refus::new(
                     Code::ResultatPerime,
-                    format!("main {main}, tentative {tentative} : {etat}"),
-                    "Ne prends pas ce résultat : note-le en main.perimee, sans le figer ni l'assembler.",
+                    format!("hand {main}, attempt {tentative}: {etat}"),
+                    "Do not take this result: note it in main.perimee, without freezing or assembling it.",
                 ))
             }
         }
@@ -117,10 +116,10 @@ impl fmt::Display for Bail {
         let tentative = self.tentative;
         match self.etat {
             Etat::Ouvert { duree, .. } => {
-                write!(f, "le bail de sa tentative {tentative} est ouvert, pour {} s", duree.as_secs_f64())
+                write!(f, "the lease of its attempt {tentative} is open, for {} s", duree.as_secs_f64())
             }
-            Etat::Conclu => write!(f, "le bail de sa tentative {tentative} est conclu"),
-            Etat::Expire => write!(f, "le bail de sa tentative {tentative} a expiré, sans message à son échéance"),
+            Etat::Conclu => write!(f, "the lease of its attempt {tentative} is concluded"),
+            Etat::Expire => write!(f, "the lease of its attempt {tentative} expired, with no message at its deadline"),
         }
     }
 }

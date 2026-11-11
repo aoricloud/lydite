@@ -87,21 +87,21 @@ const REPONDRE: &str = "Réponds à chaque remarque bloquante : dans ton dernier
                         permettent pas.";
 
 /// La correction d'une relecture classée (7016).
-const SANS_RELECTURE: &str = "Rien ne se pousse : le travail des tâches critiques n'est pas relu. Lis l'erreur du \
-                              relecteur, puis relance la vague, ou relis son travail toi-même avant de le pousser.";
+const SANS_RELECTURE: &str = "Nothing is pushed: the work of the critical tasks is not reviewed. Read the reviewer's \
+                              error, then run the wave again, or review its work yourself before pushing it.";
 
 /// La correction d'une correction qui ne s'assemble pas (7017).
-const SANS_CORRECTION: &str = "Rien ne se pousse : des remarques bloquantes restent sans correction. Lis-les au fil \
-                               (vague.relecture), puis corrige-les toi-même dans la branche de la vague, ou relance \
-                               une vague neuve.";
+const SANS_CORRECTION: &str = "Nothing is pushed: blocking remarks remain without a correction. Read them in the \
+                               thread (vague.relecture), then fix them yourself in the wave branch, or run a fresh \
+                               wave.";
 
 /// La correction d'une remarque bloquante hors de portée (7020).
 const SANS_PORTEE: &str = "Nothing is pushed: no correction was started. Rerun the task in a fresh wave with that \
                            file in its `fichiers`, or fix it yourself on the branch, then have it reviewed.";
 
 /// La correction d'un fil qui ne reçoit pas la note d'une relecture prise (7012).
-const SANS_NOTE: &str = "Rien ne se pousse : une relecture que le fil n'a pas reçue ne compte pas, et son bac demeure. \
-                         Rends le fil inscriptible, puis relance la vague.";
+const SANS_NOTE: &str = "Nothing is pushed: a review that the thread has not received does not count, and its \
+                         sandbox stays. Make the thread writable, then run the wave again.";
 
 /// Les octets d'un fichier de remarques, [`TAILLE_MAX`] au plus et un de plus pour voir qu'il dépasse : un fichier plus
 /// gros ne se lit pas en entier.
@@ -117,7 +117,7 @@ pub(crate) fn lire_borne(fichier: &Path) -> io::Result<Vec<u8>> {
 fn juger(bac: &Path, depart: &str) -> Result<(Vec<Remarque>, String), Refus> {
     seul_change(bac, depart, REMARQUES, &[DIFF, FICHIER_PREUVE])?;
     let chemin = bac.join(REMARQUES);
-    let octets = lire_borne(&chemin).map_err(|e| Refus::from(nommee(e, format!("lecture de {}", chemin.display()))))?;
+    let octets = lire_borne(&chemin).map_err(|e| Refus::from(nommee(e, format!("reading {}", chemin.display()))))?;
     let fichier = lire_fichier(&octets)?.exiger_la_forme_2()?;
     Ok((fichier.remarques, String::from_utf8_lossy(&octets).into_owned()))
 }
@@ -233,8 +233,7 @@ fn fichiers_de(taches: &[&Tache]) -> Option<Vec<String>> {
 fn ecrire_le_diff(bac: &Path, base: &str, tete: &str, fichiers: Option<&[String]>) -> Result<(), Refus> {
     let (diff, total) = lire_le_diff(bac, base, tete, fichiers)?;
     let chemin = bac.join(DIFF);
-    fs::write(&chemin, borner(diff, total))
-        .map_err(|e| Refus::from(nommee(e, format!("écriture de {}", chemin.display()))))
+    fs::write(&chemin, borner(diff, total)).map_err(|e| Refus::from(nommee(e, format!("writing {}", chemin.display()))))
 }
 
 /// Le diff de [`ecrire_le_diff`], lu borné dans le worktree `dossier` : ce que Kraken en garde ([`TAILLE_MAX`] + 1
@@ -242,8 +241,8 @@ fn ecrire_le_diff(bac: &Path, base: &str, tete: &str, fichiers: Option<&[String]
 fn lire_le_diff(dossier: &Path, base: &str, tete: &str, fichiers: Option<&[String]>) -> Result<(String, u64), Refus> {
     let mut diff = geste(dossier, &["diff", "--no-color", "--no-ext-diff", "--no-textconv", base, tete, "--"]);
     diff.env("GIT_LITERAL_PATHSPECS", "1").args(fichiers.unwrap_or_default());
-    let correction = "Vérifie que git se lance et que le bac est un worktree du dépôt visé : sans le diff, le \
-                      relecteur ne part pas.";
+    let correction = "Check that git runs and that the sandbox is a worktree of the target repository: without the \
+                      diff, the reviewer does not start.";
     let (gardes, total) =
         faire_borne(diff, TAILLE_MAX + 1).map_err(|vu| Refus::new(Code::GitImpossible, vu, correction))?;
     Ok((String::from_utf8_lossy(&gardes).into_owned(), total))
@@ -401,12 +400,12 @@ impl Relecture<'_> {
         let vague_du_relecteur = vague.clone();
         let note = Evenement::Relecture { vague, relue: self.menee.id.clone(), n, bloquantes, remarques: texte };
         if let Err(erreur) = Fil::seance(self.dossier, "humain").noter(&note) {
-            let preuve = format!("la relecture {main} de la vague {} n'est pas notée : {erreur}", self.menee.id);
+            let preuve = format!("the review {main} of wave {} is not noted: {erreur}", self.menee.id);
             return Err(Refus::new(Code::FilInjoignable, preuve, SANS_NOTE));
         }
         // Le verdict : la tête relue, et le profil, l'empreinte et le modèle du lancement du relecteur.
         let (profil, empreinte, modele) = self.lancement_du_relecteur(&vague_du_relecteur).map_err(|erreur| {
-            let preuve = format!("le lancement de la relecture {main} ne se lit pas au fil : {erreur}");
+            let preuve = format!("the launch of the review {main} cannot be read from the thread: {erreur}");
             Refus::new(Code::FilInjoignable, preuve, SANS_NOTE)
         })?;
         let sha = self.tete.to_string();
@@ -419,12 +418,11 @@ impl Relecture<'_> {
             modele,
         };
         if let Err(erreur) = Fil::seance(self.dossier, "humain").noter(&verdict) {
-            let preuve =
-                format!("le verdict de la relecture {main} de la vague {} n'est pas noté : {erreur}", self.menee.id);
+            let preuve = format!("the verdict of the review {main} of wave {} is not noted: {erreur}", self.menee.id);
             return Err(Refus::new(Code::FilInjoignable, preuve, SANS_NOTE));
         }
         let ecrits = [REMARQUES, DIFF, FICHIER_PREUVE];
-        retirer_le_bac(self.depot, self.dossier, "le bac du relecteur", &main, self.tete, &ecrits);
+        retirer_le_bac(self.depot, self.dossier, "the reviewer's sandbox", &main, self.tete, &ecrits);
         if let Some((numero, fichier)) = self.bloquante_hors_de_portee(&remarques) {
             let preuve = format!(
                 "the review of wave {} has a blocking remark, number {numero}, on {fichier}, \
@@ -474,7 +472,7 @@ impl Relecture<'_> {
         let evenements: Vec<Evenement> = lu.notes.into_iter().map(|note| note.evenement).collect();
         let texte = texte_de_la_preuve(self.plan.preuve.as_deref(), &evenements, &self.menee.id, self.tete);
         let chemin = bac.join(FICHIER_PREUVE);
-        fs::write(&chemin, texte).map_err(|e| Refus::from(nommee(e, format!("écriture de {}", chemin.display()))))
+        fs::write(&chemin, texte).map_err(|e| Refus::from(nommee(e, format!("writing {}", chemin.display()))))
     }
 
     /// Le relecteur : sa vague de copies, son juge, son diff. Rend ce qu'il a rendu, ou le refus 7016. Sous une
@@ -491,21 +489,21 @@ impl Relecture<'_> {
             .unwrap_or_default();
         let relecteur = plan_du_relecteur(self.profil, self.plan, &self.critiques, &points);
         let classee = |pourquoi: String| {
-            let preuve = format!("la relecture de la vague {id} est classée : {pourquoi}");
+            let preuve = format!("the review of wave {id} is set aside: {pourquoi}");
             Refus::new(Code::RelectureManquee, preuve, SANS_RELECTURE)
         };
         if self.origine == Origine::Issue {
             // Depuis la racine du dépôt visé, comme dans le bac : les `fichiers` sont relatifs à elle, et le dépôt visé
             // peut être un de ses sous-dossiers (le dossier courant de Kraken, par défaut).
             let ne_se_lit_pas =
-                |refus: Refus| classee(format!("son diff ne se lit pas, {} : {}", refus.code, refus.preuve));
+                |refus: Refus| classee(format!("its diff cannot be read, {}: {}", refus.code, refus.preuve));
             let (racine, _) = racines(self.depot).map_err(ne_se_lit_pas)?;
             let (diff, total) = lire_le_diff(&racine, base, tete, fichiers.as_deref()).map_err(ne_se_lit_pas)?;
             let poids = poids(&diff, total);
             if poids > TAILLE_MAX as u64 {
                 return Err(classee(format!(
-                    "son diff pèse {poids} octets, plus que 1 Mo ({TAILLE_MAX} octets), et une vague née d'une issue \
-                     ne se relit pas en partie"
+                    "its diff weighs {poids} bytes, more than 1 MB ({TAILLE_MAX} bytes), and a wave born from an \
+                     issue is not reviewed in part"
                 )));
             }
         }
@@ -529,15 +527,15 @@ impl Relecture<'_> {
         };
         let profil = self.profil.pour_le_relecteur();
         let rendue = lancer_avec(self.depot, self.dossier, &profil, &relecteur, self.bail, tete, liens)
-            .map_err(|echec| classee(format!("sa vague ne s'ouvre pas, {} : {}", echec.code, echec.preuve)))?;
+            .map_err(|echec| classee(format!("its wave does not open, {}: {}", echec.code, echec.preuve)))?;
         let (main, issue) = rendue.issues.into_iter().next().unwrap_or_else(|| {
-            (format!("main-{}-1", rendue.id), Err("la vague du relecteur n'a rendu aucune issue".into()))
+            (format!("main-{}-1", rendue.id), Err("the reviewer's wave returned no outcome".into()))
         });
         let lu = lu.into_inner().unwrap_or_else(PoisonError::into_inner);
         match (issue, lu) {
             (Ok(_), Some((remarques, texte))) => Ok(Lue { vague: rendue.id, main, remarques, texte }),
-            (Ok(_), None) => Err(classee(format!("{main} : le juge du relecteur n'a gardé aucune remarque"))),
-            (Err(dehors), _) => Err(classee(format!("{main} : {}", queue(&dehors)))),
+            (Ok(_), None) => Err(classee(format!("{main}: the reviewer's judge kept no remark"))),
+            (Err(dehors), _) => Err(classee(format!("{main}: {}", queue(&dehors)))),
         }
     }
 
@@ -551,20 +549,20 @@ impl Relecture<'_> {
         let profil = self.profil.pour_la_correction();
         let corrigee =
             lancer_avec(self.depot, self.dossier, &profil, &correction, self.bail, tete, liens).map_err(|echec| {
-                manque(format!("la correction de la vague {id} ne s'ouvre pas, {} : {}", echec.code, echec.preuve))
+                manque(format!("the correction of wave {id} does not open, {}: {}", echec.code, echec.preuve))
             })?;
         let dehors = corrigee.issues.iter().find_map(|(_, issue)| issue.as_ref().err());
         if corrigee.arretee || dehors.is_some() {
             let dehors = dehors.map(|erreur| queue(erreur)).unwrap_or_default();
-            return Err(manque(format!("la vague de correction {} n'a pas assemblé sa tâche : {dehors}", corrigee.id)));
+            return Err(manque(format!("correction wave {} did not assemble its task: {dehors}", corrigee.id)));
         }
         let Some(nouvelle) = corrigee.tete.clone().filter(|nouvelle| nouvelle != tete) else {
-            return Err(manque(format!("la vague de correction {} n'a rien changé à la tête {tete}", corrigee.id)));
+            return Err(manque(format!("correction wave {} changed nothing to the head {tete}", corrigee.id)));
         };
         if let Some(branche) = &self.menee.branche {
             let reference = format!("refs/heads/{branche}");
             if let Err(vu) = faire(geste(self.depot, &["update-ref", &reference, &nouvelle, tete])) {
-                eprintln!("la branche locale {branche} n'avance pas : {vu}");
+                eprintln!("the local branch {branche} does not advance: {vu}");
             }
         }
         Ok(corrigee)
@@ -577,7 +575,7 @@ impl Relecture<'_> {
         let note =
             Evenement::RefusForge { vague: self.menee.id.clone(), code: code.numero(), regle, preuve, correction };
         if let Err(erreur) = Fil::seance(self.dossier, "humain").noter(&note) {
-            eprintln!("le refus {code} ne se note pas au fil : {erreur}");
+            eprintln!("refusal {code} cannot be noted in the thread: {erreur}");
         }
         refus
     }

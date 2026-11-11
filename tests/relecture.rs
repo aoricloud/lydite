@@ -680,9 +680,9 @@ fn un_effort_de_tache_hors_des_efforts_permis_du_profil_est_refuse_en_6033_avant
     let erreur = String::from_utf8_lossy(&sortie.stderr).into_owned();
     assert!(erreur.contains("lydite : 6033 lancer.effort_non_permis"), "{erreur}");
     assert!(erreur.contains("A plan asks only for an effort that the profile allows (`efforts_permis`)."), "{erreur}");
-    assert!(erreur.contains("la tâche a demande l'effort max"), "la preuve nomme la tâche et l'effort : {erreur}");
-    assert!(!erreur.contains("la tâche b"), "{erreur}");
-    assert!(erreur.contains("élargis `efforts_permis`") && erreur.contains("lydite accepter"), "{erreur}");
+    assert!(erreur.contains("task a asks for effort max"), "la preuve nomme la tâche et l'effort : {erreur}");
+    assert!(!erreur.contains("task b asks"), "{erreur}");
+    assert!(erreur.contains("widen `efforts_permis`") && erreur.contains("lydite accept <profile>"), "{erreur}");
     // Rien n'est parti : ni vague ni main au fil, qui n'existe même pas.
     assert!(!essai.dossier.join("fil.jsonl").exists(), "le fil ne doit pas exister");
     // Le même plan avec un effort permis part, et écrit son fil au même endroit : la vérification ci-dessus peut voir
@@ -783,7 +783,7 @@ fn un_relecteur_sans_fichier_classe_la_relecture_et_rien_ne_se_pousse() {
     assert_eq!(sortie.status.code(), Some(1), "{}", dit(&sortie));
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     assert!(erreur.contains("lydite : 7016 vague.relecture_manquee\n"), "{erreur}");
-    assert!(erreur.contains("est classée : main-"), "{erreur}");
+    assert!(erreur.contains("is set aside: main-"), "{erreur}");
     assert!(erreur.contains("7014 vague.bac_touche"), "{erreur}");
     assert!(!erreur.contains("relecture prise"), "{erreur}");
     assert_eq!(essai.garde("code-1.txt").trim(), "2");

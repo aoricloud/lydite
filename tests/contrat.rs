@@ -249,7 +249,7 @@ fn un_profil_inconnu_est_refuse_avant_tout_dossier() {
     );
     assert_eq!(refus.code, "lydite : 6001 lancer.profil_inconnu");
     assert_regle(&refus);
-    assert!(refus.preuve.contains("« inconnu »"), "la preuve nomme le profil : {refus:?}");
+    assert!(refus.preuve.contains("\"inconnu\""), "la preuve nomme le profil : {refus:?}");
     assert!(refus.correction.contains("claude"), "la correction nomme les profils connus : {refus:?}");
     // Avant tout dossier : ni bac, ni fil, ni rien d'autre, ni dans le dépôt visé (que son `.git`), ni dans le dossier
     // courant, ni dans le dossier de Kraken.
@@ -417,7 +417,7 @@ fn accepter_garde_l_empreinte_que_lancer_exige_et_note_au_fil() {
     assert_eq!(sortie.status.code(), Some(1), "{sortie:?}");
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     assert!(erreur.contains("échec classé : main-"), "{erreur}");
-    assert!(erreur.contains("lancement impossible de lydite-claude-introuvable"), "{erreur}");
+    assert!(erreur.contains("cannot start lydite-claude-introuvable"), "{erreur}");
     // Le fil compte les lancements par profil et par empreinte : un par tentative, noté avant la main, avec son modèle.
     // Un constat suit chacun, vide, car rien n'a été lu d'une main qui n'est pas partie.
     let fil = fs::read_to_string(dossier.join("fil.jsonl")).unwrap();
@@ -643,7 +643,7 @@ fn kraken_lecons_sort_en_0_sans_rien_dire_ou_en_2_sur_le_refus_de_la_premiere_fa
     let refus = lire_refus(kraken().arg("lecons").arg(&depot));
     assert_eq!(refus.code, "lydite : 6031 lancer.lecon_mal_formee");
     let fichier = skills.join("fausse").join("SKILL.md");
-    assert!(refus.preuve.starts_with(&format!("{} : ligne 9 : ", fichier.display())), "{}", refus.preuve);
-    assert!(refus.preuve.contains("il manque `## Why`"), "{}", refus.preuve);
+    assert!(refus.preuve.starts_with(&format!("{} : line 9: ", fichier.display())), "{}", refus.preuve);
+    assert!(refus.preuve.contains("`## Why` is missing"), "{}", refus.preuve);
     let _ = fs::remove_dir_all(&depot);
 }

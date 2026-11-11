@@ -105,7 +105,7 @@ pub(crate) fn geste(dir: &Path, args: &[&str]) -> Command {
 /// Joue un geste : la sortie standard de git s'il réussit ; sinon ce qui a été vu, qui commence par la commande et son
 /// dossier (la sortie de git peut être vide), puis ce que git a dit, ou pourquoi il n'a pas pu partir.
 pub(crate) fn faire(mut geste: Command) -> Result<String, String> {
-    let sortie = geste.output().map_err(|e| format!("lancement impossible de {} : {e}", decrire(&geste)))?;
+    let sortie = geste.output().map_err(|e| format!("cannot start {}: {e}", decrire(&geste)))?;
     if !sortie.status.success() {
         return Err(echec(&geste, &sortie));
     }
@@ -114,7 +114,7 @@ pub(crate) fn faire(mut geste: Command) -> Result<String, String> {
 
 /// Joue un geste dont la sortie standard peut être immense : en garde `garde` octets et compte le reste sans le garder.
 /// La sortie d'erreur se lit à part, en même temps, pour qu'un git qui la remplit pendant qu'on lit sa sortie ne s'y
-/// bloque pas. Un lancement impossible rend `lancement impossible de …` ; un git qui refuse rend le texte d'`echec` :
+/// bloque pas. Un lancement impossible rend `cannot start …` ; un git qui refuse rend le texte d'`echec` :
 /// sa sortie d'erreur entière, puis sa sortie standard gardée jusqu'à `garde` octets, et le nombre d'octets non gardés
 /// quand il en reste.
 #[expect(clippy::expect_used, reason = "tuyaux demandés au lancement de l'enfant")]
@@ -124,7 +124,7 @@ pub(crate) fn faire_borne(mut geste: Command, garde: usize) -> Result<(Vec<u8>, 
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("lancement impossible de {} : {e}", decrire(&geste)))?;
+        .map_err(|e| format!("cannot start {}: {e}", decrire(&geste)))?;
     let mut sortie = enfant.stdout.take().expect("stdout en tuyau");
     let mut erreur = enfant.stderr.take().expect("stderr en tuyau");
     let lecteur = std::thread::spawn(move || {
@@ -133,18 +133,17 @@ pub(crate) fn faire_borne(mut geste: Command, garde: usize) -> Result<(Vec<u8>, 
     });
     let mut gardes = Vec::with_capacity(garde);
     let mut borne = (&mut sortie).take(garde as u64);
-    borne.read_to_end(&mut gardes).map_err(|e| format!("lecture impossible de {} : {e}", decrire(&geste)))?;
-    let reste = io::copy(&mut sortie, &mut io::sink())
-        .map_err(|e| format!("lecture impossible de {} : {e}", decrire(&geste)))?;
-    let statut = enfant.wait().map_err(|e| format!("attente impossible de {} : {e}", decrire(&geste)))?;
+    borne.read_to_end(&mut gardes).map_err(|e| format!("cannot read {}: {e}", decrire(&geste)))?;
+    let reste = io::copy(&mut sortie, &mut io::sink()).map_err(|e| format!("cannot read {}: {e}", decrire(&geste)))?;
+    let statut = enfant.wait().map_err(|e| format!("cannot wait for {}: {e}", decrire(&geste)))?;
     let erreur = lecteur
         .join()
-        .map_err(|_| format!("lecture impossible de l'erreur de {} : le fil a péri", decrire(&geste)))?
-        .map_err(|e| format!("lecture impossible de l'erreur de {} : {e}", decrire(&geste)))?;
+        .map_err(|_| format!("cannot read the error output of {}: the thread died", decrire(&geste)))?
+        .map_err(|e| format!("cannot read the error output of {}: {e}", decrire(&geste)))?;
     if !statut.success() {
         let mut vu = echec(&geste, &Output { status: statut, stdout: gardes, stderr: erreur });
         if reste > 0 {
-            vu.push_str(&format!(" ; {reste} octets de plus sur la sortie standard, non gardés"));
+            vu.push_str(&format!("; {reste} more bytes on the standard output, not kept"));
         }
         return Err(vu);
     }
@@ -159,13 +158,13 @@ pub(crate) fn decrire(geste: &Command) -> String {
         args.drain(..4);
     }
     let dir = geste.get_current_dir().map_or_else(String::new, |dir| dir.display().to_string());
-    format!("git {} dans {dir}", args.join(" "))
+    format!("git {} in {dir}", args.join(" "))
 }
 
 /// Un geste que git a refusé : la commande et son dossier, son statut, puis ce que git a écrit.
 fn echec(geste: &Command, sortie: &Output) -> String {
     let (erreur, texte) = (String::from_utf8_lossy(&sortie.stderr), String::from_utf8_lossy(&sortie.stdout));
-    format!("{} a échoué ({}) : {}", decrire(geste), sortie.status, format!("{erreur}{texte}").trim())
+    format!("{} failed ({}): {}", decrire(geste), sortie.status, format!("{erreur}{texte}").trim())
 }
 
 /// Les racines du dépôt visé : son dossier de tête et son git commun, en chemins absolus, que dit
@@ -177,25 +176,25 @@ pub(crate) fn racines(depot: &Path) -> Result<(PathBuf, PathBuf), Refus> {
     if !depot.is_dir() {
         return Err(Refus::new(
             Code::DepotIntrouvable,
-            format!("{} n'est pas un dossier qui existe", depot.display()),
-            "Run Lydite from the target repository, or give it with --depot <path>.",
+            format!("{} is not a folder that exists", depot.display()),
+            "Run Lydite from the target repository, or give it with --repo <path>.",
         ));
     }
     let git = geste(depot, &["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"])
         .output()
-        .map_err(|e| nommee(e, format!("lancement impossible de git dans {}", depot.display())))?;
+        .map_err(|e| nommee(e, format!("cannot start git in {}", depot.display())))?;
     let sortie = String::from_utf8_lossy(&git.stdout);
     match sortie.lines().collect::<Vec<_>>()[..] {
         [tete, commun] if git.status.success() => Ok((tete.into(), commun.into())),
         _ => Err(Refus::new(
             Code::BacImpossible,
             format!(
-                "git rev-parse dans {} a échoué ({}) : {}",
+                "git rev-parse in {} failed ({}): {}",
                 depot.display(),
                 git.status,
                 String::from_utf8_lossy(&git.stderr).trim()
             ),
-            "Target a git repository, from its folder or with --depot <path>, then run again.",
+            "Target a git repository, from its folder or with --repo <path>, then run again.",
         )),
     }
 }
@@ -208,17 +207,17 @@ pub(crate) fn hors_du_depot(racine: &Path, dossier: &Path) -> Result<(), Refus> 
         Refus::new(
             Code::DossierSousLeDepot,
             preuve,
-            "Pose LYDITE_DOSSIER à un chemin absolu hors du dépôt visé, puis relance.",
+            "Set LYDITE_DOSSIER to an absolute path outside the target repository, then run again.",
         )
     };
     if dossier.components().any(|composant| composant == Component::ParentDir) {
-        return Err(refus(format!("le dossier de Lydite {} porte « .. »", dossier.display())));
+        return Err(refus(format!("the state folder {} contains \"..\"", dossier.display())));
     }
-    let depot =
-        fs::canonicalize(racine).map_err(|e| nommee(e, format!("chemin canonique du dépôt {}", racine.display())))?;
+    let depot = fs::canonicalize(racine)
+        .map_err(|e| nommee(e, format!("canonical path of the repository {}", racine.display())))?;
     if canonique(dossier)?.starts_with(&depot) {
         return Err(refus(format!(
-            "le dossier de Lydite {} est sous le dépôt visé {}",
+            "the state folder {} is under the target repository {}",
             dossier.display(),
             racine.display()
         )));
@@ -234,7 +233,7 @@ pub(crate) fn lecons_du_commit(depot: &Path, base: &str) -> Result<Vec<Lecon>, R
         Refus::new(
             Code::EntreeSortie,
             vu,
-            "Vérifie que git se lance dans le dépôt visé et y lit la base, puis relance.",
+            "Check that git starts in the target repository and reads the base there, then run again.",
         )
     };
     let sortie = faire(geste(depot, &["ls-tree", "-r", "-z", "--name-only", base, "--", ".agents/skills"]))
@@ -253,7 +252,7 @@ pub(crate) fn lecons_du_commit(depot: &Path, base: &str) -> Result<Vec<Lecon>, R
         let (octets, _) =
             faire_borne(geste(depot, &["cat-file", "blob", &objet]), lecons::TAILLE_MAX + 1).map_err(illisible)?;
         let lecon = lecons::lire(nom, &octets)
-            .map_err(|refus| Refus::new(refus.code, format!("{chemin} : {}", refus.preuve), refus.correction))?;
+            .map_err(|refus| Refus::new(refus.code, format!("{chemin}: {}", refus.preuve), refus.correction))?;
         lecons.push(lecon);
     }
     Ok(lecons)
@@ -267,13 +266,10 @@ fn canonique(chemin: &Path) -> io::Result<PathBuf> {
         match fs::canonicalize(ancetre) {
             Ok(canon) => return Ok(reste.iter().rev().fold(canon, |canon, nom| canon.join(nom))),
             Err(e) if e.kind() == io::ErrorKind::NotFound => reste.extend(ancetre.file_name()),
-            Err(e) => return Err(nommee(e, format!("chemin canonique de {}", ancetre.display()))),
+            Err(e) => return Err(nommee(e, format!("canonical path of {}", ancetre.display()))),
         }
     }
-    Err(io::Error::new(
-        io::ErrorKind::NotFound,
-        format!("chemin canonique de {} : aucun ancêtre n'existe", chemin.display()),
-    ))
+    Err(io::Error::new(io::ErrorKind::NotFound, format!("canonical path of {}: no ancestor exists", chemin.display())))
 }
 
 #[cfg(test)]

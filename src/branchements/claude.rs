@@ -30,7 +30,7 @@ const BORNE: Duration = Duration::from_secs(60);
 /// consigne en texte sur son entrée, sa sortie telle quelle, ses textes d'erreur, aucun constat. Avec, elle parle en
 /// stream-json (voir protocole.rs) : ses réponses de contrôle se jugent contre `attendu` avant sa consigne, son
 /// ouverture dès qu'elle arrive, et sa sortie est le texte de son résultat. Au délai, sur un écart ou à une borne, son
-/// arbre meurt ; une erreur de délai commence par « main : temps dépassé (N s) ». `kraken` met le dossier de
+/// arbre meurt ; une erreur de délai commence par « hand: timed out (N s) ». `kraken` met le dossier de
 /// l'exécutable de Kraken en tête de son `PATH` ([`path_de_kraken`]). `fournisseur` est l'URL de l'API de la main, sa
 /// clé et le nom de la variable qui la tient, s'il y en a : ils vont à l'environnement de la main seule ([`partir`]).
 pub(crate) fn jouer(
@@ -65,7 +65,7 @@ pub(crate) fn jouer(
 /// L'erreur d'une main : son texte, et par son type si Kraken l'a tuée à son délai. Aucune décision ne lit le texte.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ErreurMain {
-    /// Kraken a tué l'arbre de la main à son délai : « main : temps dépassé (N s) », puis la suite.
+    /// Kraken a tué l'arbre de la main à son délai : « hand: timed out (N s) », puis la suite.
     Tuee(String),
     /// Toute autre erreur.
     Autre(String),
@@ -92,10 +92,10 @@ pub(crate) fn apres_la_mise_a_mort(jeu: Result<String, String>, mort: Result<(),
     match (jeu, mort) {
         (jeu, Ok(())) => jeu,
         (Ok(sortie), Err(e)) => {
-            eprintln!("mise à mort des restes de la main : {e}");
+            eprintln!("kill of the hand's leftovers: {e}");
             Ok(sortie)
         }
-        (Err(erreur), Err(e)) => Err(format!("{erreur} ; mise à mort : {e}")),
+        (Err(erreur), Err(e)) => Err(format!("{erreur}; kill: {e}")),
     }
 }
 
@@ -144,7 +144,7 @@ fn partir(
 ) -> Result<Partie, String> {
     let fin = echeance(delai);
     let Some((programme, args)) = argv.split_first() else {
-        return Err("main : aucun programme à lancer, la commande de la main est vide".into());
+        return Err("hand: no program to start, the hand's command is empty".into());
     };
     let mut commande = Command::new(programme);
     commande.args(args).current_dir(bac).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -169,9 +169,8 @@ fn partir(
     // raccourci : hors du bac à sable (la preuve prêtée sous un mur demandé, une main sans bac à sable), les commandes
     // voient encore la clé du fournisseur ; monter quand le mur sera exigé partout, ou quand la main passera en mode
     // `default` avec des règles `allow`.
-    let mut enfant = sans_session(&mut commande, retire_de_l_env)
-        .spawn()
-        .map_err(|e| format!("lancement impossible de {programme} : {e}"))?;
+    let mut enfant =
+        sans_session(&mut commande, retire_de_l_env).spawn().map_err(|e| format!("cannot start {programme}: {e}"))?;
     let (envoi, lu) = mpsc::channel();
     lire_en_fond(enfant.stdout.take().expect("stdout en tuyau"), Voie::Sortie, envoi.clone());
     lire_en_fond(enfant.stderr.take().expect("stderr en tuyau"), Voie::Erreur, envoi);
@@ -188,14 +187,15 @@ pub(crate) fn temporaire(bac: &Path, vider: bool) -> Result<Option<PathBuf>, Str
     if !bac.is_dir() {
         return Ok(None);
     }
-    let absolu = path::absolute(bac).map_err(|e| format!("main : chemin absolu du bac {} : {e}", bac.display()))?;
+    let absolu =
+        path::absolute(bac).map_err(|e| format!("hand: absolute path of the sandbox {}: {e}", bac.display()))?;
     let Some(temporaire) = temporaire_de(&absolu) else {
-        return Err(format!("main : le bac {} n'a pas de nom, son dossier temporaire ne se forme pas", bac.display()));
+        return Err(format!("hand: the sandbox {} has no name, its temporary folder cannot be formed", bac.display()));
     };
     // raccourci : seul le rangement d'une vague à --pr efface le dossier temporaire, avec le bac d'une tâche assemblée
     // dont le travail est poussé (bac::retirer) ; tout autre reste avec son bac ; monter quand Kraken rangera aussi les
     // vagues sans --pr
-    let impossible = |e: io::Error| format!("main : dossier temporaire {} impossible : {e}", temporaire.display());
+    let impossible = |e: io::Error| format!("hand: cannot make the temporary folder {}: {e}", temporaire.display());
     if temporaire.is_dir() {
         if !vider {
             return Ok(Some(temporaire));
@@ -211,12 +211,12 @@ pub(crate) fn temporaire(bac: &Path, vider: bool) -> Result<Option<PathBuf>, Str
 /// Un exécutable introuvable, ou un dossier qui ne s'écrit pas dans un `PATH` (un `"` sous Windows, un `:` ailleurs),
 /// est une erreur : la main ne part pas.
 fn path_de_kraken() -> Result<OsString, String> {
-    let exe = env::current_exe().map_err(|e| format!("main : l'exécutable de Lydite ne se trouve pas : {e}"))?;
+    let exe = env::current_exe().map_err(|e| format!("hand: Lydite's executable cannot be found: {e}"))?;
     let Some(dossier) = exe.parent() else {
-        return Err(format!("main : l'exécutable de Lydite {} n'a pas de dossier", exe.display()));
+        return Err(format!("hand: Lydite's executable {} has no folder", exe.display()));
     };
     let mut path = env::join_paths([dossier])
-        .map_err(|e| format!("main : le dossier de Lydite {} ne s'écrit pas dans un PATH : {e}", dossier.display()))?;
+        .map_err(|e| format!("hand: Lydite's folder {} cannot be written in a PATH: {e}", dossier.display()))?;
     if let Some(ancien) = env::var_os("PATH").filter(|ancien| !ancien.is_empty()) {
         path.push(if cfg!(windows) { ";" } else { ":" });
         path.push(ancien);
@@ -305,7 +305,7 @@ impl Partie {
                 Ok(statut)
             }
             Ok(None) => Err(self.temps_depasse()),
-            Err(e) => Err(format!("attente impossible : {e}").into()),
+            Err(e) => Err(format!("cannot wait: {e}").into()),
         }
     }
 
@@ -318,23 +318,23 @@ impl Partie {
         mort
     }
 
-    /// [`Self::tuer`], dit comme la suite d'une erreur : rien, ou « ; mise à mort : <e> ».
+    /// [`Self::tuer`], dit comme la suite d'une erreur : rien, ou « ; kill: <e> ».
     fn tuer_en_texte(&mut self) -> String {
-        self.tuer().err().map_or_else(String::new, |e| format!(" ; mise à mort : {e}"))
+        self.tuer().err().map_or_else(String::new, |e| format!("; kill: {e}"))
     }
 
-    /// L'erreur d'une main tuée au délai : « main : temps dépassé (N s) », hors de la coupe de `queue`, puis la fin de
+    /// L'erreur d'une main tuée au délai : « hand: timed out (N s) », hors de la coupe de `queue`, puis la fin de
     /// ses erreurs et l'échec de sa mise à mort, s'il y en a.
     fn temps_depasse(&mut self) -> ErreurMain {
         let mise_a_mort = self.tuer_en_texte();
         let suite = self.avec_erreurs(String::new()) + &mise_a_mort;
-        ErreurMain::Tuee(format!("main : temps dépassé ({} s){}", self.delai.as_secs_f32(), queue(&suite)))
+        ErreurMain::Tuee(format!("hand: timed out ({} s){}", self.delai.as_secs_f32(), queue(&suite)))
     }
 
     fn avec_erreurs(&self, debut: String) -> String {
         let erreurs = String::from_utf8_lossy(&self.erreurs);
         let erreurs = erreurs.trim();
-        if erreurs.is_empty() { debut } else { format!("{debut} : {erreurs}") }
+        if erreurs.is_empty() { debut } else { format!("{debut}: {erreurs}") }
     }
 
     /// La main brute : sa consigne en texte sur son entrée, qui se ferme derrière elle, puis toute sa sortie.
@@ -355,7 +355,7 @@ impl Partie {
         let texte = String::from_utf8_lossy(&sortie).into_owned();
         if !statut.success() {
             let erreur = String::from_utf8_lossy(&self.erreurs);
-            return Err(queue(&format!("{statut} ; {erreur}{texte}")).into());
+            return Err(queue(&format!("{statut}; {erreur}{texte}")).into());
         }
         Ok(texte)
     }
@@ -379,18 +379,18 @@ impl Partie {
                 Ok(Some(ligne)) => ligne,
                 Ok(None) => {
                     let statut = self.statut()?;
-                    let quoi = if partie { "aucun résultat" } else { "sortie avant ses réponses de contrôle" };
-                    return Err(queue(&self.avec_erreurs(format!("main : {quoi} ({statut})"))).into());
+                    let quoi = if partie { "no result" } else { "exit before its control responses" };
+                    return Err(queue(&self.avec_erreurs(format!("hand: {quoi} ({statut})"))).into());
                 }
                 // Le délai tombe avant la borne : c'est l'erreur du délai.
                 Err(Echue) if borne.is_some_and(|borne| borne < self.fin) => {
                     let manque = if partie {
-                        format!("aucune ouverture en {} s", BORNE.as_secs())
+                        format!("no opening in {} s", BORNE.as_secs())
                     } else {
                         let ids: Vec<&str> = DEMANDES.into_iter().filter(|id| !reponses.contains_key(*id)).collect();
-                        format!("aucune réponse de contrôle en {} s : {}", BORNE.as_secs(), ids.join(", "))
+                        format!("no control response in {} s: {}", BORNE.as_secs(), ids.join(", "))
                     };
-                    return Err(format!("main : {manque}{}", self.tuer_en_texte()).into());
+                    return Err(format!("hand: {manque}{}", self.tuer_en_texte()).into());
                 }
                 Err(Echue) => return Err(self.temps_depasse()),
             };
@@ -449,21 +449,21 @@ impl Partie {
     }
 
     /// La fin d'une main qui a rendu son résultat : 10 s pour sortir, sinon son arbre meurt, et le résultat compte. Une
-    /// main qui sort d'elle-même en erreur est rouge. L'échec de la mise à mort, ou une erreur de `attendre` (« attente
-    /// impossible : <e> », après quoi l'arbre est tué comme au délai), passe par [`apres_la_mise_a_mort`].
+    /// main qui sort d'elle-même en erreur est rouge. L'échec de la mise à mort, ou une erreur de `attendre` (« cannot
+    /// wait: <e> », après quoi l'arbre est tué comme au délai), passe par [`apres_la_mise_a_mort`].
     fn finir(&mut self, resultat: Result<String, String>) -> Result<String, String> {
         let (statut, mort) = match attendre(&mut self.enfant, Instant::now() + SORTIE) {
             Ok(Some(statut)) => (Some(statut), Ok(())),
             Ok(None) => (None, self.tuer()),
             Err(e) => {
-                let attente = format!("attente impossible : {e}");
-                (None, self.tuer().map_err(|m| format!("{attente} ; mise à mort : {m}")).and(Err(attente)))
+                let attente = format!("cannot wait: {e}");
+                (None, self.tuer().map_err(|m| format!("{attente}; kill: {m}")).and(Err(attente)))
             }
         };
         self.vider(Instant::now() + SORTIE);
         let jeu = resultat.map_err(|erreur| queue(&erreur)).and_then(|sortie| match statut {
             Some(statut) if !statut.success() => {
-                Err(queue(&self.avec_erreurs(format!("main : sortie en erreur ({statut})"))))
+                Err(queue(&self.avec_erreurs(format!("hand: exited with an error ({statut})"))))
             }
             _ => Ok(sortie),
         });

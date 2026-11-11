@@ -206,7 +206,7 @@ fn un_second_lancement_pendant_un_premier_est_refuse_en_6032_sans_rien_ecrire_au
     let refus = lire_refus(&lancer_le_plan(&racine, &rapide));
     assert_eq!(refus.code, "lydite : 6032 lancer.dossier_pris");
     assert!(refus.preuve.contains(&racine.join("lydite").display().to_string()), "{}", refus.preuve);
-    assert!(refus.correction.contains("Attends la fin de l'autre lancement"), "{}", refus.correction);
+    assert!(refus.correction.contains("Wait for the other launch to finish"), "{}", refus.correction);
     assert!(refus.correction.contains("LYDITE_DOSSIER"), "{}", refus.correction);
     assert!(!fil.exists(), "le lancement refusé n'a rien écrit au fil");
     // Le premier finit sans être gêné : sa vague est la seule du fil, et il n'a pas été refusé.
@@ -404,7 +404,7 @@ fn une_vague_a_plan_dit_chaque_tache_puis_sa_branche() {
     assert!(de_a.contains("claude-absent"), "l'erreur de a nomme la main qui ne part pas : {erreur}");
     assert_eq!(lignes.len(), b + 5, "b : sa ligne, son refus en trois lignes, puis la branche : {erreur}");
     assert!(lignes[b + 1].starts_with("refusée (7011) : "), "{erreur}");
-    assert!(lignes[b + 2].contains("elle dépend de a"), "la preuve nomme la dépendance perdue : {erreur}");
+    assert!(lignes[b + 2].contains("it depends on a,"), "la preuve nomme la dépendance perdue : {erreur}");
 
     // Ce que Kraken a posé : la branche de la vague, restée à la base, le bac de a, et rien pour b ; rien ne bouge dans
     // l'arbre du dépôt visé.
