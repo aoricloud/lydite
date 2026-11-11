@@ -6,6 +6,15 @@ use crate::essais::{effacer, kraken, lacher, racine};
 use std::time::{Duration, Instant};
 
 #[test]
+fn le_dossier_range_le_fil_et_les_profils_sous_les_noms_que_les_regles_de_la_main_ferment() {
+    // Les règles `Edit` du profil visent ces noms (`profil::FIL`, `profil::PROFILS`) : le dossier les écrit sous eux.
+    assert_eq!(FICHIER, profil::FIL);
+    let dossier = Path::new("k");
+    assert_eq!(fichier("veille", dossier).unwrap(), dossier.join(profil::PROFILS).join("veille.profil"));
+    assert_eq!(fichier("veille", dossier).unwrap().parent(), Some(dossier.join("profils").as_path()));
+}
+
+#[test]
 fn tenir_cree_le_dossier_et_son_fichier_a_part_du_fil() {
     let dir = racine("tenir").join("kraken");
     assert!(!dir.exists());

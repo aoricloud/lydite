@@ -530,7 +530,10 @@ fn un_profil_nomme_son_fournisseur_et_sa_main_attend_sa_cle() {
     // Sa clé lue, elle part : l'URL et la clé vont à la main, l'hôte à sa déclaration, et une copie aux modèles
     // d'une tâche garde le fournisseur.
     profil.fournir(environnement(LEURRE)).unwrap();
-    assert_eq!(profil.fournisseur(), Some(("https://api.exemple.test:8443/anthropic", LEURRE)));
+    assert_eq!(
+        profil.fournisseur(),
+        Some(Fournisseur { api: "https://api.exemple.test:8443/anthropic", cle: LEURRE, variable: "CLE_ESSAI" })
+    );
     let declaration = profil.demande(&absolu("bac"), None, false).declaration.expect("la main part");
     assert_eq!(declaration.fournisseur.as_deref(), Some("api.exemple.test:8443"));
     let copie = profil.avec_modeles(Some("haiku"), None);
@@ -792,9 +795,9 @@ fn la_cle_du_fournisseur_se_lit_au_lancement_ou_c_est_le_refus_6027() {
     // Une clé posée la remplit ; relue, elle suit l'environnement du moment.
     let mut profil = borne(FOURNISSEUR);
     profil.fournir(environnement(LEURRE)).unwrap();
-    assert_eq!(profil.fournisseur().map(|(_, cle)| cle), Some(LEURRE));
+    assert_eq!(profil.fournisseur().map(|f| f.cle), Some(LEURRE));
     profil.fournir(environnement("une-autre-cle")).unwrap();
-    assert_eq!(profil.fournisseur().map(|(_, cle)| cle), Some("une-autre-cle"));
+    assert_eq!(profil.fournisseur().map(|f| f.cle), Some("une-autre-cle"));
 }
 
 #[test]
@@ -1124,6 +1127,30 @@ fn les_regles_de_chemin_suivent_le_systeme() {
         regle = regle_k()
     );
     assert!(reglages.contains(&edit), "{reglages}");
+}
+
+#[test]
+fn les_regles_qui_ferment_le_dossier_de_lydite_portent_les_noms_du_coeur() {
+    let regle = regle_k();
+    let reglages = reglages(&borne("sorte = claude\n"), None);
+    let attendues = [
+        format!("Edit({regle}/{FIL})"),
+        format!("Edit({regle}/{PROFILS}/**)"),
+        format!("Read({regle}/{DEBUT_SRT}*.json)"),
+        format!("Edit({regle}/{DEBUT_SRT}*.json)"),
+    ];
+    for attendue in attendues {
+        assert!(reglages.contains(&format!("\"{attendue}\"")), "{attendue} : {reglages}");
+    }
+    // Les réglages de srt du rejeu portent le même début de nom, que la règle `srt-*.json` ferme.
+    let exige = borne("sorte = claude\nmur = exige\n");
+    let srt = exige.rejeu(&absolu("w"), &absolu("t")).unwrap().unwrap();
+    let nom = srt.fichier.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(nom.starts_with(DEBUT_SRT), "{nom}");
+    // Le mode des éditions est celui de la ligne de commande.
+    let argv = borne("sorte = claude\n").demande(&absolu("w"), None, false).argv;
+    let place = argv.iter().position(|mot| mot == "--permission-mode").unwrap();
+    assert_eq!(argv[place + 1], crate::coeur::protocole::MODE_DES_EDITIONS);
 }
 
 #[test]

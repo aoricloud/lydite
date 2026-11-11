@@ -182,7 +182,7 @@ pub(crate) fn butees_du_bac(bac: &Path) -> Vec<String> {
 }
 
 /// Le dossier temporaire d'un bac ou d'un worktree : son voisin dans son dossier parent (`bacs/`), nommé des 12
-/// premiers chiffres hexadécimaux de l'[`empreinte`] de son nom, suivis de `.tmp`. Le nom est court et stable, fait
+/// premiers chiffres hexadécimaux du SHA-256 de son nom, suivis de `.tmp`. Le nom est court et stable, fait
 /// constaté : Claude Code met ses sockets de pont dans le `TMPDIR` de son processus, le dossier temporaire même
 /// (`<dossier temporaire>/claude-http-<16 hex>.sock`), et donne à ses commandes `<dossier temporaire>/claude-<uid>` en
 /// `TMPDIR`. Un chemin de socket tient en 107 octets. `None` pour un chemin sans nom, une racine.
@@ -191,12 +191,7 @@ pub(crate) fn butees_du_bac(bac: &Path) -> Vec<String> {
 // de Kraken sous TMPDIR
 pub(crate) fn temporaire_de(bac: &Path) -> Option<PathBuf> {
     let nom = bac.file_name()?.to_string_lossy();
-    Some(bac.with_file_name(format!("{:012x}.tmp", empreinte(nom.as_bytes()) >> 16)))
-}
-
-/// L'empreinte FNV-1a sur 64 bits de ces octets, écrite ici pour qu'aucune version de Rust ne la change.
-fn empreinte(octets: &[u8]) -> u64 {
-    octets.iter().fold(0xcbf2_9ce4_8422_2325, |h, &octet| (h ^ u64::from(octet)).wrapping_mul(0x100_0000_01b3))
+    Some(bac.with_file_name(format!("{}.tmp", &hex(&sha256(nom.as_bytes()))[..12])))
 }
 
 /// Les réglages du dépôt visé présents dans le bac, que la main ne charge plus et que le fil note encore, empreints :

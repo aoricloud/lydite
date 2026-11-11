@@ -17,7 +17,11 @@
 //!    mur tel que déclaré, ses `excludedCommands` compris : absents au déclaré, ils le sont à l'effectif, et une autre
 //!    source qui en ajoute est un écart ; `sandbox.credentials.envVars` à part : Claude Code en concatène les
 //!    sources, une entrée déclarée doit y paraître et un refus de plus d'une autre source n'est pas un écart, un
-//!    refus de plus fermant le mur là où une commande exclue de plus l'ouvre) et le modèle déclaré ;
+//!    refus de plus fermant le mur là où une commande exclue de plus l'ouvre ; `sandbox.filesystem.allowRead` et
+//!    `sandbox.network.allowedDomains`, qui ouvrent le mur en grandissant : chaque entrée effective est une entrée
+//!    déclarée, une entrée de moins n'est pas un écart et une clé absente vaut une liste vide ;
+//!    `sandbox.filesystem.denyRead`, qui le ferme en grandissant : chaque entrée déclarée y paraît) et le modèle
+//!    déclaré ;
 //!    `list_permission_rules` avec chaque règle déclarée, à la source `flagSettings` ;
 //!    `get_hooks_listing` avec tous les crochets coupés ; `get_sandbox_dialog`, interne à Claude Code,
 //!    qui dit le mur actif ou non, et dont le silence n'est pas un écart, sauf un mur exigé qu'il dit inactif.
@@ -60,6 +64,23 @@ const MUR: [&str; 5] = [
 
 /// Les règles `deny` qui cachent la clé du fournisseur aux commandes, jugées par [`variables_gardees`].
 const VARIABLES: &str = "sandbox.credentials.envVars";
+
+/// Les listes du mur qui l'ouvrent quand elles grandissent : chaque entrée effective doit être une entrée déclarée. Une
+/// entrée de moins ferme le mur davantage, ce n'est pas un écart ; une clé absente de l'effectif vaut une liste vide.
+const OUVRANT: [&str; 2] = ["sandbox.filesystem.allowRead", "sandbox.network.allowedDomains"];
+
+/// La liste du mur qui le ferme quand elle grandit : chaque entrée déclarée doit paraître à l'effectif, une entrée de
+/// plus d'une autre source n'est pas un écart (comme les refus de [`VARIABLES`]).
+const FERMANT: &str = "sandbox.filesystem.denyRead";
+
+/// Les clés `sandbox.*` que le JSON de `--settings` écrit sans que `get_settings` les compare, chacune avec sa raison.
+/// Aucune aujourd'hui : toutes sont jugées, par [`MUR`], [`VARIABLES`], [`OUVRANT`] ou [`FERMANT`]. Un test lit les
+/// clés du JSON du profil et exige que chacune soit jugée ou nommée ici.
+#[cfg(test)]
+const NON_JUGEES: [(&str, &str); 0] = [];
+
+/// Le mode de permission que Kraken passe à la main (`--permission-mode`) et que son ouverture doit dire.
+pub(crate) const MODE_DES_EDITIONS: &str = "acceptEdits";
 
 /// Le début de l'erreur d'une main tuée sur un écart, avant sa consigne ou à son ouverture.
 const NON_PRIS: &str = "main : réglages non pris : ";
@@ -232,8 +253,11 @@ pub(crate) fn juger_reponses(
 pub(crate) fn juger_ouverture(attendu: &Attendu, ouverture: &Json) -> (Option<String>, Result<(), String>) {
     let version = texte_de(ouverture, "claude_code_version").map(str::to_string);
     let mut ecarts = Vec::new();
-    if texte_de(ouverture, "permissionMode") != Some("acceptEdits") {
-        ecarts.push(format!("permissionMode {}, déclaré \"acceptEdits\"", montre(champ(ouverture, "permissionMode"))));
+    if texte_de(ouverture, "permissionMode") != Some(MODE_DES_EDITIONS) {
+        ecarts.push(format!(
+            "permissionMode {}, déclaré {MODE_DES_EDITIONS:?}",
+            montre(champ(ouverture, "permissionMode"))
+        ));
     }
     let declare = json::document(attendu.reglages);
     let fermes: Vec<&str> = match &declare {
@@ -460,6 +484,30 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str) -> Vec<String> {
     let declarees = champ(declare, VARIABLES);
     if !variables_gardees(effectif, declarees) {
         ecarts.push(format!("effective.{VARIABLES} {}, déclaré {}", montre(effectif), montre(declarees)));
+    }
+    for chemin in OUVRANT {
+        let cle = format!("effective.{chemin}");
+        let declarees = textes(champ(declare, chemin));
+        match vu(&cle) {
+            None => {}
+            Some(Json::Liste(effectives)) => {
+                for entree in effectives {
+                    if !matches!(entree, Json::Texte(texte) if declarees.contains(&texte.as_str())) {
+                        ecarts.push(format!("{cle} : entrée {} hors du déclaré", montre(Some(entree))));
+                    }
+                }
+            }
+            autre => ecarts.push(format!("{cle} {}, déclaré une liste", montre(autre))),
+        }
+    }
+    {
+        let cle = format!("effective.{FERMANT}");
+        let effectives = textes(vu(&cle));
+        for entree in textes(champ(declare, FERMANT)) {
+            if !effectives.contains(&entree) {
+                ecarts.push(format!("{cle} : entrée {entree:?} déclarée, absente"));
+            }
+        }
     }
     let applique = vu("applied.model");
     let pris =

@@ -560,15 +560,15 @@ fn un_bac_qui_ne_se_pose_pas_est_refuse_en_7001() {
 }
 
 #[test]
-fn le_dossier_temporaire_porte_l_empreinte_figee_du_nom() {
-    // Les vecteurs de FNV-1a 64 bits : le nom vide, « a », « foobar ».
-    assert_eq!(empreinte(b""), 0xcbf2_9ce4_8422_2325);
-    assert_eq!(empreinte(b"a"), 0xaf63_dc4c_8601_ec8c);
-    assert_eq!(empreinte(b"foobar"), 0x8594_4171_f739_67e8);
-    // Le voisin du bac, ses 12 premiers chiffres hexadécimaux suivis de `.tmp`, quel que soit le dossier parent.
+fn le_dossier_temporaire_est_le_debut_du_sha256_du_nom() {
+    // Le voisin du bac, les 12 premiers chiffres hexadécimaux du SHA-256 de son nom suivis de `.tmp`, quel que soit
+    // le dossier parent ; les vecteurs de SHA-256 de « a » et de « foobar » le figent.
     let bacs = Path::new("k").join("bacs");
-    assert_eq!(temporaire_de(&bacs.join("foobar")), Some(bacs.join("85944171f739.tmp")));
-    assert_eq!(temporaire_de(&bacs.join("a")), Some(bacs.join("af63dc4c8601.tmp")));
+    assert_eq!(temporaire_de(&bacs.join("foobar")), Some(bacs.join("c3ab8ff13720.tmp")));
+    assert_eq!(temporaire_de(&bacs.join("a")), Some(bacs.join("ca978112ca1b.tmp")));
+    let nom = "main-1794357585769_1201474_10-2";
+    let complet = hex(&sha256(nom.as_bytes()));
+    assert_eq!(temporaire_de(&bacs.join(nom)), Some(bacs.join(format!("{}.tmp", &complet[..12]))));
 }
 
 #[test]

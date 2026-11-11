@@ -77,7 +77,8 @@ const FERMES: [&str; 19] = [
 const GET_SETTINGS: &str = concat!(
     r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_settings","response":{"applied":"#,
     r#"{"model":"haiku"},"effective":{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox":{"enabled":true,"fa"#,
-    r#"ilIfUnavailable":true,"allowUnsandboxedCommands":false,"network":{"allowedDomains":[],"strictAllowlist":true}"#,
+    r#"ilIfUnavailable":true,"allowUnsandboxedCommands":false,"filesystem":{"denyRead":["~/",@DOSSIER@]},"#,
+    r#""network":{"allowedDomains":[],"strictAllowlist":true}"#,
     r#","credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
     r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}}},"#,
     r#""sources":[{"source":"userSettings","settings":{}},{"source":"flagSettings","settings":{}}]}}}"#,
@@ -474,7 +475,8 @@ impl Essai {
             ),
             vues.join(",")
         );
-        let controle = [GET_SETTINGS, &regles, GET_HOOKS_LISTING, GET_SANDBOX_DIALOG].join("\n") + "\n";
+        let reglages = GET_SETTINGS.replace("@DOSSIER@", &json_chaine(&self.dossier.to_string_lossy()));
+        let controle = [reglages.as_str(), &regles, GET_HOOKS_LISTING, GET_SANDBOX_DIALOG].join("\n") + "\n";
         fs::write(self.main.join("controle.jsonl"), controle).unwrap();
         fs::write(self.main.join("fin.jsonl"), format!("{OUVERTURE}\n{RESULTAT}\n")).unwrap();
     }
