@@ -188,7 +188,9 @@ hermes config set tools.tool_search.enabled off
   Lydite process under the variable named by `cle_nom`, and in no log, argument, state or tool result. The plugin
   never reads `.env`, `auth.json` or any key file.
 - **Environment.** The Lydite process gets a closed list of variables (`PATH`, `HOME`, `LANG`, the `LYDITE_*` paths of
-  the binary, `GH_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, ...), not the rest of Hermes' environment.
+  the binary, `GH_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, ...), not the rest of Hermes' environment. Started from Hermes,
+  the native wall takes `bwrap` from `LYDITE_BWRAP` or the `PATH`, and `lydite-reseau` from `LYDITE_RESEAU` or next
+  to the `lydite` binary; the plugin passes these two variables, as it passes `LYDITE_SRT`.
 - **Approvals.** A `pre_tool_call` hook sends every `lydite_lancer` call to Hermes' human approval: at most ten rows,
   the plugin's message holding in nine, with the exact repository, work, proof, profile and target branch. A plan is
   shown by its file name, its size, its number of tasks, its proof line and the SHA-256 of its bytes, not its text.
@@ -220,7 +222,8 @@ The tests use only the standard library. They load the plugin by path, with a fa
 script; the launch tests need Linux.
 
 The program, its environment variables (`LYDITE_DOSSIER`, `LYDITE_SRT`, ...) and its state folder are all named
-Lydite. The plugin's own name lives in `nom.py` and `plugin.yaml`, and `tests/test_manifeste.py` fails if the two
+Lydite. Started from Hermes, the native wall takes `bwrap` from `LYDITE_BWRAP` or the `PATH`, and `lydite-reseau`
+from `LYDITE_RESEAU` or next to the `lydite` binary; the plugin passes these two variables, as it passes `LYDITE_SRT`. The plugin's own name lives in `nom.py` and `plugin.yaml`, and `tests/test_manifeste.py` fails if the two
 disagree.
 
 ## License
