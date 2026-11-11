@@ -90,7 +90,7 @@ const GET_SETTINGS: &str = concat!(
     r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_settings","response":{"applied":"#,
     r#"{"model":"<modele>"},"effective":{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox":{"enabled":true,"#,
     r#""failIfUnavailable":<exige>,"allowUnsandboxedCommands":false,<exclues>"#,
-    r#""filesystem":{"denyRead":["~/",<dossier>]},"network":{"allowedDomains":<domaines>,"#,
+    r#""filesystem":{"denyRead":["~/",<dossier>,<config>]},"network":{"allowedDomains":<domaines>,"#,
     r#""strictAllowlist":true},"credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
     r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}}},"#,
     r#""sources":[{"source":"userSettings","settings":{}},{"source":"flagSettings",""#,
@@ -378,10 +378,11 @@ fn regles(essai: &Essai, reseau: &[&str], outils: &[&str], pret: &[&str]) -> (Ve
 
 /// Les quatre réponses de contrôle d'une main fidèle au `--settings` déclaré : au modèle `modele`, le mur exigé ou
 /// demandé et ses commandes `exclues`, que Claude Code dit actif ou non, et chaque règle déclarée vue à la source
-/// `flagSettings`. Son `filesystem` effectif ferme à la lecture le dossier personnel et le dossier de Lydite de
-/// l'essai, `dossier`, et son réseau effectif les domaines des règles `WebFetch(domain:…)` de `allow`.
+/// `flagSettings`. Son `filesystem` effectif ferme à la lecture le dossier personnel, le dossier de Lydite de
+/// l'essai et son dossier de connexion de Claude (`CLAUDE_CONFIG_DIR`, `essai.config()`), et son réseau effectif
+/// les domaines des règles `WebFetch(domain:…)` de `allow`.
 fn reponses(
-    dossier: &Path,
+    essai: &Essai,
     modele: &str,
     exige: bool,
     exclues: &[&str],
@@ -405,7 +406,8 @@ fn reponses(
     [
         GET_SETTINGS
             .replace("<modele>", modele)
-            .replace("<dossier>", &json_chaine(&dossier.to_string_lossy()))
+            .replace("<dossier>", &json_chaine(&essai.dossier.to_string_lossy()))
+            .replace("<config>", &json_chaine(&essai.config().to_string_lossy()))
             .replace("<domaines>", &format!("[{}]", domaines.join(",")))
             .replace("<exige>", &exige.to_string())
             .replace("<exclues>", &cle_exclues(exclues)),
@@ -652,7 +654,7 @@ impl Essai {
     fn repondre_a(&self, exige: bool, exclues: &[&str], actif: bool, allow: &[String], deny: &[String]) {
         let tentatives = [(1, "claude-haiku-5-5", ECHEC), (2, "claude-sonnet-5-5", REUSSITE)];
         for (n, modele, resultat) in tentatives {
-            self.repondre(n, &reponses(&self.dossier, modele, exige, exclues, actif, allow, deny));
+            self.repondre(n, &reponses(self, modele, exige, exclues, actif, allow, deny));
             self.conclure(n, modele, resultat);
         }
     }
@@ -736,7 +738,13 @@ impl Essai {
     ) -> String {
         let commun = git(&self.depot, &["rev-parse", "--path-format=absolute", "--git-common-dir"]);
         let lus = [self.bac().to_string_lossy().into_owned(), commun];
-        let fermes = ["~/".to_string(), self.dossier.to_string_lossy().into_owned()];
+        // Le dossier de Lydite, puis celui de `CLAUDE_CONFIG_DIR` : hors du dossier personnel, ils se ferment aux
+        // commandes (`denyRead`).
+        let fermes = [
+            "~/".to_string(),
+            self.dossier.to_string_lossy().into_owned(),
+            self.config().to_string_lossy().into_owned(),
+        ];
         let domaines: Vec<String> = reseau.iter().map(|domaine| domaine.to_string()).collect();
         // La règle des leçons nomme le bac de la main : `@BAC@` y est sa règle.
         let bac = regle_du_dossier(&self.bac());
@@ -1271,7 +1279,7 @@ fn le_decoupeur_part_sur_la_cle_decoupeur_a_ses_deux_tentatives() {
         let (allow, deny) =
             regles(&essai, &RESEAU, &[], &[&format!("Bash({DECOUPE})"), &format!("PowerShell({DECOUPE})")]);
         for n in [1, 2] {
-            essai.repondre(n, &reponses(&essai.dossier, applique, false, &[DECOUPE], false, &allow, &deny));
+            essai.repondre(n, &reponses(&essai, applique, false, &[DECOUPE], false, &allow, &deny));
             essai.conclure(n, applique, REUSSITE);
         }
         essai.profil_accepte("veille", cle);
@@ -1373,7 +1381,7 @@ fn une_main_dont_les_reglages_n_ont_pas_pris_est_tuee_avant_la_consigne() {
     let (allow, deny) = regles(&essai, &RESEAU, &[], &PRET);
     // Le `get_settings` du `--settings` tombé du 1/11, à chaque tentative : les trois autres réponses sont justes.
     for (n, modele) in [(1, "claude-haiku-5-5"), (2, "claude-sonnet-5-5")] {
-        let mut tombees = reponses(&essai.dossier, modele, false, &EXCLUES, false, &allow, &deny);
+        let mut tombees = reponses(&essai, modele, false, &EXCLUES, false, &allow, &deny);
         tombees[0] = GET_SETTINGS_TOMBE.replace("<modele>", modele);
         essai.repondre(n, &tombees);
         essai.conclure(n, modele, REUSSITE);
@@ -1972,7 +1980,7 @@ fn le_profil_integre_part_sur_sonnet_et_s_inscrit_sans_etre_garde() {
     // réseau.
     let (allow, deny) = regles(&essai, &[], &[], &PRET);
     for (n, resultat) in [(1, ECHEC), (2, REUSSITE)] {
-        essai.repondre(n, &reponses(&essai.dossier, "claude-sonnet-5-5", true, &[], true, &allow, &deny));
+        essai.repondre(n, &reponses(&essai, "claude-sonnet-5-5", true, &[], true, &allow, &deny));
         essai.conclure(n, "claude-sonnet-5-5", resultat);
     }
     let lancer = ["lancer", "claude", OBJECTIF, "--verifier", VERIFIER];
@@ -2038,10 +2046,10 @@ fn un_mur_exige_se_constate_actif_ou_la_main_est_tuee() {
     assert_eq!(fins.len(), 2, "{fil}");
     let ecart = "main : réglages non pris : get_sandbox_dialog : enabled false, déclaré exigé (failIfUnavailable true)";
     for ligne in fins {
-        // La mise à mort peut suivre l'écart (« ␣; mise à mort : … »), si la main a fini avant d'être tuée.
+        // La mise à mort peut suivre l'écart (« ␣; kill: … »), si la main a fini avant d'être tuée.
         let debut = format!(r#""couleur":"rouge","foi":"constate","texte":"{ecart}"#);
         let fermee = format!("{debut}\"");
-        let tuee = format!("{debut} ; mise à mort : ");
+        let tuee = format!("{debut}; kill: ");
         assert!(ligne.contains(&fermee) || ligne.contains(&tuee), "{ligne}");
     }
     for ligne in lignes_de(&fil, "main.constat") {
@@ -2069,7 +2077,7 @@ fn un_profil_declare_ses_sortants_et_son_mcp_a_la_fausse_claude() {
     let attente = r#""mcp_servers":[{"name":"docs","status":"pending"}]"#;
     let ouverture = OUVERTURE.replace(r#""mcp_servers":[]"#, attente);
     for (n, modele, resultat) in [(1, "claude-haiku-5-5", ECHEC), (2, "claude-sonnet-5-5", REUSSITE)] {
-        essai.repondre(n, &reponses(&essai.dossier, modele, false, &EXCLUES, false, &allow, &deny));
+        essai.repondre(n, &reponses(&essai, modele, false, &EXCLUES, false, &allow, &deny));
         essai.conclure_par(n, &ouverture.replace("<modele>", modele), resultat);
     }
     let sortie = essai.lancer_et_verifier("veille");

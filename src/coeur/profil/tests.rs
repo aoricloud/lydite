@@ -63,6 +63,12 @@ fn chemins_json() -> [&'static str; 3] {
     }
 }
 
+/// Le leurre de `CLAUDE_CONFIG_DIR` de `borne`, hors du dossier personnel, en chaîne JSON : il se ferme aux commandes
+/// (`denyRead`), après le dossier de Kraken.
+fn config_json() -> String {
+    json::chaine(&leurres().0.to_string_lossy())
+}
+
 /// Les règles de `deny` sans aucun sortant déclaré, dans l'ordre : les dix-neuf sortants, les deux `Edit` du dossier
 /// `regle`, `Read` et `Edit` de ses réglages de srt, `Read` et `Edit` du fichier de connexion de chaque leurre, puis
 /// l'`Edit` du git commun `commun`, en règles écrites à la main.
@@ -1226,7 +1232,7 @@ fn les_reglages_disent_le_mur_du_profil() {
     let attendu = format!(
         concat!(
             r#"{{"sandbox":{{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"#,
-            r#""filesystem":{{"denyRead":["~/",{dossier_json}],"#,
+            r#""filesystem":{{"denyRead":["~/",{dossier_json},{config_json}],"#,
             r#""allowRead":[{bac_json},{git_json},{lecture_json},"~/.cargo"]}},"#,
             r#""network":{{"allowedDomains":["docs.exemple.test","paquets.exemple.test"],"#,
             r#""strictAllowlist":true}},"#,
@@ -1237,6 +1243,7 @@ fn les_reglages_disent_le_mur_du_profil() {
             r#""disableAllHooks":true,"autoMemoryEnabled":false}}"#,
         ),
         dossier_json = dossier_json,
+        config_json = config_json(),
         bac_json = bac_json,
         git_json = git_json,
         lecture_json = lecture_json,
@@ -1271,11 +1278,12 @@ fn les_reglages_de_srt_portent_toutes_leurs_cles_et_les_regles_de_la_main() {
     let chaine = |chemin: &Path| json::chaine(&chemin.to_string_lossy());
     let attendu = format!(
         concat!(
-            r#"{{"filesystem":{{"denyRead":["~/",{k}],"allowRead":[{w},{git},"~/.cargo"],"#,
+            r#"{{"filesystem":{{"denyRead":["~/",{k},{config}],"allowRead":[{w},{git},"~/.cargo"],"#,
             r#""allowWrite":[{w},{t}],"denyWrite":[{git}]}},"#,
             r#""network":{{"allowedDomains":["exemple.test"],"deniedDomains":[]}}}}"#,
         ),
         k = chaine(&absolu("k")),
+        config = config_json(),
         w = chaine(&worktree),
         git = chaine(&absolu("depot").join(".git")),
         t = chaine(&temporaire),
@@ -1320,7 +1328,7 @@ fn les_listes_du_mur_sont_celles_des_reglages_de_srt() {
     let commun = texte(absolu("depot").join(".git"));
     let listes = exige.listes_du_mur(&worktree, &temporaire).unwrap().expect("le mur est exigé");
     let attendu = ListesDuMur {
-        fermes: vec!["~/".into(), texte(absolu("k"))],
+        fermes: vec!["~/".into(), texte(absolu("k")), texte(leurres().0)],
         lus: vec![texte(worktree.clone()), commun.clone(), "~/.cargo".into()],
         ecrits: vec![texte(worktree.clone()), texte(temporaire.clone())],
         refuses: vec![commun],
@@ -1639,7 +1647,7 @@ fn le_dossier_de_gh_hors_du_dossier_personnel_est_ferme() {
     let texte = "sorte = claude\nmur = exige\n";
     let profil = borne_avec_gh(texte, Some(&gh)).unwrap();
     let gh_json = json::chaine(&gh.to_string_lossy());
-    let fermes = format!(r#""denyRead":["~/",{},{gh_json}]"#, chemins_json()[0]);
+    let fermes = format!(r#""denyRead":["~/",{},{},{gh_json}]"#, chemins_json()[0], config_json());
     let main = reglages(&profil, None);
     assert!(main.contains(&fermes), "{main}");
     let worktree = absolu("k").join("bacs").join("main-1");
@@ -1659,6 +1667,57 @@ fn le_dossier_de_gh_hors_du_dossier_personnel_est_ferme() {
     // Sous le dossier personnel, déjà fermé, il se ferme une seconde fois : c'est permis.
     let sous = leurres().1.join(".config").join("gh");
     let json = reglages(&borne_avec_gh(texte, Some(&sous)).unwrap(), None);
+    assert!(json.contains(&format!(r#",{}]"#, json::chaine(&sous.to_string_lossy()))), "{json}");
+}
+
+/// Le profil de ce texte, borné avec `config` pour `CLAUDE_CONFIG_DIR` (ou sans), sans dossier de gh, et le dossier
+/// personnel fictif des leurres.
+fn borne_avec_config(texte: &str, config: Option<&Path>) -> Profil {
+    let mut profil = lu(texte).unwrap();
+    let personnel = leurres().1;
+    profil.borner(&absolu("k"), &absolu("depot").join(".git"), config, None, Some(&personnel)).unwrap();
+    profil
+}
+
+#[test]
+fn le_dossier_de_connexion_de_claude_hors_du_dossier_personnel_est_ferme() {
+    // `CLAUDE_CONFIG_DIR` en /srv/claude, hors du dossier personnel : son dossier se ferme aux commandes de la main,
+    // à celles du rejeu et au mur natif, après le dossier de Kraken. Les règles `Read` et `Edit` des outils ne valent
+    // pas pour une commande (`cat`).
+    let config = absolu("srv").join("claude");
+    let texte = "sorte = claude\nmur = exige\n";
+    let profil = borne_avec_config(texte, Some(&config));
+    let config_json = json::chaine(&config.to_string_lossy());
+    let fermes = format!(r#""denyRead":["~/",{},{config_json}]"#, chemins_json()[0]);
+    let main = reglages(&profil, None);
+    assert!(main.contains(&fermes), "{main}");
+    let worktree = absolu("k").join("bacs").join("main-1");
+    let temporaire = absolu("tmp");
+    let srt = profil.rejeu(&worktree, &temporaire).unwrap().expect("le mur est exigé");
+    assert!(srt.reglages.contains(&fermes), "{}", srt.reglages);
+    let listes = profil.listes_du_mur(&worktree, &temporaire).unwrap().expect("le mur est exigé");
+    let attendu = ["~/".to_string(), absolu("k").to_string_lossy().into_owned(), config.to_string_lossy().into_owned()];
+    assert_eq!(listes.fermes, attendu);
+    // Ses règles `Read` et `Edit` restent telles quelles : la paire de son fichier de connexion, puis celle du
+    // `.claude` du dossier personnel.
+    let (regle, personnel) = if cfg!(windows) {
+        ("//c/srv/claude", "//c/personnel/.claude")
+    } else {
+        ("//srv/claude", "//personnel/.claude")
+    };
+    let paire = format!(r#""Read({regle}/.credentials.json)","Edit({regle}/.credentials.json)""#);
+    let suite = format!(r#"{paire},"Read({personnel}/.credentials.json)","Edit({personnel}/.credentials.json)""#);
+    assert!(main.contains(&suite), "{main}");
+    // Rien d'autre ne change : sans lui, les mêmes réglages, à l'octet, moins ce chemin et la paire de son fichier.
+    let sans = reglages(&borne_avec_config(texte, None), None);
+    assert_eq!(main.replace(&format!(",{config_json}"), "").replace(&format!("{paire},"), ""), sans);
+    assert!(!sans.contains(&config_json), "{sans}");
+    let sans_listes = borne_avec_config(texte, None).listes_du_mur(&worktree, &temporaire).unwrap().unwrap();
+    assert_eq!(sans_listes.fermes, attendu[..2]);
+    assert_eq!(sans_listes.lus, listes.lus);
+    // Sous le dossier personnel, déjà fermé, il se ferme une seconde fois : c'est permis.
+    let sous = leurres().1.join(".claude-bis");
+    let json = reglages(&borne_avec_config(texte, Some(&sous)), None);
     assert!(json.contains(&format!(r#",{}]"#, json::chaine(&sous.to_string_lossy()))), "{json}");
 }
 
@@ -1811,7 +1870,7 @@ fn sous_le_mur_demande_la_preuve_pretee_sort_du_bac_a_sable() {
         format!(
             concat!(
                 r#"{{"sandbox":{{"enabled":true,"failIfUnavailable":{mur_exige},"allowUnsandboxedCommands":false,"#,
-                r#"{exclues}"filesystem":{{"denyRead":["~/",{dossier}],"allowRead":[{bac},{git}]}},"#,
+                r#"{exclues}"filesystem":{{"denyRead":["~/",{dossier},{config}],"allowRead":[{bac},{git}]}},"#,
                 r#""network":{{"allowedDomains":[],"strictAllowlist":true}},"#,
                 r#""credentials":{{"envVars":[{{"name":"ANTHROPIC_API_KEY","mode":"deny"}},"#,
                 r#"{{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}}]}}}},"#,
@@ -1821,6 +1880,7 @@ fn sous_le_mur_demande_la_preuve_pretee_sort_du_bac_a_sable() {
             mur_exige = mur_exige,
             exclues = exclues,
             dossier = dossier,
+            config = config_json(),
             bac = bac,
             git = git,
             pret = pret,

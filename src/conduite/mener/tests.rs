@@ -102,8 +102,10 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
         let Demande { argv, declaration } = profil.demande(&racine.join("bac"), None, false);
         let declaration = declaration.expect("une main Claude bornée");
         assert!(argv.contains(&"--settings".to_string()), "{argv:?}");
-        let fermee = json::chaine(&kraken.to_string_lossy());
-        assert!(declaration.reglages.contains(&format!(r#""denyRead":["~/",{fermee}]"#)), "{}", declaration.reglages);
+        // Le dossier de Lydite, puis celui de `CLAUDE_CONFIG_DIR`, hors du dossier personnel : fermés aux commandes.
+        let (fermee, de_config) = (json::chaine(&kraken.to_string_lossy()), json::chaine(&config.to_string_lossy()));
+        let fermes = format!(r#""denyRead":["~/",{fermee},{de_config}]"#);
+        assert!(declaration.reglages.contains(&fermes), "{}", declaration.reglages);
         assert!(declaration.reglages.contains("depot/.git"), "le git commun du dépôt : {}", declaration.reglages);
     }
     // Rien n'a été créé hors du dossier jetable, et le dépôt ne porte que son `.git`.
@@ -141,8 +143,9 @@ fn le_dossier_de_gh_tire_de_xdg_config_home_est_ferme_a_la_main() {
     let Ok((profil, _, _)) = pret else { panic!("le profil intégré devait passer") };
     let reglages =
         profil.demande(&racine.join("bac"), None, false).declaration.expect("une main Claude bornée").reglages;
-    let (fermee, du_gh) = (json::chaine(&kraken.to_string_lossy()), json::chaine(&xdg.join("gh").to_string_lossy()));
-    assert!(reglages.contains(&format!(r#""denyRead":["~/",{fermee},{du_gh}]"#)), "{reglages}");
+    let (fermee, de_config) = (json::chaine(&kraken.to_string_lossy()), json::chaine(&config.to_string_lossy()));
+    let du_gh = json::chaine(&xdg.join("gh").to_string_lossy());
+    assert!(reglages.contains(&format!(r#""denyRead":["~/",{fermee},{de_config},{du_gh}]"#)), "{reglages}");
     assert!(reglages.contains("/hosts.yml)"), "{reglages}");
     let _ = fs::remove_dir_all(&racine);
 }
