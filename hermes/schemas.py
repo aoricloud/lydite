@@ -18,7 +18,7 @@ SCHEMA_LANCER = {
     "parameters": {
         "type": "object",
         "properties": {
-            "depot": {
+            "repo": {
                 "type": "string",
                 "description": "Absolute path of the git checkout on this machine that Lydite works on.",
             },
@@ -26,12 +26,14 @@ SCHEMA_LANCER = {
                 "type": "integer",
                 "description": (
                     "Number of the open issue of the checkout's `origin` to do. "
-                    "Give one of `issue`, `objectif`, `plan`."
+                    "Give one of `issue`, `objective`, `plan`."
                 ),
             },
-            "objectif": {
+            "objective": {
                 "type": "string",
-                "description": "One-line objective to do instead of an issue. Give one of `issue`, `objectif`, `plan`.",
+                "description": (
+                    "One-line objective to do instead of an issue. Give one of `issue`, `objective`, `plan`."
+                ),
             },
             "plan": {
                 "type": "string",
@@ -39,21 +41,21 @@ SCHEMA_LANCER = {
                     "Absolute path of a plan file written by hand (tasks, models, files, and its own `preuve :` line) "
                     "instead of letting Lydite split an issue or objective. Use it when the user gives you the path "
                     "of a plan file to run: pass the path, do not read or execute the plan yourself. Give one of "
-                    "`issue`, `objectif`, `plan`; no `preuve`, no `observer` with it. Before approving, the human is "
+                    "`issue`, `objective`, `plan`; no `proof`, no `observe` with it. Before approving, the human is "
                     "shown the plan's file name, its SHA-256, its number of tasks and its proof line; Lydite runs "
                     "exactly those bytes."
                 ),
             },
-            "preuve": {
+            "proof": {
                 "type": "string",
                 "description": (
                     "The command that proves the work done (e.g. 'cargo test && cargo clippy -- -D warnings'). "
-                    "Required with `issue` or `objectif`, not with `plan`. It holds in 110 characters; a longer one "
+                    "Required with `issue` or `objective`, not with `plan`. It holds in 110 characters; a longer one "
                     "goes in a script. Lydite runs it itself, in each worker's box. It must pass on the untouched "
                     "base first, or nothing starts."
                 ),
             },
-            "profil": {
+            "profile": {
                 "type": "string",
                 "description": "Lydite profile to use (accepted beforehand by a human). Default: the plugin setting.",
             },
@@ -61,12 +63,12 @@ SCHEMA_LANCER = {
                 "type": "string",
                 "description": "Branch the pull request targets. Default: main. Lydite never merges it.",
             },
-            "observer": {
+            "observe": {
                 "type": "boolean",
                 "description": "Only show the plan Lydite would run (no worker, no pull request). Default: false.",
             },
         },
-        "required": ["depot"],
+        "required": ["repo"],
     },
 }
 
@@ -95,22 +97,22 @@ SCHEMA_LECONS = {
     "description": (
         "The written rules Lydite learned on this repository and gives to its workers. Call this tool before "
         "planning or doing any work in a repository Lydite works on, follow the lessons, and cite a lesson by its "
-        "name. Without `nom` it returns the list (name, rule, files); with `nom`, the full text of that lesson. It is "
-        "read-only (only a human changes a lesson), and Lydite itself checks every lesson first."
+        "name. Without `name` it returns the list (name, rule, files); with `name`, the full text of that lesson. "
+        "It is read-only (only a human changes a lesson), and Lydite itself checks every lesson first."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "depot": {
+            "repo": {
                 "type": "string",
                 "description": "Absolute path of the git checkout on this machine whose lessons to read.",
             },
-            "nom": {
+            "name": {
                 "type": "string",
                 "description": "Name of one lesson to read in full. Omit for the list of all lessons.",
             },
         },
-        "required": ["depot"],
+        "required": ["repo"],
     },
 }
 

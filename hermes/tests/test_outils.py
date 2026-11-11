@@ -136,8 +136,8 @@ class Demande(AvecOutils):
         self.assertEqual(demande["objectif"], "ajouter x")
 
     def test_la_preuve_est_obligatoire(self):
-        self.assertIn("preuve", self.refus(preuve="   "))
-        self.assertIn("preuve", self.refus(preuve=None))
+        self.assertIn("`proof` is required", self.refus(preuve="   "))
+        self.assertIn("`proof` is required", self.refus(preuve=None))
 
     def test_une_preuve_ou_un_objectif_trop_longs_sont_refuses(self):
         outils = sous_module("outils")
@@ -157,7 +157,7 @@ class Demande(AvecOutils):
         self.assertIn("exactly one", self.refus(plan=plan, issue=15, preuve=None))
         self.assertIn("exactly one", self.refus(plan=plan, issue=None, objectif="x", preuve=None))
         self.assertIn("own `preuve", self.refus(plan=plan, issue=None))
-        self.assertIn("observer", self.refus(plan=plan, issue=None, preuve=None, observer=True))
+        self.assertIn("`observe` goes with", self.refus(plan=plan, issue=None, preuve=None, observer=True))
 
     def test_un_plan_illisible_ou_trop_long_est_refuse(self):
         sans = {"issue": None, "preuve": None}
@@ -360,7 +360,7 @@ class Verrou(AvecOutils):
     def test_une_demande_qui_sera_refusee_ne_derange_pas_l_humain(self):
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=""))
         self.assertEqual(decision["action"], "block")
-        self.assertIn("preuve", json.loads(decision["message"])["error"])
+        self.assertIn("`proof` is required", json.loads(decision["message"])["error"])
 
     def test_des_arguments_absents_ne_font_pas_planter_le_crochet(self):
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=None)
@@ -826,6 +826,88 @@ class Lecons(AvecOutils):
         vide = json.loads(self.outils().lecons({"depot": ""}))
         self.assertIn("error", vide)
         self.assertIn("required", vide["error"])
+
+
+class Alias(AvecOutils):
+    """Les noms anglais des arguments, et les noms français gardés comme alias."""
+
+    def paires(self):
+        """(nom anglais, nom français, valeur, champs qui vont avec) de chacun des six arguments."""
+        return [
+            ("repo", "depot", str(self.depot), {}),
+            ("objective", "objectif", "faire x", {"issue": None}),
+            ("proof", "preuve", PREUVE, {}),
+            ("profile", "profil", "nautile", {}),
+            ("observe", "observer", True, {}),
+            ("name", "nom", "une-lecon", {}),
+        ]
+
+    def texte_du_refus(self, anglais, interne):
+        return f"give `{anglais}` only: `{interne}` is its old name"
+
+    def test_chaque_nom_anglais_est_pris_comme_son_alias(self):
+        base = {"depot": str(self.depot), "issue": 15, "preuve": PREUVE}
+        for anglais, interne, valeur, _ in self.paires():
+            if anglais in ("name", "repo"):
+                continue
+            champs = {cle: val for cle, val in base.items() if cle != interne}
+            if anglais == "objective":
+                champs.pop("issue")
+            attendu = self.outils()._demande({**champs, interne: valeur})
+            rendu = self.outils()._demande({**champs, anglais: valeur})
+            self.assertEqual(rendu, attendu, anglais)
+        sans_depot = {"issue": 15, "preuve": PREUVE}
+        rendu = self.outils()._demande({**sans_depot, "repo": str(self.depot)})
+        self.assertEqual(rendu["depot"], str(self.depot))
+
+    def test_name_est_pris_comme_nom_par_lecons(self):
+        self.faux_lydite()
+        rendu = json.loads(self.outils().lecons({"repo": str(self.depot), "name": "A B"}))
+        self.assertIn("`name` 'A B' is not a lesson name", rendu["error"])
+
+    def test_un_argument_donne_sous_ses_deux_noms_est_refuse_par_lancer(self):
+        for anglais, interne, valeur, champs in self.paires():
+            args = {**self.demande(**champs), anglais: valeur, interne: valeur}
+            rendu = json.loads(self.outils().lancer(args))
+            self.assertEqual(rendu, {"error": self.texte_du_refus(anglais, interne)}, anglais)
+
+    def test_un_argument_donne_sous_ses_deux_noms_est_bloque_par_le_crochet(self):
+        for anglais, interne, valeur, champs in self.paires():
+            args = {**self.demande(**champs), anglais: valeur, interne: valeur}
+            decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+            self.assertEqual(decision["action"], "block", anglais)
+            erreur = json.loads(decision["message"])["error"]
+            self.assertEqual(erreur, self.texte_du_refus(anglais, interne), anglais)
+
+    def test_repo_et_name_sous_leurs_deux_noms_sont_refuses_par_lecons(self):
+        self.faux_lydite()
+        for anglais, interne, valeur in (
+            ("repo", "depot", str(self.depot)),
+            ("name", "nom", "une-lecon"),
+        ):
+            args = {"depot": str(self.depot), anglais: valeur, interne: valeur}
+            rendu = json.loads(self.outils().lecons(args))
+            self.assertEqual(rendu, {"error": self.texte_du_refus(anglais, interne)}, anglais)
+
+    def test_un_argument_a_none_n_est_pas_donne(self):
+        demande = self.outils()._demande({**self.demande(), "repo": None, "proof": None})
+        self.assertEqual(demande["preuve"], PREUVE)
+
+    def test_les_schemas_portent_les_noms_anglais_sans_nom_francais(self):
+        schemas = sous_module("schemas")
+        francais = {"depot", "objectif", "preuve", "profil", "observer", "nom"}
+        lancer = schemas.SCHEMA_LANCER["parameters"]
+        lecons = schemas.SCHEMA_LECONS["parameters"]
+        noms = {"repo", "issue", "objective", "plan", "proof", "profile", "pr", "observe"}
+        self.assertEqual(set(lancer["properties"]), noms)
+        self.assertEqual(set(lecons["properties"]), {"repo", "name"})
+        self.assertEqual(lancer["required"], ["repo"])
+        self.assertEqual(lecons["required"], ["repo"])
+        for schema in (schemas.SCHEMA_LANCER, schemas.SCHEMA_LECONS):
+            self.assertFalse(francais & set(schema["parameters"]["properties"]))
+            texte = json.dumps(schema)
+            for nom in francais:
+                self.assertNotIn(f"`{nom}`", texte)
 
 
 @unittest.skipUnless(LINUX, "the fake Lydite is a shell script: Linux only")
