@@ -20,15 +20,25 @@ description: >-
   for a repository, read-only, and has Lydite check a plan file before a launch. It also turns a hermes-security
   findings export into one Lydite plan per finding you choose: prove it by a failing test, then fix it. Disclosure:
   after your approval of each launch, starts the already-installed `lydite` binary (argument list, no shell) as a
-  detached background process; Lydite runs git, gh, Claude Code workers and your proof inside its sandbox and reaches
-  GitHub and the model provider of its profile; the child environment is a closed list (no Hermes key, no YOLO
-  setting); reads the plan file, the lesson files and the findings report you name, and writes the plans of the
-  findings you choose under the plugin's data folder; no telemetry.
+  detached background process; Lydite runs git, gh and the claude process on your host, with your GitHub login, and
+  reaches GitHub and the model provider of its profile; only the commands of a worker run in Claude Code's sandbox,
+  and your proof is replayed in the wall (by srt under `mur = exige`, by Lydite's native wall under `mur = natif`);
+  under a profile accepted with `mur = demande`, a worker's commands may run outside the sandbox and see the provider
+  key if there is one, and the proof is replayed on the host, outside the wall; a required wall (`exige`, the
+  default, or `natif`) is required for `--issue` and for a plan written from a report. The approval request shows
+  the repository, the work, the exact proof command (for a plan: its name, its number of tasks, its header proof and
+  its SHA-256), then the profile and the target branch; a value with a control or formatting character, and a plan
+  whose task carries its own proof, are refused before any request; "always" covers that exact request only
+  (repository, profile, issue or objective, target branch, dry run or launch, proof or plan bytes). The child
+  environment is a closed list, plus the provider key if you set one. For a report's plan, the wall check
+  (`lydite profil`) before the request is read-only and needs no approval. Reads the plan file, the lesson files and
+  the findings report you name, and writes the plans of the findings you choose under the plugin's data folder; no
+  telemetry.
 maintainer: aoricloud
 tier: community
 category: automation
 requires_hermes: ">=0.23.0"
-docs_url: https://github.com/aoricloud/lydite/tree/main/hermes
+docs_url: https://github.com/aoricloud/lydite/tree/<sha>/hermes
 version: "0.3.3"
 image: https://raw.githubusercontent.com/aoricloud/lydite/<sha>/hermes/docs/banner.png
 screenshots:
@@ -37,7 +47,7 @@ screenshots:
 platforms: [linux]
 known_issues:
   - "Linux only: Lydite's sandbox wall holds there."
-  - "Needs the lydite binary, version 0.4.0 or later (attested release of github.com/aoricloud/lydite; earlier versions do not write the wall: line the plugin reads before launching a plan from lydite_findings), Claude Code, gh and srt installed, and a Lydite profile accepted by a human."
+  - "Needs the lydite binary of the same release as this plugin, which lives in github.com/aoricloud/lydite (attested release), Claude Code, gh and srt installed, and a Lydite profile accepted by a human; `mur = natif` needs bubblewrap and lydite-reseau instead of srt."
   - "Some names are still French: three tool names (lydite_lancer, lydite_etat, lydite_lecons), the plugin settings (binaire, profil, cle_nom, cle) and a few lines Lydite writes, such as impossible (déclarée). From Lydite 0.4, Lydite's commands have English words, and its usage and the lines about the pull request and CI are in English; pull request receipts are in English. The progress lines of a launch (such as pris, assemblée, refusée, découpage pris) are still in French."
 capabilities:
   provides_tools: [lydite_lancer, lydite_etat, lydite_lecons, lydite_plan, lydite_findings]
@@ -70,8 +80,14 @@ capabilities:
   its sandbox wall, on the model of a Lydite profile a human accepted. They are not Hermes agents.
 - **Shell commands.** None through a shell. One external program (`lydite`) is started with an argument list:
   `lydite lancer ...` (detached, long-running), `lydite etat` (read-only), `lydite lecons <folder>` (read-only) and
-  `lydite plan <file>` (read-only) and `lydite profil <name>` (read-only). Lydite itself runs `git`, `gh`, `claude` and the user's proof command inside its
-  sandbox.
+  `lydite plan <file>` (read-only) and `lydite profil <name>` (read-only). Lydite itself runs `git`, `gh` and the
+  `claude` process on the host, with the human's GitHub login; only the commands of a hand run in Claude Code's
+  sandbox, and the user's proof command is replayed in the wall (by srt under `mur = exige`, by Lydite's native wall
+  under `mur = natif`).
+- **A requested wall.** A profile accepted with `mur = demande` leaves this: the commands of a hand may run outside
+  Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed on the host, outside the
+  wall. A required wall (`exige`, the default, or `natif`) is required for `--issue` and for a plan written from a
+  report.
 - **Network.** None from the plugin. Lydite and its workers reach the model provider named in the profile and GitHub.
 - **Background process.** One detached `lydite lancer` per launch (minutes to hours), at most one per Lydite folder,
   its log under the plugin's data folder; the last 20 launches are kept.
