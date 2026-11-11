@@ -214,7 +214,8 @@ fn un_second_lancement_pendant_un_premier_est_refuse_en_6032_sans_rien_ecrire_au
     let fin = premier.wait_with_output().unwrap();
     let erreur = String::from_utf8_lossy(&fin.stderr);
     assert_eq!(fin.status.code(), Some(1), "la tâche, sans claude, est classée : {erreur}");
-    assert!(!erreur.contains("6032"), "{erreur}");
+    // Le refus par son code et son nom : un « 6032 » nu se trouve aussi dans un id de vague (un pid comme 26032).
+    assert!(!erreur.contains("6032 lancer.dossier_pris"), "{erreur}");
     let fil = fs::read_to_string(&fil).unwrap();
     assert_eq!(fil.matches(r#""type":"vague.ouverte""#).count(), 1, "{fil}");
     let _ = fs::remove_dir_all(&racine);
@@ -232,7 +233,7 @@ fn deux_lancements_sur_deux_dossiers_passent() {
     let second = commande_du_plan(&racine, &rapide).env("LYDITE_DOSSIER", &autre).output().unwrap();
     let erreur = String::from_utf8_lossy(&second.stderr);
     assert_eq!(second.status.code(), Some(1), "la tâche, sans claude, est classée : {erreur}");
-    assert!(!erreur.contains("6032"), "{erreur}");
+    assert!(!erreur.contains("6032 lancer.dossier_pris"), "{erreur}");
     assert!(autre.join("fil.jsonl").is_file(), "le second a écrit son fil : {erreur}");
     assert!(!racine.join("lydite").join("fil.jsonl").exists(), "le premier n'a rien reçu du second");
     liberer(&racine);
@@ -255,7 +256,7 @@ fn un_lancement_tue_laisse_le_dossier_libre_et_le_suivant_part() {
     let suivant = lancer_le_plan(&racine, &rapide);
     let erreur = String::from_utf8_lossy(&suivant.stderr);
     assert_eq!(suivant.status.code(), Some(1), "la tâche, sans claude, est classée : {erreur}");
-    assert!(!erreur.contains("6032"), "{erreur}");
+    assert!(!erreur.contains("6032 lancer.dossier_pris"), "{erreur}");
     assert!(racine.join("lydite").join("fil.jsonl").is_file(), "le suivant a écrit son fil : {erreur}");
     let _ = fs::remove_dir_all(&racine);
 }
