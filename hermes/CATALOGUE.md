@@ -39,7 +39,7 @@ tier: community
 category: automation
 requires_hermes: ">=0.23.0"
 docs_url: https://github.com/aoricloud/lydite/tree/<sha>/hermes
-version: "0.3.3"
+version: "0.4.0"
 image: https://raw.githubusercontent.com/aoricloud/lydite/<sha>/hermes/docs/banner.png
 screenshots:
   - https://raw.githubusercontent.com/aoricloud/lydite/<sha>/hermes/docs/screenshot-approval.png
@@ -92,7 +92,8 @@ capabilities:
 - **Background process.** One detached `lydite lancer` per launch (minutes to hours), at most one per Lydite folder,
   its log under the plugin's data folder; the last 20 launches are kept.
 - **Stored credentials.** None stored by the plugin. The optional provider key lives in Hermes' own `.env`
-  (`hermes config set`) and is handed to the Lydite process through one environment variable.
+  (created, set to mode 600, then filled in an editor, never on a command line, or through `hermes secrets`)
+  and is handed to the Lydite process through one environment variable.
 - **File reads.** The plan file named in a launch call, to fingerprint its bytes, show its name, size, task count,
   proof line and SHA-256 for approval, and copy it (mode 0600, under the plugin's data folder; Lydite reads the copy);
   the plan file named in a `lydite_plan` call, to fingerprint its bytes and count its tasks; and the lesson files of

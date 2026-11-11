@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: Release or commit
-      description: The release tag (for example v0.3.2) or the commit you built.
+      description: The release tag (for example v0.4.0) or the commit you built.
     validations:
       required: true
   - type: input
@@ -33,6 +33,6 @@ body:
     id: vu
     attributes:
       label: What happened, and what you expected
-      description: Paste the refusal or the output of `lydite etat` as it is; it may be in French.
+      description: Paste the refusal or the output of `lydite status` as it is; some of it may still be in French.
     validations:
       required: true
