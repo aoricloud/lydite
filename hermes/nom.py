@@ -8,7 +8,8 @@ que les deux ne disent pas la même chose.
 # L'identifiant du plugin (le `name` de `plugin.yaml`).
 NOM = "lydite"
 
-# Le préfixe des outils : `<PREFIXE>_lancer`, `<PREFIXE>_etat`, `<PREFIXE>_lecons` et `<PREFIXE>_plan`.
+# Le préfixe des outils : `<PREFIXE>_lancer`, `<PREFIXE>_etat`, `<PREFIXE>_lecons`, `<PREFIXE>_plan` et
+# `<PREFIXE>_findings` (un outil neuf porte un nom anglais d'emblée, sans double français).
 PREFIXE = "lydite"
 
 # La variable où Hermes tient la clé du fournisseur (l'`env` du secret `cle` de `plugin.yaml`).
@@ -18,3 +19,4 @@ LANCER = f"{PREFIXE}_lancer"
 ETAT = f"{PREFIXE}_etat"
 LECONS = f"{PREFIXE}_lecons"
 PLAN = f"{PREFIXE}_plan"
+FINDINGS = f"{PREFIXE}_findings"

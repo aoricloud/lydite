@@ -1079,5 +1079,28 @@ class Hostile(unittest.TestCase):
                 self.verifier_le_plan(pirate)
 
 
+class Identite(unittest.TestCase):
+    def test_une_identite_bien_formee_est_celle_d_un_constat_ou_d_un_candidat(self):
+        self.assertTrue(constats().identite_bien_formee(ID_FINDING))
+        self.assertTrue(constats().identite_bien_formee(ID_CANDIDAT))
+
+    def test_tout_le_reste_est_mal_forme(self):
+        mal_formees = (
+            None,
+            12,
+            ["hsf_" + "a1" * 12],
+            "",
+            "hsf_",
+            "hsf_" + "a1" * 11,
+            "hsf_" + "A1" * 12,
+            "hsf_" + "a1" * 12 + "\n",
+            " " + ID_FINDING,
+            "scan_" + "a1" * 12,
+        )
+        for identite in mal_formees:
+            with self.subTest(identite=identite):
+                self.assertFalse(constats().identite_bien_formee(identite))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -24,7 +24,8 @@ class Manifeste(unittest.TestCase):
         nom = sous_module("nom")
         lu = manifeste()
         self.assertEqual(lu["champs"]["name"], nom.NOM)
-        self.assertEqual(lu["listes"]["provides_tools"], [nom.LANCER, nom.ETAT, nom.LECONS, nom.PLAN])
+        self.assertEqual(lu["listes"]["provides_tools"], [nom.LANCER, nom.ETAT, nom.LECONS, nom.PLAN, nom.FINDINGS])
+        self.assertEqual(nom.FINDINGS, f"{nom.PREFIXE}_findings")
         self.assertIn(f"env: {nom.SECRET_ENV}", lu["texte"])
 
     def test_les_capacites_declarees_sont_les_enregistrees(self):
@@ -33,6 +34,7 @@ class Manifeste(unittest.TestCase):
             plugin().register(ctx)
         lu = manifeste()
         self.assertEqual(sorted(ctx.outils), sorted(lu["listes"]["provides_tools"]))
+        self.assertIn(sous_module("nom").FINDINGS, ctx.outils)
         self.assertEqual(sorted(ctx.crochets), sorted(lu["listes"]["provides_hooks"]))
 
     def test_chaque_schema_porte_le_nom_de_son_outil(self):
@@ -43,6 +45,7 @@ class Manifeste(unittest.TestCase):
             self.assertEqual(outil["schema"]["name"], nom)
             self.assertTrue(outil["schema"]["description"])
             self.assertEqual(outil["schema"]["parameters"]["type"], "object")
+        self.assertEqual(ctx.outils[sous_module("nom").FINDINGS]["schema"]["name"], sous_module("nom").FINDINGS)
 
     def test_register_ne_lit_ni_etat_ni_reglage(self):
         """Le contexte de `hermes plugins validate` n'a pas d'état : `register` ne doit pas en avoir besoin."""
@@ -62,7 +65,7 @@ class Manifeste(unittest.TestCase):
 
         nu = Nu()
         plugin().register(nu)
-        self.assertEqual(len(nu.outils), 5)
+        self.assertEqual(len(nu.outils), 6)
 
     def test_les_reglages_lus_par_le_code_sont_ceux_du_manifeste(self):
         code = (DOSSIER / "outils.py").read_text(encoding="utf-8")
