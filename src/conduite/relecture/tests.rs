@@ -662,10 +662,10 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     // La PR est partie de la tête de la vague : `lydite etat` dit la relecture, sa PR verte, et sort en 0.
     let dit = rendu(&etat(&fil), PLUS_TARD);
     // Les lignes de reçu (le coût, l'effort) ont leurs propres essais : ici, le reste du texte.
-    let recu = |ligne: &&str| ligne.starts_with("Coût : ") || ligne.starts_with("Effort: ");
+    let recu = |ligne: &&str| ligne.starts_with("Cost: ") || ligne.starts_with("Effort: ");
     let dit = dit.lines().filter(|ligne| !recu(ligne)).collect::<Vec<_>>().join("\n");
-    assert!(dit.contains("Relecture : 1 remarques, dont 0 bloquantes"), "{dit}");
-    assert!(dit.ends_with(&format!("PR 12 · {PR} · CI verte (constatée)")), "{dit}");
+    assert!(dit.contains("Review: 1 remarks, 0 blocking"), "{dit}");
+    assert!(dit.ends_with(&format!("PR 12 · {PR} · CI green (observed)")), "{dit}");
     assert_eq!(etat_dans(&essai.kraken), Ok(ExitCode::SUCCESS));
     let _ = fs::remove_dir_all(&essai.racine);
 }
@@ -809,11 +809,11 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     // `lydite etat` montre la chaîne entière, la correction assemblée, et sort en 0.
     let dit = rendu(&etat(&fil), PLUS_TARD);
     // Les lignes de reçu (le coût, l'effort) ont leurs propres essais : ici, le reste du texte.
-    let recu = |ligne: &&str| ligne.starts_with("Coût : ") || ligne.starts_with("Effort: ");
+    let recu = |ligne: &&str| ligne.starts_with("Cost: ") || ligne.starts_with("Effort: ");
     let dit = dit.lines().filter(|ligne| !recu(ligne)).collect::<Vec<_>>().join("\n");
-    let ligne = format!("Correction : main-{c}-1 correction : assemblée");
-    assert!(dit.contains("Relecture : 2 remarques, dont 1 bloquantes") && dit.contains(&ligne), "{dit}");
-    assert!(dit.ends_with(&format!("PR 12 · {PR} · CI verte (constatée)")), "{dit}");
+    let ligne = format!("Correction: main-{c}-1 correction : assembled");
+    assert!(dit.contains("Review: 2 remarks, 1 blocking") && dit.contains(&ligne), "{dit}");
+    assert!(dit.ends_with(&format!("PR 12 · {PR} · CI green (observed)")), "{dit}");
     assert_eq!(etat_dans(&essai.kraken), Ok(ExitCode::SUCCESS));
     let _ = fs::remove_dir_all(&essai.racine);
 }
@@ -947,7 +947,7 @@ fn une_correction_non_assemblee_est_le_refus_7017_et_rien_ne_se_pousse() {
     assert!(essai.bacs().contains(&format!("main-{c}-1")), "{:?}", essai.bacs());
     // `lydite etat` dit la relecture, la correction dehors, le refus 7017, et sort en 1.
     let dit = rendu(&etat(&fil), PLUS_TARD);
-    assert!(dit.contains(&format!("Correction : main-{c}-1 correction : classée")), "{dit}");
+    assert!(dit.contains(&format!("Correction: main-{c}-1 correction : set aside")), "{dit}");
     assert!(dit.contains("refusée (7017) : "), "{dit}");
     assert_eq!(etat_dans(&essai.kraken), Ok(ExitCode::FAILURE));
     let _ = fs::remove_dir_all(&essai.racine);

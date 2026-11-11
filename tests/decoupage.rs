@@ -696,10 +696,10 @@ fn une_issue_ouverte_se_decoupe_et_toutes_ses_taches_se_relisent() {
     let montre = String::from_utf8_lossy(&etat.stdout);
     assert_eq!(etat.status.code(), Some(0), "{montre}");
     assert!(
-        montre.starts_with(&format!("Découpage : 2 tâches · main-{d}-1 · prise (constatée)\nIssue #{ISSUE}\n")),
+        montre.starts_with(&format!("Split: 2 tasks · main-{d}-1 · taken (observed)\nIssue #{ISSUE}\n")),
         "{montre}"
     );
-    assert!(montre.contains("Relecture : 0 remarques, dont 0 bloquantes"), "{montre}");
+    assert!(montre.contains("Review: 0 remarks, 0 blocking"), "{montre}");
     // Le titre et le corps ne vont qu'au découpeur : ni au fil, ni sur stdout et stderr, ni dans `lydite etat`.
     sans_l_issue("le fil", &fil);
     sans_l_issue("stderr", &erreur);
@@ -785,10 +785,7 @@ fn un_objectif_decoupe_par_une_main_se_construit_et_s_assemble() {
     let etat = essai.etat();
     let montre = String::from_utf8_lossy(&etat.stdout);
     assert_eq!(etat.status.code(), Some(0), "{montre}");
-    assert!(
-        montre.starts_with(&format!("Découpage : 2 tâches · main-{d}-1 · prise (constatée)\n{OBJECTIF}\n")),
-        "{montre}"
-    );
+    assert!(montre.starts_with(&format!("Split: 2 tasks · main-{d}-1 · taken (observed)\n{OBJECTIF}\n")), "{montre}");
     let _ = fs::remove_dir_all(&essai.racine);
 }
 
@@ -887,8 +884,8 @@ fn observer_ecrit_le_plan_sur_stdout_sans_rien_construire() {
     let lignes: Vec<&str> = montre.trim_end().lines().collect();
     let [ligne, recu, effort] = &lignes[..] else { panic!("{montre}") };
     assert_eq!(etat.status.code(), Some(0));
-    assert_eq!(*ligne, format!("Découpage : 2 tâches · main-{d}-1 · prise (constatée)"));
-    assert!(recu.starts_with("Coût : inconnu · 1 main, 0 relance, 0 classée"), "{montre}");
+    assert_eq!(*ligne, format!("Split: 2 tasks · main-{d}-1 · taken (observed)"));
+    assert!(recu.starts_with("Cost: unknown · 1 hand, 0 retries, 0 set aside"), "{montre}");
     assert_eq!(*effort, "Effort: splitter: Claude Code's default", "{montre}");
     let _ = fs::remove_dir_all(&essai.racine);
 }

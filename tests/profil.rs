@@ -242,7 +242,7 @@ fn etat_sans_duree(sortie: &Output) -> String {
     lignes.join("\n")
 }
 
-/// Une ligne de reçu (`Coût : … · 2 mains, … · 3 s`) sans sa durée finale ; toute autre ligne, telle quelle.
+/// Une ligne de reçu (`Cost: … · 2 hands, … · 3 s`) sans sa durée finale ; toute autre ligne, telle quelle.
 fn sans_duree(ligne: &str) -> String {
     let duree = |fin: &str| {
         let mut mots = fin.split(' ');
@@ -250,7 +250,7 @@ fn sans_duree(ligne: &str) -> String {
         nombre && (fin.ends_with(" s") || fin.ends_with(" min"))
     };
     match ligne.rsplit_once(" · ") {
-        Some((debut, fin)) if ligne.starts_with("Coût : ") && duree(fin) => debut.to_string(),
+        Some((debut, fin)) if ligne.starts_with("Cost: ") && duree(fin) => debut.to_string(),
         _ => ligne.to_string(),
     }
 }
@@ -1405,12 +1405,12 @@ fn une_main_dont_les_reglages_n_ont_pas_pris_est_tuee_avant_la_consigne() {
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(1), "{}", dit(&etat));
     let etat = String::from_utf8_lossy(&etat.stdout).into_owned();
-    assert!(etat.contains(" : classée : main : réglages non pris : get_settings : "), "{etat}");
+    assert!(etat.contains(" : set aside: main : réglages non pris : get_settings : "), "{etat}");
     // Le reçu : deux lignes, le coût, puis l'effort.
     let lignes: Vec<&str> = etat.trim_end().lines().collect();
     let [.., derniere_de_la_main, cout, effort] = &lignes[..] else { panic!("{etat}") };
-    assert!(derniere_de_la_main.ends_with(" · mur inactif (constaté)"), "{etat}");
-    assert!(cout.starts_with("Coût : inconnu · "), "{etat}");
+    assert!(derniere_de_la_main.ends_with(" · wall inactive (observed)"), "{etat}");
+    assert!(cout.starts_with("Cost: unknown · "), "{etat}");
     assert_eq!(*effort, "Effort: hand: Claude Code's default", "{etat}");
     essai.nettoyer();
 }
@@ -1795,9 +1795,9 @@ fn la_main_d_un_fournisseur_recoit_son_url_et_sa_cle_et_sa_preuve_ne_les_recoit_
     // `lydite etat` dit le fournisseur, déclaré : une main déclarée `haiku` sur lui ne passe pas pour du Claude.
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(0), "{}", dit(&etat));
-    let ligne = format!("main-{}-1 : prise · mur inactif (constaté) · fournisseur {HOTE} (déclaré)", essai.vague());
+    let ligne = format!("main-{}-1 : taken · wall inactive (observed) · provider {HOTE} (declared)", essai.vague());
     let attendu = format!(
-        "{OBJECTIF}\n{ligne}\nCoût : inconnu · 2 mains, 1 relance, 0 classée\nEffort: hand: Claude Code's default"
+        "{OBJECTIF}\n{ligne}\nCost: unknown · 2 hands, 1 retry, 0 set aside\nEffort: hand: Claude Code's default"
     );
     assert_eq!(etat_sans_duree(&etat), attendu);
     // Une autre clé sous le même nom ne change pas le profil : il repart sans être réaccepté, avec la clé du moment.
@@ -1848,7 +1848,7 @@ fn sans_fournisseur_la_main_garde_les_variables_de_l_humain_et_le_fil_n_a_pas_de
     let fil = essai.fil();
     assert!(lignes_de(&fil, "main.fournisseur").is_empty(), "{fil}");
     let etat = essai.kraken().arg("etat").output().unwrap();
-    assert!(!String::from_utf8_lossy(&etat.stdout).contains("fournisseur"), "{}", dit(&etat));
+    assert!(!String::from_utf8_lossy(&etat.stdout).contains("provider"), "{}", dit(&etat));
     essai.nettoyer();
 }
 
@@ -1949,7 +1949,7 @@ fn kraken_etat_dit_le_mur() {
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(0), "{}", dit(&etat));
     let attendu = format!(
-        "{OBJECTIF}\nmain-{}-1 : prise · mur inactif (constaté)\nCoût : inconnu · 2 mains, 1 relance, 0 classée\n\
+        "{OBJECTIF}\nmain-{}-1 : taken · wall inactive (observed)\nCost: unknown · 2 hands, 1 retry, 0 set aside\n\
          Effort: hand: Claude Code's default",
         essai.vague()
     );
@@ -2016,7 +2016,7 @@ fn un_mur_exige_se_constate_actif_ou_la_main_est_tuee() {
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(0), "{}", dit(&etat));
     let attendu = format!(
-        "{OBJECTIF}\nmain-{}-1 : prise · mur actif (constaté)\nCoût : inconnu · 2 mains, 1 relance, 0 classée\n\
+        "{OBJECTIF}\nmain-{}-1 : taken · wall active (observed)\nCost: unknown · 2 hands, 1 retry, 0 set aside\n\
          Effort: hand: Claude Code's default",
         essai.vague()
     );
@@ -2049,7 +2049,7 @@ fn un_mur_exige_se_constate_actif_ou_la_main_est_tuee() {
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(1), "{}", dit(&etat));
     let etat = etat_sans_duree(&etat);
-    let attendu = " · mur inactif (constaté)\nCoût : inconnu · 2 mains, 1 relance, 1 classée\n\
+    let attendu = " · wall inactive (observed)\nCost: unknown · 2 hands, 1 retry, 1 set aside\n\
                    Effort: hand: Claude Code's default";
     assert!(etat.contains(ecart) && etat.ends_with(attendu), "{etat}");
     essai.nettoyer();
@@ -2203,9 +2203,9 @@ fn sans_verification_la_prise_d_une_main_declaree_reste_declaree() {
     // `lydite etat` dit la prise déclarée, avec le mur constaté, et ne donne pas le code 0.
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(1), "{}", dit(&etat));
-    let ligne = format!("main-{vague}-1 : prise déclarée, non prouvée · mur inactif (constaté)");
+    let ligne = format!("main-{vague}-1 : taken, declared, not proven · wall inactive (observed)");
     let attendu = format!(
-        "{OBJECTIF}\n{ligne}\nCoût : inconnu · 2 mains, 1 relance, 0 classée\nEffort: hand: Claude Code's default"
+        "{OBJECTIF}\n{ligne}\nCost: unknown · 2 hands, 1 retry, 0 set aside\nEffort: hand: Claude Code's default"
     );
     assert_eq!(etat_sans_duree(&etat), attendu);
     essai.nettoyer();

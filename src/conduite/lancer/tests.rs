@@ -4056,7 +4056,7 @@ mod coupure {
         assert!(verdicts.next().is_none(), "toutes les tentatives du test ont joué");
         let notes = notes(&kraken);
         let evenements: Vec<Evenement> = notes.iter().map(|note| note.evenement.clone()).collect();
-        let recu = recu_de(&etat(&evenements), &notes, &vague.id).mains();
+        let recu = recu_de(&etat(&evenements), &notes, &vague.id).mains_de_pr();
         let consigne =
             fs::read_to_string(kraken.join("bacs").join(vague.main(1)).join(format!("{}.txt", vague.main(1)))).unwrap();
         let Etat::Finie(issue) = mem::replace(&mut vague.taches[0], Etat::Attente) else { panic!("tâche finie") };
@@ -4079,7 +4079,7 @@ mod coupure {
             "verdict Prise Declare",
         ];
         assert_eq!(histoire(&joue.evenements), attendu);
-        assert_eq!(joue.recu, "2 mains, 0 relance, 0 classée, 1 coupure");
+        assert_eq!(joue.recu, "2 hands, 0 retries, 0 set aside, 1 outage");
         assert!(
             !joue.consigne.contains("Tentative pr"),
             "la main repart sur sa consigne, sans erreur : {}",
@@ -4103,7 +4103,7 @@ mod coupure {
             "verdict Classee Constate",
         ];
         assert_eq!(histoire(&joue.evenements), attendu);
-        assert_eq!(joue.recu, "2 mains, 0 relance, 1 classée, 2 coupures");
+        assert_eq!(joue.recu, "2 hands, 0 retries, 1 set aside, 2 outages");
     }
 
     #[test]
@@ -4124,7 +4124,7 @@ mod coupure {
             "verdict Prise Declare",
         ];
         assert_eq!(histoire(&joue.evenements), attendu);
-        assert_eq!(joue.recu, "3 mains, 1 relance, 0 classée, 1 coupure");
+        assert_eq!(joue.recu, "3 hands, 1 retry, 0 set aside, 1 outage");
         assert!(joue.consigne.contains("Tentative précédente échouée :\nla preuve est rouge"), "{}", joue.consigne);
     }
 
@@ -4132,7 +4132,7 @@ mod coupure {
     fn une_erreur_puis_une_coupure_puis_un_succes_garde_l_erreur_en_contexte() {
         let joue = jouer("erreur-coupure-succes", vec![rouge(), coupee(500)]);
         assert!(joue.issue.is_ok(), "{:?}", joue.issue);
-        assert_eq!(joue.recu, "3 mains, 1 relance, 0 classée, 1 coupure");
+        assert_eq!(joue.recu, "3 hands, 1 retry, 0 set aside, 1 outage");
         assert!(joue.consigne.contains("Tentative précédente échouée :\nla preuve est rouge"), "{}", joue.consigne);
     }
 
@@ -4150,7 +4150,7 @@ mod coupure {
         let ordinaire = Some(Echec::Erreur(format!("{TEMPS} : dit par la main")));
         let joue = jouer("tuee-en-texte", vec![ordinaire]);
         assert!(joue.issue.is_ok(), "{:?}", joue.issue);
-        assert_eq!(joue.recu, "2 mains, 1 relance, 0 classée");
+        assert_eq!(joue.recu, "2 hands, 1 retry, 0 set aside");
         assert!(joue.consigne.contains("Tentative précédente échouée :\nmain : temps dépassé (1 s) : dit"));
     }
 
@@ -4170,7 +4170,7 @@ mod coupure {
         let ordinaire = Some(Echec::Erreur(DEPENSE.into()));
         let joue = jouer("plafond-en-texte", vec![ordinaire]);
         assert!(joue.issue.is_ok(), "{:?}", joue.issue);
-        assert_eq!(joue.recu, "2 mains, 1 relance, 0 classée");
+        assert_eq!(joue.recu, "2 hands, 1 retry, 0 set aside");
     }
 
     #[test]
@@ -4187,7 +4187,7 @@ mod coupure {
         // Après une première erreur relancée, une main tuée à son délai est classée comme toute autre erreur.
         let joue = jouer("erreur-tuee", vec![rouge(), Some(Echec::Tuee(TEMPS.into()))]);
         assert_eq!(joue.issue.unwrap_err(), TEMPS);
-        assert_eq!(joue.recu, "2 mains, 1 relance, 1 classée");
+        assert_eq!(joue.recu, "2 hands, 1 retry, 1 set aside");
         let attendu = [
             "bail 1",
             "début 1",
@@ -4204,6 +4204,6 @@ mod coupure {
     fn une_erreur_puis_une_erreur_classe_sans_coupure() {
         let joue = jouer("erreur-erreur", vec![rouge(), rouge()]);
         assert_eq!(joue.issue.unwrap_err(), "la preuve est rouge");
-        assert_eq!(joue.recu, "2 mains, 1 relance, 1 classée");
+        assert_eq!(joue.recu, "2 hands, 1 retry, 1 set aside");
     }
 }

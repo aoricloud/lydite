@@ -69,13 +69,16 @@ What Lydite prints is the report. Relay it as it is written:
 
 - `code`: 0, the last wave finished (or there is none); 1, it is not finished (running or failed); 2, the record
   cannot be read.
-- `constaté` or `constatée` means Lydite observed it. `déclaré` or `déclarée` means a worker only said so: present
-  it as a claim, never as a fact.
-- A task `classée` stayed red after its retry and was set aside. `impossible (déclarée)` means a worker said no honest
-  code can pass the proof: it is a claim for the user to judge, not a verdict.
+- `(observed)` means Lydite observed it. `(declared)` and `declared, not proven` mean a worker only said so: present
+  it as a claim, never as a fact. An older version of Lydite writes these words in French: `constaté` or `constatée`
+  for observed, `déclaré` or `déclarée` for declared.
+- A task `set aside` stayed red after its retry and was set aside (an older version writes `classée`).
+  `impossible (déclarée)` means a worker said no honest code can pass the proof: it is a claim for the user to judge,
+  not a verdict. Lydite writes that word as it is.
 - The pull request link and its CI result are the outcome. The pull request body opens with a receipt.
-- On the cost line, `estimé` is an estimate, `forfait, ≈` is the approximate value of a flat-rate plan, and `inconnu`
-  is unknown, not zero. It is not an invoice.
+- On the cost line, `estimated` is an estimate, `subscription, ≈` is the approximate value of a flat-rate plan, and
+  `unknown` is unknown, not zero. It is not an invoice. An older version writes `Coût :` with `estimé`,
+  `forfait, ≈` and `inconnu`.
 - Lydite's messages may be in French. Give them as written, and translate only if the user asks.
 
 ## When Lydite refuses or fails
