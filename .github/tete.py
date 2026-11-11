@@ -7,7 +7,8 @@ without a second review, and replayed on commit <sha>. ». Le commit peut aussi 
 dans la branche, ou dans la branche d'une telle PR, et ainsi de suite : après la fusion de ses corrections, la tête
 d'une PR mère n'a été relue sous aucun nom, mais son arbre est celui de la dernière correction relue (choix du 08/11).
 Les autres formes de la ligne (« not replayed », « not reviewed ») ne valent rien ici. Une PR d'une autre branche
-passe sans contrôle.
+passe sans contrôle. Une branche `lydite/` venue d'un autre dépôt, un fork, rougit : son corps n'est pas celui que la
+forge de Lydite écrit, et le contrôle n'atteste que la ligne qu'il lit.
 
 Entrées, dans l'environnement : `DEPOT` (propriétaire/nom), `NUMERO` (la PR), et `GH_TOKEN` pour `gh api`. Le code de
 la PR n'est jamais extrait : tout se lit par l'API, comme du texte.
@@ -59,8 +60,13 @@ class Api:
         self.depot = depot
 
     def pr(self, numero):
-        """La branche, la tête et le corps d'une PR."""
-        filtre = '{branche: .head.ref, tete: .head.sha, corps: (.body // "")} | @json'
+        """La branche, son dépôt (`meme` : celui de la base, comparé par son id ; faux s'il a été effacé), la tête et le
+        corps d'une PR."""
+        champs = (
+            '{branche: .head.ref, depot: (.head.repo.full_name // ""), meme: (.head.repo.id == .base.repo.id),'
+            ' tete: .head.sha, corps: (.body // "")}'
+        )
+        filtre = f"{champs} | @json"
         return json.loads(gh(f"repos/{self.depot}/pulls/{numero}", filtre))
 
     def arbre(self, sha):
@@ -68,9 +74,13 @@ class Api:
         return gh(f"repos/{self.depot}/git/commits/{sha}", ".tree.sha").strip()
 
     def fermees(self, branche):
-        """Les PR fermées dont la base est cette branche : numéro, branche, fusionnée ou non, corps."""
+        """Les PR fermées dont la base est cette branche : numéro, branche, venue du dépôt même ou non, fusionnée ou non,
+        corps."""
         chemin = f"repos/{self.depot}/pulls?state=closed&base={quote(branche, safe='')}&per_page=100"
-        champs = '{numero: .number, branche: .head.ref, fusionnee: (.merged_at != null), corps: (.body // "")}'
+        champs = (
+            "{numero: .number, branche: .head.ref, meme: (.head.repo.id == .base.repo.id),"
+            ' fusionnee: (.merged_at != null), corps: (.body // "")}'
+        )
         return [json.loads(ligne) for ligne in gh(chemin, f".[] | {champs} | @json").splitlines() if ligne.strip()]
 
 
@@ -80,6 +90,11 @@ def controler(api, numero):
     tete = pr["tete"]
     if not pr["branche"].startswith(PREFIXE):
         return True, f"Not a Lydite pull request (branch {pr['branche']}): nothing to check."
+    if not pr["meme"]:
+        return False, (
+            f"The branch {pr['branche']} comes from {pr['depot'] or 'a deleted repository'}, not from {api.depot}:"
+            " a lydite/ branch from a fork is not Lydite's."
+        )
     arbre = api.arbre(tete)
     for sha in relus(pr["corps"]):
         if sha == tete or api.arbre(sha) == arbre:
@@ -89,7 +104,8 @@ def controler(api, numero):
         suivantes = []
         for branche in branches:
             for correction in api.fermees(branche):
-                if not correction["fusionnee"] or correction["numero"] in vues:
+                # Une correction venue d'un fork n'atteste rien : son auteur écrit son corps, même après la fusion.
+                if not correction["fusionnee"] or not correction["meme"] or correction["numero"] in vues:
                     continue
                 vues.add(correction["numero"])
                 if len(vues) > PR_MAX:
