@@ -29,7 +29,9 @@ fn kraken() -> Command {
     commande
         .env("USERPROFILE", leurres.join("personnel"))
         .env("HOME", leurres.join("personnel"))
-        .env("CLAUDE_CONFIG_DIR", leurres.join("config"));
+        .env("CLAUDE_CONFIG_DIR", leurres.join("config"))
+        .env_remove("GH_CONFIG_DIR")
+        .env_remove("XDG_CONFIG_HOME");
     commande
 }
 

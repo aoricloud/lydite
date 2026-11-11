@@ -1,7 +1,7 @@
 //! La conduite de la vague : ce que `lancer` lit avant de partir, la vague, sa relecture et sa forge.
 
 use std::env;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{self, Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -66,7 +66,8 @@ pub(crate) struct Lieu<'a> {
 ///    (6001) ;
 /// 6. son empreinte est celle qu'a acceptée `lydite accepter` (6011, 6012) ;
 /// 7. le dossier et les dossiers de connexion de Claude (`CLAUDE_CONFIG_DIR` s'il est posé, puis le `.claude` du
-///    dossier personnel) s'écrivent dans une règle de permission (6023), et aucune `lecture` ne recouvre l'un d'eux
+///    dossier personnel), et le dossier de configuration de gh s'il est hors du défaut (`GH_CONFIG_DIR`, sinon
+///    `XDG_CONFIG_HOME`), s'écrivent dans une règle de permission (6023), et aucune `lecture` ne recouvre l'un d'eux
 ///    (6009) ;
 /// 8. si le profil nomme un fournisseur, la variable d'environnement que `cle` nomme est posée et non vide (6027) : sa
 ///    valeur est la clé de ses mains, et n'est lue qu'ici ;
@@ -76,8 +77,15 @@ pub(crate) struct Lieu<'a> {
 /// Le profil se lit après le dépôt : il vit dans le dossier de Kraken, qu'on sait alors hors du dépôt visé.
 pub(crate) fn preparer(profil: &str, depot: Option<&Path>) -> Result<(Profil, PathBuf, PathBuf), Refus> {
     let config = env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from);
-    let (mut profil, depot, dossier) =
-        preparer_dans(profil, depot, dossier::dossier()?, config.as_deref(), env::home_dir().as_deref())?;
+    let gh = dossier_de_gh(|nom| env::var_os(nom));
+    let (mut profil, depot, dossier) = preparer_dans(
+        profil,
+        depot,
+        dossier::dossier()?,
+        config.as_deref(),
+        gh.as_deref(),
+        env::home_dir().as_deref(),
+    )?;
     profil.fournir(|variable| env::var_os(variable))?;
     if let Some(srt) = env::var_os("LYDITE_SRT") {
         profil.avec_srt(srt);
@@ -86,13 +94,23 @@ pub(crate) fn preparer(profil: &str, depot: Option<&Path>) -> Result<(Profil, Pa
     Ok((profil, depot, dossier))
 }
 
-/// `preparer` à partir du dossier de Kraken, de `CLAUDE_CONFIG_DIR` (`config`) et du dossier personnel (`personnel`),
-/// lus une fois par `preparer` : les tests n'ont pas à toucher l'environnement de l'humain.
+/// Le dossier de configuration de gh tel que gh le résout sous Linux, `lire` cherchant une variable d'environnement par
+/// son nom : `GH_CONFIG_DIR` s'il est posé et non vide, sinon `$XDG_CONFIG_HOME/gh` si `XDG_CONFIG_HOME` est posé et
+/// non vide, sinon `None` : le défaut, `~/.config/gh`, est sous le dossier personnel, déjà fermé aux mains.
+fn dossier_de_gh(lire: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    let posee = |nom: &str| lire(nom).filter(|valeur| !valeur.is_empty()).map(PathBuf::from);
+    posee("GH_CONFIG_DIR").or_else(|| posee("XDG_CONFIG_HOME").map(|xdg| xdg.join("gh")))
+}
+
+/// `preparer` à partir du dossier de Kraken, de `CLAUDE_CONFIG_DIR` (`config`), du dossier de configuration de gh
+/// (`gh`, voir [`dossier_de_gh`]) et du dossier personnel (`personnel`), lus une fois par `preparer` : les tests n'ont
+/// pas à toucher l'environnement de l'humain.
 fn preparer_dans(
     nom: &str,
     depot: Option<&Path>,
     dossier: PathBuf,
     config: Option<&Path>,
+    gh: Option<&Path>,
     personnel: Option<&Path>,
 ) -> Result<(Profil, PathBuf, PathBuf), Refus> {
     let depot = match depot {
@@ -103,7 +121,7 @@ fn preparer_dans(
     git::hors_du_depot(&racine, &dossier)?;
     let mut profil = dossier::charger_dans(nom, &dossier)?;
     profil.garder_selon(dossier::lire_empreinte)?;
-    profil.borner_selon(&dossier, &git_commun, config, personnel, dossier::connexion_presente)?;
+    profil.borner_selon(&dossier, &git_commun, config, gh, personnel, dossier::connexion_presente)?;
     Ok((profil, depot, dossier))
 }
 

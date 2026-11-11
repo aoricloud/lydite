@@ -195,10 +195,12 @@ fn descendants(racine: u32, liens: &[(u32, u32)]) -> Vec<u32> {
 }
 
 /// La variable de ce nom ne passe ni à la main ni à sa preuve : toute marque de session de Claude (`CLAUDE*`, sauf
-/// `CLAUDE_CONFIG_DIR`) ; les jetons `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` et `GITHUB_ENTERPRISE_TOKEN` et
-/// les moyens de s'authentifier comme l'humain, `GIT_SSH_COMMAND`, `GIT_SSH`, `GIT_ASKPASS`, `SSH_ASKPASS` et
-/// `SSH_AUTH_SOCK`, car un jeton ou un moyen de s'authentifier est un droit et aucun n'est prêté (Kraken les garde pour
-/// ses propres gestes, le push de la forge) ; les [`VARIABLES_DE_DEPOT`] de git, sans quoi chaque git que jouent la
+/// `CLAUDE_CONFIG_DIR`) ; les jetons `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` et `GITHUB_ENTERPRISE_TOKEN`,
+/// `GH_CONFIG_DIR`, le dossier de configuration de gh où l'humain garde son jeton (`XDG_CONFIG_HOME` passe : git et
+/// d'autres outils y lisent leur configuration, et `borner` ferme le dossier de gh qui s'en tire), et les moyens de
+/// s'authentifier comme l'humain, `GIT_SSH_COMMAND`, `GIT_SSH`, `GIT_ASKPASS`, `SSH_ASKPASS` et `SSH_AUTH_SOCK`, car
+/// un jeton ou un moyen de s'authentifier est un droit et aucun n'est prêté (Kraken les garde pour ses propres gestes,
+/// le push de la forge) ; les [`VARIABLES_DE_DEPOT`] de git, sans quoi chaque git que jouent la
 /// main ou sa preuve dans le bac (`add`, `commit`, `reset`) jouerait dans le dépôt qu'elles nomment. La casse ne compte
 /// pas : l'environnement de Windows l'ignore. `ANTHROPIC_*`, `CLAUDE_CONFIG_DIR`, `MCP_*` et les fichiers de
 /// configuration de git de l'humain (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`) passent à la main ; sa preuve perd en
@@ -207,7 +209,7 @@ fn descendants(racine: u32, liens: &[(u32, u32)]) -> Vec<u32> {
 /// que `cle` nomme (`partir`), et sa preuve perd de plus la variable qui tient la clé (`executer`).
 pub(crate) fn retire_de_l_env(nom: &str) -> bool {
     let nom = nom.to_ascii_uppercase();
-    let jetons = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
+    let jetons = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_CONFIG_DIR"];
     let authentification = ["GIT_SSH_COMMAND", "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_AUTH_SOCK"];
     (nom.starts_with("CLAUDE") && nom != "CLAUDE_CONFIG_DIR")
         || jetons.contains(&nom.as_str())
