@@ -287,7 +287,7 @@ fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
     let (bac_a, depart) = bac_neuf(&depot, &kraken, "absent");
     let refus = juge(&bac_a, &depart).unwrap_err();
     assert!(
-        refus.code == Code::BacTouche && refus.preuve.contains("REMARQUES.lydite n'est pas à la racine du bac"),
+        refus.code == Code::BacTouche && refus.preuve.contains("REMARQUES.lydite is not at the root of the sandbox"),
         "{refus}"
     );
     // Seul, avec le DIFF.lydite de Kraken ou sans lui, et un fichier que le dépôt ignore : il se lit, et ses octets
@@ -304,14 +304,14 @@ fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
     ecrire(&bac_b, "autre.txt", "x");
     let refus = juge(&bac_b, &depart).unwrap_err();
     assert_eq!(refus.code, Code::BacTouche, "{refus}");
-    assert!(refus.preuve.ends_with(r#"en plus de REMARQUES.lydite : "autre.txt", "suivi.txt""#), "{refus}");
+    assert!(refus.preuve.ends_with(r#"besides REMARQUES.lydite: "autre.txt", "suivi.txt""#), "{refus}");
     // Un commit, même du seul fichier : 7014.
     let (bac_c, depart) = bac_neuf(&depot, &kraken, "commite");
     ecrire(&bac_c, REMARQUES, &remarques_justes());
     git(&bac_c, &["add", REMARQUES]);
     git(&bac_c, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "r"]);
     let refus = juge(&bac_c, &depart).unwrap_err();
-    assert!(refus.code == Code::BacTouche && refus.preuve.contains("la main a commité dans son bac"), "{refus}");
+    assert!(refus.code == Code::BacTouche && refus.preuve.contains("the hand committed in its sandbox"), "{refus}");
     // Un fichier qui ne se lit pas : 7015, après qu'il a passé le contrôle du bac.
     let (bac_d, depart) = bac_neuf(&depot, &kraken, "illisible");
     ecrire(&bac_d, REMARQUES, "pas des remarques\n");
@@ -344,7 +344,8 @@ fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
     let (bac_e, depart) = bac_neuf(&depot, &kraken, "ignore");
     ecrire(&bac_e, REMARQUES, &remarques_justes());
     let refus = juge(&bac_e, &depart).unwrap_err();
-    assert!(refus.code == Code::BacTouche && refus.preuve.contains("le dépôt visé ignore REMARQUES.lydite"), "{refus}");
+    let ignore = refus.preuve.contains("the target repository ignores REMARQUES.lydite");
+    assert!(refus.code == Code::BacTouche && ignore, "{refus}");
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -938,7 +939,7 @@ fn une_correction_non_assemblee_est_le_refus_7017_et_rien_ne_se_pousse() {
     // Le refus 7017 est noté sur la vague relue, il nomme la tâche dehors, et la branche de la vague n'a pas avancé.
     let refus = refus_de_forge(&fil, v);
     let [(7017, preuve)] = &refus[..] else { panic!("{refus:?}") };
-    assert!(preuve.contains(&format!("la vague de correction {c} n'a pas assemblé sa tâche")), "{preuve}");
+    assert!(preuve.contains(&format!("correction wave {c} did not assemble its task")), "{preuve}");
     assert!(preuve.contains("dehors.txt"), "{preuve}");
     assert_eq!(git(&essai.depot, &["rev-parse", &format!("lydite/vague-{v}")]), tete_de(&fil, v));
     rien_de_pousse(&essai);
@@ -1057,7 +1058,7 @@ fn une_correction_qui_ne_change_rien_n_est_pas_une_correction() {
     assert_eq!(tete_de(&fil, c), tete_de(&fil, v));
     let refus = refus_de_forge(&fil, v);
     let [(7017, preuve)] = &refus[..] else { panic!("{refus:?}") };
-    assert!(preuve.contains(&format!("la vague de correction {c} n'a rien changé à la tête")), "{preuve}");
+    assert!(preuve.contains(&format!("correction wave {c} changed nothing to the head")), "{preuve}");
     rien_de_pousse(&essai);
     let _ = fs::remove_dir_all(&essai.racine);
 }
@@ -1092,7 +1093,7 @@ fn un_fichier_illisible_deux_fois_est_7015_puis_7016_et_rien_ne_se_pousse() {
     // Le refus 7016 est noté sur la vague relue ; ni relecture ni correction au fil ; rien ne se pousse.
     let refus = refus_de_forge(&fil, v);
     let [(7016, preuve)] = &refus[..] else { panic!("{refus:?}") };
-    assert!(preuve.contains(&format!("la relecture de la vague {v} est classée : main-{r}-1 : 7015 ")), "{preuve}");
+    assert!(preuve.contains(&format!("the review of wave {v} is set aside: main-{r}-1: 7015 ")), "{preuve}");
     assert!(!fil.iter().any(|e| matches!(e, Evenement::Relecture { .. } | Evenement::Correction { .. })));
     // Le lien du relecteur à la vague relue est au fil, avant le départ de sa main.
     let rang = |cherche: &dyn Fn(&Evenement) -> bool| fil.iter().position(cherche);
@@ -1123,7 +1124,7 @@ fn un_relecteur_qui_touche_un_fichier_est_7014_et_se_reprend_a_sa_relance() {
     assert_eq!(fins.iter().map(|(couleur, _)| *couleur).collect::<Vec<_>>(), [Couleur::Rouge, Couleur::Vert]);
     let debut = format!("7014 vague.bac_touche : {}\n", Code::BacTouche.regle());
     assert!(
-        fins[0].1.starts_with(&debut) && fins[0].1.contains(r#"en plus de REMARQUES.lydite : "autre.txt""#),
+        fins[0].1.starts_with(&debut) && fins[0].1.contains(r#"besides REMARQUES.lydite: "autre.txt""#),
         "{}",
         fins[0].1
     );
@@ -1190,7 +1191,7 @@ fn sous_une_issue_un_diff_de_plus_de_1_mo_est_7016_sans_relecteur() {
         panic!("un diff coupé ne se relit pas sous une issue")
     };
     assert_eq!(refus.code, Code::RelectureManquee, "{refus}");
-    let attendu = format!("son diff pèse {} octets, plus que 1 Mo", TAILLE_MAX + 1);
+    let attendu = format!("its diff weighs {} bytes, more than 1 MB", TAILLE_MAX + 1);
     assert!(refus.preuve.contains(&attendu), "{refus}");
     // Aucun relecteur n'est parti : ni sa main, ni son bac, ni sa vague au fil ; le refus y est noté.
     assert!(essai.garde("relecture-1").is_none(), "aucun relecteur n'est parti");
@@ -1265,7 +1266,7 @@ fn sous_une_issue_une_vague_lancee_d_un_sous_dossier_pese_son_diff_depuis_la_rac
     let [v] = &ouvertes[..] else { panic!("la vague seule : {ouvertes:?}") };
     let refus = refus_de_forge(&fil, v);
     assert_eq!(refus.iter().map(|(code, _)| *code).collect::<Vec<_>>(), [7016], "{refus:?}");
-    assert!(refus[0].1.contains("plus que 1 Mo"), "{refus:?}");
+    assert!(refus[0].1.contains("more than 1 MB"), "{refus:?}");
     let _ = fs::remove_dir_all(&essai.racine);
 }
 
