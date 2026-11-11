@@ -1717,7 +1717,7 @@ fn le_rejeu_garde_les_coupures_de_chaque_tentative_et_un_fil_sans_elles_se_lit()
         tentative,
         couleur: Couleur::Rouge,
         foi: Foi::Constate,
-        texte: "main : résultat en erreur".into(),
+        texte: "hand: result in error".into(),
         verif: None,
     };
     let coupee = |tentative, statut| Evenement::Coupure { vague: "v".into(), main: 1, tentative, statut };

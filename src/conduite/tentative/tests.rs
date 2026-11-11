@@ -294,19 +294,19 @@ fn erreur(verdict: Result<Pris, Echec>) -> String {
 
 #[test]
 fn une_coupure_lue_au_constat_est_l_echec_de_la_tentative() {
-    let autre = || ErreurMain::Autre("main : résultat en erreur".into());
-    assert_eq!(echec_de(autre(), Some(529), false), Echec::Coupure(529, "main : résultat en erreur".into()));
-    assert_eq!(echec_de(autre(), None, false), Echec::Erreur("main : résultat en erreur".into()));
+    let autre = || ErreurMain::Autre("hand: result in error".into());
+    assert_eq!(echec_de(autre(), Some(529), false), Echec::Coupure(529, "hand: result in error".into()));
+    assert_eq!(echec_de(autre(), None, false), Echec::Erreur("hand: result in error".into()));
 }
 
 #[test]
 fn un_plafond_lu_au_constat_est_l_echec_de_la_tentative_et_l_emporte() {
-    let erreur = || ErreurMain::Autre("main : résultat en erreur (error_max_budget_usd)".into());
-    let attendu = Echec::Plafond("main : résultat en erreur (error_max_budget_usd)".into());
+    let erreur = || ErreurMain::Autre("hand: result in error (error_max_budget_usd)".into());
+    let attendu = Echec::Plafond("hand: result in error (error_max_budget_usd)".into());
     assert_eq!(echec_de(erreur(), None, true), attendu);
     // Il l'emporte sur une coupure lue et sur une main tuée à son délai.
     assert_eq!(echec_de(erreur(), Some(529), true), attendu);
-    let tuee = ErreurMain::Tuee("main : résultat en erreur (error_max_budget_usd)".into());
+    let tuee = ErreurMain::Tuee("hand: result in error (error_max_budget_usd)".into());
     assert_eq!(echec_de(tuee, None, true), attendu);
 }
 

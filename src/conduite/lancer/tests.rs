@@ -3996,7 +3996,7 @@ mod coupure {
     use super::*;
     use crate::conduite::publication::recu_de;
 
-    const API: &str = "main : résultat en erreur (success) : API Error: Overloaded";
+    const API: &str = "hand: result in error (success) : API Error: Overloaded";
 
     fn coupee(statut: u16) -> Option<Echec> {
         Some(Echec::Coupure(statut, API.into()))
@@ -4158,7 +4158,7 @@ mod coupure {
         assert!(joue.consigne.contains("Tentative précédente échouée :\nmain : temps dépassé (1 s) : dit"));
     }
 
-    const DEPENSE: &str = "main : résultat en erreur (error_max_budget_usd)";
+    const DEPENSE: &str = "hand: result in error (error_max_budget_usd)";
 
     #[test]
     fn une_main_au_plafond_de_depense_est_refusee_sans_relance() {

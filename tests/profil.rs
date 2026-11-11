@@ -1399,7 +1399,7 @@ fn le_fil_inscrit_le_lancement_et_le_constat_de_chaque_tentative() {
     // seconde est verte : Kraken a rejoué la vérification, et la vague est prise et constatée.
     let fins = lignes_de(&fil, "main.fin");
     let rouge = concat!(
-        r#""couleur":"rouge","foi":"constate","texte":"main : résultat en erreur (success) : Je n'ai pas pu finir",""#,
+        r#""couleur":"rouge","foi":"constate","texte":"hand: result in error (success) : Je n'ai pas pu finir",""#,
         r#"verif":null}"#,
     );
     assert!(fins[0].contains(rouge), "{}", fins[0]);

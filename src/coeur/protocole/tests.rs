@@ -454,8 +454,8 @@ fn le_resultat_donne_la_sortie() {
     };
     assert_eq!(resultat(&fin(RESULTAT)), Ok("fait\nPREUVE: vert".into()));
     let en_erreur = RESULTAT.replace(r#""is_error":false"#, r#""is_error":true"#);
-    assert_eq!(resultat(&fin(&en_erreur)), Err("main : résultat en erreur (success) : fait\nPREUVE: vert".into()));
-    assert_eq!(resultat(&fin(SANS_MUR)), Err("main : résultat en erreur (error_during_execution)".into()));
+    assert_eq!(resultat(&fin(&en_erreur)), Err("hand: result in error (success) : fait\nPREUVE: vert".into()));
+    assert_eq!(resultat(&fin(SANS_MUR)), Err("hand: result in error (error_during_execution)".into()));
 }
 
 #[test]
@@ -476,7 +476,7 @@ fn une_coupure_de_l_api_se_reconnait_a_son_statut() {
         let ligne = avec("true", &statut.to_string());
         assert_eq!(coupure(&ligne), Some(statut), "{statut}");
         // C'est aussi un résultat en erreur, que `resultat` dit comme avant.
-        assert_eq!(resultat(&ligne), Err("main : résultat en erreur (success) : API Error".into()), "{statut}");
+        assert_eq!(resultat(&ligne), Err("hand: result in error (success) : API Error".into()), "{statut}");
     }
     // Un autre statut, ou aucun, reste une erreur.
     for statut in ["400", "401", "403", "404", "407", "499", "null", "\"529\"", "-1", "529.5"] {
@@ -500,7 +500,7 @@ fn le_plafond_de_depense_se_reconnait_a_son_subtype() {
     );
     assert!(plafond_atteint(&depense));
     // Un résultat en erreur que `resultat` dit comme les autres, et qui n'est pas une coupure de l'API.
-    assert_eq!(resultat(&depense), Err("main : résultat en erreur (error_max_budget_usd)".into()));
+    assert_eq!(resultat(&depense), Err("hand: result in error (error_max_budget_usd)".into()));
     assert_eq!(coupure(&depense), None);
     // Une main qui réussit, un autre résultat en erreur, ou un autre mot dans le texte, ne sont pas un plafond.
     assert!(!plafond_atteint(&ligne_json(RESULTAT)));
@@ -727,6 +727,74 @@ fn jugement_du_mur(declare: &str, de: &str, en: &str) -> Result<(), String> {
     let settings = GET_SETTINGS.replace(de, en);
     assert!(de == en || settings != GET_SETTINGS, "{de} n'est pas dans GET_SETTINGS");
     juger_reponses(&attendu(declare), &avec(&settings)).1
+}
+
+#[test]
+fn une_allow_write_de_l_humain_au_releve_d_une_vraie_main_est_un_ecart() {
+    // Le relevé d'une vraie main : l'`allowWrite` posée par l'humain dans userSettings arrive à l'effectif.
+    let releve = GET_SETTINGS
+        .replace(r#""denyRead":["~/","/srv/lydite"]"#, r#""allowWrite":["/srv/ecrit"],"denyRead":["~/","/srv/lydite"]"#)
+        .replace(
+            r#"{"source":"userSettings","settings":{}}"#,
+            r#"{"source":"userSettings","settings":{"sandbox":{"filesystem":{"allowWrite":["/srv/ecrit"]}}}}"#,
+        );
+    assert_ne!(releve, GET_SETTINGS);
+    let ecart = juger_reponses(&attendu(REGLAGES), &avec(&releve)).1.unwrap_err();
+    assert_eq!(
+        ecart,
+        concat!(
+            "hand: settings not applied: get_settings : ",
+            r#"effective.sandbox.filesystem.allowWrite : entry "/srv/ecrit" outside the declared list"#,
+        )
+    );
+}
+
+#[test]
+fn une_feuille_du_bac_qu_aucune_liste_ne_juge_est_un_ecart_sauf_vide_ou_fermante() {
+    let socle = r#""strictAllowlist":true}"#;
+    let reseau = |ajout: &str| jugement_du_mur(REGLAGES, socle, &format!(r#""strictAllowlist":true,{ajout}}}"#));
+    let ecart_de = |ajout: &str, dit: &str| {
+        let ecart = reseau(ajout).unwrap_err();
+        assert_eq!(
+            ecart,
+            format!("hand: settings not applied: get_settings : effective.sandbox.{dit}, declared absent")
+        );
+    };
+    // Une clé inconnue posée : un écart qui dit son chemin et sa valeur.
+    ecart_de(r#""allowLocalBinding":true"#, "network.allowLocalBinding true");
+    ecart_de(r#""httpProxyPort":8080"#, "network.httpProxyPort 8080");
+    ecart_de(r#""inconnue":["a"]"#, "network.inconnue [1 item]");
+    // On descend dans les objets : l'écart nomme la feuille.
+    ecart_de(r#""inconnue":{"profonde":{"cle":"x"}}"#, r#"network.inconnue.profonde.cle "x""#);
+    let haut = jugement_du_mur(
+        REGLAGES,
+        r#""sandbox":{"enabled":true"#,
+        r#""sandbox":{"enableWeakerNestedSandbox":true,"enabled":true"#,
+    );
+    assert_eq!(
+        haut,
+        Err(concat!(
+            "hand: settings not applied: get_settings : ",
+            "effective.sandbox.enableWeakerNestedSandbox true, declared absent",
+        )
+        .to_string())
+    );
+    // `false`, `[]`, `{}` et les trois clés qui n'ouvrent pas le bac passent.
+    for passe in [
+        r#""allowLocalBinding":false"#,
+        r#""inconnue":[]"#,
+        r#""inconnue":{}"#,
+        r#""inconnue":{"profonde":{}}"#,
+        r#""deniedDomains":["x.test"]"#,
+    ] {
+        assert_eq!(reseau(passe), Ok(()), "{passe}");
+    }
+    let fichiers = r#""denyRead":["~/","/srv/lydite"]"#;
+    for passe in [r#""denyWrite":["/srv/lu"],"#, r#""denyWrite":[],"#] {
+        assert_eq!(jugement_du_mur(REGLAGES, fichiers, &format!("{passe}{fichiers}")), Ok(()), "{passe}");
+    }
+    let haut = r#""sandbox":{"enabled":true"#;
+    assert_eq!(jugement_du_mur(REGLAGES, haut, r#""sandbox":{"autoAllowBashIfSandboxed":true,"enabled":true"#), Ok(()));
 }
 
 #[test]
