@@ -136,14 +136,14 @@ pub(crate) fn base_du_depot(depot: &Path) -> Result<String, Refus> {
         return Err(Refus::new(
             Code::DepotIntrouvable,
             format!("{} n'est pas un dossier qui existe", depot.display()),
-            "Lance Lydite depuis le dépôt visé, ou donne-le par --depot <chemin>.",
+            "Run Lydite from the target repository, or give it with --depot <path>.",
         ));
     }
     let base = faire(geste(depot, &["rev-parse", "--verify", "HEAD"])).map_err(|vu| {
         Refus::new(
             Code::BacImpossible,
             vu,
-            "Vise un dépôt git qui a au moins un commit (--depot <chemin>), puis relance.",
+            "Target a git repository that has at least one commit (--depot <path>), then run again.",
         )
     })?;
     Ok(base.trim().to_string())
