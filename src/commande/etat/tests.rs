@@ -31,6 +31,7 @@ fn lancement(vague: &str, main: usize, tentative: usize, mur: fil::Mur) -> Evene
         profil: "claude".into(),
         empreinte: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into(),
         modele: "sonnet".into(),
+        effort: None,
         mur,
         reglages: "{}".into(),
         reglages_depot: String::new(),
@@ -95,7 +96,8 @@ fn kraken_etat_affiche_la_derniere_vague() {
          main-{V2}-3 : classée : test salut ... FAILED\n\
          main-{V2}-4 : en cours, tentative 2\n\
          main-{V2}-5 : en attente\n\
-         Coût : inconnu · 6 mains, 2 relances, 1 classée"
+         Coût : inconnu · 6 mains, 2 relances, 1 classée\n\
+         Effort: Claude Code's default"
     );
     assert_eq!(rendu(&etat(&exemple()), MAINTENANT), attendu);
 }
@@ -222,6 +224,7 @@ fn kraken_etat_affiche_une_vague_a_plan() {
         format!("main-{V2}-9 i : en attente"),
         format!("main-{V2}-10 j : en attente de f, e"),
         "Coût : inconnu · 8 mains, 2 relances, 1 classée, 2 refusées".to_string(),
+        "Effort: Claude Code's default".to_string(),
     ];
     assert_eq!(rendu(&etat(&evenements), MAINTENANT), attendu.join("\n"));
     // Une même tâche remplit parfois plusieurs états à la fois : le premier de la liste l'emporte, et de la
@@ -352,6 +355,7 @@ fn des_copies_refusees_ou_sans_nouvelles_le_disent() {
         format!("main-{V1}-5 : prise"),
         format!("main-{V1}-6 : en attente"),
         "Coût : inconnu · 5 mains, 0 relance, 1 classée, 1 refusée".to_string(),
+        "Effort: Claude Code's default".to_string(),
     ];
     assert_eq!(rendu(&etat(&evenements), MAINTENANT), attendu.join("\n"));
     // Leur code reste celui des prises constatées : deux copies prises donnent 0, une copie refusée donne 1.
@@ -484,7 +488,8 @@ fn kraken_etat_dit_le_mur() {
          main-{V2}-5 : prise\n\
          main-{V2}-6 : en cours, tentative 2 · mur demandé, non exigé (déclaré)\n\
          main-{V2}-7 : en cours, tentative 2\n\
-         Coût : inconnu · 9 mains, 2 relances, 1 classée"
+         Coût : inconnu · 9 mains, 2 relances, 1 classée\n\
+         Effort: Claude Code's default"
     );
     let vagues = etat(&evenements);
     assert_eq!(rendu(&vagues, MAINTENANT), attendu);
@@ -560,9 +565,10 @@ fn etat_du_fil(evenements: &[Evenement]) -> (String, ExitCode) {
     assert_eq!(lus, evenements, "le fil rend ce qu'on y a écrit");
     let code = etat_dans(&dossier).unwrap();
     let _ = fs::remove_dir_all(&dossier);
-    // La ligne de reçu de chaque vague a ses propres essais : ici, le reste du texte.
+    // Les lignes de reçu de chaque vague (le coût, l'effort) ont leurs propres essais : ici, le reste du texte.
     let texte = rendu(&etat(&lus), MAINTENANT);
-    let sans_recu: Vec<&str> = texte.lines().filter(|ligne| !ligne.starts_with("Coût : ")).collect();
+    let sans_recu: Vec<&str> =
+        texte.lines().filter(|ligne| !ligne.starts_with("Coût : ") && !ligne.starts_with("Effort: ")).collect();
     (sans_recu.join("\n"), code)
 }
 
@@ -1177,7 +1183,10 @@ fn kraken_etat_ne_panique_pas_sur_un_nombre_demesure() {
     let evenements: Vec<Evenement> = notes.into_iter().map(|note| note.evenement).collect();
     assert_eq!(
         rendu(&etat(&evenements), MAINTENANT),
-        format!("deux mains\nmain-{V1}-1 : prise\nmain-{V1}-2 : prise\nCoût : inconnu · 0 main, 0 relance, 0 classée"),
+        format!(
+            "deux mains\nmain-{V1}-1 : prise\nmain-{V1}-2 : prise\nCoût : inconnu · 0 main, 0 relance, 0 classée\n\
+             Effort: Claude Code's default"
+        ),
     );
     let _ = fs::remove_dir_all(&dossier);
 }
@@ -1281,7 +1290,7 @@ fn le_recu_de_kraken_etat_somme_les_usages_meles_la_vague_et_ses_vagues_liees() 
     let evenements: Vec<Evenement> = notes.iter().map(|note| note.evenement.clone()).collect();
     let vagues = etat(&evenements);
     let texte = rendu_avec(&vagues, &notes, MAINTENANT);
-    let derniere = texte.lines().last().unwrap();
+    let derniere = sans_la_ligne_d_effort(&texte).lines().last().unwrap();
     assert_eq!(derniere, "Coût : 1,84 $ estimé + inconnu · 4 mains, 1 relance, 1 classée · 41 min", "{texte}");
     assert_eq!(texte.lines().filter(|ligne| ligne.starts_with("Coût")).count(), 1, "{texte}");
 
@@ -1296,25 +1305,86 @@ fn le_recu_de_kraken_etat_somme_les_usages_meles_la_vague_et_ses_vagues_liees() 
     let notes = notes_de(&evenements, "2026-10-31T21:00:00.000Z", "2026-10-31T21:00:30.000Z");
     let texte = rendu_avec(&etat(&evenements), &notes, MAINTENANT);
     assert_eq!(
-        texte.lines().last().unwrap(),
+        sans_la_ligne_d_effort(&texte).lines().last().unwrap(),
         "Coût : forfait, ≈ 0,25 $ · 1 main, 0 relance, 0 classée · 30 s",
         "{texte}"
     );
     // Sans les notes, le fil rejoué ne dit ni usage ni durée : le coût est inconnu.
     let texte = rendu(&etat(&evenements), MAINTENANT);
-    assert_eq!(texte.lines().last().unwrap(), "Coût : inconnu · 1 main, 0 relance, 0 classée", "{texte}");
+    let cout = sans_la_ligne_d_effort(&texte).lines().last().unwrap();
+    assert_eq!(cout, "Coût : inconnu · 1 main, 0 relance, 0 classée", "{texte}");
 
     // Rien que de l'inconnu : le coût est inconnu, sans « + inconnu ».
     let evenements = [ouverture(V2, 1, "Une main"), debut(V2, 1, 1), usage(V2, 0, fil::Base::Inconnu)];
     let notes = notes_de(&evenements, "2026-10-31T21:00:00.000Z", "2026-10-31T21:02:00.000Z");
     let texte = rendu_avec(&etat(&evenements), &notes, MAINTENANT);
-    assert!(texte.ends_with("\nCoût : inconnu · 1 main, 0 relance, 0 classée · 2 min"), "{texte}");
+    assert!(
+        sans_la_ligne_d_effort(&texte).ends_with("\nCoût : inconnu · 1 main, 0 relance, 0 classée · 2 min"),
+        "{texte}"
+    );
 
     // Sans aucun usage au fil, `lydite etat` dit tout de même la ligne de reçu, au coût inconnu.
     let sans = [ouverture(V2, 1, "Une main"), debut(V2, 1, 1)];
     let notes = notes_de(&sans, "2026-10-31T21:00:00.000Z", "2026-10-31T21:00:30.000Z");
     let texte = rendu_avec(&etat(&sans), &notes, MAINTENANT);
-    assert_eq!(texte.lines().last().unwrap(), "Coût : inconnu · 1 main, 0 relance, 0 classée · 30 s", "{texte}");
+    let cout = sans_la_ligne_d_effort(&texte).lines().last().unwrap();
+    assert_eq!(cout, "Coût : inconnu · 1 main, 0 relance, 0 classée · 30 s", "{texte}");
+}
+
+/// Le texte sans sa dernière ligne : le reçu de `lydite etat` finit par le coût, puis par l'effort.
+fn sans_la_ligne_d_effort(texte: &str) -> &str {
+    let (reste, effort) = texte.rsplit_once('\n').expect("plusieurs lignes");
+    assert!(effort.starts_with("Effort: "), "{texte}");
+    reste
+}
+
+#[test]
+fn le_recu_de_kraken_etat_dit_l_effort_de_chaque_role_ou_le_defaut_de_claude_code() {
+    let corrige = "1761901300000_7_0";
+    // Le lancement d'une tentative, à l'effort `effort` (`None` : rien de déclaré), puis sa consigne, de rôle `role`.
+    let lance = |vague: &str, main, tentative, effort: Option<&str>, role| {
+        let mut lancement = lancement(vague, main, tentative, fil::Mur::Exige);
+        if let Evenement::Lancement { effort: declare, .. } = &mut lancement {
+            *declare = effort.map(str::to_string);
+        }
+        let consigne = Evenement::Consigne {
+            vague: vague.into(),
+            main,
+            tentative,
+            role,
+            consigne: "c".into(),
+            systeme: None,
+            lecons: String::new(),
+            ecartees: String::new(),
+            mesure: String::new(),
+        };
+        [debut(vague, main, tentative), lancement, consigne]
+    };
+    let evenements: Vec<Evenement> = [
+        vec![ouverture(V2, 3, "Trois mains")],
+        // La main 1 part à `low`, et sa relance à `high` ; la main 2 reprend `low` ; la 3e n'en déclare aucun.
+        lance(V2, 1, 1, Some("low"), fil::Role::Main).to_vec(),
+        lance(V2, 1, 2, Some("high"), fil::Role::Main).to_vec(),
+        lance(V2, 2, 1, Some("low"), fil::Role::Main).to_vec(),
+        lance(V2, 3, 1, None, fil::Role::Main).to_vec(),
+        // Une correction de la vague : son rôle a son effort, lu dans sa vague liée.
+        vec![ouverture(corrige, 1, "Corriger"), Evenement::Correction { vague: corrige.into(), corrige: V2.into() }],
+        lance(corrige, 1, 1, Some("max"), fil::Role::Correction).to_vec(),
+    ]
+    .concat();
+    let notes = notes_de(&evenements, "2026-10-31T21:00:00.000Z", "2026-10-31T21:01:00.000Z");
+    let texte = rendu_avec(&etat(&evenements), &notes, MAINTENANT);
+    let attendu = "Effort: hand: low, high, Claude Code's default; correction: max";
+    assert_eq!(texte.lines().last().unwrap(), attendu, "{texte}");
+    // Sans la correction liée, la ligne ne dit plus son rôle ; sans aucune main, elle dit le défaut.
+    let sans = &evenements[..evenements.len() - 5];
+    let notes = notes_de(sans, "2026-10-31T21:00:00.000Z", "2026-10-31T21:01:00.000Z");
+    let texte = rendu_avec(&etat(sans), &notes, MAINTENANT);
+    assert_eq!(texte.lines().last().unwrap(), "Effort: hand: low, high, Claude Code's default", "{texte}");
+    let nue = [ouverture(V2, 1, "Une main")];
+    let texte =
+        rendu_avec(&etat(&nue), &notes_de(&nue, "2026-10-31T21:00:00.000Z", "2026-10-31T21:01:00.000Z"), MAINTENANT);
+    assert_eq!(texte.lines().last().unwrap(), "Effort: Claude Code's default", "{texte}");
 }
 
 #[test]
@@ -1337,13 +1407,14 @@ fn le_recu_de_kraken_etat_dit_la_mesure_sur_une_ligne_a_part_quand_un_reglage_es
     };
     let cout = "Coût : inconnu · 1 main, 0 relance, 0 classée · 30 s";
     // Une vraie vague ne porte aucune ligne de mesure.
+    let effort = "Effort: hand: Claude Code's default";
     let vraie = rendu_de("");
-    assert!(!vraie.contains("Measurement") && vraie.lines().last() == Some(cout), "{vraie}");
-    // Un réglage posé, ou deux : une ligne à part, en anglais, sous le coût.
+    assert!(!vraie.contains("Measurement") && vraie.ends_with(&format!("\n{cout}\n{effort}")), "{vraie}");
+    // Un réglage posé, ou deux : une ligne à part, en anglais, sous le coût et l'effort.
     let un = rendu_de("sans-a1");
-    assert!(un.ends_with(&format!("\n{cout}\nMeasurement: sans-a1.")), "{un}");
+    assert!(un.ends_with(&format!("\n{cout}\n{effort}\nMeasurement: sans-a1.")), "{un}");
     let deux = rendu_de("sans-lecture\nsans-a1");
-    assert!(deux.ends_with(&format!("\n{cout}\nMeasurement: sans-lecture, sans-a1.")), "{deux}");
+    assert!(deux.ends_with(&format!("\n{cout}\n{effort}\nMeasurement: sans-lecture, sans-a1.")), "{deux}");
     // Un texte qui n'est pas un réglage du fil n'entre pas dans le reçu.
     let hostile = rendu_de("sans-lecture\n@quelqu'un a dit");
     assert!(hostile.ends_with("\nMeasurement: sans-lecture."), "{hostile}");

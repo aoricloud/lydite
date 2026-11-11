@@ -63,7 +63,7 @@ fn en_erreur(id: &str) -> String {
 
 /// Ce que Kraken passe à une main sur ces réglages : `--model sonnet`, sans `mcp`.
 fn attendu(reglages: &str) -> Attendu<'_> {
-    Attendu { reglages, modele: "sonnet", mcp: None }
+    Attendu { reglages, modele: "sonnet", effort: None, mcp: None }
 }
 
 /// Les réponses rangées par id, comme `jouer` les range : chaque ligne passée par `lire_ligne`.
@@ -161,6 +161,48 @@ fn des_reglages_pris_rendent_le_mur() {
     // Exigé et dit actif : pris.
     reponses.extend(rangees(&[&actif]));
     assert_eq!(juger_reponses(&attendu(&exige), &reponses), (Some(true), Ok(())));
+}
+
+#[test]
+fn l_effort_applique_se_juge_quand_il_est_declare_et_sinon_ne_se_compare_a_rien() {
+    let applique = |effort: &str| GET_SETTINGS.replace(r#""applied":{"#, &format!(r#""applied":{{{effort}"#));
+    let avec = |settings: &str| {
+        let mut reponses = rangees(&JUSTES);
+        reponses.extend(rangees(&[settings]));
+        reponses
+    };
+    let declare = |effort: &'static str| Attendu { effort: Some(effort), ..attendu(REGLAGES) };
+    let ecart = |texte: &str| Err(format!("main : réglages non pris : get_settings : {texte}"));
+    // L'effort appliqué est le déclaré : pris, pour chacune des valeurs que Claude Code accepte.
+    for effort in ["low", "medium", "high", "xhigh", "max"] {
+        let dit = applique(&format!(r#""effort":"{effort}","#));
+        assert_eq!(juger_reponses(&declare(effort), &avec(&dit)).1, Ok(()), "{effort}");
+    }
+    // Un autre, un absent, un mal typé : l'écart, au texte exact, que le déclaré soit plus haut ou plus bas.
+    let dit_low = applique(r#""effort":"low","#);
+    assert_eq!(juger_reponses(&declare("high"), &avec(&dit_low)).1, ecart(r#"applied.effort "low", déclaré "high""#));
+    assert_eq!(
+        juger_reponses(&declare("low"), &avec(&applique(r#""effort":"high","#))).1,
+        ecart(r#"applied.effort "high", déclaré "low""#)
+    );
+    assert_eq!(
+        juger_reponses(&declare("high"), &rangees(&JUSTES)).1,
+        ecart(r#"applied.effort absent, déclaré "high""#)
+    );
+    assert_eq!(
+        juger_reponses(&declare("high"), &avec(&applique(r#""effort":3,"#))).1,
+        ecart(r#"applied.effort 3, déclaré "high""#)
+    );
+    // Avec l'écart du modèle, dans l'ordre : le modèle, puis l'effort, joints par « ; ».
+    let deux = dit_low.replace("claude-sonnet-5-5", "claude-opus-5-5");
+    assert_eq!(
+        juger_reponses(&declare("high"), &avec(&deux)).1,
+        ecart(r#"applied.model "claude-opus-5-5", déclaré "sonnet" ; applied.effort "low", déclaré "high""#)
+    );
+    // Sans effort déclaré, rien ne se compare : ni l'absent, ni celui que Claude Code a pris de lui-même.
+    for dit in [GET_SETTINGS.to_string(), dit_low, applique(r#""effort":"max","#)] {
+        assert_eq!(juger_reponses(&attendu(REGLAGES), &avec(&dit)).1, Ok(()), "{dit}");
+    }
 }
 
 #[test]

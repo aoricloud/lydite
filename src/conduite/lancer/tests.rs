@@ -1344,6 +1344,65 @@ fn main_qui_dort(dir: &Path) -> PathBuf {
 }
 
 #[test]
+fn l_effort_d_une_tache_se_note_au_lancement_et_hors_des_efforts_permis_refuse_la_vague_en_6033() {
+    let racine = racine("effort-de-tache");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    // Le profil pose `max` à la main et permet `low` et `high` : ses propres clés ne s'y jugent pas. Son programme
+    // n'existe pas, mais le lancement s'écrit avant que la main parte.
+    let texte = "sorte = claude\nprogramme = lydite-claude-introuvable\nmodele = opus\nrelance = haiku\nmur = exige\n\
+                 effort = max\nefforts_permis = low, high\n";
+    let mut profil = profil_declare(texte, &kraken, &depot);
+    profil.avec_srt(faux_srt(&racine, true));
+    let mut plan = Plan::copies("objectif", Some("git status"), 2);
+    // La tâche 1 demande `low`, que le profil permet ; la tâche 2 demande `xhigh`, qu'il ne permet pas.
+    plan.taches[0].effort = Some("low".into());
+    plan.taches[1].effort = Some("xhigh".into());
+    let Err(refus) = lancer(&depot, &kraken, &profil, &plan, BAIL) else { panic!("un refus était attendu") };
+    assert_eq!(refus.code, Code::EffortNonPermis, "{refus}");
+    assert_eq!(refus.code.numero(), 6033);
+    assert!(refus.preuve.contains("la tâche 2 demande l'effort xhigh"), "{refus}");
+    assert!(!refus.preuve.contains("la tâche 1"), "{refus}");
+    assert!(refus.correction.contains("efforts_permis") && refus.correction.contains("lydite accepter"), "{refus}");
+    // Rien n'est parti : le dossier de Kraken n'a pas de fil, que la vague permise écrit plus bas.
+    assert!(!kraken.join(crate::branchements::dossier::FICHIER).exists(), "le fil ne doit pas exister");
+    // Les deux efforts permis : le plan part. Chaque lancement dit l'effort de sa tâche, à ses deux tentatives, à la
+    // place de `max` du profil ; et le fil existe là où l'on vient de le chercher.
+    plan.taches[1].effort = Some("high".into());
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    assert!(issues.iter().all(|(_, issue)| issue.is_err()), "le programme n'existe pas");
+    assert!(kraken.join(crate::branchements::dossier::FICHIER).exists());
+    let efforts: Vec<(usize, usize, Option<String>)> = fil(&kraken)
+        .into_iter()
+        .filter_map(|evenement| match evenement {
+            Evenement::Lancement { main, tentative, effort, .. } => Some((main, tentative, effort)),
+            _ => None,
+        })
+        .collect();
+    let mut attendus = BTreeSet::new();
+    for (main, effort) in [(1, "low"), (2, "high")] {
+        attendus.extend((1..=2).map(|tentative| (main, tentative, Some(effort.to_string()))));
+    }
+    assert_eq!(efforts.iter().cloned().collect::<BTreeSet<_>>(), attendus, "{efforts:?}");
+    assert_eq!(efforts.len(), attendus.len(), "{efforts:?}");
+    // Sans effort de tâche, le profil dit le sien : `max` à la première tentative (`effort`), et rien à la relance,
+    // dont `effort_relance` n'est pas posé.
+    plan.taches[0].effort = None;
+    plan.taches[1].effort = None;
+    effacer(&kraken);
+    lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    let mut du_profil: Vec<(usize, usize, Option<String>)> = fil(&kraken)
+        .into_iter()
+        .filter_map(|evenement| match evenement {
+            Evenement::Lancement { main, tentative, effort, .. } => Some((main, tentative, effort)),
+            _ => None,
+        })
+        .collect();
+    du_profil.sort();
+    let max = Some("max".to_string());
+    assert_eq!(du_profil, [(1, 1, max.clone()), (1, 2, None), (2, 1, max), (2, 2, None)]);
+}
+
+#[test]
 fn une_main_declaree_est_precedee_de_son_lancement_et_suivie_de_son_constat() {
     let racine = racine("declaree");
     let (depot, kraken) = (depot(&racine), racine.join("lydite"));
@@ -1396,6 +1455,7 @@ fn une_main_declaree_est_precedee_de_son_lancement_et_suivie_de_son_constat() {
             profil: "essai".into(),
             empreinte: hex(&sha256(texte.as_bytes())),
             modele: modele.into(),
+            effort: None,
             mur: Mur::Exige,
             reglages: declaration.reglages,
             reglages_depot: depot_reglages.clone(),

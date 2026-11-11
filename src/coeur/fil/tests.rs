@@ -757,6 +757,7 @@ fn chaque_type_fait_l_aller_retour() {
         profil: "claude".into(),
         empreinte: EMPREINTE.into(),
         modele: "sonnet".into(),
+        effort: None,
         mur,
         reglages: r#"{"disableAllHooks":true}"#.into(),
         reglages_depot: reglages_depot.into(),
@@ -964,6 +965,27 @@ fn chaque_type_fait_l_aller_retour() {
                 r#"depot":".claude/settings.json e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca4"#,
                 r#"95991b7852b855\n.claude/settings.local.json e3b0c44298fc1c149afbf4c8996fb92427ae"#,
                 r#"41e4649b934ca495991b7852b855","foi":"declare""#,
+            ),
+        ),
+        // Un lancement qui déclare un effort : la clé suit `modele`, et manque aux deux d'avant.
+        (
+            Evenement::Lancement {
+                vague: "v".into(),
+                main: 2,
+                tentative: 1,
+                profil: "claude".into(),
+                empreinte: EMPREINTE.into(),
+                modele: "sonnet".into(),
+                effort: Some("high".into()),
+                mur: Mur::Exige,
+                reglages: r#"{"disableAllHooks":true}"#.into(),
+                reglages_depot: String::new(),
+            },
+            concat!(
+                r#""type":"main.lancement","vague":"v","main":2,"tentative":1,"profil":"claude","em"#,
+                r#"preinte":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","mod"#,
+                r#"ele":"sonnet","effort":"high","mur":"exige","reglages":"{\"disableAllHooks\":tru"#,
+                r#"e}","reglages_depot":"","foi":"declare""#,
             ),
         ),
         (
@@ -1316,6 +1338,8 @@ fn le_lancement_et_le_constat_font_l_aller_retour() {
         profil: "claude".into(),
         empreinte: EMPREINTE.into(),
         modele: "claude-sonnet-5-5".into(),
+        // Le lancement de la main 2 déclare un effort, les autres non.
+        effort: (main == 2).then(|| "xhigh".to_string()),
         mur,
         reglages: reglages.clone(),
         reglages_depot: reglages_depot.into(),
@@ -1357,6 +1381,11 @@ fn le_lancement_et_le_constat_font_l_aller_retour() {
     assert_eq!(relus, &reglages);
     assert_eq!(json::lire(relus).unwrap()["disableAllHooks"], Some(Valeur::Booleen(true)));
     assert_eq!(reglages_depot.lines().count(), 2);
+    // `effort` ne s'écrit que déclaré : la clé manque aux lancements des mains 1 et 3, et porte celui de la main 2.
+    assert_eq!(json::lire(brut.lines().nth(2).unwrap()).unwrap()["effort"], Some(Valeur::Texte("xhigh".into())));
+    for i in [0, 4] {
+        assert!(!brut.lines().nth(i).unwrap().contains("effort"), "{}", brut.lines().nth(i).unwrap());
+    }
     // Chaque ligne est plate, et ses jetons sont de l'ASCII.
     let lignes: Vec<_> = brut.lines().map(|ligne| json::lire(ligne).unwrap()).collect();
     for objet in &lignes {
@@ -1461,6 +1490,52 @@ fn un_lancement_ou_un_constat_hors_domaine_est_mal_forme() {
     assert!(preuve(8).ends_with("champ en trop pour main.lancement : « essai »"), "{}", preuve(8));
     assert!(preuve(9).ends_with("champ en trop pour main.constat : « essai »"), "{}", preuve(9));
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_lancement_d_avant_le_champ_effort_se_relit_sans_lui_et_un_effort_hors_domaine_est_mal_forme() {
+    let dir = dossier("effort-lu");
+    let avec = |effort: &str| {
+        let ligne = lancement("s", 0);
+        assert!(ligne.contains(r#""modele":"sonnet""#), "{ligne}");
+        ligne.replace(r#""modele":"sonnet""#, &format!(r#""modele":"sonnet","effort":{effort}"#))
+    };
+    // La ligne d'avant le champ, puis chacun des cinq efforts, puis ce qui n'en est pas un.
+    let mut ecrites = vec![lancement("s", 0)];
+    ecrites.extend(["low", "medium", "high", "xhigh", "max"].map(|effort| avec(&format!("\"{effort}\""))));
+    ecrites.extend([avec(r#""extreme""#), avec("null"), avec("1"), avec(r#""""#)]);
+    let lignes: Vec<String> = ecrites
+        .iter()
+        .enumerate()
+        .map(|(i, ligne)| ligne.replacen(r#""seq":0,"#, &format!(r#""seq":{},"#, i + 1), 1))
+        .collect();
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    let lus: Vec<Option<String>> = notes
+        .iter()
+        .map(|note| match &note.evenement {
+            Evenement::Lancement { effort, .. } => effort.clone(),
+            autre => panic!("{autre:?}"),
+        })
+        .collect();
+    let attendus = [None, Some("low"), Some("medium"), Some("high"), Some("xhigh"), Some("max")];
+    assert_eq!(lus, attendus.map(|effort| effort.map(str::to_string)));
+    assert_eq!(codes(&ecarts), (7..=10).map(|ligne| (ligne, 1009)).collect::<Vec<_>>(), "et aucun 1010");
+    let preuve = |i: usize| ecarts[i].1.preuve.as_str();
+    let domaine = "hors de son domaine : low ou medium ou high ou xhigh ou max";
+    assert!(preuve(0).ends_with(&format!(r#"« effort » vaut "extreme", {domaine}"#)), "{}", preuve(0));
+    assert!(preuve(1).ends_with("« effort » manque ou n'est pas une chaîne"), "{}", preuve(1));
+    assert!(preuve(2).ends_with("« effort » manque ou n'est pas une chaîne"), "{}", preuve(2));
+    assert!(preuve(3).ends_with(&format!(r#"« effort » vaut "", {domaine}"#)), "{}", preuve(3));
+    // La ligne d'avant le champ, relue puis réécrite, n'a toujours pas la clé : les mêmes clés qu'elle.
+    let autre = dossier("effort-reecrit");
+    Fil::seance(&autre, "humain").noter(&notes[0].evenement).unwrap();
+    let reecrite = json::lire(fs::read_to_string(autre.join(FICHIER)).unwrap().lines().next().unwrap()).unwrap();
+    let ancienne = json::lire(&lignes[0]).unwrap();
+    assert_eq!(reecrite.keys().collect::<Vec<_>>(), ancienne.keys().collect::<Vec<_>>());
+    assert!(!reecrite.contains_key("effort"));
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&autre);
 }
 
 /// Une ligne `main.usage` bien formée, écrite à la main, de la séance `seance` au `seq` donné.
@@ -1626,6 +1701,7 @@ fn un_fil_d_avant_m2_se_rejoue_a_l_identique() {
                 profil: "claude".into(),
                 empreinte: EMPREINTE.into(),
                 modele: "sonnet".into(),
+                effort: None,
                 mur: Mur::Exige,
                 reglages: "{}".into(),
                 reglages_depot: String::new(),

@@ -662,13 +662,58 @@ fn une_cle_de_m5_hors_de_son_domaine_blanche_ou_redite_est_refusee() {
         assert!(!refus.correction.trim().is_empty(), "{refus}");
         assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
     }
-    // Une clé inconnue d'une tâche nomme les sept qu'une tâche connaît, et la correction aussi.
+    // Une clé inconnue d'une tâche nomme les huit qu'une tâche connaît, et la correction aussi.
     let refus = refuse_en(lire_en(&[&ENTETE[..], &["tache a", "role : critique", "    x"]].concat(), Mode::Main));
     assert!(
-        refus.preuve.ends_with("(`depend`, `preuve`, `modele`, `relance`, `fichiers`, `critique` ou `exact`)"),
+        refus
+            .preuve
+            .ends_with("(`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique` ou `exact`)"),
         "{refus}"
     );
-    assert!(refus.correction.contains("`modele`, `relance`, `fichiers`, `critique` et `exact`"), "{refus}");
+    assert!(refus.correction.contains("`modele`, `relance`, `effort`, `fichiers`, `critique` et `exact`"), "{refus}");
+}
+
+#[test]
+fn la_cle_effort_d_une_tache_se_lit_et_se_refuse_hors_de_son_domaine() {
+    // Chacun des cinq efforts se lit, à la tâche qui le donne seule ; l'autre n'en a pas.
+    for effort in ["low", "medium", "high", "xhigh", "max"] {
+        let ligne = format!("effort : {effort}");
+        let lignes = [&ENTETE[..], &["tache a", &ligne, "    x", "tache b", "    y"]].concat();
+        let (plan, _) = lire_en(&lignes, Mode::Main).unwrap();
+        let efforts: Vec<Option<&str>> = plan.taches.iter().map(|tache| tache.effort.as_deref()).collect();
+        assert_eq!(efforts, [Some(effort), None]);
+    }
+    // Sans la clé, aucune tâche n'a d'effort ; l'effort ne touche ni le modèle ni la relance.
+    let lignes = [&ENTETE[..], &["tache a", "modele : opus", "relance : haiku", "effort : max", "    x"]].concat();
+    let (plan, _) = lire_en(&lignes, Mode::Main).unwrap();
+    let a = &plan.taches[0];
+    assert_eq!(
+        (a.modele.as_deref(), a.relance.as_deref(), a.effort.as_deref()),
+        (Some("opus"), Some("haiku"), Some("max"))
+    );
+    // Une valeur hors du domaine, vide, ou redite est refusée sur sa ligne, avec le texte de la ligne.
+    let cas: &[(&[&str], Code, usize, &str)] = &[
+        (&["tache a", "effort : extreme", "    x"], Code::PlanLigne, 5, "l'effort « extreme » n'est ni low"),
+        (&["tache a", "effort : High", "    x"], Code::PlanLigne, 5, "l'effort « High »"),
+        (&["tache a", "effort : high max", "    x"], Code::PlanLigne, 5, "l'effort « high max »"),
+        (&["tache a", "effort :", "    x"], Code::PlanBlanc, 5, "la clé « effort » est blanche"),
+        (&["tache a", "effort : low", "effort : max", "    x"], Code::PlanLigne, 6, "« effort » est déjà donnée"),
+        (&["effort : low", "tache a", "    x"], Code::PlanLigne, 4, "« effort » n'est pas une clé de l'en-tête"),
+        (&["tache a", "    x", "effort : low"], Code::PlanLigne, 6, "vient après les lignes indentées"),
+    ];
+    for &(suite, code, numero, bout) in cas {
+        let lignes = [&ENTETE[..], suite].concat();
+        let refus = refuse_en(lire_en(&lignes, Mode::Main));
+        assert_eq!(refus.code, code, "{suite:?}");
+        let debut = format!("ligne {numero} {} : ", cite(lignes[numero - 1]));
+        assert!(refus.preuve.starts_with(&debut), "la preuve nomme la ligne {numero} et son texte : {refus}");
+        assert!(refus.preuve.contains(bout), "{suite:?} devait dire « {bout} » : {refus}");
+        assert!(!refus.correction.trim().is_empty(), "{refus}");
+    }
+    // Un plan découpé lit la clé comme un plan écrit à la main.
+    let decoupe = [&ENTETE[..], &["tache a", "modele : opus", "fichiers : a.txt", "effort : low", "    x"]].concat();
+    let (plan, _) = lire_en(&decoupe, Mode::Decoupe(None)).unwrap();
+    assert_eq!(plan.taches[0].effort.as_deref(), Some("low"));
 }
 
 #[test]

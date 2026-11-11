@@ -57,7 +57,7 @@ const REGLAGES: &str = concat!(
 
 /// Ce que Kraken passe à une main sur ces réglages : `--model sonnet`, sans `mcp`.
 fn attendu() -> Attendu<'static> {
-    Attendu { reglages: REGLAGES, modele: "sonnet", mcp: None }
+    Attendu { reglages: REGLAGES, modele: "sonnet", effort: None, mcp: None }
 }
 
 /// Un geste d'une fausse main Claude.
@@ -458,8 +458,12 @@ fn les_reglages_d_un_vrai_profil_se_jugent_pris_par_une_main_fidele() {
         commun = commun,
     );
     assert!(declaration.reglages.contains(&fermes), "{}", declaration.reglages);
-    let attendu =
-        Attendu { reglages: &declaration.reglages, modele: &declaration.modele, mcp: declaration.mcp.as_deref() };
+    let attendu = Attendu {
+        reglages: &declaration.reglages,
+        modele: &declaration.modele,
+        effort: declaration.effort.as_deref(),
+        mcp: declaration.mcp.as_deref(),
+    };
     // Une main fidèle rend le `filesystem` déclaré, tel quel, à l'effectif.
     let systeme = |texte: &str| {
         let debut = texte.find(r#""filesystem":"#).unwrap();

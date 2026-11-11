@@ -25,6 +25,15 @@
 //!   - `relecteur` : le modèle de la main qui relit le travail des tâches critiques d'une vague, pour ses deux
 //!     tentatives : `opus` par défaut, dans le domaine de `modele`. La main qui corrige ses remarques bloquantes prend
 //!     `relance` ;
+//!   - `effort` (la main), `effort_relance` (sa relance, et la main qui corrige les remarques d'une relecture),
+//!     `effort_decoupeur` et `effort_relecteur` : l'effort de Claude Code de chaque rôle, facultatifs, un de `low`,
+//!     `medium`, `high`, `xhigh`, `max` (sinon refus de profil). Posé, il devient `--effort <valeur>` dans l'argv de la
+//!     main, et le constat vérifie que Claude Code l'applique ; sans clé, Claude Code prend son défaut, que
+//!     `lydite profil` dit. Le profil intégré n'en pose aucun ;
+//!   - `efforts_permis` : les efforts qu'un plan peut demander à une tâche (`effort :`), une liste à virgules de
+//!     valeurs de `low`, `medium`, `high`, `xhigh`, `max`. Sans la clé, tout effort est permis. Un effort de tâche
+//!     hors de la liste est le refus 6033 au lancement, avant toute main ; les clés `effort*` du profil ne s'y
+//!     jugent pas ;
 //!   - `api` et `cle`, ensemble ou pas du tout : le fournisseur d'une main qui parle à une autre API que celle
 //!     d'Anthropic, au format d'Anthropic. `api` est l'URL de l'API, en `https://` : un hôte en `[A-Za-z0-9.-]`, puis
 //!     un port et un chemin facultatifs, le chemin en `[A-Za-z0-9._~/-]`, ni identifiants ni requête. `cle` est le
@@ -123,13 +132,18 @@ const INTEGRE: &str =
     "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = exige\ndelai_main = 3600\ndelai_preuve = 300\n";
 
 /// Les clés d'un profil, et aucune autre.
-const CLES: [&str; 19] = [
+const CLES: [&str; 24] = [
     "sorte",
     "programme",
     "modele",
     "relance",
     "decoupeur",
     "relecteur",
+    "effort",
+    "effort_relance",
+    "effort_decoupeur",
+    "effort_relecteur",
+    "efforts_permis",
     "api",
     "cle",
     "prix",
@@ -145,8 +159,14 @@ const CLES: [&str; 19] = [
     "mesure",
 ];
 
+/// Les valeurs d'un effort, celles que Claude Code accepte pour `--effort`.
+pub(crate) const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// Ce que `lydite profil` dit d'un effort que le profil ne pose pas.
+pub(crate) const EFFORT_PAR_DEFAUT: &str = "Claude Code's default";
+
 /// Les clés dont la valeur est une liste à virgules.
-const LISTES: [&str; 6] = ["prix", "outils", "reseau", "lecture", "proteges", "mesure"];
+const LISTES: [&str; 7] = ["prix", "outils", "reseau", "lecture", "proteges", "mesure", "efforts_permis"];
 
 /// Les réglages de `mesure`, et aucun autre.
 pub(crate) const SANS_LECTURE: &str = "sans-lecture";
@@ -278,6 +298,16 @@ struct Claude {
     decoupeur: String,
     /// Le modèle du relecteur, pour ses deux tentatives.
     relecteur: String,
+    /// L'effort de la main à sa première tentative (`effort`), `None` sans clé : Claude Code prend son défaut.
+    effort: Option<String>,
+    /// L'effort de la main à sa relance (`effort_relance`), de même.
+    effort_relance: Option<String>,
+    /// L'effort du découpeur, pour ses deux tentatives (`effort_decoupeur`), de même.
+    effort_decoupeur: Option<String>,
+    /// L'effort du relecteur, pour ses deux tentatives (`effort_relecteur`), de même.
+    effort_relecteur: Option<String>,
+    /// Les efforts qu'une tâche de plan peut demander (`efforts_permis`), `None` sans clé : tout effort est permis.
+    efforts_permis: Option<Vec<String>>,
     /// Le fournisseur que le profil nomme, `None` pour une main qui parle chez Anthropic.
     fournisseur: Option<FournisseurDuProfil>,
     /// Les prix déclarés (`prix`) : le modèle, puis ses [`Prix`]. Vide sans `api`.
@@ -367,6 +397,9 @@ pub(crate) struct Declaration {
     pub(crate) empreinte: String,
     /// Le modèle de la tentative : `modele` à la première, `relance` ensuite.
     pub(crate) modele: String,
+    /// L'effort de la tentative, `None` sans clé : `effort` à la première tentative, `effort_relance` ensuite (ou
+    /// celui du rôle du découpeur et du relecteur).
+    pub(crate) effort: Option<String>,
     /// Vrai si le profil exige le mur, faux s'il le demande seulement.
     pub(crate) mur: bool,
     /// Le JSON exact de `--settings`.
@@ -396,6 +429,7 @@ impl Declaration {
             profil: self.profil.clone(),
             empreinte: self.empreinte.clone(),
             modele: self.modele.clone(),
+            effort: self.effort.clone(),
             mur: if self.mur { Mur::Exige } else { Mur::Demande },
             reglages: self.reglages.clone(),
             reglages_depot,
@@ -431,8 +465,8 @@ impl Profil {
     }
 
     /// Ce que `lydite profil` dit de ce profil, une rangée par ligne, dans l'ordre : le nom et sa source, l'empreinte,
-    /// le modèle et la relance, le mur, la preuve, le plafond par main, les deux délais. Tout vient du profil lu, et
-    /// rien d'autre n'est lu. Une main brute n'a pas de fichier : une seule rangée.
+    /// le modèle et la relance, l'effort de chaque rôle, le mur, la preuve, le plafond par main, les deux délais. Tout
+    /// vient du profil lu, et rien d'autre n'est lu. Une main brute n'a pas de fichier : une seule rangée.
     pub(crate) fn rangees(&self) -> Vec<String> {
         let Sorte::Claude(claude) = &self.sorte else { return vec!["raw hand: no profile to read".into()] };
         let source = claude.fichier.as_ref().map_or_else(|| "built-in".to_string(), |f| f.display().to_string());
@@ -449,6 +483,14 @@ impl Profil {
             format!("profile: {} ({source})", claude.nom),
             format!("fingerprint: {}", claude.empreinte),
             format!("model: {}; retry: {}", claude.modele, claude.relance),
+            format!(
+                "effort: {}; retry: {}; splitter: {}; reviewer: {}",
+                effort_dit(&claude.effort),
+                effort_dit(&claude.effort_relance),
+                effort_dit(&claude.effort_decoupeur),
+                effort_dit(&claude.effort_relecteur),
+            ),
+            format!("allowed efforts: {}", claude.efforts_permis.as_ref().map_or("any".into(), |e| e.join(", "))),
             format!("wall: {mur}"),
             format!("proof: {preuve}"),
             format!("ceiling per hand: ${}", self.plafond()),
@@ -484,6 +526,73 @@ impl Profil {
             }
         }
         copie
+    }
+
+    /// Une copie de ce profil aux efforts d'un rôle : `effort` pour la première tentative de sa main, `effort_relance`
+    /// pour la seconde, chacun `None` pour le défaut de Claude Code. Tout le reste est celui du profil ; le profil
+    /// lui-même ne bouge pas. Une main brute n'a pas d'effort : sa copie est la même.
+    pub(crate) fn avec_efforts(&self, effort: Option<&str>, relance: Option<&str>) -> Profil {
+        let mut copie = self.clone();
+        if let Sorte::Claude(claude) = &mut copie.sorte {
+            claude.effort = effort.map(String::from);
+            claude.effort_relance = relance.map(String::from);
+        }
+        copie
+    }
+
+    /// Le profil permet cet effort à une tâche de plan (`efforts_permis`) : sans la clé, et pour une main brute, tout
+    /// effort est permis.
+    pub(crate) fn permet_l_effort(&self, effort: &str) -> bool {
+        match &self.sorte {
+            Sorte::Claude(claude) => {
+                claude.efforts_permis.as_ref().is_none_or(|permis| permis.iter().any(|e| e == effort))
+            }
+            Sorte::Brute(_) => true,
+        }
+    }
+
+    /// Le profil du découpeur : celui-ci, à l'effort `effort_decoupeur` pour ses deux tentatives.
+    pub(crate) fn pour_le_decoupeur(&self) -> Profil {
+        let effort = self.effort_decoupeur();
+        self.avec_efforts(effort, effort)
+    }
+
+    /// Le profil du relecteur : celui-ci, à l'effort `effort_relecteur` pour ses deux tentatives.
+    pub(crate) fn pour_le_relecteur(&self) -> Profil {
+        let effort = self.effort_relecteur();
+        self.avec_efforts(effort, effort)
+    }
+
+    /// Le profil de la main de correction de la relecture : celui-ci, à l'effort `effort_relance` pour ses deux
+    /// tentatives, comme son modèle est `relance`.
+    pub(crate) fn pour_la_correction(&self) -> Profil {
+        let effort = self.effort_relance();
+        self.avec_efforts(effort, effort)
+    }
+
+    /// L'effort du découpeur (`effort_decoupeur`) ; `None` sans clé, et pour une main brute.
+    pub(crate) fn effort_decoupeur(&self) -> Option<&str> {
+        match &self.sorte {
+            Sorte::Claude(claude) => claude.effort_decoupeur.as_deref(),
+            Sorte::Brute(_) => None,
+        }
+    }
+
+    /// L'effort du relecteur (`effort_relecteur`) ; `None` sans clé, et pour une main brute.
+    pub(crate) fn effort_relecteur(&self) -> Option<&str> {
+        match &self.sorte {
+            Sorte::Claude(claude) => claude.effort_relecteur.as_deref(),
+            Sorte::Brute(_) => None,
+        }
+    }
+
+    /// L'effort de la relance (`effort_relance`) : celui de la seconde tentative d'une main, et de la main qui corrige
+    /// les remarques d'une relecture ; `None` sans clé, et pour une main brute.
+    pub(crate) fn effort_relance(&self) -> Option<&str> {
+        match &self.sorte {
+            Sorte::Claude(claude) => claude.effort_relance.as_deref(),
+            Sorte::Brute(_) => None,
+        }
     }
 
     /// Le modèle du découpeur, la clé `decoupeur` (`opus` par défaut), pour ses deux tentatives ; `None` pour une main
@@ -776,9 +885,11 @@ impl Profil {
     ///
     /// `<programme> -p --input-format stream-json --output-format stream-json --verbose --permission-mode acceptEdits
     /// --permission-prompts none --strict-mcp-config [--mcp-config <mcp>] --setting-sources user --model <m>
-    /// --settings <json> --max-budget-usd <plafond>`
+    /// --settings <json> --max-budget-usd <plafond> [--effort <effort>]`
     ///
     /// - `--max-budget-usd` porte le `plafond` du profil : passé ce plafond, Claude Code arrête la main ;
+    /// - `--effort <effort>` suit, et ne part que si le profil pose l'effort de la tentative (`effort`, ou
+    ///   `effort_relance` à la relance) : sans clé, l'argv ne change pas et Claude Code prend son défaut ;
     /// - `<m>` vaut `modele`, ou `relance` à la relance ; il s'écrit toujours, car sans lui la main tourne sur Opus ;
     /// - `--permission-mode acceptEdits` l'emporte sur un `defaultMode` de `--settings` ou du dépôt visé, et garde les
     ///   outils de fichiers au bac ; avec `--permission-prompts none`, ce qui demanderait une permission est refusé,
@@ -855,6 +966,7 @@ impl Profil {
             Err(()) => return Demande { argv: Vec::new(), declaration: None },
         };
         let modele = if relance { &claude.relance } else { &claude.modele };
+        let effort = if relance { &claude.effort_relance } else { &claude.effort };
         let declare = |sortant: &str| claude.outils.iter().any(|outil| outil == sortant);
         let pretes = verifier.and_then(pret).unwrap_or_default();
         let allow = PERMIS
@@ -927,6 +1039,9 @@ impl Profil {
         // qu'il connaît, peut-être nuls ; le plafond peut alors ne jamais jouer. Monter vers un compte de Lydite au
         // prix du profil (`prix`) si un banc le montre.
         argv.extend(["--max-budget-usd".to_string(), self.plafond()]);
+        if let Some(effort) = effort {
+            argv.extend(["--effort".to_string(), effort.clone()]);
+        }
         if let Some(consigne) = consigne {
             argv.extend(["--append-system-prompt-file".to_string(), consigne.to_string_lossy().into_owned()]);
         }
@@ -934,6 +1049,7 @@ impl Profil {
             profil: claude.nom.clone(),
             empreinte: claude.empreinte.clone(),
             modele: modele.clone(),
+            effort: effort.clone(),
             mur: claude.exige,
             reglages,
             mcp: claude.mcp.as_deref().and_then(serveurs),
@@ -1018,6 +1134,11 @@ pub(crate) fn lire(
         relance: "sonnet".into(),
         decoupeur: "opus".into(),
         relecteur: "opus".into(),
+        effort: None,
+        effort_relance: None,
+        effort_decoupeur: None,
+        effort_relecteur: None,
+        efforts_permis: None,
         fournisseur: None,
         prix: Vec::new(),
         exige: true,
@@ -1082,6 +1203,17 @@ pub(crate) fn lire(
                      (claude-sonnet-5-5)",
                 );
             }
+            "effort" | "effort_relance" | "effort_decoupeur" | "effort_relecteur" if !EFFORTS.contains(&valeur) => {
+                return refus("un effort vaut low, medium, high, xhigh ou max");
+            }
+            "effort" => claude.effort = Some(valeur.into()),
+            "effort_relance" => claude.effort_relance = Some(valeur.into()),
+            "effort_decoupeur" => claude.effort_decoupeur = Some(valeur.into()),
+            "effort_relecteur" => claude.effort_relecteur = Some(valeur.into()),
+            "efforts_permis" if !elements.iter().all(|effort| EFFORTS.contains(effort)) => {
+                return refus("efforts_permis liste des efforts parmi low, medium, high, xhigh et max");
+            }
+            "efforts_permis" => claude.efforts_permis = Some(liste()),
             "api" => match hote_de(valeur) {
                 Some(hote) => api = Some((n, valeur, hote)),
                 None => {
@@ -1268,6 +1400,11 @@ fn ligne_refusee(lieu: &str, nom: &str, n: usize, ligne: &str, regle: &str) -> R
         format!("{lieu}:{n} : « {ligne} » : {regle}"),
         format!("Corrige la ligne {n} de {lieu}, puis accepte le profil : lydite accepter {nom}."),
     )
+}
+
+/// L'effort posé par le profil, ou ce que `lydite profil` dit sans clé.
+fn effort_dit(effort: &Option<String>) -> &str {
+    effort.as_deref().unwrap_or(EFFORT_PAR_DEFAUT)
 }
 
 /// Un programme sans dossier, que le système cherche.

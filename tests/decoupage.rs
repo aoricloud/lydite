@@ -437,6 +437,22 @@ impl Essai {
         }
     }
 
+    /// Le profil `essai` avec `plus` en dernières lignes, accepté de nouveau ; et la fausse claude dit désormais
+    /// `applied.effort` à `applique` pour toute main, comme Claude Code qui a pris `--effort <applique>`.
+    fn poser_les_efforts(&self, plus: &str, applique: &str) {
+        let chemin = self.dossier.join("profils").join("essai.profil");
+        let texte = fs::read_to_string(&chemin).unwrap();
+        fs::write(&chemin, format!("{texte}{plus}")).unwrap();
+        let sortie = self.kraken().args(["accepter", "essai"]).output().unwrap();
+        assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
+        let controle = self.main.join("controle.jsonl");
+        let dit_haiku = r#"{"model":"haiku"}"#;
+        let lu = fs::read_to_string(&controle).unwrap();
+        assert!(lu.contains(dit_haiku), "{lu}");
+        let applique = format!(r#"{{"model":"haiku","effort":"{applique}"}}"#);
+        fs::write(&controle, lu.replace(dit_haiku, &applique)).unwrap();
+    }
+
     /// Ce que la fausse claude répond à toute main : les quatre réponses de contrôle, dont la liste des règles porte
     /// celles du découpeur et celles des tâches, puis l'ouverture et un résultat vert.
     fn poser_les_reponses(&self) {
@@ -774,6 +790,36 @@ fn un_objectif_decoupe_par_une_main_se_construit_et_s_assemble() {
 }
 
 #[test]
+fn le_decoupeur_part_sur_son_effort_et_sur_aucun_autre() {
+    // Claude Code applique `high` à toute main. Le découpeur déclare `effort_decoupeur`, `high` : rien ne s'écarte, il
+    // prend son plan, et l'effort de la main (`low`, que ses tâches déclarent) ne lui est pas passé.
+    let essai = Essai::nouveau("effort-decoupeur-juste");
+    essai.poser_les_efforts("effort_decoupeur = high\neffort = low\n", "high");
+    essai.poser(1, &plan_juste());
+    let sortie = essai.lancer(VERIFIER, &[]);
+    let erreur = String::from_utf8_lossy(&sortie.stderr);
+    let [d, _] = &vagues(&essai.fil())[..] else { panic!("deux vagues : {}", essai.fil()) };
+    assert!(erreur.starts_with(&format!("découpage pris : main-{d}-1 · 2 tâches\n")), "{}", dit(&sortie));
+    let _ = fs::remove_dir_all(&essai.racine);
+
+    // Même réponse de Claude Code, mais le découpeur déclare `low` : l'écart `applied.effort` le tue avant sa consigne,
+    // aux deux tentatives, et le découpage n'est pas pris.
+    let essai = Essai::nouveau("effort-decoupeur-ecart");
+    essai.poser_les_efforts("effort_decoupeur = low\n", "high");
+    essai.poser(1, &plan_juste());
+    essai.poser(2, &plan_juste());
+    let sortie = essai.lancer(VERIFIER, &[]);
+    assert_eq!(sortie.status.code(), Some(1), "{}", dit(&sortie));
+    let erreur = String::from_utf8_lossy(&sortie.stderr);
+    assert!(erreur.ends_with("le découpage n'est pas pris : aucune vague ne part\n"), "{erreur}");
+    let fil = essai.fil();
+    let ecart = r#"applied.effort \"high\", déclaré \"low\""#;
+    assert_eq!(fil.matches(ecart).count(), 2, "un écart par tentative : {fil}");
+    assert_eq!(vagues(&fil).len(), 1, "{fil}");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
 fn un_plan_faux_se_refait_juste_a_la_relance() {
     let essai = Essai::nouveau("relance");
     // `lydite plan --decoupe` ne juge pas l'en-tête : le découpeur le croit juste, Kraken le refuse (6026).
@@ -831,15 +877,16 @@ fn observer_ecrit_le_plan_sur_stdout_sans_rien_construire() {
     assert!(fil.contains(&format!(r#""type":"vague.decoupage","vague":"{d}","taches":2,"#)), "{fil}");
     assert!(!fil.contains(r#""type":"vague.joue""#) && !fil.contains(r#""type":"vague.assemblage""#), "{fil}");
     assert_eq!(git(&essai.depot, &["branch", "--list", "lydite/*"]), "");
-    // `lydite etat` ne dit que la ligne du découpage et celle de son reçu, et sort en 0. La durée du reçu suit
-    // l'horloge : le test n'en fige que le début de la ligne.
+    // `lydite etat` ne dit que la ligne du découpage et celles de son reçu (le coût, l'effort), et sort en 0. La durée
+    // du reçu suit l'horloge : le test n'en fige que le début de la ligne.
     let etat = essai.etat();
     let montre = String::from_utf8_lossy(&etat.stdout);
     let lignes: Vec<&str> = montre.trim_end().lines().collect();
-    let [ligne, recu] = &lignes[..] else { panic!("{montre}") };
+    let [ligne, recu, effort] = &lignes[..] else { panic!("{montre}") };
     assert_eq!(etat.status.code(), Some(0));
     assert_eq!(*ligne, format!("Découpage : 2 tâches · main-{d}-1 · prise (constatée)"));
     assert!(recu.starts_with("Coût : inconnu · 1 main, 0 relance, 0 classée"), "{montre}");
+    assert_eq!(*effort, "Effort: splitter: Claude Code's default", "{montre}");
     let _ = fs::remove_dir_all(&essai.racine);
 }
 

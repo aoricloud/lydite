@@ -16,9 +16,10 @@
 //!
 //! Au plus [`MAINS_A_LA_FOIS`] mains tournent ensemble, copies de `--n` comprises : les tâches prêtes qui restent
 //! attendent qu'une main finisse, et partent dans l'ordre du plan. Chaque tâche a son profil, celui de la vague aux
-//! modèles de la tâche (`modele` et `relance` du plan, à défaut ceux du profil), que reçoivent sa main et son
-//! `main.lancement`. Une tâche qui a des `fichiers` ne reste prise que si sa main n'a changé que ces chemins (7013),
-//! à la fin de sa tentative comme au gel.
+//! modèles de la tâche (`modele` et `relance` du plan, à défaut ceux du profil) et à son effort (`effort` du plan, à
+//! défaut ceux du profil), que reçoivent sa main et son `main.lancement`. Avant toute main, un `effort` de tâche que le
+//! profil ne permet pas (`efforts_permis`) refuse la vague en 6033. Une tâche qui a des `fichiers` ne reste prise que
+//! si sa main n'a changé que ces chemins (7013), à la fin de sa tentative comme au gel.
 //!
 //! Une vague de découpage, de relecture ou de correction porte de plus ses [`Liens`] : le juge de sa main, ce que
 //! Kraken pose dans le bac de sa main avant qu'elle parte (le `DIFF.lydite` du relecteur), le découpage dont elle joue
@@ -160,6 +161,8 @@ pub(crate) fn lancer_avec(
     base: &str,
     liens: Liens<'_>,
 ) -> Result<Menee, Refus> {
+    // Un effort de tâche que le profil ne permet pas : le refus 6033, avant tout le reste, et rien ne part.
+    efforts_permis(profil, plan)?;
     // Les leçons du commit de base, lues par git avant toute main : une leçon fausse refuse la vague. Une suite de
     // vague reçoit celles de la vague première, et ne lit pas son commit de départ.
     let lecons = match liens.lecons {
@@ -220,6 +223,21 @@ pub(crate) fn lancer_avec(
     let issues = thread::scope(|s| vague.mener(s));
     let tete = vague.assemblage.as_ref().map(|assemblage| assemblage.tete().to_string());
     Ok(Menee { id: vague.id, branche, tete, arretee: vague.arret.is_some(), issues, lecons: vague.lecons })
+}
+
+/// Chaque `effort` de tâche du plan est un effort que le profil permet (`efforts_permis`) ; sinon le refus 6033, qui
+/// nomme la première tâche et son effort.
+fn efforts_permis(profil: &Profil, plan: &Plan) -> Result<(), Refus> {
+    for tache in &plan.taches {
+        let Some(effort) = tache.effort.as_deref().filter(|effort| !profil.permet_l_effort(effort)) else { continue };
+        return Err(Refus::new(
+            Code::EffortNonPermis,
+            format!("la tâche {} demande l'effort {effort}, que `efforts_permis` du profil ne permet pas", tache.id),
+            "Choisis dans le plan, sur la ligne `effort`, un effort que le profil permet, ou élargis `efforts_permis` \
+             dans le profil puis accepte-le de nouveau : lydite accepter <profil>.",
+        ));
+    }
+    Ok(())
 }
 
 /// Les notes qui ouvrent la vague : `vague.ouverte`, puis, pour un plan, `vague.assemblage`, son `vague.joue` s'il joue
@@ -498,12 +516,23 @@ impl<'a> Vague<'a> {
         self.rangs.get(id).is_none_or(|&rang| matches!(self.taches[rang], Etat::Finie(Err(_))))
     }
 
+    /// Le profil d'une tâche : celui de la vague aux modèles de la tâche (`Profil::avec_modeles`), puis, si elle donne
+    /// un `effort`, à cet effort pour ses deux tentatives (`Profil::avec_efforts`), à la place des clés `effort` et
+    /// `effort_relance` du profil. Sans `effort`, ceux du profil restent, ceux de son rôle compris.
+    fn profil_de(&self, tache: &Tache) -> Profil {
+        let profil = self.profil.avec_modeles(tache.modele.as_deref(), tache.relance.as_deref());
+        match tache.effort.as_deref() {
+            Some(effort) => profil.avec_efforts(Some(effort), Some(effort)),
+            None => profil,
+        }
+    }
+
     /// Fait partir une tentative de la tâche `k`. À la première, son bac se pose : celui d'une indépendante sur la
     /// base, celui d'une dépendante sur la tête de la vague, où les siennes sont assemblées ; puis la préparation de
     /// la vague, s'il y en a une, y pose ce qu'elle doit, et son refus refuse la tâche, sans bail. Puis son bail
     /// s'ouvre et se note (`main.bail`), son début aussi (`main.debut`), son lancement enfin (`main.lancement`, voir
     /// `noter_lancement`), et sa main part dans un fil d'exécution à elle, qui rend un seul message. La main et son
-    /// lancement reçoivent le profil de la tâche, celui de la vague aux modèles de la tâche (`Profil::avec_modeles`).
+    /// lancement reçoivent le profil de la tâche, celui de la vague à ses modèles et à son effort (`profil_de`).
     /// Une note ratée, ou des réglages du bac illisibles, arrêtent la vague, et la main ne part pas. `precedente` est
     /// l'erreur de la tentative d'avant, que la relance porte en contexte. `repartie` : la tentative repart sur une
     /// coupure de l'API ; sa main attend alors [`PAUSE`] dans son fil d'exécution avant de jouer, et son bail la
@@ -546,7 +575,7 @@ impl<'a> Vague<'a> {
             }
         };
         let verifier = tache.preuve.as_deref().or(plan.preuve.as_deref());
-        let profil = self.profil.avec_modeles(tache.modele.as_deref(), tache.relance.as_deref());
+        let profil = self.profil_de(tache);
         // Les leçons de la main, écrites avant tout bail : une écriture ratée arrête la vague.
         // Puis le texte de sa consigne, calculé une fois et gardé de même.
         let gardees = self.fichier_des_lecons(&profil, tache).and_then(|gardees| {
@@ -999,7 +1028,7 @@ impl<'a> Vague<'a> {
     fn usages(&self, k: usize, tentative: usize, bac: &Path, constat: &Constat) -> Vec<Evenement> {
         let tache = &self.plan.taches[k - 1];
         let verifier = tache.preuve.as_deref().or(self.plan.preuve.as_deref());
-        let profil = self.profil.avec_modeles(tache.modele.as_deref(), tache.relance.as_deref());
+        let profil = self.profil_de(tache);
         // Une relance porte l'erreur d'avant ; une tentative qui repart sur une coupure n'en est pas une.
         let relance = self.precedentes[k - 1].is_some();
         match profil.demande(bac, verifier, relance).declaration {

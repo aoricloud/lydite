@@ -1046,6 +1046,9 @@ fn lydite_profil_dit_le_profil_integre_sans_rien_ecrire() {
         "profile: claude (built-in)",
         "fingerprint: 7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5",
         "model: sonnet; retry: sonnet",
+        "effort: Claude Code's default; retry: Claude Code's default; splitter: Claude Code's default; reviewer: \
+         Claude Code's default",
+        "allowed efforts: any",
         "wall: required: the hand's commands run in Claude Code's sandbox",
         "proof: replayed by srt, inside the wall",
         "ceiling per hand: $20",
@@ -1059,6 +1062,37 @@ fn lydite_profil_dit_le_profil_integre_sans_rien_ecrire() {
 }
 
 #[test]
+fn lydite_profil_dit_l_effort_de_chaque_role_et_refuse_un_effort_inconnu() {
+    let essai = Essai::nouveau("profil-effort");
+    // Un effort posé par rôle : sa valeur ; ceux qui ne le sont pas, le défaut de Claude Code. La rangée suit celle du
+    // modèle.
+    essai.profil_accepte("veille", "effort_decoupeur = xhigh\neffort = low\n");
+    let rangees = rangees_du_profil(&essai, "veille");
+    let [modele, effort] = &rangees[2..4] else { panic!("{rangees:?}") };
+    assert_eq!(modele, "model: haiku; retry: sonnet");
+    let defaut = "Claude Code's default";
+    assert_eq!(effort, &format!("effort: low; retry: {defaut}; splitter: xhigh; reviewer: {defaut}"));
+    // Les quatre posées.
+    essai.profil_accepte(
+        "veille",
+        "effort = low\neffort_relance = medium\neffort_decoupeur = high\neffort_relecteur = max\n",
+    );
+    let rangees = rangees_du_profil(&essai, "veille");
+    assert_eq!(rangees[3], "effort: low; retry: medium; splitter: high; reviewer: max");
+    // Un effort hors du domaine : le refus 6009, que `lydite profil` rend comme `lancer`, avec sa ligne et sa règle.
+    for cle in ["effort", "effort_relance", "effort_decoupeur", "effort_relecteur"] {
+        essai.profil("veille", &format!("{cle} = ultra\n"));
+        let regle = format!("« {cle} = ultra » : un effort vaut low, medium, high, xhigh ou max");
+        for commande in ["profil", "accepter"] {
+            let refus = lire_refus(essai.kraken().args([commande, "veille"]));
+            assert_eq!(refus.code, "lydite : 6009 lancer.profil_ligne_refusee", "{cle} : {commande}");
+            assert!(refus.preuve.contains(&regle), "{cle} : {commande} : {refus:?}");
+        }
+    }
+    essai.nettoyer();
+}
+
+#[test]
 fn lydite_profil_dit_un_mur_demande_et_refuse_comme_lancer() {
     let essai = Essai::nouveau("profil-demande");
     let (_, empreinte) = essai.profil_accepte("veille", "plafond = 7.5\n");
@@ -1067,6 +1101,10 @@ fn lydite_profil_dit_un_mur_demande_et_refuse_comme_lancer() {
         format!("profile: veille ({})", fichier.display()),
         format!("fingerprint: {empreinte}"),
         "model: haiku; retry: sonnet".to_string(),
+        "effort: Claude Code's default; retry: Claude Code's default; splitter: Claude Code's default; reviewer: \
+         Claude Code's default"
+            .to_string(),
+        "allowed efforts: any".to_string(),
         "wall: requested: the hand's commands may run outside the sandbox, and see the provider's key if there is \
          one"
         .to_string(),
@@ -1365,9 +1403,12 @@ fn une_main_dont_les_reglages_n_ont_pas_pris_est_tuee_avant_la_consigne() {
     assert_eq!(etat.status.code(), Some(1), "{}", dit(&etat));
     let etat = String::from_utf8_lossy(&etat.stdout).into_owned();
     assert!(etat.contains(" : classée : main : réglages non pris : get_settings : "), "{etat}");
-    let sans_recu = etat.trim_end().rsplit_once('\n').map_or("", |(reste, _)| reste);
-    assert!(sans_recu.ends_with(" · mur inactif (constaté)"), "{etat}");
-    assert!(etat.trim_end().lines().last().unwrap().starts_with("Coût : inconnu · "), "{etat}");
+    // Le reçu : deux lignes, le coût, puis l'effort.
+    let lignes: Vec<&str> = etat.trim_end().lines().collect();
+    let [.., derniere_de_la_main, cout, effort] = &lignes[..] else { panic!("{etat}") };
+    assert!(derniere_de_la_main.ends_with(" · mur inactif (constaté)"), "{etat}");
+    assert!(cout.starts_with("Coût : inconnu · "), "{etat}");
+    assert_eq!(*effort, "Effort: hand: Claude Code's default", "{etat}");
     essai.nettoyer();
 }
 
@@ -1752,7 +1793,9 @@ fn la_main_d_un_fournisseur_recoit_son_url_et_sa_cle_et_sa_preuve_ne_les_recoit_
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(0), "{}", dit(&etat));
     let ligne = format!("main-{}-1 : prise · mur inactif (constaté) · fournisseur {HOTE} (déclaré)", essai.vague());
-    let attendu = format!("{OBJECTIF}\n{ligne}\nCoût : inconnu · 2 mains, 1 relance, 0 classée");
+    let attendu = format!(
+        "{OBJECTIF}\n{ligne}\nCoût : inconnu · 2 mains, 1 relance, 0 classée\nEffort: hand: Claude Code's default"
+    );
     assert_eq!(etat_sans_duree(&etat), attendu);
     // Une autre clé sous le même nom ne change pas le profil : il repart sans être réaccepté, avec la clé du moment.
     fs::remove_file(essai.main.join("marque")).unwrap();
@@ -1903,7 +1946,8 @@ fn kraken_etat_dit_le_mur() {
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(0), "{}", dit(&etat));
     let attendu = format!(
-        "{OBJECTIF}\nmain-{}-1 : prise · mur inactif (constaté)\nCoût : inconnu · 2 mains, 1 relance, 0 classée",
+        "{OBJECTIF}\nmain-{}-1 : prise · mur inactif (constaté)\nCoût : inconnu · 2 mains, 1 relance, 0 classée\n\
+         Effort: hand: Claude Code's default",
         essai.vague()
     );
     assert_eq!(etat_sans_duree(&etat), attendu);
@@ -1969,7 +2013,8 @@ fn un_mur_exige_se_constate_actif_ou_la_main_est_tuee() {
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(0), "{}", dit(&etat));
     let attendu = format!(
-        "{OBJECTIF}\nmain-{}-1 : prise · mur actif (constaté)\nCoût : inconnu · 2 mains, 1 relance, 0 classée",
+        "{OBJECTIF}\nmain-{}-1 : prise · mur actif (constaté)\nCoût : inconnu · 2 mains, 1 relance, 0 classée\n\
+         Effort: hand: Claude Code's default",
         essai.vague()
     );
     assert_eq!(etat_sans_duree(&etat), attendu);
@@ -2001,7 +2046,8 @@ fn un_mur_exige_se_constate_actif_ou_la_main_est_tuee() {
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(1), "{}", dit(&etat));
     let etat = etat_sans_duree(&etat);
-    let attendu = " · mur inactif (constaté)\nCoût : inconnu · 2 mains, 1 relance, 1 classée";
+    let attendu = " · mur inactif (constaté)\nCoût : inconnu · 2 mains, 1 relance, 1 classée\n\
+                   Effort: hand: Claude Code's default";
     assert!(etat.contains(ecart) && etat.ends_with(attendu), "{etat}");
     essai.nettoyer();
 }
@@ -2155,7 +2201,9 @@ fn sans_verification_la_prise_d_une_main_declaree_reste_declaree() {
     let etat = essai.kraken().arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(1), "{}", dit(&etat));
     let ligne = format!("main-{vague}-1 : prise déclarée, non prouvée · mur inactif (constaté)");
-    let attendu = format!("{OBJECTIF}\n{ligne}\nCoût : inconnu · 2 mains, 1 relance, 0 classée");
+    let attendu = format!(
+        "{OBJECTIF}\n{ligne}\nCoût : inconnu · 2 mains, 1 relance, 0 classée\nEffort: hand: Claude Code's default"
+    );
     assert_eq!(etat_sans_duree(&etat), attendu);
     essai.nettoyer();
 }
