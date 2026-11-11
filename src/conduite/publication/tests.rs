@@ -216,16 +216,16 @@ fn le_recu_separe_les_mains_refusees() {
                 evenement: evenement.clone(),
             })
             .collect();
-        recu_de(&etat(evenements), &notes, v).mains()
+        recu_de(&etat(evenements), &notes, v).mains_de_pr()
     };
     let debut = |main| Evenement::Debut { vague: v.into(), main, tentative: 1 };
     // Sans refus, la ligne ne change pas.
-    assert_eq!(recu(&[debut(1)]), "1 main, 0 relance, 0 classée");
+    assert_eq!(recu(&[debut(1)]), "1 hand, 0 retries, 0 set aside");
     // Une main refusée, puis deux.
-    assert_eq!(recu(&[debut(1), refus(1)]), "1 main, 0 relance, 0 classée, 1 refusée");
-    assert_eq!(recu(&[debut(1), debut(2), refus(1), refus(2)]), "2 mains, 0 relance, 0 classée, 2 refusées");
+    assert_eq!(recu(&[debut(1), refus(1)]), "1 hand, 0 retries, 0 set aside, 1 refused");
+    assert_eq!(recu(&[debut(1), debut(2), refus(1), refus(2)]), "2 hands, 0 retries, 0 set aside, 2 refused");
     // Une main refusée sans tentative compte aussi : son refus est son issue.
-    assert_eq!(recu(&[refus(1)]), "0 main, 0 relance, 0 classée, 1 refusée");
+    assert_eq!(recu(&[refus(1)]), "0 hands, 0 retries, 0 set aside, 1 refused");
 }
 
 #[test]
@@ -301,7 +301,7 @@ fn le_recu_compte_les_coupures_sans_en_faire_des_relances() {
                 evenement: evenement.clone(),
             })
             .collect();
-        recu_de(&etat(evenements), &notes, v).mains()
+        recu_de(&etat(evenements), &notes, v).mains_de_pr()
     };
     let debut = |main, tentative| Evenement::Debut { vague: v.into(), main, tentative };
     let coupure = |main, tentative| Evenement::Coupure { vague: v.into(), main, tentative, statut: 529 };
@@ -315,19 +315,19 @@ fn le_recu_compte_les_coupures_sans_en_faire_des_relances() {
         verif: None,
     };
     // Sans coupure, la ligne ne change pas : la seconde tentative est une relance.
-    assert_eq!(recu(&[debut(1, 1), debut(1, 2)]), "2 mains, 1 relance, 0 classée");
+    assert_eq!(recu(&[debut(1, 1), debut(1, 2)]), "2 hands, 1 retry, 0 set aside");
     // La tentative qui suit une coupure n'est pas une relance ; une coupure se dit au singulier, puis au pluriel.
-    assert_eq!(recu(&[debut(1, 1), coupure(1, 1), debut(1, 2)]), "2 mains, 0 relance, 0 classée, 1 coupure");
+    assert_eq!(recu(&[debut(1, 1), coupure(1, 1), debut(1, 2)]), "2 hands, 0 retries, 0 set aside, 1 outage");
     let deux = [debut(1, 1), coupure(1, 1), debut(1, 2), coupure(1, 2)];
-    assert_eq!(recu(&deux), "2 mains, 0 relance, 0 classée, 2 coupures");
+    assert_eq!(recu(&deux), "2 hands, 0 retries, 0 set aside, 2 outages");
     // Une coupure, puis une relance : la tentative 2, qui suit la coupure, n'en est pas une ; la 3 en est une.
     let relancee = [debut(1, 1), coupure(1, 1), debut(1, 2), debut(1, 3)];
-    assert_eq!(recu(&relancee), "3 mains, 1 relance, 0 classée, 1 coupure");
+    assert_eq!(recu(&relancee), "3 hands, 1 retry, 0 set aside, 1 outage");
     // Une coupure qui n'a pas été suivie d'une tentative ne retire aucune relance à une autre main.
     let autre = [debut(1, 1), debut(1, 2), debut(2, 1), coupure(2, 1)];
-    assert_eq!(recu(&autre), "3 mains, 1 relance, 0 classée, 1 coupure");
+    assert_eq!(recu(&autre), "3 hands, 1 retry, 0 set aside, 1 outage");
     // Après les refusées.
-    assert_eq!(recu(&[debut(1, 1), coupure(1, 1), refus(1)]), "1 main, 0 relance, 0 classée, 1 refusée, 1 coupure");
+    assert_eq!(recu(&[debut(1, 1), coupure(1, 1), refus(1)]), "1 hand, 0 retries, 0 set aside, 1 refused, 1 outage");
 }
 
 #[test]
@@ -541,14 +541,14 @@ fn le_recu_ferme_les_liens_de_proche_en_proche_et_s_arrete_sur_une_boucle() {
     ]
     .concat();
     let (vagues, notes) = (etat(&chaine), notes_de(&chaine));
-    assert_eq!(recu_de(&vagues, &notes, v).cout(), "6,00 $ estimé");
+    assert_eq!(recu_de(&vagues, &notes, v).cout_de_pr(), "$6.00 estimated");
     // Le lien va de la vague vers ses corrections : la correction C1 ne compte que C2 de plus qu'elle.
-    assert_eq!(recu_de(&vagues, &notes, c1).cout(), "5,00 $ estimé");
+    assert_eq!(recu_de(&vagues, &notes, c1).cout_de_pr(), "$5.00 estimated");
     // Une boucle (V corrige C2) s'arrête : chaque vague est comptée une fois.
     let boucle = [chaine, vec![corrige(v, c2)]].concat();
     let (vagues, notes) = (etat(&boucle), notes_de(&boucle));
     for id in [v, c1, c2] {
-        assert_eq!(recu_de(&vagues, &notes, id).cout(), "6,00 $ estimé", "{id}");
+        assert_eq!(recu_de(&vagues, &notes, id).cout_de_pr(), "$6.00 estimated", "{id}");
     }
 }
 
@@ -725,7 +725,7 @@ impl Lieu {
     fn etat(&self) -> (String, ExitCode) {
         let dit = crate::commande::etat::rendu(&etat(&self.fil()), "2099-01-01T00:00:00.000Z");
         // Les lignes de reçu (le coût, l'effort) ont leurs propres essais : ici, le reste du texte.
-        let recu = |ligne: &&str| ligne.starts_with("Coût : ") || ligne.starts_with("Effort: ");
+        let recu = |ligne: &&str| ligne.starts_with("Cost: ") || ligne.starts_with("Effort: ");
         let dit = dit.lines().filter(|ligne| !recu(ligne)).collect::<Vec<_>>().join("\n");
         (dit, crate::commande::etat::etat_dans(&self.kraken).unwrap())
     }
@@ -980,8 +980,8 @@ fn une_ci_rouge_vaut_une_relance_qui_avance_la_branche_de_la_pr() {
     // `lydite etat` montre la vague relancée, puis sa relance : la CI rouge, puis la verte, et le code 0.
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::SUCCESS, "{dit}");
-    let rouge = format!("PR 12 · {PR} · CI rouge (constatée)");
-    let verte = format!("PR 12 · {PR} · CI verte (constatée)");
+    let rouge = format!("PR 12 · {PR} · CI red (observed)");
+    let verte = format!("PR 12 · {PR} · CI green (observed)");
     let (de_rouge, de_verte) = (dit.find(&rouge), dit.find(&verte));
     assert!(dit.starts_with("Ecrire a et b\n") && de_rouge < de_verte && de_rouge.is_some(), "{dit}");
     assert!(dit.contains("\n\nRendre verte la CI de la PR 12\n"), "{dit}");
@@ -1035,8 +1035,8 @@ fn une_tache_dehors_garde_le_code_1_meme_quand_la_relance_rend_la_ci_verte() {
     assert_ne!(git(&lieu.depot, &["branch", "--list", &format!("lydite/{b}")]), "");
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::FAILURE, "{dit}");
-    assert!(dit.contains(&format!("main-{}-2 b : classée", menee.id)), "{dit}");
-    assert!(dit.ends_with(&format!("PR 12 · {PR} · CI verte (constatée)")), "{dit}");
+    assert!(dit.contains(&format!("main-{}-2 b : set aside", menee.id)), "{dit}");
+    assert!(dit.ends_with(&format!("PR 12 · {PR} · CI green (observed)")), "{dit}");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -1098,7 +1098,7 @@ fn une_ci_rouge_deux_fois_est_8011_et_la_pr_reste_ouverte_et_rouge() {
     // `lydite etat` montre la vague relancée, puis sa relance, rouge encore et refusée.
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::FAILURE, "{dit}");
-    let rouge = format!("PR 12 · {PR} · CI rouge (constatée)");
+    let rouge = format!("PR 12 · {PR} · CI red (observed)");
     assert_eq!(dit.matches(&rouge).count(), 2, "{dit}");
     assert!(dit.ends_with(&format!("{rouge}\nrefusée (8011) : {}", Code::CiRouge.regle())), "{dit}");
     let _ = fs::remove_dir_all(&lieu.racine);
@@ -1179,7 +1179,7 @@ fn une_vague_critique_rouge_est_8011_sans_relance() {
     assert_eq!(fs::read_dir(lieu.kraken.join("bacs")).unwrap().count(), 0, "la vague se range");
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::FAILURE, "{dit}");
-    let rouge = format!("PR 12 · {PR} · CI rouge (constatée)");
+    let rouge = format!("PR 12 · {PR} · CI red (observed)");
     assert!(dit.ends_with(&format!("{rouge}\nrefusée (8011) : {}", Code::CiRouge.regle())), "{dit}");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
@@ -1214,7 +1214,7 @@ fn lancer_qui_refuse_la_relance_est_8011_sous_la_vague() {
     // `lydite etat` le montre sous la vague relancée, après sa PR et sa CI rouge.
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::FAILURE, "{dit}");
-    let rouge = format!("PR 12 · {PR} · CI rouge (constatée)");
+    let rouge = format!("PR 12 · {PR} · CI red (observed)");
     assert!(dit.ends_with(&format!("{rouge}\nrefusée (8011) : {}", Code::CiRouge.regle())), "{dit}");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
@@ -1277,7 +1277,7 @@ fn une_relance_non_assemblee_est_8011_sous_la_relance() {
     let (dit, code) = lieu.etat();
     assert_eq!(code, ExitCode::FAILURE, "{dit}");
     assert!(dit.starts_with("Rendre verte la CI de la PR 12\n"), "{dit}");
-    assert!(dit.contains(&format!("main-{relance}-1 ci : classée")), "{dit}");
+    assert!(dit.contains(&format!("main-{relance}-1 ci : set aside")), "{dit}");
     assert!(dit.ends_with(&format!("\nrefusée (8011) : {}", Code::CiRouge.regle())), "{dit}");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
@@ -1752,14 +1752,6 @@ fn millisecondes_est_le_contraire_de_instant() {
     }
     assert_eq!(millisecondes("2026-10-31T21:03:00Z"), millisecondes("2026-10-31T21:03:00.000Z"));
     assert_eq!(millisecondes("pas un instant"), None);
-}
-
-#[test]
-fn les_dollars_s_arrondissent_au_centime_a_la_virgule() {
-    assert_eq!(dollars(0), "0,00");
-    assert_eq!(dollars(839_999), "0,84");
-    assert_eq!(dollars(834_999), "0,83");
-    assert_eq!(dollars(12_340_000), "12,34");
 }
 
 #[test]

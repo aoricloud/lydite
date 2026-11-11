@@ -769,8 +769,8 @@ fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     let etat = essai.etat();
     let montre = String::from_utf8_lossy(&etat.stdout);
     assert_eq!(etat.status.code(), Some(0), "{montre}");
-    assert!(montre.contains("Relecture : 2 remarques, dont 1 bloquantes\n"), "{montre}");
-    assert!(montre.contains(&format!("Correction : main-{c}-1 correction : assemblée")), "{montre}");
+    assert!(montre.contains("Review: 2 remarks, 1 blocking\n"), "{montre}");
+    assert!(montre.contains(&format!("Correction: main-{c}-1 correction : assembled")), "{montre}");
     let _ = fs::remove_dir_all(&essai.racine);
 }
 

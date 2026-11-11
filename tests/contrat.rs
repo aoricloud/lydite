@@ -223,7 +223,7 @@ fn kraken_etat_lit_un_fil_demesure_sans_paniquer() {
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     // Aucune vague lisible : rien n'est affirmé, le code 0.
     assert_eq!(sortie.status.code(), Some(0), "{erreur}");
-    assert_eq!(String::from_utf8_lossy(&sortie.stdout).trim_end(), "aucune vague");
+    assert_eq!(String::from_utf8_lossy(&sortie.stdout).trim_end(), "no wave");
     // Quatre lignes refusées, chacune en un refus de quatre lignes.
     let lignes_d_erreur: Vec<&str> = erreur.lines().collect();
     assert_eq!(lignes_d_erreur.len(), 16, "{erreur}");
@@ -442,7 +442,7 @@ fn accepter_garde_l_empreinte_que_lancer_exige_et_note_au_fil() {
     let etat = kraken_dans(&dossier, &depot).arg("etat").output().unwrap();
     assert_eq!(etat.status.code(), Some(1), "une main classée donne 1 : {etat:?}");
     let etat = String::from_utf8_lossy(&etat.stdout);
-    assert!(etat.contains("classée : ") && etat.contains(" · mur demandé, non exigé (déclaré)"), "{etat}");
+    assert!(etat.contains("set aside: ") && etat.contains(" · wall requested, not required (declared)"), "{etat}");
     // Le profil change, d'une ligne vide : le refus 6012 dit l'empreinte acceptée et celle qu'il lit, et rien n'est
     // noté.
     fs::write(&fichier, format!("{texte}\n")).unwrap();
