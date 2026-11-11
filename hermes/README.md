@@ -23,9 +23,8 @@ workflow, which is why GitHub shows it merged by `github-actions[bot]`.
 ## Before you start (about an hour)
 
 - **Linux on x86-64.** Lydite's wall holds there only; elsewhere the tools do not appear.
-- **The `lydite` binary**, from an attested release, **Lydite 0.4.0 or later**: the plugin reads the `wall:` line of
-  `lydite profil <name>` before it launches a plan from `lydite_findings`, and earlier versions do not write that line.
-  **This plugin ships and downloads no binary.**
+- **The `lydite` binary**, from an attested release: this plugin lives in Lydite's repository and goes with the binary
+  of the same release. **This plugin ships and downloads no binary.**
 
   ```bash
   gh release download --repo aoricloud/lydite --pattern 'lydite-*-linux-x86_64.tar.gz*'
@@ -176,8 +175,10 @@ hermes config set tools.tool_search.enabled off
   timeout, with the closed list of variables and no provider key), and `lydite plan <file>` (read-only, 30 s timeout,
   with the closed list of variables and no provider key), and `lydite profil <name>` (read-only, 30 s timeout, same
   closed list, only before launching a plan written from a report). The plugin starts these French words; Lydite 0.4
-  still reads them as doubles of its English ones (`launch`, `status`, `lessons`, `profile`). Lydite in turn runs `git`, `gh`, `claude` and the proof
-  command inside its sandbox; those are Lydite's, documented in its README.
+  still reads them as doubles of its English ones (`launch`, `status`, `lessons`, `profile`). Lydite in turn runs `git`, `gh` and the `claude`
+  process on the host, with your GitHub login; only the commands of a hand run in Claude Code's sandbox, and the proof
+  command is replayed in the wall (by srt under `mur = exige`, by Lydite's native wall under `mur = natif`); those are
+  Lydite's, documented in its README.
 - **Network.** The plugin makes no network call itself. Lydite and its workers do: the model provider named in the
   profile, and GitHub (through `gh`) for the issue, the push and the pull request. Nothing is sent anywhere else, and
   there is no telemetry.
