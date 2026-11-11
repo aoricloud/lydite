@@ -40,6 +40,6 @@ pub(crate) fn profil_borne(texte: &str, dir: &Path) -> Profil {
     let texte = crate::essais::avec_mur_demande(texte);
     let mut profil = crate::coeur::profil::lire("essai", &texte, None, None).unwrap();
     let (config, personnel) = (dir.join("config"), dir.join("personnel"));
-    profil.borner(&dir.join("lydite"), &dir.join("depot").join(".git"), Some(&config), Some(&personnel)).unwrap();
+    profil.borner(&dir.join("lydite"), &dir.join("depot").join(".git"), Some(&config), None, Some(&personnel)).unwrap();
     profil
 }

@@ -26,7 +26,7 @@ fn leurres() -> (PathBuf, PathBuf) {
 fn borne(texte: &str) -> Profil {
     let mut profil = lu(texte).unwrap();
     let (config, personnel) = leurres();
-    profil.borner(&absolu("k"), &absolu("depot").join(".git"), Some(&config), Some(&personnel)).unwrap();
+    profil.borner(&absolu("k"), &absolu("depot").join(".git"), Some(&config), None, Some(&personnel)).unwrap();
     profil
 }
 
@@ -745,7 +745,7 @@ fn un_profil_nomme_son_fournisseur_et_sa_main_attend_sa_cle() {
     // Borné mais sans sa clé, la main ne part pas : elle parlerait à l'URL du fournisseur avec les identifiants
     // de l'humain.
     let (config, personnel) = leurres();
-    profil.borner(&absolu("k"), &absolu("depot").join(".git"), Some(&config), Some(&personnel)).unwrap();
+    profil.borner(&absolu("k"), &absolu("depot").join(".git"), Some(&config), None, Some(&personnel)).unwrap();
     assert_eq!(profil.demande(&absolu("bac"), None, false), Demande { argv: Vec::new(), declaration: None });
     // Sa clé lue, elle part : l'URL et la clé vont à la main, l'hôte à sa déclaration, et une copie aux modèles
     // d'une tâche garde le fournisseur.
@@ -1219,7 +1219,7 @@ fn les_reglages_disent_le_mur_du_profil() {
     );
     let (config, personnel) = leurres();
     let mut exige = lu(&texte).unwrap();
-    exige.borner(Path::new(dossier), Path::new(git_commun), Some(&config), Some(&personnel)).unwrap();
+    exige.borner(Path::new(dossier), Path::new(git_commun), Some(&config), None, Some(&personnel)).unwrap();
     let attendu = format!(
         concat!(
             r#"{{"sandbox":{{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"#,
@@ -1246,7 +1246,7 @@ fn les_reglages_disent_le_mur_du_profil() {
     assert!(declaration.mur, "le mur exigé");
     // Le même profil, le mur demandé : seul failIfUnavailable change.
     let mut demande = lu(&texte.replace("mur = exige", "mur = demande")).unwrap();
-    demande.borner(Path::new(dossier), Path::new(git_commun), Some(&config), Some(&personnel)).unwrap();
+    demande.borner(Path::new(dossier), Path::new(git_commun), Some(&config), None, Some(&personnel)).unwrap();
     let declaration = demande.demande(Path::new(bac), None, false).declaration.unwrap();
     let attendu = attendu.replace(r#""failIfUnavailable":true"#, r#""failIfUnavailable":false"#);
     assert_eq!(declaration.reglages, attendu);
@@ -1538,7 +1538,7 @@ fn le_fichier_de_connexion_de_claude_est_ferme_aux_outils() {
     // connexion.
     let apres_les_gardes = |config: Option<&Path>, personnel: Option<&Path>| {
         let mut profil = lu("sorte = claude\n").unwrap();
-        profil.borner(&absolu("k"), &absolu("depot").join(".git"), config, personnel).unwrap();
+        profil.borner(&absolu("k"), &absolu("depot").join(".git"), config, None, personnel).unwrap();
         let reglages = reglages(&profil, None);
         let garde = format!(r#""Edit({}/srt-*.json)""#, regle_k());
         let (_, fin) = reglages.split_once(&garde).unwrap_or_else(|| panic!("{reglages}"));
@@ -1566,6 +1566,84 @@ fn le_fichier_de_connexion_de_claude_est_ferme_aux_outils() {
     }
 }
 
+/// Le profil de ce texte, borné par le dossier de Kraken fictif, le git commun d'un dépôt fictif, les leurres et ce
+/// dossier de configuration de gh.
+fn borne_avec_gh(texte: &str, gh: Option<&Path>) -> Result<Profil, Refus> {
+    let mut profil = lu(texte).unwrap();
+    let (config, personnel) = leurres();
+    profil.borner(&absolu("k"), &absolu("depot").join(".git"), Some(&config), gh, Some(&personnel))?;
+    Ok(profil)
+}
+
+#[test]
+fn le_dossier_de_gh_hors_du_dossier_personnel_est_ferme() {
+    // Le dossier de configuration de gh en /srv/gh, hors du dossier personnel : il se ferme aux commandes de la main
+    // et à celles du rejeu, après le dossier de Kraken.
+    let gh = absolu("srv").join("gh");
+    let texte = "sorte = claude\nmur = exige\n";
+    let profil = borne_avec_gh(texte, Some(&gh)).unwrap();
+    let gh_json = json::chaine(&gh.to_string_lossy());
+    let fermes = format!(r#""denyRead":["~/",{},{gh_json}]"#, chemins_json()[0]);
+    let main = reglages(&profil, None);
+    assert!(main.contains(&fermes), "{main}");
+    let worktree = absolu("k").join("bacs").join("main-1");
+    let srt = profil.rejeu(&worktree, &absolu("tmp")).unwrap().expect("le mur est exigé");
+    assert!(srt.reglages.contains(&fermes), "{}", srt.reglages);
+    // Ses règles de permission, `Read` puis `Edit` de son fichier de jeton, en règle écrite à la main, suivent celles
+    // des dossiers de connexion de Claude et précèdent l'`Edit` du git commun.
+    let (regle, personnel) =
+        if cfg!(windows) { ("//c/srv/gh", "//c/personnel/.claude") } else { ("//srv/gh", "//personnel/.claude") };
+    let paire = format!(r#","Read({regle}/hosts.yml)","Edit({regle}/hosts.yml)""#);
+    let suite = format!(r#""Edit({personnel}/.credentials.json)"{paire},"Edit({}/**)""#, regle_depot());
+    assert!(main.contains(&suite), "{main}");
+    // Rien d'autre ne change : sans lui, les mêmes réglages, à l'octet, moins ces deux ajouts.
+    let sans = reglages(&borne_avec_gh(texte, None).unwrap(), None);
+    assert_eq!(main.replace(&format!(",{gh_json}"), "").replace(&paire, ""), sans);
+    assert!(!sans.contains("hosts.yml") && !sans.contains(&gh_json), "{sans}");
+    // Sous le dossier personnel, déjà fermé, il se ferme une seconde fois : c'est permis.
+    let sous = leurres().1.join(".config").join("gh");
+    let json = reglages(&borne_avec_gh(texte, Some(&sous)).unwrap(), None);
+    assert!(json.contains(&format!(r#",{}]"#, json::chaine(&sous.to_string_lossy()))), "{json}");
+}
+
+#[test]
+fn une_lecture_qui_recouvre_le_dossier_de_gh_est_refusee() {
+    let gh = absolu("srv").join("gh");
+    // Le dossier lui-même, un de ses ancêtres, ou un chemin sous lui : le refus 6009, qui le nomme.
+    for lecture in [absolu("srv"), gh.clone(), gh.join("hosts.yml")] {
+        let texte = format!("sorte = claude\nlecture = {}\n", lecture.display());
+        let refus = borne_avec_gh(&texte, Some(&gh)).err().unwrap_or_else(|| panic!("{}", lecture.display()));
+        assert_eq!(refus.code, Code::ProfilLigneRefusee, "{refus}");
+        let nomme = format!("une lecture ne recouvre pas le dossier de configuration de gh {} ", gh.display());
+        assert!(refus.preuve.contains(&nomme), "{refus}");
+        // Sans dossier de gh nommé, la même lecture passe : c'est lui qui la refuse.
+        assert!(borne_avec_gh(&texte, None).is_ok(), "{}", lecture.display());
+    }
+    // Un voisin ne le recouvre pas.
+    let voisin = format!("sorte = claude\nlecture = {}\n", absolu("srv").join("ghx").display());
+    assert!(borne_avec_gh(&voisin, Some(&gh)).is_ok());
+}
+
+#[test]
+fn un_dossier_de_gh_qu_une_regle_n_ecrit_pas_est_refuse() {
+    // Relatif, ou avec une parenthèse : le refus 6023, qui le nomme et dit de le déplacer ou de le retirer de
+    // GH_CONFIG_DIR. La main ne part pas.
+    for gh in [PathBuf::from("relatif"), absolu("gh (1)")] {
+        let mut profil = lu("sorte = claude\n").unwrap();
+        let (config, personnel) = leurres();
+        let issue =
+            profil.borner(&absolu("k"), &absolu("depot").join(".git"), Some(&config), Some(&gh), Some(&personnel));
+        let refus = issue.unwrap_err();
+        assert_eq!(refus.code, Code::DossierCheminRefuse, "{refus}");
+        let nomme = format!("le dossier de configuration de gh {} : ", gh.display());
+        assert!(refus.preuve.starts_with(&nomme), "{refus}");
+        for etape in ["Déplace le dossier de configuration de gh", "retire-le de GH_CONFIG_DIR"] {
+            assert!(refus.correction.contains(etape), "{etape} : {refus}");
+        }
+        assert_eq!(profil.demande(&absolu("bac"), None, false).argv, Vec::<String>::new(), "la main ne part pas");
+    }
+}
+
 /// Pose un fichier de connexion de Claude dans le `.claude` de ce dossier personnel : son contenu n'est pas du JSON,
 /// car seule son existence se regarde.
 fn connecter(personnel: &Path) {
@@ -1583,7 +1661,7 @@ fn claude_config_dir_pose_un_dossier_personnel_sans_regle_n_est_refuse_que_s_il_
     let (ecrit, refuse, autre) = (racine.join("personnel"), racine.join("compte (perso)"), racine.join("a (b)"));
     let borne = |config: Option<&Path>, personnel: &Path| {
         let mut profil = lu("sorte = claude\n").unwrap();
-        let issue = profil.borner(&absolu("k"), &git, config, Some(personnel));
+        let issue = profil.borner(&absolu("k"), &git, config, None, Some(personnel));
         (issue, profil)
     };
     let regle = |dossier: &Path| regle_de_chemin(&dossier.to_string_lossy(), cfg!(windows)).unwrap();
@@ -1631,7 +1709,7 @@ fn claude_config_dir_pose_un_dossier_personnel_sans_regle_n_est_refuse_que_s_il_
     assert_eq!(profil.demande(&absolu("bac"), None, false).argv, Vec::<String>::new(), "la main ne part pas");
     // Une lecture qui recouvre le `.claude` du dossier personnel reste refusée en 6009, fermé ou non.
     let mut profil = lu("sorte = claude\nlecture = ~/.claude\n").unwrap();
-    let refus = profil.borner(&absolu("k"), &git, Some(&config), Some(&autre)).unwrap_err();
+    let refus = profil.borner(&absolu("k"), &git, Some(&config), None, Some(&autre)).unwrap_err();
     assert_eq!(refus.code, Code::ProfilLigneRefusee, "{refus}");
     let _ = fs::remove_dir_all(&racine);
 }
@@ -1813,7 +1891,7 @@ fn une_entree_lecture_qui_recouvre_le_dossier_de_kraken_est_refusee() {
     for (entree, recouvre) in cas {
         let ligne = format!("lecture = {}, ~/.cargo", entree.display());
         let mut profil = lu(&format!("sorte = claude\n# ce que les commandes lisent\n{ligne}\n")).unwrap();
-        let issue = profil.borner(&dossier, &git, Some(&config), Some(&personnel));
+        let issue = profil.borner(&dossier, &git, Some(&config), None, Some(&personnel));
         if !recouvre {
             assert_eq!(issue, Ok(()), "{}", entree.display());
             continue;
@@ -1830,7 +1908,7 @@ fn une_entree_lecture_qui_recouvre_le_dossier_de_kraken_est_refusee() {
         [("~/", true), ("~/.lydite-essai", true), ("~/.lydite-essai/profils", true), ("~/.cargo", false)]
     {
         let mut profil = lu(&format!("sorte = claude\nlecture = {entree}\n")).unwrap();
-        let issue = profil.borner(&sous, &git, Some(&config), Some(&personnel));
+        let issue = profil.borner(&sous, &git, Some(&config), None, Some(&personnel));
         assert_eq!(
             issue.map_err(|refus| refus.code),
             if recouvre { Err(Code::ProfilLigneRefusee) } else { Ok(()) },
@@ -1856,7 +1934,7 @@ fn un_dossier_de_kraken_au_chemin_refuse_est_refuse() {
     let (config, personnel) = leurres();
     for dossier in cas {
         let mut profil = lu("sorte = claude\n").unwrap();
-        let refus = profil.borner(&dossier, &git, Some(&config), Some(&personnel)).unwrap_err();
+        let refus = profil.borner(&dossier, &git, Some(&config), None, Some(&personnel)).unwrap_err();
         assert_eq!(refus.code, Code::DossierCheminRefuse, "{}", dossier.display());
         assert!(refus.preuve.starts_with(&format!("le dossier de Lydite {}", dossier.display())), "{refus}");
         assert!(refus.correction.contains("LYDITE_DOSSIER"), "{refus}");
@@ -1867,7 +1945,7 @@ fn un_dossier_de_kraken_au_chemin_refuse_est_refuse() {
     // l'ouvrirait en écriture. Le refus 6023, qui le nomme ; rien n'est posé.
     for commun in [absolu("a(b)").join(".git"), absolu("a").join("[x]")] {
         let mut profil = lu("sorte = claude\n").unwrap();
-        let refus = profil.borner(&absolu("k"), &commun, Some(&config), Some(&personnel)).unwrap_err();
+        let refus = profil.borner(&absolu("k"), &commun, Some(&config), None, Some(&personnel)).unwrap_err();
         assert_eq!(refus.code, Code::DossierCheminRefuse, "{}", commun.display());
         let nomme = format!("le git commun du dépôt visé {}", commun.display());
         assert!(refus.preuve.starts_with(&nomme), "{refus}");
@@ -1876,7 +1954,8 @@ fn un_dossier_de_kraken_au_chemin_refuse_est_refuse() {
     }
     // Une main brute n'a rien à borner.
     let mut faux = Profil::faux(vec!["x".into()], Duration::from_secs(1));
-    assert_eq!(faux.borner(&absolu("a(b)"), &git, Some(Path::new("relatif")), Some(&absolu("b(c)"))), Ok(()));
+    let relatif = Some(Path::new("relatif"));
+    assert_eq!(faux.borner(&absolu("a(b)"), &git, relatif, relatif, Some(&absolu("b(c)"))), Ok(()));
 }
 
 #[test]
@@ -1886,7 +1965,7 @@ fn un_dossier_de_connexion_au_chemin_refuse_est_refuse() {
     // tombent pas en silence.
     let refus_de = |config: Option<&Path>, personnel: Option<&Path>| {
         let mut profil = lu("sorte = claude\n").unwrap();
-        let refus = profil.borner(&absolu("k"), &git, config, personnel).unwrap_err();
+        let refus = profil.borner(&absolu("k"), &git, config, None, personnel).unwrap_err();
         assert_eq!(profil.demande(&absolu("bac"), None, false).argv, Vec::<String>::new());
         refus
     };
@@ -1914,10 +1993,10 @@ fn un_dossier_de_connexion_au_chemin_refuse_est_refuse() {
     // CLAUDE_CONFIG_DIR posé, ce dossier, qui n'a pas de fichier de connexion, n'est plus un refus (voir
     // `avec_claude_config_dir_le_dossier_personnel_ne_se_ferme_que_s_il_garde_un_fichier_de_connexion`).
     let mut profil = lu("sorte = claude\n").unwrap();
-    assert_eq!(profil.borner(&absolu("k"), &git, Some(&config), Some(&refuse)), Ok(()));
+    assert_eq!(profil.borner(&absolu("k"), &git, Some(&config), None, Some(&refuse)), Ok(()));
     // Le dossier de Kraken se juge d'abord, avec sa correction.
     let mut profil = lu("sorte = claude\n").unwrap();
-    let refus = profil.borner(&absolu("k(1)"), &git, Some(Path::new("config")), Some(&refuse)).unwrap_err();
+    let refus = profil.borner(&absolu("k(1)"), &git, Some(Path::new("config")), None, Some(&refuse)).unwrap_err();
     assert!(refus.correction.contains("LYDITE_DOSSIER"), "{refus}");
 }
 
@@ -1941,7 +2020,7 @@ fn une_lecture_qui_recouvre_un_dossier_de_connexion_est_refusee() {
     for (entree, recouvert) in cas {
         let ligne = format!("lecture = {entree}");
         let mut profil = lu(&format!("sorte = claude\n{ligne}\n")).unwrap();
-        let issue = profil.borner(&dossier, &git, Some(&config), Some(&personnel));
+        let issue = profil.borner(&dossier, &git, Some(&config), None, Some(&personnel));
         let Some(recouvert) = recouvert else {
             assert_eq!(issue, Ok(()), "{entree}");
             continue;
@@ -1975,7 +2054,7 @@ fn faux_ne_prete_ni_ne_declare_rien() {
     let argv = vec!["fausse".to_string(), "--x".into()];
     let mut faux = Profil::faux(argv.clone(), Duration::from_secs(7));
     let (config, personnel) = leurres();
-    assert_eq!(faux.borner(&absolu("k"), &absolu("depot"), Some(&config), Some(&personnel)), Ok(()));
+    assert_eq!(faux.borner(&absolu("k"), &absolu("depot"), Some(&config), None, Some(&personnel)), Ok(()));
     for (verifier, relance) in [(None, false), (Some("git status"), false), (Some("git status"), true)] {
         assert_eq!(faux.demande(&absolu("bac"), verifier, relance), Demande { argv: argv.clone(), declaration: None });
         assert!(!faux.prete(verifier));
