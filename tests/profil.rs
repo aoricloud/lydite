@@ -1043,14 +1043,14 @@ fn rangees_du_profil(essai: &Essai, nom: &str) -> Vec<String> {
 fn lydite_profil_dit_le_profil_integre_sans_rien_ecrire() {
     let essai = Essai::nouveau("profil-integre");
     let attendu = [
-        "profil : claude (intégré)",
-        "empreinte : 7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5",
-        "modèle : sonnet ; relance : sonnet",
-        "mur : exigé : les commandes de la main tournent dans le bac à sable de Claude Code",
-        "preuve : rejouée par srt, dans le mur",
-        "plafond par main : 20 $",
-        "délai de la main : 3600 s",
-        "délai de la preuve : 300 s",
+        "profile: claude (built-in)",
+        "fingerprint: 7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5",
+        "model: sonnet; retry: sonnet",
+        "wall: required: the hand's commands run in Claude Code's sandbox",
+        "proof: replayed by srt, inside the wall",
+        "ceiling per hand: $20",
+        "hand timeout: 3600 s",
+        "proof timeout: 300 s",
     ];
     assert_eq!(rangees_du_profil(&essai, "claude"), attendu);
     // Lecture seule : le dossier de Kraken, que l'essai n'a pas créé, n'existe toujours pas (ni profil, ni fil).
@@ -1064,16 +1064,16 @@ fn lydite_profil_dit_un_mur_demande_et_refuse_comme_lancer() {
     let (_, empreinte) = essai.profil_accepte("veille", "plafond = 7.5\n");
     let fichier = essai.dossier.join("profils").join("veille.profil");
     let attendu = [
-        format!("profil : veille ({})", fichier.display()),
-        format!("empreinte : {empreinte}"),
-        "modèle : haiku ; relance : sonnet".to_string(),
-        "mur : demandé : les commandes de la main peuvent tourner hors du bac à sable, et y voient la clé du \
-         fournisseur s'il y en a un"
-            .to_string(),
-        "preuve : rejouée hors du mur".to_string(),
-        "plafond par main : 7.5 $".to_string(),
-        "délai de la main : 120 s".to_string(),
-        "délai de la preuve : 60 s".to_string(),
+        format!("profile: veille ({})", fichier.display()),
+        format!("fingerprint: {empreinte}"),
+        "model: haiku; retry: sonnet".to_string(),
+        "wall: requested: the hand's commands may run outside the sandbox, and see the provider's key if there is \
+         one"
+        .to_string(),
+        "proof: replayed outside the wall".to_string(),
+        "ceiling per hand: $7.5".to_string(),
+        "hand timeout: 120 s".to_string(),
+        "proof timeout: 60 s".to_string(),
     ];
     assert_eq!(rangees_du_profil(&essai, "veille"), attendu);
     // Un profil inconnu, un nom qui sort de `profils` : les refus de `lancer`.
