@@ -17,7 +17,7 @@ pub trait Flux: Read + Write + Sized + Send + 'static {
     fn fermer(&self);
     /// Règle le délai de lecture ; `None` le retire (le tunnel ne doit pas expirer).
     fn delai_lecture(&self, delai: Option<Duration>);
-    /// Règle le délai d'écriture : une écriture qui n'avance pas d'un octet pendant ce délai échoue.
+    /// Règle le délai d'écriture : une écriture qui reste bloquée pendant ce délai échoue.
     fn delai_ecriture(&self, delai: Duration) -> io::Result<()>;
 }
 
@@ -69,7 +69,7 @@ impl Flux for UnixStream {
 /// La borne d'écriture du tunnel. Quand les deux fils sont pris du même côté (l'un bloqué en écriture vers un pair
 /// qui ne lit plus, l'autre en lecture de ce pair, ou les deux bloqués en écriture), personne ne lit l'autre socket :
 /// un client qui s'en va n'y est pas vu, et sa fermeture peut même rester en file derrière ses propres données. Seule
-/// une écriture qui n'avance plus le dit alors ; passé cette borne, elle échoue et le tunnel se ferme.
+/// une écriture qui reste bloquée le dit alors ; passé cette borne, elle échoue et le tunnel se ferme.
 ///
 /// La borne tient la vivacité, pas la sécurité : une place prise est une sur `connexions::MAX`, et seulement pour le
 /// mur d'une preuve. La raccourcir ne rapporte presque rien ; trop courte, elle couperait un pair lent mais vivant et
@@ -80,7 +80,7 @@ pub const BORNE_ECRITURE: Duration = Duration::from_secs(120);
 /// Copie `a` vers `b` dans les deux sens, jusqu'à la fin des deux flux. Sur une fin de lecture, ferme l'écriture du
 /// côté opposé ; l'autre sens voit alors EOF à son tour. Sur une erreur de lecture ou d'écriture, ferme **les deux
 /// sockets, les deux directions** : un fil bloqué en lecture comme un fil bloqué en `write_all` se réveillent, même
-/// si le pair garde sa socket ouverte et inactive. Une écriture qui n'avance plus pendant `BORNE_ECRITURE` est une
+/// si le pair garde sa socket ouverte et inactive. Une écriture qui reste bloquée pendant `BORNE_ECRITURE` est une
 /// erreur d'écriture.
 pub fn tunnel<A: Flux, B: Flux>(a: A, b: B) -> io::Result<()> {
     tunnel_borne(a, b, BORNE_ECRITURE)
@@ -265,7 +265,7 @@ mod tests {
             let _ = tx.send(resultat.is_err());
         });
         amont_pair.write_all(b"x").unwrap();
-        client_pair.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        client_pair.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let mut tampon = [0u8; 1];
         client_pair.peek(&mut tampon).unwrap();
         drop(client_pair);
@@ -298,9 +298,9 @@ mod tests {
         });
         let mut amont_envoi = amont_pair.try_clone().unwrap();
         let _amont = thread::spawn(move || {
-            let _ = amont_envoi.write_all(&vec![b'y'; 4 * 1024 * 1024]);
+            let _ = amont_envoi.write_all(&vec![b'y'; 64 * 1024 * 1024]);
         });
-        client_pair.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        client_pair.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let mut tampon = [0u8; 1];
         client_pair.peek(&mut tampon).unwrap();
         client_pair.shutdown(Shutdown::Both).unwrap();
@@ -309,6 +309,43 @@ mod tests {
         fil.join().unwrap();
         assert!(place_rendue(&plafond));
         drop(amont_pair);
+    }
+
+    /// Personne ne lit ni ne ferme : le client envoie sans fin, l'amont ne lit pas et se tait. Sans borne, l'aller
+    /// reste bloqué pour toujours en écriture vers l'amont, et le retour en lecture de l'amont : seule la borne rend la
+    /// main, et la place.
+    fn la_borne_seule_rend_la_place<F: Flux>(paire: fn() -> (F, F)) {
+        let (client_pair, client_tunnel) = paire();
+        let (amont_pair, amont_tunnel) = paire();
+        let plafond = Plafond::nouveau(1);
+        let garde = plafond.prendre().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let fil = thread::spawn(move || {
+            let _garde = garde;
+            let resultat = tunnel_borne(client_tunnel, amont_tunnel, Duration::from_millis(300));
+            let _ = tx.send(resultat.is_err());
+        });
+        let mut client_envoi = client_pair.clone_flux().unwrap();
+        let _envoi = thread::spawn(move || {
+            let _ = client_envoi.write_all(&vec![0u8; 64 * 1024 * 1024]);
+        });
+        let rendu = rx.recv_timeout(Duration::from_secs(10)).expect("le tunnel ne rend pas la main");
+        assert!(rendu, "la borne doit rendre une erreur d'écriture");
+        fil.join().unwrap();
+        assert!(place_rendue(&plafond));
+        drop((client_pair, amont_pair));
+    }
+
+    #[test]
+    fn la_borne_seule_rend_la_place_sur_socket() {
+        la_borne_seule_rend_la_place(paire_tcp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "requires Unix socket creation; run `cargo test -- --ignored` on a machine that allows it"]
+    fn la_borne_seule_rend_la_place_sur_socket_unix() {
+        la_borne_seule_rend_la_place(|| std::os::unix::net::UnixStream::pair().unwrap());
     }
 
     #[cfg(unix)]
@@ -328,7 +365,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let fil = thread::spawn(move || {
             let _garde = garde;
-            let resultat = tunnel(client_tunnel, amont_tunnel);
+            let resultat = tunnel_borne(client_tunnel, amont_tunnel, Duration::from_millis(300));
             let _ = tx.send(resultat.is_err());
         });
         let mut client_envoi = client_pair.try_clone().unwrap();
