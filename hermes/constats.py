@@ -64,6 +64,13 @@ def _a_remplacer(caractere):
     return categorie[0] == "C" or categorie in ("Zl", "Zp")
 
 
+def caractere_cache(texte):
+    """Le texte porte-t-il un caractère qui peut en maquiller la lecture : un contrôle (ESC, NUL, tabulation…), un
+    format ou un sens d'écriture (U+200B, U+202E…), un substitut, un usage privé, un non-assigné, ou un séparateur de
+    ligne ou de paragraphe ?"""
+    return any(_a_remplacer(c) for c in texte)
+
+
 def _une_ligne(texte):
     """Le texte sur une ligne : contrôles, formats, substituts, privés, non assignés et séparateurs de ligne ou de
     paragraphe deviennent des espaces, toute suite de blancs une espace, et les bords sont ôtés."""
@@ -277,7 +284,7 @@ def _preuve_nette(preuve):
         raise RapportRefuse("The proof is not a string. Give the command that proves the fix, as text.")
     if not preuve.strip():
         raise RapportRefuse("The proof is blank. Give the command that proves the fix.")
-    if any(_a_remplacer(c) for c in preuve):
+    if caractere_cache(preuve):
         raise RapportRefuse("The proof holds a control or line-break character. Give it on one line.")
     preuve = preuve.strip()
     if len(preuve) > LIMITE_DE_LA_PREUVE:

@@ -38,7 +38,7 @@ platforms: [linux]
 known_issues:
   - "Linux only: Lydite's sandbox wall holds there."
   - "Needs the lydite binary (attested release of github.com/aoricloud/lydite), Claude Code, gh and srt installed, and a Lydite profile accepted by a human."
-  - "Lydite's own commands and status lines are still in French; pull request receipts are in English."
+  - "Some names are still French: three tool names (lydite_lancer, lydite_etat, lydite_lecons), the plugin settings (binaire, profil, cle_nom, cle) and a few lines Lydite writes, such as impossible (déclarée). Lydite's commands have English words, and its usage and status lines are in English; pull request receipts are in English."
 capabilities:
   provides_tools: [lydite_lancer, lydite_etat, lydite_lecons, lydite_plan, lydite_findings]
   provides_hooks: [pre_tool_call]
@@ -104,4 +104,4 @@ hermes plugins validate hermes --install-deps   # at the pinned commit
 python3 -m unittest discover -s hermes/tests -t hermes
 ```
 
-Checked on Hermes 0.23.0 (stable): all checks green; also `hermes plugins doctor hermes --ci`.
+The validation is replayed at the pinned commit, before the entry is proposed: `hermes plugins validate` and `hermes plugins doctor hermes --ci`, on Hermes 0.23.0 (stable).

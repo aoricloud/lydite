@@ -14,8 +14,8 @@ and its own merge rules.
 ## What comes back
 
 A real one: [mycelium-lab#55](https://github.com/aoricloud/mycelium-lab/pull/55), the fix of issue #53 of a public
-Rust simulator, started from a Hermes chat. Its receipt says $0.12 estimated, two workers, no retry, the proof
-replayed green, and the commit that was reviewed and replayed. That repository merges a green pull request by its own
+Rust simulator, started from a Hermes chat. Its receipt says two workers, no retry, the proof replayed green,
+and the commit that was reviewed and replayed. That repository merges a green pull request by its own
 workflow, which is why GitHub shows it merged by `github-actions[bot]`.
 
 ![The pull request mycelium-lab#55 written by Lydite: its receipt, the proof replayed green, and the commit that was reviewed and replayed](docs/screenshot-receipt.png)
@@ -48,7 +48,7 @@ what is missing.
 
 | Tool | What it does |
 | --- | --- |
-| `lydite_lancer` | Starts `lydite lancer <profile> --issue <n> --decouper --verifier "<proof>" --depot <repo> --pr main` in the background and returns at once with an id. Also takes `objective` (instead of `issue`), `plan` (instead of both: a plan file written by hand, with its own models, files and `preuve :` line; see below), `profile`, `pr`, and `observe` (show the plan, build nothing). |
+| `lydite_lancer` | Starts `lydite lancer <profile> --issue <n> --decouper --verifier "<proof>" --depot <repo> --pr main` in the background and returns at once with an id (Lydite 0.4 still reads those French words as doubles of its English ones: `lydite launch ... --split --verify ...`). Also takes `objective` (instead of `issue`), `plan` (instead of both: a plan file written by hand, with its own models, files and `preuve :` line; see below), `profile`, `pr`, and `observe` (show the plan, build nothing). |
 | `lydite_etat` | Returns `lydite etat` (what Lydite itself recorded: tasks, proofs, pull request, CI) and the launches made from this plugin, with the end of a launch's log when given its `id`. |
 | `lydite_lecons` | Returns the lessons of a repository: the written rules Lydite learned there from past mistakes and gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Without `name`, the list of each lesson's name, rule and files; with `name`, one lesson in full. It is read-only, and Lydite checks the lessons first. Nothing is approved, because nothing is started or written. |
 | `lydite_plan` | Runs `lydite plan <file>` on a plan file and returns what Lydite accepts or refuses, and why: the plan's SHA-256, its number of tasks, its proof line and the tasks that will wait for one another because they share a file, or Lydite's refusal (its code, its rule, what was seen, the fix). It starts nothing and costs nothing, so nothing is approved: use it to fix a plan with the human before approving a launch. |
@@ -92,8 +92,9 @@ written by hand.
 
 ### Names still in French
 
-The tools answer in English, and their arguments have English names. A few names are still French; Lydite 0.4.0
-will give them English names.
+The tools answer in English, and their arguments have English names. A few names are still French in this version: the
+tools `lydite_lancer`, `lydite_etat` and `lydite_lecons`, and the settings `binaire`, `profil`, `cle_nom` and `cle`
+keep their French names.
 
 | Name | Meaning |
 | --- | --- |
@@ -170,7 +171,8 @@ hermes config set tools.tool_search.enabled off
   lancer` (in the background), `lydite etat` (read-only, 30 s timeout), `lydite lecons <folder>` (read-only, 30 s
   timeout, with the closed list of variables and no provider key), and `lydite plan <file>` (read-only, 30 s timeout,
   with the closed list of variables and no provider key), and `lydite profil <name>` (read-only, 30 s timeout, same
-  closed list, only before launching a plan written from a report). Lydite in turn runs `git`, `gh`, `claude` and the proof
+  closed list, only before launching a plan written from a report). The plugin starts these French words; Lydite 0.4
+  still reads them as doubles of its English ones (`launch`, `status`, `lessons`, `profile`). Lydite in turn runs `git`, `gh`, `claude` and the proof
   command inside its sandbox; those are Lydite's, documented in its README.
 - **Network.** The plugin makes no network call itself. Lydite and its workers do: the model provider named in the
   profile, and GitHub (through `gh`) for the issue, the push and the pull request. Nothing is sent anywhere else, and
