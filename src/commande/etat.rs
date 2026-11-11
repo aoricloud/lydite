@@ -76,7 +76,7 @@ pub(crate) fn attendre_ecrivant(
         if restantes == 0 {
             let _ = writeln!(
                 erreur,
-                "aucune vague neuve au fil, et aucun lancement ne tient le dossier {} : il n'y a rien à attendre",
+                "no new wave in the thread, and no launch holds the folder {}: there is nothing to wait for",
                 dossier.display()
             );
             return Ok(ExitCode::from(2));
@@ -104,8 +104,8 @@ fn rendre_avec(
     if let Some(sceau) = rompu {
         let _ = writeln!(
             erreur,
-            "le fil ne correspond plus au sceau de la vague {}, noté à {} octets : une ligne d'avant lui a changé ou \
-             disparu",
+            "the thread no longer matches the seal of wave {}, noted at {} bytes: a line before it changed or \
+             disappeared",
             sceau.vague, sceau.octets
         );
         return Ok(ExitCode::from(2));
@@ -124,8 +124,7 @@ fn rendre_avec(
     if tuee {
         let _ = writeln!(
             erreur,
-            "la dernière vague n'a pas son sceau de fin (vague.sceau) : le lancement a fini sans l'écrire, tué sans \
-             doute"
+            "the last wave has no closing seal (vague.sceau): the launch ended without writing it, probably killed"
         );
         return Ok(ExitCode::FAILURE);
     }
@@ -147,9 +146,9 @@ fn sans_sceau_de_fin(montrees: &[&Vague], sceaux: &[SceauLu]) -> bool {
 fn aucune_vague(dossier: &Path) -> String {
     let m1 = dossier.join("fil");
     if m1.exists() {
-        format!("aucune vague au fil v2 ; le fil de M1 n'est plus lu : {}", m1.display())
+        format!("no wave in the v2 thread; the M1 thread is no longer read: {}", m1.display())
     } else {
-        "aucune vague".into()
+        "no wave".into()
     }
 }
 
@@ -205,7 +204,7 @@ pub(crate) fn rendu(vagues: &[Vague], maintenant: &str) -> String {
 /// Le texte de `lydite etat` avec le reçu de chaque vague montrée, lu dans les `notes` du fil (voir `recu_de`).
 pub(crate) fn rendu_avec(vagues: &[Vague], notes: &[Note], maintenant: &str) -> String {
     let blocs: Vec<String> = montrees(vagues).into_iter().map(|vague| bloc(vague, vagues, notes, maintenant)).collect();
-    if blocs.is_empty() { "aucune vague".into() } else { blocs.join("\n\n") }
+    if blocs.is_empty() { "no wave".into() } else { blocs.join("\n\n") }
 }
 
 /// Le texte d'une vague : son objectif et sa branche, puis ses mains, sa relecture, sa correction, sa forge et enfin
@@ -219,28 +218,27 @@ fn bloc(vague: &Vague, vagues: &[Vague], notes: &[Note], maintenant: &str) -> St
     let decoupage = vague.decoupage.iter().map(|id| match vague_de(vagues, id) {
         Some(d) => match d.plan_pris {
             Some(taches) => ligne_du_decoupage(d, taches, maintenant),
-            None => format!("Découpage : {id} · sans plan au fil"),
+            None => format!("Split: {id} · no plan in the thread"),
         },
-        None => format!("Découpage : {id} · absent du fil"),
+        None => format!("Split: {id} · not in the thread"),
     });
-    let entete = vague.assemblage.iter().map(|(branche, preuve)| {
-        format!("branche : {} · preuve : {}", texte::en_ligne(branche), texte::en_ligne(preuve))
-    });
+    let entete = vague
+        .assemblage
+        .iter()
+        .map(|(branche, preuve)| format!("branch: {} · proof: {}", texte::en_ligne(branche), texte::en_ligne(preuve)));
     let relecture = match (relecture_de(vagues, &vague.id), relecteur_de(vagues, &vague.id)) {
-        (Some(relecture), _) => {
-            Some(format!("Relecture : {} remarques, dont {} bloquantes", relecture.n, relecture.bloquantes))
-        }
+        (Some(relecture), _) => Some(format!("Review: {} remarks, {} blocking", relecture.n, relecture.bloquantes)),
         (None, Some(relecteur)) => Some(ligne_du_relecteur(relecteur, maintenant)),
         (None, None) => None,
     };
     let correction = correction_de(vagues, &vague.id).into_iter().flat_map(|correction| {
-        lignes_des_mains(correction, maintenant).into_iter().map(|ligne| format!("Correction : {ligne}"))
+        lignes_des_mains(correction, maintenant).into_iter().map(|ligne| format!("Correction: {ligne}"))
     });
     let forge = vague.forge.iter().flat_map(|forge| {
         let ci = match forge.ci {
-            Some(fil::Couleur::Vert) => "CI verte (constatée)",
-            Some(fil::Couleur::Rouge) => "CI rouge (constatée)",
-            None => "CI en attente",
+            Some(fil::Couleur::Vert) => "CI green (observed)",
+            Some(fil::Couleur::Rouge) => "CI red (observed)",
+            None => "CI pending",
         };
         let pr = forge.pr.iter().map(move |pr| format!("PR {} · {} · {ci}", pr.numero, texte::en_ligne(&pr.url)));
         let refus = forge.refus.iter().map(|clair| texte::en_ligne(clair.lines().next().unwrap_or_default()));
@@ -266,28 +264,28 @@ fn ligne_du_recu(vagues: &[Vague], notes: &[Note], id: &str) -> String {
     std::iter::once(recu.ligne()).chain([efforts]).chain(recu.ligne_de_mesure()).collect::<Vec<_>>().join("\n")
 }
 
-/// La ligne d'un relecteur que le fil lie à une vague, sans relecture prise : `Relecture : main-<id>-1 · classée (7016)
-/// : <dernière ligne>` si sa main est classée, quelle que soit la foi, sinon `Relecture : main-<id>-1 · <état>`.
+/// La ligne d'un relecteur que le fil lie à une vague, sans relecture prise : `Review: main-<id>-1 · set aside (7016)
+/// : <dernière ligne>` si sa main est classée, quelle que soit la foi, sinon `Review: main-<id>-1 · <état>`.
 fn ligne_du_relecteur(relecteur: &Vague, maintenant: &str) -> String {
     let main = relecteur.mains.get(&1);
     let etat = match main {
         Some(main) if matches!(main.verdict, Some((Verdict::Classee, _))) => {
-            format!("classée (7016) : {}", derniere_ligne(main.texte()))
+            format!("set aside (7016): {}", derniere_ligne(main.texte()))
         }
         _ => etat_de(main, None, maintenant),
     };
-    format!("Relecture : main-{}-1 · {etat}", relecteur.id)
+    format!("Review: main-{}-1 · {etat}", relecteur.id)
 }
 
-/// La ligne d'un découpage qui a pris un plan de `taches` tâches : `Découpage : <k> tâches · <main> · prise
-/// (constatée)`. Une prise que Kraken n'a pas rejouée porte son mot, comme dans une ligne de main.
+/// La ligne d'un découpage qui a pris un plan de `taches` tâches : `Split: <k> tasks · <main> · taken (observed)`.
+/// Une prise que Kraken n'a pas rejouée porte son mot, comme dans une ligne de main.
 fn ligne_du_decoupage(decoupage: &Vague, taches: usize, maintenant: &str) -> String {
     let main = decoupage.mains.get(&1);
     let etat = match main.and_then(|main| main.verdict) {
-        Some((Verdict::Prise, Foi::Constate)) => "prise (constatée)".to_string(),
+        Some((Verdict::Prise, Foi::Constate)) => "taken (observed)".to_string(),
         _ => etat_de(main, None, maintenant),
     };
-    format!("Découpage : {taches} tâches · main-{}-1 · {etat}", decoupage.id)
+    format!("Split: {taches} tasks · main-{}-1 · {etat}", decoupage.id)
 }
 
 /// Les lignes des mains d'une vague, de 1 à n (et au-delà si le fil en nomme davantage) : `main-<vague>-<n>`, l'id de
@@ -317,10 +315,10 @@ fn mot_du_mur(main: Option<&Main>) -> String {
         return String::new();
     };
     let mot = match (tentative.mur_actif, tentative.mur) {
-        (Some(true), _) => "mur actif (constaté)",
-        (Some(false), _) => "mur inactif (constaté)",
-        (None, Some(fil::Mur::Exige)) => "mur exigé (déclaré)",
-        (None, Some(fil::Mur::Demande)) => "mur demandé, non exigé (déclaré)",
+        (Some(true), _) => "wall active (observed)",
+        (Some(false), _) => "wall inactive (observed)",
+        (None, Some(fil::Mur::Exige)) => "wall required (declared)",
+        (None, Some(fil::Mur::Demande)) => "wall requested, not required (declared)",
         (None, None) => return String::new(),
     };
     format!(" · {mot}")
@@ -332,44 +330,44 @@ fn mot_du_mur(main: Option<&Main>) -> String {
 fn mot_du_fournisseur(main: Option<&Main>) -> String {
     let derniere = main.and_then(|main| main.tentatives.last_key_value());
     let fournisseur = derniere.and_then(|(_, tentative)| tentative.fournisseur.as_deref());
-    fournisseur.map_or_else(String::new, |hote| format!(" · fournisseur {} (déclaré)", texte::en_ligne(hote)))
+    fournisseur.map_or_else(String::new, |hote| format!(" · provider {} (declared)", texte::en_ligne(hote)))
 }
 
-/// Ce qu'une main affiche, dans cet ordre de préséance : « assemblée » ; son refus, par la première ligne de
-/// `refus_en_clair` ; son verdict, « prise, en attente d'assemblage » dans une vague à plan ; « sans nouvelles depuis
-/// <échéance> (déduit) », si sa dernière tentative n'a pas fini et que son échéance est passée à `maintenant` ; « en
-/// cours » avec sa tentative ; « en attente », de ses dépendances non encore assemblées dans une vague à plan. Une
+/// Ce qu'une main affiche, dans cet ordre de préséance : « assembled » ; son refus, par la première ligne de
+/// `refus_en_clair` ; son verdict, « taken, waiting to be assembled » dans une vague à plan ; « no news since
+/// <échéance> (inferred) », si sa dernière tentative n'a pas fini et que son échéance est passée à `maintenant` ;
+/// « running » avec sa tentative ; « waiting », de ses dépendances non encore assemblées dans une vague à plan. Une
 /// classée affiche la dernière ligne de son erreur, et un verdict déclaré porte son mot.
 fn etat_de(main: Option<&Main>, assemblees: Option<&std::collections::HashSet<&str>>, maintenant: &str) -> String {
     let Some(main) = main else {
-        return "en attente".into();
+        return "waiting".into();
     };
-    let declaree = |foi| if foi == Foi::Declare { " déclarée, non prouvée" } else { "" };
+    let declaree = |foi| if foi == Foi::Declare { ", declared, not proven" } else { "" };
     match (&main.issue, main.verdict) {
-        (Some(fil::Issue::Assemblee), _) if assemblees.is_some() => "assemblée".into(),
+        (Some(fil::Issue::Assemblee), _) if assemblees.is_some() => "assembled".into(),
         (Some(fil::Issue::Refusee { code, regle, preuve, correction }), _) => {
             let clair = fil::refus_en_clair(*code, regle, preuve, correction);
             texte::en_ligne(clair.lines().next().unwrap_or_default())
         }
         (_, Some((Verdict::Impossible, _))) => format!("{IMPOSSIBLE}{}", derniere_ligne(main.texte())),
-        (_, Some((Verdict::Classee, foi))) => format!("classée{} : {}", declaree(foi), derniere_ligne(main.texte())),
+        (_, Some((Verdict::Classee, foi))) => format!("set aside{}: {}", declaree(foi), derniere_ligne(main.texte())),
         (_, Some((Verdict::Prise, foi))) => {
-            let attente = if assemblees.is_some() { ", en attente d'assemblage" } else { "" };
-            format!("prise{}{attente}", declaree(foi))
+            let attente = if assemblees.is_some() { ", waiting to be assembled" } else { "" };
+            format!("taken{}{attente}", declaree(foi))
         }
         (_, None) => match main.tentatives.last_key_value() {
             // Sans fin à son échéance, une main n'est pas dite expirée : Kraken a pu s'arrêter, et n'en sait rien.
             Some((tentative, lue)) => match main.echeances.get(tentative) {
                 Some(echeance) if lue.couleur.is_none() && echeance.as_str() <= maintenant => {
-                    format!("sans nouvelles depuis {echeance} (déduit)")
+                    format!("no news since {echeance} (inferred)")
                 }
-                _ => format!("en cours, tentative {tentative}"),
+                _ => format!("running, attempt {tentative}"),
             },
             None => {
                 let depend = main.tache.iter().flat_map(|(_, depend)| depend);
                 let manque: Vec<&str> =
                     depend.map(String::as_str).filter(|id| assemblees.is_some_and(|a| !a.contains(id))).collect();
-                if manque.is_empty() { "en attente".into() } else { format!("en attente de {}", manque.join(", ")) }
+                if manque.is_empty() { "waiting".into() } else { format!("waiting for {}", manque.join(", ")) }
             }
         },
     }

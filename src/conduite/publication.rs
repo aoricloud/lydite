@@ -851,21 +851,7 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
 }
 
 impl Recu {
-    /// Le coût : `0,84 $ estimé` s'il a une part estimée, `forfait, ≈ 0,84 $` si tout est au forfait, `inconnu` si
-    /// rien n'est connu ; ` + inconnu` s'il a de plus une part inconnue.
-    pub(crate) fn cout(&self) -> String {
-        let dollars = dollars(self.micro_dollars);
-        let connu = if self.estime {
-            format!("{dollars} $ estimé")
-        } else if self.forfait {
-            format!("forfait, ≈ {dollars} $")
-        } else {
-            return "inconnu".into();
-        };
-        if self.inconnu { format!("{connu} + inconnu") } else { connu }
-    }
-
-    /// Le coût du corps d'une PR, en anglais : `$0.84 estimated`, `subscription, ≈ $0.84` ou `unknown`, suivi de
+    /// Le coût, en anglais : `$0.84 estimated`, `subscription, ≈ $0.84` ou `unknown`, suivi de
     /// ` + unknown` s'il a de plus une part inconnue.
     pub(crate) fn cout_de_pr(&self) -> String {
         let dollars = dollars_de_pr(self.micro_dollars);
@@ -903,26 +889,6 @@ impl Recu {
         }
     }
 
-    /// `7 mains, 2 relances, 1 classée`, suivi de `, N impossible`, de `, N refusée` et de `, N coupure`
-    /// seulement quand N > 0.
-    pub(crate) fn mains(&self) -> String {
-        let pluriel = |n: usize, mot: &str| format!("{n} {mot}{}", if n > 1 { "s" } else { "" });
-        let (m, r, c) = (self.mains, self.relances, self.classees);
-        let base = format!("{}, {}, {}", pluriel(m, "main"), pluriel(r, "relance"), pluriel(c, "classée"));
-        let base = match self.impossibles {
-            0 => base,
-            i => format!("{base}, {}", pluriel(i, "impossible")),
-        };
-        let base = match self.refusees {
-            0 => base,
-            n => format!("{base}, {}", pluriel(n, "refusée")),
-        };
-        match self.coupures {
-            0 => base,
-            n => format!("{base}, {}", pluriel(n, "coupure")),
-        }
-    }
-
     /// `41 min` ; `None` sans instants.
     fn duree(&self) -> Option<String> {
         let secondes = self.duree? / 1000;
@@ -933,10 +899,10 @@ impl Recu {
         })
     }
 
-    /// La ligne de `lydite etat` : `Coût : 0,84 $ estimé · 7 mains, 2 relances, 1 classée · 41 min`, sans la durée si
-    /// les instants manquent.
+    /// La ligne de `lydite etat` : `Cost: $0.84 estimated · 7 hands, 2 retries, 1 set aside · 41 min`, sans la durée
+    /// si les instants manquent.
     pub(crate) fn ligne(&self) -> String {
-        let mut parties = vec![format!("Coût : {}", self.cout()), self.mains()];
+        let mut parties = vec![format!("Cost: {}", self.cout_de_pr()), self.mains_de_pr()];
         parties.extend(self.duree());
         parties.join(" · ")
     }
@@ -987,12 +953,6 @@ impl Recu {
 /// Des micro-dollars en centimes, arrondis au centime.
 fn centimes(micro: u64) -> u64 {
     micro / 10_000 + u64::from(micro % 10_000 >= 5_000)
-}
-
-/// Des micro-dollars en dollars à la virgule, arrondis au centime : `0,84`.
-fn dollars(micro: u64) -> String {
-    let centimes = centimes(micro);
-    format!("{},{:02}", centimes / 100, centimes % 100)
 }
 
 /// Des micro-dollars en dollars au point, arrondis au centime : `0.84`.

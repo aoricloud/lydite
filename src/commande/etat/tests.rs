@@ -91,12 +91,12 @@ fn exemple() -> Vec<Evenement> {
 fn kraken_etat_affiche_la_derniere_vague() {
     let attendu = format!(
         "Écrire bonjour.txt\n\
-         main-{V2}-1 : prise\n\
-         main-{V2}-2 : prise déclarée, non prouvée\n\
-         main-{V2}-3 : classée : test salut ... FAILED\n\
-         main-{V2}-4 : en cours, tentative 2\n\
-         main-{V2}-5 : en attente\n\
-         Coût : inconnu · 6 mains, 2 relances, 1 classée\n\
+         main-{V2}-1 : taken\n\
+         main-{V2}-2 : taken, declared, not proven\n\
+         main-{V2}-3 : set aside: test salut ... FAILED\n\
+         main-{V2}-4 : running, attempt 2\n\
+         main-{V2}-5 : waiting\n\
+         Cost: unknown · 6 hands, 2 retries, 1 set aside\n\
          Effort: Claude Code's default"
     );
     assert_eq!(rendu(&etat(&exemple()), MAINTENANT), attendu);
@@ -212,18 +212,18 @@ fn kraken_etat_affiche_une_vague_a_plan() {
     .concat();
     let attendu = [
         "Dix tâches".to_string(),
-        format!("branche : lydite/vague-{V2} · preuve : cargo test"),
-        format!("main-{V2}-1 a : assemblée"),
+        format!("branch: lydite/vague-{V2} · proof: cargo test"),
+        format!("main-{V2}-1 a : assembled"),
         format!("main-{V2}-2 b : refusée (7007) : {}", Code::Conflit.regle()),
-        format!("main-{V2}-3 c : classée : test salut ... FAILED"),
+        format!("main-{V2}-3 c : set aside: test salut ... FAILED"),
         format!("main-{V2}-4 d : refusée (7011) : {}", Code::Sautee.regle()),
-        format!("main-{V2}-5 e : prise, en attente d'assemblage"),
-        format!("main-{V2}-6 f : sans nouvelles depuis 2026-10-31T21:59:00.000Z (déduit)"),
-        format!("main-{V2}-7 g : en cours, tentative 2"),
-        format!("main-{V2}-8 h : en attente de c"),
-        format!("main-{V2}-9 i : en attente"),
-        format!("main-{V2}-10 j : en attente de f, e"),
-        "Coût : inconnu · 8 mains, 2 relances, 1 classée, 2 refusées".to_string(),
+        format!("main-{V2}-5 e : taken, waiting to be assembled"),
+        format!("main-{V2}-6 f : no news since 2026-10-31T21:59:00.000Z (inferred)"),
+        format!("main-{V2}-7 g : running, attempt 2"),
+        format!("main-{V2}-8 h : waiting for c"),
+        format!("main-{V2}-9 i : waiting"),
+        format!("main-{V2}-10 j : waiting for f, e"),
+        "Cost: unknown · 8 hands, 2 retries, 1 set aside, 2 refused".to_string(),
         "Effort: Claude Code's default".to_string(),
     ];
     assert_eq!(rendu(&etat(&evenements), MAINTENANT), attendu.join("\n"));
@@ -234,7 +234,7 @@ fn kraken_etat_affiche_une_vague_a_plan() {
         vec![bail(V1, 1, 1, A_VENIR), debut(V1, 1, 1), fin(V1, 1, 1, ROUGE, "rouge"), verdict(V1, 1, CLASSEE)];
     let sans_fin_et_passee = vec![bail(V1, 1, 1, PASSEE), debut(V1, 1, 1)];
     let cas: Vec<(&str, Vec<Evenement>, String)> = vec![
-        ("la fusion l'emporte sur la prise", [prise_de(V1, 1), vec![fusion(V1, 1)]].concat(), "assemblée".into()),
+        ("la fusion l'emporte sur la prise", [prise_de(V1, 1), vec![fusion(V1, 1)]].concat(), "assembled".into()),
         (
             "le refus l'emporte sur la prise",
             [prise_de(V1, 1), vec![refus(V1, 1, Code::Conflit)]].concat(),
@@ -253,7 +253,7 @@ fn kraken_etat_affiche_une_vague_a_plan() {
         (
             "le verdict l'emporte sur le silence",
             [sans_fin_et_passee, vec![verdict(V1, 1, PRISE)]].concat(),
-            "prise, en attente d'assemblage".into(),
+            "taken, waiting to be assembled".into(),
         ),
         (
             "le dernier mot est au refus",
@@ -263,7 +263,7 @@ fn kraken_etat_affiche_une_vague_a_plan() {
         (
             "le dernier mot est à la fusion",
             [prise_de(V1, 1), vec![refus(V1, 1, Code::GitImpossible), fusion(V1, 1)]].concat(),
-            "assemblée".into(),
+            "assembled".into(),
         ),
         (
             "un verdict déclaré porte son mot",
@@ -273,9 +273,9 @@ fn kraken_etat_affiche_une_vague_a_plan() {
                 fin(V1, 1, 1, VERTE_DECLAREE, "fait\nPREUVE: vert"),
                 verdict(V1, 1, PRISE_DECLAREE),
             ],
-            "prise déclarée, non prouvée, en attente d'assemblage".into(),
+            "taken, declared, not proven, waiting to be assembled".into(),
         ),
-        ("rien n'a commencé", vec![], "en attente".into()),
+        ("rien n'a commencé", vec![], "waiting".into()),
     ];
     for (quoi, evenements, attendu) in cas {
         assert_eq!(etat_de_t(&evenements), attendu, "{quoi}");
@@ -287,7 +287,7 @@ fn une_main_sans_nouvelles_n_est_jamais_dite_expiree() {
     // L'heure est 22:00:00.000. Une tentative sans fin dont l'échéance est atteinte : Kraken ne sait rien de sa
     // main, il a pu s'arrêter. Il le déduit, le dit, et ne la dit pas expirée. L'échéance se dit à la milliseconde.
     let tentative = |echeance: &str| vec![bail(V1, 1, 1, echeance), debut(V1, 1, 1)];
-    let sans_nouvelles = |depuis: &str| format!("sans nouvelles depuis {depuis} (déduit)");
+    let sans_nouvelles = |depuis: &str| format!("no news since {depuis} (inferred)");
     let cas = [
         // Passée d'une milliseconde, d'une seconde, d'un jour.
         ("2026-10-31T21:59:59.999Z", sans_nouvelles("2026-10-31T21:59:59.999Z")),
@@ -297,9 +297,9 @@ fn une_main_sans_nouvelles_n_est_jamais_dite_expiree() {
         ("2026-10-31T22:00:00.000Z", sans_nouvelles("2026-10-31T22:00:00.000Z")),
         ("2026-10-31T22:00:00Z", sans_nouvelles("2026-10-31T22:00:00.000Z")),
         // À venir d'une milliseconde, d'une demi-seconde, d'une seconde.
-        ("2026-10-31T22:00:00.001Z", "en cours, tentative 1".to_string()),
-        ("2026-10-31T22:00:00.5Z", "en cours, tentative 1".to_string()),
-        ("2026-10-31T22:00:01Z", "en cours, tentative 1".to_string()),
+        ("2026-10-31T22:00:00.001Z", "running, attempt 1".to_string()),
+        ("2026-10-31T22:00:00.5Z", "running, attempt 1".to_string()),
+        ("2026-10-31T22:00:01Z", "running, attempt 1".to_string()),
     ];
     for (echeance, attendu) in cas {
         let dit = etat_de_t(&tentative(echeance));
@@ -311,12 +311,12 @@ fn une_main_sans_nouvelles_n_est_jamais_dite_expiree() {
         let premiere = [bail(V1, 1, 1, PASSEE), debut(V1, 1, 1), fin(V1, 1, 1, ROUGE, "rouge")];
         [&premiere[..], &[bail(V1, 1, 2, echeance), debut(V1, 1, 2)]].concat()
     };
-    assert_eq!(etat_de_t(&relancee(A_VENIR)), "en cours, tentative 2");
+    assert_eq!(etat_de_t(&relancee(A_VENIR)), "running, attempt 2");
     assert_eq!(etat_de_t(&relancee("2026-10-31T21:59:59.999Z")), sans_nouvelles("2026-10-31T21:59:59.999Z"));
     // Une tentative qui a fini n'est pas sans nouvelles, son échéance fût-elle passée ; sans bail, rien à déduire.
     let finie = [bail(V1, 1, 1, PASSEE), debut(V1, 1, 1), fin(V1, 1, 1, VERTE, "fait")];
-    assert_eq!(etat_de_t(&finie), "en cours, tentative 1");
-    assert_eq!(etat_de_t(&[debut(V1, 1, 1)]), "en cours, tentative 1");
+    assert_eq!(etat_de_t(&finie), "running, attempt 1");
+    assert_eq!(etat_de_t(&[debut(V1, 1, 1)]), "running, attempt 1");
     // Quand la vague a expiré la main elle-même, elle l'a noté : c'est son refus (7004), pas une déduction.
     let expiree = etat_de_t(&[bail(V1, 1, 1, PASSEE), debut(V1, 1, 1), refus(V1, 1, Code::MainExpiree)]);
     assert_eq!(expiree, format!("refusée (7004) : {}", Code::MainExpiree.regle()));
@@ -348,13 +348,13 @@ fn des_copies_refusees_ou_sans_nouvelles_le_disent() {
     .concat();
     let attendu = [
         "Écrire bonjour.txt".to_string(),
-        format!("main-{V1}-1 : sans nouvelles depuis 2026-10-31T21:59:00.000Z (déduit)"),
+        format!("main-{V1}-1 : no news since 2026-10-31T21:59:00.000Z (inferred)"),
         format!("main-{V1}-2 : refusée (7005) : {}", Code::MainTuee.regle()),
-        format!("main-{V1}-3 : en cours, tentative 1"),
-        format!("main-{V1}-4 : prise"),
-        format!("main-{V1}-5 : prise"),
-        format!("main-{V1}-6 : en attente"),
-        "Coût : inconnu · 5 mains, 0 relance, 1 classée, 1 refusée".to_string(),
+        format!("main-{V1}-3 : running, attempt 1"),
+        format!("main-{V1}-4 : taken"),
+        format!("main-{V1}-5 : taken"),
+        format!("main-{V1}-6 : waiting"),
+        "Cost: unknown · 5 hands, 0 retries, 1 set aside, 1 refused".to_string(),
         "Effort: Claude Code's default".to_string(),
     ];
     assert_eq!(rendu(&etat(&evenements), MAINTENANT), attendu.join("\n"));
@@ -481,14 +481,14 @@ fn kraken_etat_dit_le_mur() {
     ];
     let attendu = format!(
         "Écrire bonjour.txt\n\
-         main-{V2}-1 : prise · mur actif (constaté)\n\
-         main-{V2}-2 : prise · mur inactif (constaté)\n\
-         main-{V2}-3 : classée : main : réglages non pris · mur exigé (déclaré)\n\
-         main-{V2}-4 : en cours, tentative 1 · mur demandé, non exigé (déclaré)\n\
-         main-{V2}-5 : prise\n\
-         main-{V2}-6 : en cours, tentative 2 · mur demandé, non exigé (déclaré)\n\
-         main-{V2}-7 : en cours, tentative 2\n\
-         Coût : inconnu · 9 mains, 2 relances, 1 classée\n\
+         main-{V2}-1 : taken · wall active (observed)\n\
+         main-{V2}-2 : taken · wall inactive (observed)\n\
+         main-{V2}-3 : set aside: main : réglages non pris · wall required (declared)\n\
+         main-{V2}-4 : running, attempt 1 · wall requested, not required (declared)\n\
+         main-{V2}-5 : taken\n\
+         main-{V2}-6 : running, attempt 2 · wall requested, not required (declared)\n\
+         main-{V2}-7 : running, attempt 2\n\
+         Cost: unknown · 9 hands, 2 retries, 1 set aside\n\
          Effort: Claude Code's default"
     );
     let vagues = etat(&evenements);
@@ -496,16 +496,16 @@ fn kraken_etat_dit_le_mur() {
     // La fonction à part, pour qui rend d'autres lignes : rien sans main, et un constat sans lancement se dit.
     let main = |n| vagues[0].mains.get(&n);
     assert_eq!(mot_du_mur(None), "");
-    assert_eq!(mot_du_mur(main(1)), " · mur actif (constaté)");
+    assert_eq!(mot_du_mur(main(1)), " · wall active (observed)");
     assert_eq!(mot_du_mur(main(5)), "");
     let seul = etat(&[constat(V1, 1, 1, Some(false))]);
-    assert_eq!(mot_du_mur(seul[0].mains.get(&1)), " · mur inactif (constaté)");
+    assert_eq!(mot_du_mur(seul[0].mains.get(&1)), " · wall inactive (observed)");
     // La ligne d'une tâche de vague à plan finit par le même mot, par la même fonction : son état d'abord.
     let lancee = [bail(V1, 1, 1, A_VENIR), debut(V1, 1, 1), lancement(V1, 1, 1, Exige)];
-    assert_eq!(etat_de_t(&lancee), "en cours, tentative 1 · mur exigé (déclaré)");
+    assert_eq!(etat_de_t(&lancee), "running, attempt 1 · wall required (declared)");
     let assemblee = [constat(V1, 1, 1, Some(true)), fin(V1, 1, 1, VERTE, "fait"), verdict(V1, 1, PRISE)];
     let assemblee = [&lancee[..], &assemblee[..], &[fusion(V1, 1)]].concat();
-    assert_eq!(etat_de_t(&assemblee), "assemblée · mur actif (constaté)");
+    assert_eq!(etat_de_t(&assemblee), "assembled · wall active (observed)");
 }
 
 /// Le sha de la tête que la forge pousse dans ces tests, et l'adresse de la PR 12 qu'elle ouvre.
@@ -545,8 +545,8 @@ fn assemblees(vague: &str, objectif: &str, ids: &[&str]) -> (Vec<Evenement>, Str
     let mut notes = vec![ouverture(vague, ids.len(), objectif), assemblage(vague)];
     notes.extend((1..).zip(ids).map(|(main, id)| tache(vague, main, id, &[])));
     notes.extend((1..=ids.len()).map(|main| fusion(vague, main)));
-    let lignes: String = (1..).zip(ids).map(|(main, id)| format!("\nmain-{vague}-{main} {id} : assemblée")).collect();
-    let texte = format!("{objectif}\nbranche : lydite/vague-{vague} · preuve : cargo test{lignes}");
+    let lignes: String = (1..).zip(ids).map(|(main, id)| format!("\nmain-{vague}-{main} {id} : assembled")).collect();
+    let texte = format!("{objectif}\nbranch: lydite/vague-{vague} · proof: cargo test{lignes}");
     (notes, texte)
 }
 
@@ -568,7 +568,7 @@ fn etat_du_fil(evenements: &[Evenement]) -> (String, ExitCode) {
     // Les lignes de reçu de chaque vague (le coût, l'effort) ont leurs propres essais : ici, le reste du texte.
     let texte = rendu(&etat(&lus), MAINTENANT);
     let sans_recu: Vec<&str> =
-        texte.lines().filter(|ligne| !ligne.starts_with("Coût : ") && !ligne.starts_with("Effort: ")).collect();
+        texte.lines().filter(|ligne| !ligne.starts_with("Cost: ") && !ligne.starts_with("Effort: ")).collect();
     (sans_recu.join("\n"), code)
 }
 
@@ -582,25 +582,25 @@ fn kraken_etat_dit_la_pr_et_sa_ci() {
     // Chaque cas : les notes de forge qui suivent les deux tâches assemblées, les lignes que `lydite etat` ajoute à
     // leur texte, et son code. Seule une CI verte constatée, sans refus de forge, donne 0.
     let cas = [
-        ("PR verte", [ouverte(), vec![verte()]].concat(), vec![ligne_pr("CI verte (constatée)")], ExitCode::SUCCESS),
+        ("PR verte", [ouverte(), vec![verte()]].concat(), vec![ligne_pr("CI green (observed)")], ExitCode::SUCCESS),
         (
             "PR rouge",
             [ouverte(), vec![ci(V1, Couleur::Rouge, Foi::Constate)]].concat(),
-            vec![ligne_pr("CI rouge (constatée)")],
+            vec![ligne_pr("CI red (observed)")],
             ExitCode::FAILURE,
         ),
-        ("CI en attente", ouverte(), vec![ligne_pr("CI en attente")], ExitCode::FAILURE),
+        ("CI en attente", ouverte(), vec![ligne_pr("CI pending")], ExitCode::FAILURE),
         ("refusée en forge, sans PR", vec![refus_de_forge(V1, 8005)], vec![refusee(8005)], ExitCode::FAILURE),
         (
             "refusée en forge, la CI muette",
             [ouverte(), vec![refus_de_forge(V1, 8008)]].concat(),
-            vec![ligne_pr("CI en attente"), refusee(8008)],
+            vec![ligne_pr("CI pending"), refusee(8008)],
             ExitCode::FAILURE,
         ),
         (
             "refusée en forge, malgré sa CI verte",
             [ouverte(), vec![verte(), refus_de_forge(V1, 8010)]].concat(),
-            vec![ligne_pr("CI verte (constatée)"), refusee(8010)],
+            vec![ligne_pr("CI green (observed)"), refusee(8010)],
             ExitCode::FAILURE,
         ),
         ("poussée seule, sans PR", vec![poussee(V1, &branche)], vec![], ExitCode::FAILURE),
@@ -628,7 +628,7 @@ fn kraken_etat_ne_dit_pas_comme_un_fait_une_pr_declaree() {
     let verte_declaree = vec![ci(V1, Couleur::Vert, Foi::Declare)];
     let (dit, code) = etat_du_fil(&[taches, constatee, verte_declaree].concat());
     assert_eq!(code, ExitCode::FAILURE);
-    assert_eq!(dit, format!("{texte}\nPR 12 · {URL_DE_LA_PR} · CI rouge (constatée)"));
+    assert_eq!(dit, format!("{texte}\nPR 12 · {URL_DE_LA_PR} · CI red (observed)"));
 }
 
 #[test]
@@ -646,7 +646,7 @@ fn kraken_etat_montre_la_vague_relancee_avant_sa_relance() {
     let fil = [ancienne.clone(), relancee.clone(), ouverte.clone(), relance.clone(), suite].concat();
     // La vague relancée d'abord, puis sa relance ; la vague plus ancienne n'est pas montrée. Les deux sont menées à
     // bout, et la dernière CI est verte : le code est 0.
-    let (rouge, verte) = (ligne_pr("CI rouge (constatée)"), ligne_pr("CI verte (constatée)"));
+    let (rouge, verte) = (ligne_pr("CI red (observed)"), ligne_pr("CI green (observed)"));
     let attendu = format!("{texte_relancee}\n{rouge}\n\n{texte_relance}\n{verte}");
     assert_eq!(etat_du_fil(&fil), (attendu, ExitCode::SUCCESS));
     // Le lien vient de la branche que la PR nomme, pas de l'ordre du fil : une vague qui pousse la sienne ne relance
@@ -656,7 +656,7 @@ fn kraken_etat_montre_la_vague_relancee_avant_sa_relance() {
     assert_eq!(etat_du_fil(&fil), (format!("{texte_relance}\n{verte}"), ExitCode::SUCCESS));
     // De même, une relance dont le fil ne porte pas la vague relancée se montre seule, sa CI en attente.
     let seule = [ancienne, relance.clone(), vec![poussee(V2, &v1), pr(V2, &v1, Foi::Constate)]].concat();
-    assert_eq!(etat_du_fil(&seule), (format!("{texte_relance}\n{}", ligne_pr("CI en attente")), ExitCode::FAILURE));
+    assert_eq!(etat_du_fil(&seule), (format!("{texte_relance}\n{}", ligne_pr("CI pending")), ExitCode::FAILURE));
     // Rouge encore : la CI de la relance est rouge, et la vague relancée a le refus 8011 (une seule relance).
     let encore = vec![poussee(V2, &v1), pr(V2, &v1, Foi::Constate), ci(V2, Couleur::Rouge, Foi::Constate)];
     let fil = [relancee, ouverte.clone(), vec![refus_de_forge(V1, 8011)], relance.clone(), encore].concat();
@@ -736,7 +736,7 @@ fn correction_de_la(corrige: &str, issue: Evenement) -> Vec<Evenement> {
 
 /// La ligne que `lydite etat` dit d'un découpage qui a pris un plan de `taches` tâches.
 fn ligne_du_decoupage_pris(taches: usize) -> String {
-    format!("Découpage : {taches} tâches · main-{DECOUPAGE}-1 · prise (constatée)")
+    format!("Split: {taches} tasks · main-{DECOUPAGE}-1 · taken (observed)")
 }
 
 #[test]
@@ -753,32 +753,32 @@ fn kraken_etat_dit_la_chaine_d_une_vague_decoupee() {
     assert_eq!(etat_du_fil(&observe), (ligne_du_decoupage_pris(3), ExitCode::SUCCESS));
     // Un découpage classé : il se dit comme une vague de copies, sa main classée, et le code est 1.
     let attendu =
-        format!("Découper l'objectif\nmain-{DECOUPAGE}-1 : classée : 6021 : le plan ne contient aucune tâche");
+        format!("Découper l'objectif\nmain-{DECOUPAGE}-1 : set aside: 6021 : le plan ne contient aucune tâche");
     assert_eq!(etat_du_fil(&decoupeur_classe()), (attendu, ExitCode::FAILURE));
     // Relue, sans remarque bloquante : la ligne de la relecture suit les tâches, le relecteur ne se montre pas, et le
     // code est 0.
     let sans_bloquante = [decoupee.clone(), relecture_rendue(V1, 2, 0)].concat();
-    let ligne = "Relecture : 2 remarques, dont 0 bloquantes".to_string();
+    let ligne = "Review: 2 remarks, 0 blocking".to_string();
     assert_eq!(etat_du_fil(&sans_bloquante), (dit(&[ligne]), ExitCode::SUCCESS));
     // Relue, corrigée : la correction suit la relecture, et le code est 0.
     let corrigee = correction_de_la(V1, fusion(CORRECTION, 1));
     let corrigee = [decoupee.clone(), relecture_rendue(V1, 3, 1), corrigee].concat();
     let lignes = [
-        "Relecture : 3 remarques, dont 1 bloquantes".to_string(),
-        format!("Correction : main-{CORRECTION}-1 correction : assemblée"),
+        "Review: 3 remarks, 1 blocking".to_string(),
+        format!("Correction: main-{CORRECTION}-1 correction : assembled"),
     ];
     assert_eq!(etat_du_fil(&corrigee), (dit(&lignes), ExitCode::SUCCESS));
     // Une correction non assemblée : sa ligne dit son refus, et le code est 1.
     let refusee = correction_de_la(V1, refus(CORRECTION, 1, Code::PreuveRouge));
     let refusee = [decoupee.clone(), relecture_rendue(V1, 3, 1), refusee].concat();
     let lignes = [
-        "Relecture : 3 remarques, dont 1 bloquantes".to_string(),
-        format!("Correction : main-{CORRECTION}-1 correction : refusée (7008) : {}", Code::PreuveRouge.regle()),
+        "Review: 3 remarks, 1 blocking".to_string(),
+        format!("Correction: main-{CORRECTION}-1 correction : refusée (7008) : {}", Code::PreuveRouge.regle()),
     ];
     assert_eq!(etat_du_fil(&refusee), (dit(&lignes), ExitCode::FAILURE));
     // Des remarques bloquantes sans correction : le code est 1.
     let sans_correction = [decoupee.clone(), relecture_rendue(V1, 1, 1)].concat();
-    let ligne = "Relecture : 1 remarques, dont 1 bloquantes".to_string();
+    let ligne = "Review: 1 remarks, 1 blocking".to_string();
     assert_eq!(etat_du_fil(&sans_correction), (dit(&[ligne]), ExitCode::FAILURE));
     // Une relecture classée n'a rien rendu, mais le fil la lie à la vague relue (`vague.relecteur`) : la vague relue
     // dit sa relecture classée, puis le refus 7016 de sa forge, et le code est 1.
@@ -788,25 +788,25 @@ fn kraken_etat_dit_la_chaine_d_une_vague_decoupee() {
     let liee = [decoupee.clone(), vec![ouverte.clone(), lien()], rouge.clone(), vec![refus_de_forge(V1, 7016)]];
     let refus = fil::refus_en_clair(7016, "Une règle de l'essai.", "preuve 7016", "Corrige.");
     let ligne = refus.lines().next().unwrap().to_string();
-    let lignes = [format!("Relecture : main-{RELECTURE}-1 · classée (7016) : rouge"), ligne];
+    let lignes = [format!("Review: main-{RELECTURE}-1 · set aside (7016): rouge"), ligne];
     assert_eq!(etat_du_fil(&liee.concat()), (dit(&lignes), ExitCode::FAILURE));
     // Un relecteur lié, pris, qui n'a rendu aucune relecture, puis un refus 7012 de la forge : la relecture n'est pas
     // dite classée, mais où en est sa main, puis le refus, et le code est 1.
     let prise =
         [decoupee.clone(), vec![ouverte.clone(), lien()], prise_de(RELECTURE, 1), vec![refus_de_forge(V1, 7012)]];
     let refus = fil::refus_en_clair(7012, "Une règle de l'essai.", "preuve 7012", "Corrige.");
-    let lignes = [format!("Relecture : main-{RELECTURE}-1 · prise"), refus.lines().next().unwrap().to_string()];
+    let lignes = [format!("Review: main-{RELECTURE}-1 · taken"), refus.lines().next().unwrap().to_string()];
     assert_eq!(etat_du_fil(&prise.concat()), (dit(&lignes), ExitCode::FAILURE));
     // Sans le refus de la forge, le code reste 1 : la vague n'a pas été relue.
     let sans_refus = [decoupee.clone(), vec![ouverte.clone(), lien()], rouge.clone()].concat();
     assert_eq!(
         etat_du_fil(&sans_refus),
-        (dit(&[format!("Relecture : main-{RELECTURE}-1 · classée (7016) : rouge")]), ExitCode::FAILURE)
+        (dit(&[format!("Review: main-{RELECTURE}-1 · set aside (7016): rouge")]), ExitCode::FAILURE)
     );
     // Un fil d'avant le lien : la relecture classée se dit comme une vague de copies, classée, et le code est 1. Le
     // refus 7016, que la forge note sur la vague relue, n'est pas montré.
     let (dit, code) = etat_du_fil(&[decoupee, vec![ouverte], rouge].concat());
-    assert_eq!((dit.as_str(), code), (&*format!("Relire\nmain-{RELECTURE}-1 : classée : rouge"), ExitCode::FAILURE));
+    assert_eq!((dit.as_str(), code), (&*format!("Relire\nmain-{RELECTURE}-1 : set aside: rouge"), ExitCode::FAILURE));
 }
 
 #[test]
@@ -828,13 +828,13 @@ fn kraken_etat_dit_la_chaine_d_une_vague_decoupee_poussee_puis_relancee_en_ci() 
         pousse_v1,
     ]
     .concat();
-    let rouge = format!("PR 12 · {URL_DE_LA_PR} · CI rouge (constatée)");
-    let verte = format!("PR 12 · {URL_DE_LA_PR} · CI verte (constatée)");
+    let rouge = format!("PR 12 · {URL_DE_LA_PR} · CI red (observed)");
+    let verte = format!("PR 12 · {URL_DE_LA_PR} · CI green (observed)");
     let attendu = [
         ligne_du_decoupage_pris(2),
         texte,
-        "Relecture : 1 remarques, dont 1 bloquantes".to_string(),
-        format!("Correction : main-{CORRECTION}-1 correction : assemblée"),
+        "Review: 1 remarks, 1 blocking".to_string(),
+        format!("Correction: main-{CORRECTION}-1 correction : assembled"),
         rouge.clone(),
         String::new(),
         texte_relance,
@@ -858,17 +858,17 @@ fn kraken_etat_ne_dit_pas_comme_un_fait_un_decoupage_qu_il_n_a_pas_lu() {
     let jouee = |decoupage: Vec<Evenement>| [decoupage, plan.clone(), vec![joue(V1)]].concat();
     // Un découpage dont la main n'a qu'une prise déclarée : sa ligne porte son mot, et le code n'est pas 0.
     let declaree = jouee([decoupeur_pris(PRISE_DECLAREE), vec![plan_pris(2)]].concat());
-    let ligne = format!("Découpage : 2 tâches · main-{DECOUPAGE}-1 · prise déclarée, non prouvée");
+    let ligne = format!("Split: 2 tasks · main-{DECOUPAGE}-1 · taken, declared, not proven");
     assert_eq!(etat_du_fil(&declaree), (format!("{ligne}\n{texte}"), ExitCode::FAILURE));
     // Un découpage qui n'a pas de plan au fil, ou que le fil ne porte pas : la ligne le dit, le code n'est pas 0.
     let sans_plan = jouee(decoupeur_pris(PRISE));
-    let ligne = format!("Découpage : {DECOUPAGE} · sans plan au fil");
+    let ligne = format!("Split: {DECOUPAGE} · no plan in the thread");
     assert_eq!(etat_du_fil(&sans_plan), (format!("{ligne}\n{texte}"), ExitCode::FAILURE));
-    let ligne = format!("Découpage : {DECOUPAGE} · absent du fil");
+    let ligne = format!("Split: {DECOUPAGE} · not in the thread");
     assert_eq!(etat_du_fil(&jouee(vec![])), (format!("{ligne}\n{texte}"), ExitCode::FAILURE));
     // Un découpage encore en cours : sa main n'a pas fini.
     let en_cours = jouee(vec![ouverture(DECOUPAGE, 1, "Découper"), debut(DECOUPAGE, 1, 1), plan_pris(2)]);
-    let ligne = format!("Découpage : 2 tâches · main-{DECOUPAGE}-1 · en cours, tentative 1");
+    let ligne = format!("Split: 2 tasks · main-{DECOUPAGE}-1 · running, attempt 1");
     assert_eq!(etat_du_fil(&en_cours), (format!("{ligne}\n{texte}"), ExitCode::FAILURE));
 }
 
@@ -884,7 +884,7 @@ fn kraken_etat_suit_ses_liens_sans_boucler() {
     let seule = [ouverture(a, 1, "A"), assemblage(a), tache(a, 1, "x", &[]), fusion(a, 1), corrige(a, "inconnue")];
     let (dit, code) = etat_du_fil(&seule);
     assert_eq!(code, ExitCode::SUCCESS, "{dit}");
-    assert!(dit.starts_with("A\nbranche : ") && dit.ends_with("x : assemblée"), "{dit}");
+    assert!(dit.starts_with("A\nbranch: ") && dit.ends_with("x : assembled"), "{dit}");
     // Deux relectures qui se relisent l'une l'autre : de même, sans boucle.
     let relit = |vague: &str, relue: &str| Evenement::Relecture {
         vague: vague.into(),
@@ -905,7 +905,7 @@ fn kraken_etat_remonte_toutes_les_relances() {
     let (c, texte_c) = assemblees(V2, "Seconde relance", &["c"]);
     let (v0, v1) = (branche_de(V0), branche_de(V1));
     let ligne_pr = |ci: &str| format!("PR 12 · {URL_DE_LA_PR} · {ci}");
-    let (rouge, verte) = (ligne_pr("CI rouge (constatée)"), ligne_pr("CI verte (constatée)"));
+    let (rouge, verte) = (ligne_pr("CI red (observed)"), ligne_pr("CI green (observed)"));
     let rouge_dans = |vague: &str, branche: &str| {
         vec![poussee(vague, branche), pr(vague, branche, Foi::Constate), ci(vague, Couleur::Rouge, Foi::Constate)]
     };
@@ -936,18 +936,18 @@ fn kraken_etat_dit_le_fournisseur_declare() {
     };
     let lancee = [bail(V1, 1, 1, A_VENIR), debut(V1, 1, 1), lancement(V1, 1, 1, Exige)];
     let seul = [&lancee[..], &[fournisseur(1, "api.deepseek.com")]].concat();
-    let dit = " · mur exigé (déclaré) · fournisseur api.deepseek.com (déclaré)";
-    assert_eq!(etat_de_t(&seul), format!("en cours, tentative 1{dit}"));
+    let dit = " · wall required (declared) · provider api.deepseek.com (declared)";
+    assert_eq!(etat_de_t(&seul), format!("running, attempt 1{dit}"));
     let fin_prise = [constat(V1, 1, 1, Some(true)), fin(V1, 1, 1, VERTE, "fait"), verdict(V1, 1, PRISE), fusion(V1, 1)];
     let assemblee = [&seul[..], &fin_prise[..]].concat();
-    let dit = " · mur actif (constaté) · fournisseur api.deepseek.com (déclaré)";
-    assert_eq!(etat_de_t(&assemblee), format!("assemblée{dit}"));
+    let dit = " · wall active (observed) · provider api.deepseek.com (declared)";
+    assert_eq!(etat_de_t(&assemblee), format!("assembled{dit}"));
     // Sans `main.fournisseur`, la ligne est celle d'avant M5 ; la seconde tentative n'hérite pas de la première.
-    assert_eq!(etat_de_t(&lancee), "en cours, tentative 1 · mur exigé (déclaré)");
+    assert_eq!(etat_de_t(&lancee), "running, attempt 1 · wall required (declared)");
     let relancee = [&seul[..], &[fin(V1, 1, 1, ROUGE, "rouge"), bail(V1, 1, 2, A_VENIR), debut(V1, 1, 2)]].concat();
-    assert_eq!(etat_de_t(&relancee), "en cours, tentative 2");
+    assert_eq!(etat_de_t(&relancee), "running, attempt 2");
     let autre = [&relancee[..], &[fournisseur(2, "localhost:8443")]].concat();
-    assert_eq!(etat_de_t(&autre), "en cours, tentative 2 · fournisseur localhost:8443 (déclaré)");
+    assert_eq!(etat_de_t(&autre), "running, attempt 2 · provider localhost:8443 (declared)");
     // La fonction à part : rien sans main.
     assert_eq!(mot_du_fournisseur(None), "");
 }
@@ -1100,8 +1100,8 @@ fn un_fil_reecrit_avec_ses_sceaux_refaits_ne_se_voit_pas() {
 fn un_fil_absent_est_aucune_vague() {
     let dossier = env::temp_dir().join(format!("lydite-test-etat-{}", lot()));
     assert_eq!(crate::branchements::dossier::lire(&dossier), Ok(Lecture::default()));
-    assert_eq!(aucune_vague(&dossier), "aucune vague");
-    assert_eq!(rendu(&[], MAINTENANT), "aucune vague");
+    assert_eq!(aucune_vague(&dossier), "no wave");
+    assert_eq!(rendu(&[], MAINTENANT), "no wave");
     // Sans vague, rien n'est affirmé : le code 0, comme en M1.
     assert_eq!(etat_dans(&dossier), Ok(ExitCode::SUCCESS));
     assert!(!dossier.exists(), "lydite etat ne crée rien");
@@ -1114,7 +1114,7 @@ fn un_fil_de_m1_seul_est_dit() {
     let m1 = dossier.join("fil");
     let ancien = "1761901200000\tvague\t1761901200000\t1\t/srv/depot\t\tÉcrire bonjour.txt\n";
     fs::write(&m1, ancien).unwrap();
-    let attendu = format!("aucune vague au fil v2 ; le fil de M1 n'est plus lu : {}", m1.display());
+    let attendu = format!("no wave in the v2 thread; the M1 thread is no longer read: {}", m1.display());
     assert_eq!(aucune_vague(&dossier), attendu);
     assert_eq!(etat_dans(&dossier), Ok(ExitCode::SUCCESS));
     // Un fil v2 sans vague, le type d'une autre pièce seul : le fil de M1 est encore dit.
@@ -1146,7 +1146,8 @@ fn un_declare_ne_s_affiche_jamais_comme_un_fait() {
     .pop()
     .unwrap();
     let lignes: Vec<String> = (1..=4).map(|n| etat_de(vague.mains.get(&n), None, MAINTENANT)).collect();
-    let attendu = ["prise", "prise déclarée, non prouvée", "classée : rouge", "classée déclarée, non prouvée : rouge"];
+    let attendu =
+        ["taken", "taken, declared, not proven", "set aside: rouge", "set aside, declared, not proven: rouge"];
     assert_eq!(lignes, attendu);
     // `lancer` : une prise déclarée porte son mot, une constatée s'affiche seule.
     let pris = |prouve| -> Result<Pris, String> { Ok(Pris { sortie: "fait".into(), prouve }) };
@@ -1184,7 +1185,7 @@ fn kraken_etat_ne_panique_pas_sur_un_nombre_demesure() {
     assert_eq!(
         rendu(&etat(&evenements), MAINTENANT),
         format!(
-            "deux mains\nmain-{V1}-1 : prise\nmain-{V1}-2 : prise\nCoût : inconnu · 0 main, 0 relance, 0 classée\n\
+            "deux mains\nmain-{V1}-1 : taken\nmain-{V1}-2 : taken\nCost: unknown · 0 hands, 0 retries, 0 set aside\n\
              Effort: Claude Code's default"
         ),
     );
@@ -1291,10 +1292,10 @@ fn le_recu_de_kraken_etat_somme_les_usages_meles_la_vague_et_ses_vagues_liees() 
     let vagues = etat(&evenements);
     let texte = rendu_avec(&vagues, &notes, MAINTENANT);
     let derniere = sans_la_ligne_d_effort(&texte).lines().last().unwrap();
-    assert_eq!(derniere, "Coût : 1,84 $ estimé + inconnu · 4 mains, 1 relance, 1 classée · 41 min", "{texte}");
-    assert_eq!(texte.lines().filter(|ligne| ligne.starts_with("Coût")).count(), 1, "{texte}");
+    assert_eq!(derniere, "Cost: $1.84 estimated + unknown · 4 hands, 1 retry, 1 set aside · 41 min", "{texte}");
+    assert_eq!(texte.lines().filter(|ligne| ligne.starts_with("Cost")).count(), 1, "{texte}");
 
-    // Tout au forfait : « forfait, ≈ … $ », sans « estimé » ni « inconnu » ; sans notes lues, pas de durée.
+    // Tout au forfait : « subscription, ≈ $… », sans « estimated » ni « unknown » ; sans notes lues, pas de durée.
     let evenements = [
         ouverture(V2, 1, "Une main"),
         debut(V2, 1, 1),
@@ -1306,20 +1307,20 @@ fn le_recu_de_kraken_etat_somme_les_usages_meles_la_vague_et_ses_vagues_liees() 
     let texte = rendu_avec(&etat(&evenements), &notes, MAINTENANT);
     assert_eq!(
         sans_la_ligne_d_effort(&texte).lines().last().unwrap(),
-        "Coût : forfait, ≈ 0,25 $ · 1 main, 0 relance, 0 classée · 30 s",
+        "Cost: subscription, ≈ $0.25 · 1 hand, 0 retries, 0 set aside · 30 s",
         "{texte}"
     );
     // Sans les notes, le fil rejoué ne dit ni usage ni durée : le coût est inconnu.
     let texte = rendu(&etat(&evenements), MAINTENANT);
     let cout = sans_la_ligne_d_effort(&texte).lines().last().unwrap();
-    assert_eq!(cout, "Coût : inconnu · 1 main, 0 relance, 0 classée", "{texte}");
+    assert_eq!(cout, "Cost: unknown · 1 hand, 0 retries, 0 set aside", "{texte}");
 
-    // Rien que de l'inconnu : le coût est inconnu, sans « + inconnu ».
+    // Rien que de l'inconnu : le coût est inconnu, sans « + unknown ».
     let evenements = [ouverture(V2, 1, "Une main"), debut(V2, 1, 1), usage(V2, 0, fil::Base::Inconnu)];
     let notes = notes_de(&evenements, "2026-10-31T21:00:00.000Z", "2026-10-31T21:02:00.000Z");
     let texte = rendu_avec(&etat(&evenements), &notes, MAINTENANT);
     assert!(
-        sans_la_ligne_d_effort(&texte).ends_with("\nCoût : inconnu · 1 main, 0 relance, 0 classée · 2 min"),
+        sans_la_ligne_d_effort(&texte).ends_with("\nCost: unknown · 1 hand, 0 retries, 0 set aside · 2 min"),
         "{texte}"
     );
 
@@ -1328,7 +1329,7 @@ fn le_recu_de_kraken_etat_somme_les_usages_meles_la_vague_et_ses_vagues_liees() 
     let notes = notes_de(&sans, "2026-10-31T21:00:00.000Z", "2026-10-31T21:00:30.000Z");
     let texte = rendu_avec(&etat(&sans), &notes, MAINTENANT);
     let cout = sans_la_ligne_d_effort(&texte).lines().last().unwrap();
-    assert_eq!(cout, "Coût : inconnu · 1 main, 0 relance, 0 classée · 30 s", "{texte}");
+    assert_eq!(cout, "Cost: unknown · 1 hand, 0 retries, 0 set aside · 30 s", "{texte}");
 }
 
 /// Le texte sans sa dernière ligne : le reçu de `lydite etat` finit par le coût, puis par l'effort.
@@ -1405,7 +1406,7 @@ fn le_recu_de_kraken_etat_dit_la_mesure_sur_une_ligne_a_part_quand_un_reglage_es
         let notes = notes_de(&evenements, "2026-10-31T21:00:00.000Z", "2026-10-31T21:00:30.000Z");
         rendu_avec(&etat(&evenements), &notes, MAINTENANT)
     };
-    let cout = "Coût : inconnu · 1 main, 0 relance, 0 classée · 30 s";
+    let cout = "Cost: unknown · 1 hand, 0 retries, 0 set aside · 30 s";
     // Une vraie vague ne porte aucune ligne de mesure.
     let effort = "Effort: hand: Claude Code's default";
     let vraie = rendu_de("");
@@ -1524,7 +1525,7 @@ fn un_dossier_tenu_puis_libre_sans_note_de_plus_sur_une_vague_sans_sceau_rend_1(
     let code = attendre_ecrivant(&dossier, 0, &mut || lacher(lancement.take().unwrap(), &dossier), &mut erreur);
     assert_eq!(code, Ok(ExitCode::FAILURE));
     let erreur = String::from_utf8(erreur).unwrap();
-    assert!(erreur.contains("sceau de fin") && !erreur.contains(SANS_VAGUE), "{erreur}");
+    assert!(erreur.contains("closing seal") && !erreur.contains(SANS_VAGUE), "{erreur}");
     let _ = fs::remove_dir_all(&dossier);
 }
 
@@ -1589,7 +1590,7 @@ fn un_fil_au_sceau_rompu_rend_2_et_un_fil_illisible_est_un_refus() {
     assert_eq!(code, Ok(ExitCode::from(2)));
     // Le sceau rompu se dit par son propre message, non par celui d'un lancement sans vague.
     let erreur = String::from_utf8(erreur).unwrap();
-    assert!(erreur.contains("ne correspond plus au sceau") && !erreur.contains(SANS_VAGUE), "{erreur}");
+    assert!(erreur.contains("no longer matches the seal") && !erreur.contains(SANS_VAGUE), "{erreur}");
     let _ = fs::remove_dir_all(&dossier);
     // Un fil qu'on ne lit pas (ici un dossier à la place du fichier) : le refus, que `principal` sort en 2.
     let illisible = dossier_d_attente("illisible");
@@ -1643,7 +1644,7 @@ fn kraken_etat_n_ecrit_aucun_controle_venu_d_une_main_et_garde_ses_propres_mots(
         assert!(!texte.contains(interdit), "{texte:?}");
     }
     let ligne = texte.lines().find(|ligne| ligne.starts_with(&format!("main-{V1}-1"))).expect(&texte);
-    assert_eq!(ligne, format!("main-{V1}-1 : classée : rouge\\r\\u{{1b}}[2K\\u{{202e}}impossible (déclarée)"));
+    assert_eq!(ligne, format!("main-{V1}-1 : set aside: rouge\\r\\u{{1b}}[2K\\u{{202e}}impossible (déclarée)"));
     // L'objectif garde ses lignes, et écrit ses contrôles.
     assert!(texte.starts_with("Écrire\\u{1b}[2J\nsuite\\u{202e}\n"), "{texte:?}");
 }

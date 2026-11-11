@@ -429,9 +429,9 @@ fn une_vague_a_plan_dit_chaque_tache_puis_sa_branche() {
     let dit = String::from_utf8_lossy(&etat.stdout);
     assert_eq!(etat.status.code(), Some(1), "{dit}");
     let ligne = |tache: &str| dit.lines().find(|ligne| ligne.starts_with(&format!("main-{v}-{tache} "))).unwrap_or("");
-    assert!(ligne("1 a").ends_with(" · mur exigé (déclaré)"), "{dit}");
+    assert!(ligne("1 a").ends_with(" · wall required (declared)"), "{dit}");
     assert!(
-        ligne("2 b").starts_with(&format!("main-{v}-2 b : refusée (7011) : ")) && !ligne("2 b").contains("mur"),
+        ligne("2 b").starts_with(&format!("main-{v}-2 b : refusée (7011) : ")) && !ligne("2 b").contains("wall"),
         "{dit}"
     );
     let _ = fs::remove_dir_all(&racine);
