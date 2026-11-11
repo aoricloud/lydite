@@ -631,6 +631,7 @@ fn un_filtre_qui_meurt_avant_ready_est_refuse_avec_ce_qu_il_dit() {
     let erreur = rejeu.unwrap_err();
     assert!(erreur.starts_with("vérification « echo MARQUE-NATIF » impossible : the network filter "), "{erreur}");
     assert!(erreur.ends_with(" exited before it said ready (exit status: 3): boom"), "{erreur}");
+    assert_eq!(manque(&erreur), Manque::FiltreMort, "{erreur}");
     assert_eq!(verif, None);
     assert!(crate::essais::appels_du_faux_bwrap(&d.dir).is_empty(), "rien ne part");
     plus_de_filtre(&d, &filtre_lance(&d));
@@ -653,6 +654,7 @@ fn un_socket_trop_long_est_refuse_avant_de_lancer() {
     let erreur = rejeu.unwrap_err();
     assert!(erreur.starts_with("vérification « true » impossible : the network filter socket path "), "{erreur}");
     assert!(erreur.contains(" bytes long") && erreur.contains("use a shorter sandbox folder"), "{erreur}");
+    assert_eq!(manque(&erreur), Manque::SocketLong, "{erreur}");
     assert_eq!(verif, None);
     // Ni filtre, ni bwrap, ni dossier : rien n'est créé.
     assert!(crate::essais::appels_du_faux_reseau(&d.dir, "filtres").is_empty());
@@ -756,16 +758,46 @@ fn une_commande_blanche_ne_part_pas() {
 
 #[test]
 fn ce_qui_manque_au_mur_natif_se_lit_dans_l_erreur_de_son_rejeu() {
-    // Le filtre réseau : les erreurs que le mur écrit pour lui, prises à leur source, portent ses deux noms.
+    // Ce que le mur écrit pour lui, pris à sa source, le dit sous le préfixe que le rejeu lui donne.
+    let dit_le_mur = |erreur: &str| format!("vérification « true » impossible : {erreur}");
+    // `lydite-reseau` introuvable : le chemin n'existe pas, ou aucun chemin ne se donne.
     let absent = PathBuf::from("/srv/outils/lydite-reseau-absent");
-    let manque_le_programme = programme_reel(&Ok(absent)).unwrap_err();
+    let manque_le_programme = dit_le_mur(&programme_reel(&Ok(absent)).unwrap_err());
     assert_eq!(manque(&manque_le_programme), Manque::Reseau, "{manque_le_programme}");
     let inconnu = reseau_selon(None, Err(io::Error::other("inconnu")));
-    assert_eq!(manque(&programme_reel(&inconnu).unwrap_err()), Manque::Reseau, "{inconnu:?}");
-    let socket_long = socket_assez_court(Path::new(&format!("/{}", "a".repeat(120)))).unwrap_err();
-    assert_eq!(manque(&socket_long), Manque::Reseau, "{socket_long}");
-    let mort = "vérification « true » impossible : the network filter /srv/lydite-reseau exited before it said ready";
-    assert_eq!(manque(mort), Manque::Reseau);
+    let sans_chemin = dit_le_mur(&programme_reel(&inconnu).unwrap_err());
+    assert_eq!(manque(&sans_chemin), Manque::Reseau, "{sans_chemin}");
+    // Un chemin de socket trop long a sa propre cause, bien que son texte nomme le filtre réseau.
+    let socket_long = dit_le_mur(&socket_assez_court(Path::new(&format!("/{}", "a".repeat(120)))).unwrap_err());
+    assert_eq!(manque(&socket_long), Manque::SocketLong, "{socket_long}");
+    // Un filtre présent qui meurt, ou se tait, avant `ready`, bien que son chemin porte le nom `lydite-reseau`.
+    let mort = dit_le_mur("the network filter /srv/lydite-reseau exited before it said ready (exit status: 3): boom");
+    assert_eq!(manque(&mort), Manque::FiltreMort, "{mort}");
+    // Ce que le filtre a dit en mourant ne le fait pas prendre pour les espaces d'utilisateur.
+    let dit =
+        dit_le_mur("the network filter /srv/lydite-reseau exited before it said ready (exit status: 1): not permitted");
+    assert_eq!(manque(&dit), Manque::FiltreMort, "{dit}");
+    let muet = dit_le_mur("the network filter /srv/lydite-reseau did not say ready within 10 s");
+    assert_eq!(manque(&muet), Manque::FiltreMort, "{muet}");
+    // Un filtre qui ne part pas : Reseau.
+    let ne_part_pas = dit_le_mur("cannot start the network filter /srv/lydite-reseau: Permission denied (os error 13)");
+    assert_eq!(manque(&ne_part_pas), Manque::Reseau, "{ne_part_pas}");
+    // La sortie de la commande n'accuse jamais le filtre : elle peut porter ses mots, sans que le mur les ait dits.
+    for sortie in [
+        "lydite-reseau: not found",
+        "the network filter socket path /srv/k/s is 130 bytes long",
+        "the network filter /srv/lydite-reseau exited before it said ready",
+        "needs lydite-reseau",
+    ] {
+        for erreur in [
+            format!("vérification « true » rouge (exit status: 1) :\n{sortie}"),
+            format!("vérification « true » : temps dépassé (30 s) :\n{sortie}"),
+            // La queue d'une sortie longue, que `queue` a coupée avant sa première ligne.
+            format!("{sortie}\nfin de la sortie"),
+        ] {
+            assert_eq!(manque(&erreur), Manque::Autre, "{erreur}");
+        }
+    }
     // Les espaces d'utilisateur : ce que bwrap écrit quand le système les ferme, sa sortie suivant le statut rouge.
     for dit in [
         "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user \

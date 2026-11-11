@@ -134,22 +134,38 @@ pub(crate) fn bwrap_part(programme: &OsStr) -> Result<(), String> {
 /// Ce qui manque au mur natif quand il ne joue pas `true`, d'après l'erreur de son rejeu ([`manque`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Manque {
-    /// `lydite-reseau`, le filtre du réseau : absent, ou il ne part pas.
+    /// `lydite-reseau`, le filtre du réseau : introuvable, ou il ne se lance pas.
     Reseau,
+    /// Le chemin du socket du filtre est trop long pour un socket Unix : le dossier d'état de Lydite est trop long.
+    SocketLong,
+    /// `lydite-reseau` part, mais meurt ou se tait avant de dire `ready` : ce qu'il a dit se lit dans l'erreur.
+    FiltreMort,
     /// Les espaces d'utilisateur (ou les montages) que le système ferme : `bwrap` part, mais ne monte pas son mur.
     Espaces,
     /// Une autre cause : l'erreur du rejeu la dit.
     Autre,
 }
 
-/// Ce que l'erreur d'un rejeu raté dit qui manque au mur natif. Le filtre réseau se reconnaît à ses deux noms
-/// (`lydite-reseau`, `network filter`), que tous ses refus portent ; les espaces d'utilisateur à ce que `bwrap` écrit
-/// quand le système les ferme (`namespace`, `uid map`, `not permitted`).
+/// Ce que l'erreur d'un rejeu raté dit qui manque au mur natif.
+///
+/// Le diagnostic se fait d'abord sur ce que le mur écrit lui-même, `vérification « <commande> » impossible : <erreur
+/// du mur>`, jamais sur la sortie de la commande, qui peut porter n'importe quel mot : le chemin d'un socket trop
+/// long, un filtre qui meurt (ou se tait) avant `ready`, `lydite-reseau` introuvable ou qui ne part pas. Les espaces
+/// d'utilisateur, eux, se lisent dans ce que `bwrap` écrit quand le système les ferme (`namespace`, `uid map`, `not
+/// permitted`), sa sortie après le statut rouge, et seulement si le mur n'a rien dit de lui-même. Une erreur qui ne
+/// commence pas par `impossible :` (`rouge`, `temps dépassé`, ou queue d'une sortie longue) est toute sortie.
 pub(crate) fn manque(erreur: &str) -> Manque {
-    let bas = erreur.to_lowercase();
-    if ["lydite-reseau", "network filter"].iter().any(|nom| bas.contains(nom)) {
+    let du_mur = erreur.lines().next().is_some_and(|ligne| ligne.contains("» impossible : "));
+    let (mur, sortie) = if du_mur { (erreur, "") } else { ("", erreur) };
+    let (mur, sortie) = (mur.to_lowercase(), sortie.to_lowercase());
+    let dit = |texte: &str, mots: &[&str]| mots.iter().any(|mot| texte.contains(mot));
+    if dit(&mur, &["network filter socket path"]) {
+        Manque::SocketLong
+    } else if dit(&mur, &["exited before it said", "did not say ready"]) {
+        Manque::FiltreMort
+    } else if dit(&mur, &["needs lydite-reseau", "lydite_reseau is not set", "cannot start the network filter"]) {
         Manque::Reseau
-    } else if ["namespace", "uid map", "gid map", "not permitted"].iter().any(|dit| bas.contains(dit)) {
+    } else if dit(&sortie, &["namespace", "uid map", "gid map", "not permitted"]) {
         Manque::Espaces
     } else {
         Manque::Autre
