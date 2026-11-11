@@ -138,8 +138,8 @@ fn lire_refus(sortie: &Output) -> (String, String) {
     assert!(sortie.stdout.is_empty(), "stdout : {}", String::from_utf8_lossy(&sortie.stdout));
     let lignes: Vec<&str> = erreur.lines().collect();
     assert_eq!(lignes.len(), 4, "{erreur}");
-    let preuve = lignes[2].strip_prefix("  preuve : ").unwrap_or_else(|| panic!("{erreur}"));
-    assert!(lignes[3].starts_with("  correction : ") && lignes[3].len() > "  correction : ".len(), "{erreur}");
+    let preuve = lignes[2].strip_prefix("  seen: ").unwrap_or_else(|| panic!("{erreur}"));
+    assert!(lignes[3].starts_with("  fix: ") && lignes[3].len() > "  fix: ".len(), "{erreur}");
     (lignes[0].to_string(), preuve.to_string())
 }
 

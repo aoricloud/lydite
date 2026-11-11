@@ -123,7 +123,8 @@ SCHEMA_PLAN = {
         "is asked. Call it when the user writes or changes a plan file, and before calling " + LANCER + " "
         "with `plan`. It returns whether Lydite accepts the plan as written, with the plan's SHA-256, its "
         "number of tasks, its proof line and the tasks Lydite will run one after the other because they share "
-        "a file; or Lydite's refusal (its code, its rule, what was seen and the fix, in French). Fix a refused "
+        "a file; or Lydite's refusal (its code, its rule, what was seen and the fix; the rule is in English, "
+        "while `seen` and `fix` may still be in French). Fix a refused "
         "plan with the user, then check it again. Pass the path; do not run the plan yourself."
     ),
     "parameters": {

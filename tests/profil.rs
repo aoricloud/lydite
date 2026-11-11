@@ -221,7 +221,7 @@ fn lire_refus(commande: &mut Command) -> Refus {
     assert!(sortie.stdout.is_empty(), "{commande:?} écrit sur stdout : {}", dit(&sortie));
     let lignes: Vec<&str> = erreur.lines().collect();
     assert_eq!(lignes.len(), 4, "{commande:?} : {erreur}");
-    let etiquettes = ["  règle : ", "  preuve : ", "  correction : "];
+    let etiquettes = ["  rule: ", "  seen: ", "  fix: "];
     for (ligne, debut) in lignes[1..].iter().zip(etiquettes) {
         assert!(ligne.starts_with(debut) && ligne.len() > debut.len(), "{commande:?} : {erreur}");
     }
@@ -815,7 +815,7 @@ fn un_verifier_blanc_est_refuse() {
         let refus = lire_refus(essai.kraken().args(["lancer", "veille", OBJECTIF, "--verifier", blanche]));
         assert_eq!(refus.code, "lydite : 6014 lancer.preuve_vide", "{blanche:?}");
         assert_regle(&refus);
-        assert!(refus.preuve.contains("--verifier") && refus.preuve.contains("une commande blanche"), "{refus:?}");
+        assert!(refus.preuve.contains("--verifier") && refus.preuve.contains("a blank command"), "{refus:?}");
         assert!(refus.correction.contains("--verifier"), "{refus:?}");
     }
     // Un --verifier blanc après d'autres drapeaux est refusé de même.
@@ -833,13 +833,13 @@ fn un_drapeau_a_la_place_de_l_objectif_ne_lance_rien() {
     essai.repondre_juste(&PRET);
     essai.profil_accepte("veille", "");
     let cas: [(&[&str], &str); 7] = [
-        (&["lancer", "veille", "--verifier", "x"], "il manque l'objectif"),
-        (&["lancer", "veille", "--n", "3"], "il manque l'objectif"),
-        (&["lancer", "veille", "--depot", "d", "--n", "3"], "il manque l'objectif"),
-        (&["lancer", "--n", "3", OBJECTIF], "il manque le profil et l'objectif"),
-        (&["lancer", "--verifier", VERIFIER, "--n", "3"], "il manque le profil et l'objectif"),
-        (&["lancer", "--depot", "d", "--n", "3"], "il manque le profil et l'objectif"),
-        (&["lancer"], "il manque le profil et l'objectif"),
+        (&["lancer", "veille", "--verifier", "x"], "the objective is missing"),
+        (&["lancer", "veille", "--n", "3"], "the objective is missing"),
+        (&["lancer", "veille", "--depot", "d", "--n", "3"], "the objective is missing"),
+        (&["lancer", "--n", "3", OBJECTIF], "the profile and the objective are missing"),
+        (&["lancer", "--verifier", VERIFIER, "--n", "3"], "the profile and the objective are missing"),
+        (&["lancer", "--depot", "d", "--n", "3"], "the profile and the objective are missing"),
+        (&["lancer"], "the profile and the objective are missing"),
     ];
     for (mots, manque) in cas {
         let refus = lire_refus(essai.kraken().args(mots));
@@ -2139,7 +2139,7 @@ fn un_dossier_de_connexion_au_chemin_refuse_ne_lance_rien() {
     for config in [PathBuf::from("relatif"), essai.racine.join("c(1)")] {
         let refus = lire_refus(essai.kraken().env("CLAUDE_CONFIG_DIR", &config).args(lancer));
         assert_eq!(refus.code, "lydite : 6023 lancer.dossier_chemin_refuse", "{}", config.display());
-        assert!(refus.regle.contains("son dossier ou un dossier de connexion de Claude"), "{refus:?}");
+        assert!(refus.regle.contains("its folder or a Claude connection folder"), "{refus:?}");
         assert!(refus.preuve.contains(&config.display().to_string()), "la preuve nomme le chemin : {refus:?}");
         assert!(refus.correction.starts_with("Pose CLAUDE_CONFIG_DIR"), "{refus:?}");
     }

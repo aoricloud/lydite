@@ -604,7 +604,7 @@ fn lire_refus(sortie: &Output) -> (String, String) {
     assert!(sortie.stdout.is_empty(), "{}", dit(sortie));
     let lignes: Vec<&str> = erreur.lines().collect();
     assert_eq!(lignes.len(), 4, "{erreur}");
-    let preuve = lignes[2].strip_prefix("  preuve : ").unwrap_or_else(|| panic!("{erreur}"));
+    let preuve = lignes[2].strip_prefix("  seen: ").unwrap_or_else(|| panic!("{erreur}"));
     (lignes[0].to_string(), preuve.to_string())
 }
 
@@ -958,7 +958,7 @@ fn un_srt_qui_ne_joue_pas_true_refuse_le_mur_exige_avant_la_base_et_toute_main()
     let lignes: Vec<&str> = erreur.lines().collect();
     assert_eq!(lignes.len(), 4, "{erreur}");
     assert_eq!(lignes[0], "lydite : 6028 lancer.mur_refuse");
-    assert!(lignes[1].starts_with("  règle : ") && lignes[3].starts_with("  correction : "), "{erreur}");
+    assert!(lignes[1].starts_with("  rule: ") && lignes[3].starts_with("  fix: "), "{erreur}");
     assert!(lignes[2].contains("srt ne joue pas `true`"), "{erreur}");
     // Rien n'est parti : ni fil, ni bac, ni branche, ni réglages de srt, et la fausse claude n'a jamais tourné.
     assert!(!essai.dossier.join("fil.jsonl").exists());

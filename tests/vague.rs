@@ -105,11 +105,11 @@ fn lire_refus(sortie: &Output) -> Refus {
     assert!(sortie.stdout.is_empty(), "stdout : {}", String::from_utf8_lossy(&sortie.stdout));
     let lignes: Vec<&str> = erreur.lines().collect();
     assert_eq!(lignes.len(), 4, "{erreur}");
-    assert!(lignes[1].starts_with("  règle : "), "{erreur}");
+    assert!(lignes[1].starts_with("  rule: "), "{erreur}");
     let apres = |i: usize, etiquette: &str| {
         lignes[i].strip_prefix(etiquette).unwrap_or_else(|| panic!("{etiquette}attendu : {erreur}")).to_string()
     };
-    Refus { code: lignes[0].into(), preuve: apres(2, "  preuve : "), correction: apres(3, "  correction : ") }
+    Refus { code: lignes[0].into(), preuve: apres(2, "  seen: "), correction: apres(3, "  fix: ") }
 }
 
 /// Rien n'est parti : le dossier de Kraken n'a ni fil ni bac (le dossier `bacs/` vide que laisse l'épreuve du mur

@@ -91,8 +91,9 @@ PLAN_ACCEPTE = (
 )
 PLAN_REFUSE = (
     "Lydite refuses this plan; nothing was started. The refusal gives its code, the rule, what was seen and "
-    "the fix (`correction`), in French. Show it to the user as written, agree on the change with them, and "
-    "check the plan again before any launch."
+    "the fix. The rule is in English; what was seen (`seen`) and the fix (`fix`) may still be in French. "
+    "Show it to the user as written, agree on the change with them, and check the plan again "
+    "before any launch."
 )
 
 # Ce que veut dire le code de sortie de `lydite lancer` (voir le README de Lydite).

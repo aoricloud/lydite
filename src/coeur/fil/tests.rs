@@ -3253,8 +3253,8 @@ fn le_refus_en_clair_tient_en_trois_lignes() {
     // La même mise bout à bout que le refus de `main`, dont il reprend la preuve et la correction.
     let affiche = refus.to_string();
     let lignes: Vec<&str> = affiche.lines().collect();
-    assert_eq!(lignes[2].strip_prefix("  preuve : "), clair.lines().nth(1));
-    assert_eq!(lignes[3].strip_prefix("  correction : "), clair.lines().nth(2));
+    assert_eq!(lignes[2].strip_prefix("  seen: "), clair.lines().nth(1));
+    assert_eq!(lignes[3].strip_prefix("  fix: "), clair.lines().nth(2));
     // Une preuve ou une correction blanche laisse sa ligne vide : toujours trois lignes.
     assert_eq!(refus_en_clair(7001, "r", " \n", "c").lines().count(), 3);
     // Le rejeu tire du fil le texte même que `lancer` a dit : c'est son début, `refusée (`, qui marque une refusée.
