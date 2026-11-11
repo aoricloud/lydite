@@ -321,14 +321,16 @@ pub(crate) fn en_erreur(refus: &Refus) -> String {
 fn dans_ses_fichiers(bac: &Path, depart: &str, tache: &Tache, proteges: &[String], pris: Pris) -> Result<Pris, String> {
     assemblage::proteges_tenus(bac, depart, &tache.id, proteges).map_err(|refus| en_erreur(&refus))?;
     let Some(fichiers) = &tache.fichiers else { return Ok(pris) };
-    assemblage::fichiers_tenus(bac, depart, &tache.id, fichiers).map(|()| pris).map_err(|refus| en_erreur(&refus))
+    assemblage::fichiers_tenus(bac, depart, &tache.id, fichiers, proteges)
+        .map(|()| pris)
+        .map_err(|refus| en_erreur(&refus))
 }
 
 /// Une main de plan verte qui n'a changé aucun chemin depuis `depart` n'a rien fait : sa tentative est rouge, et son
 /// erreur le dit, que la relance reçoit. Un git qui ne dit pas ce qu'elle a changé ne la rougit pas ici : son refus
 /// 7009 reste celui d'aujourd'hui.
-fn main_qui_change(bac: &Path, depart: &str) -> Result<(), String> {
-    match assemblage::chemins_changes(bac, depart) {
+fn main_qui_change(bac: &Path, depart: &str, proteges: &[String]) -> Result<(), String> {
+    match assemblage::chemins_changes(bac, depart, proteges) {
         Ok(chemins) if chemins.is_empty() => Err("the hand changed nothing".to_string()),
         Ok(_) => Ok(()),
         // Le refus 7009 vient plus loin, à l'assemblage : ici, la main n'est pas jugée sur ce que git ne dit pas.
@@ -662,7 +664,9 @@ impl<'a> Vague<'a> {
                 });
                 let verdict = verdict.and_then(|pris| textes_exacts(&bac, tache, pris).map_err(Echec::Erreur));
                 let verdict = match (plan_sans_juge, verdict) {
-                    (true, Ok(pris)) => main_qui_change(&bac, &depart).map(|()| pris).map_err(Echec::Erreur),
+                    (true, Ok(pris)) => {
+                        main_qui_change(&bac, &depart, profil.proteges()).map(|()| pris).map_err(Echec::Erreur)
+                    }
                     (_, verdict) => verdict,
                 };
                 (constat, verif, verdict)

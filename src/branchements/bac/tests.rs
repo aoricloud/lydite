@@ -297,6 +297,73 @@ fn sans_claude_laisse_passer_les_butees_du_mur() {
     let _ = fs::remove_dir_all(&kraken);
 }
 
+/// Les chemins que le profil protège, dans les essais : les leçons, un dossier et un fichier, absents du dépôt.
+fn proteges() -> Vec<String> {
+    [".agents/skills/", "vendor/", "secret.env"].iter().map(|chemin| chemin.to_string()).collect()
+}
+
+#[test]
+fn les_butees_a_un_chemin_protege_absent_sont_les_fichiers_vides_en_lecture_seule_de_ces_chemins() {
+    let (depot, kraken) = (depot("butees-protegees"), neuf("butees-protegees-lydite"));
+    let (bac, depart) = pose(&depot, &kraken);
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), Vec::<String>::new());
+    // Le dossier protégé s'écrit avec sa barre, et sa butée est le fichier sans elle ; le fichier protégé, tel quel.
+    for chemin in [".agents/skills", "vendor", "secret.env"] {
+        butee(&bac, chemin);
+    }
+    let attendues = [".agents/skills", "secret.env", "vendor"];
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), attendues);
+    // Un chemin que le profil ne protège pas n'en est pas une, ni sans profil.
+    butee(&bac, ".bashrc");
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), attendues);
+    assert_eq!(butees_protegees(&bac, &depart, &[]), Vec::<String>::new());
+    // `butees_du_bac` joint celles de `.claude/` et celles des chemins protégés, sans rien d'autre.
+    butee(&bac, ".claude/loop.md");
+    let toutes = [".agents/skills", ".claude/loop.md", "secret.env", "vendor"];
+    assert_eq!(butees_du_bac(&bac, &depart, &proteges()), toutes);
+    assert_eq!(butees_du_bac(&bac, &depart, &[]), [".claude/loop.md"]);
+    let _ = fs::remove_dir_all(&depot);
+    let _ = fs::remove_dir_all(&kraken);
+}
+
+#[test]
+fn une_butee_a_un_chemin_protege_qui_n_en_est_pas_une_n_en_est_pas_une() {
+    let (depot, kraken) = (depot("pas-butees-protegees"), neuf("pas-butees-protegees-lydite"));
+    let (bac, depart) = pose(&depot, &kraken);
+    // Un octet de plus, ou une écriture permise : le fichier est un travail de la main.
+    butee(&bac, "vendor");
+    regler_ecriture(&bac.join("vendor"), true);
+    fs::write(bac.join("vendor"), "x").unwrap();
+    regler_ecriture(&bac.join("vendor"), false);
+    butee(&bac, "secret.env");
+    regler_ecriture(&bac.join("secret.env"), true);
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), Vec::<String>::new());
+    // Un dossier à ce chemin, qui porte un fichier : la main a écrit dessous.
+    butee(&bac, ".agents/skills/x/SKILL.md");
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), Vec::<String>::new());
+    let _ = fs::remove_dir_all(&depot);
+    let _ = fs::remove_dir_all(&kraken);
+}
+
+#[test]
+fn une_butee_a_un_chemin_protege_qui_existait_au_depart_n_en_est_pas_une() {
+    let (depot, kraken) = (depot("butee-protegee-presente"), neuf("butee-protegee-presente-lydite"));
+    ecrire(&depot, "secret.env", "x");
+    commit(&depot);
+    let (bac, depart) = pose(&depot, &kraken);
+    // La main ôte le fichier de l'index et le remplace par une butée : le chemin n'est pas absent du départ.
+    git(&bac, &["rm", "-q", "--cached", "secret.env"]);
+    fs::remove_file(bac.join("secret.env")).unwrap();
+    butee(&bac, "secret.env");
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), Vec::<String>::new());
+    // Un git qui ne dit pas ce que le départ porte ne prouve aucune absence : aucune butée.
+    butee(&bac, "vendor");
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), ["vendor"]);
+    assert_eq!(butees_protegees(&bac, &"0".repeat(40), &proteges()), Vec::<String>::new());
+    let _ = fs::remove_dir_all(&depot);
+    let _ = fs::remove_dir_all(&kraken);
+}
+
 /// Un commit qui écrit `chemin`, posé hors de la branche du bac, sur un HEAD détaché : rend son sha, le bac étant
 /// revenu sur sa branche. Aucune branche n'est nommée, car celles du dépôt sont partagées entre ses bacs.
 fn commit_a_cote(bac: &Path, chemin: &str) -> String {

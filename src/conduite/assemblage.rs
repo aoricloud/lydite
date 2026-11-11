@@ -39,7 +39,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::branchements::bac::{CLAUDE, butees_du_bac, exclusions_de_l_etat, poser, sans_claude, temporaire_de};
+use crate::branchements::bac::{
+    CLAUDE, butees_du_bac, butees_protegees, exclusions_de_l_etat, poser, sans_claude, temporaire_de,
+};
 use crate::branchements::git::{faire, geste};
 use crate::branchements::srt::rejouer;
 use crate::coeur::erreur::{Code, Refus, nommee};
@@ -331,7 +333,8 @@ impl Assemblage<'_> {
         noter: impl FnOnce(&str, &str) -> io::Result<()>,
     ) -> (Option<String>, Result<String, Refus>) {
         let rate = |vu: String| Refus::new(Code::GitImpossible, vu, RATE);
-        let gel = match geler(bac, id) {
+        let proteges = self.profil.proteges();
+        let gel = match geler(bac, depart, proteges, id) {
             Ok(gel) => gel,
             Err(vu) => return (None, Err(rate(vu))),
         };
@@ -350,7 +353,6 @@ impl Assemblage<'_> {
         // Le gel est ce que la branche recevra : ses chemins sont jugés contre les `fichiers` de la tâche, même si le
         // contrôle de fin de tentative ne les a pas vus.
         // Un chemin protégé l'emporte sur les `fichiers`, et borne aussi une tâche qui n'en a pas.
-        let proteges = self.profil.proteges();
         if fichiers.is_some() || !proteges.is_empty() {
             let changes = match chemins_geles(bac, depart, &gel) {
                 Ok(changes) => changes,
@@ -436,12 +438,13 @@ impl Assemblage<'_> {
 
 /// Le gel d'un bac : tout son travail, hors de l'état de Claude Code, dans un commit à Kraken s'il y en a ; sans ces
 /// exclusions, `add -A` figerait le worktree d'un sous-agent en dépôt imbriqué (mode 160000). Rend le `HEAD` du bac,
-/// que la fusion prend.
-fn geler(bac: &Path, titre: &str) -> Result<String, String> {
+/// que la fusion prend. Les `proteges` et `depart` disent quelles butées du mur à un chemin protégé absent ne sont
+/// pas à commiter ([`butees_du_bac`]).
+fn geler(bac: &Path, depart: &str, proteges: &[String], titre: &str) -> Result<String, String> {
     let mut ajout = geste(bac, &["add", "-A", "--", "."]);
     ajout.args(exclusions_de_l_etat());
     // Les butées du mur que la main a laissées derrière elle : ni écrites par elle, ni à commiter.
-    ajout.args(butees_du_bac(bac).into_iter().map(|chemin| format!(":(exclude,literal){chemin}")));
+    ajout.args(butees_du_bac(bac, depart, proteges).into_iter().map(|chemin| format!(":(exclude,literal){chemin}")));
     faire(ajout)?;
     if !faire(geste(bac, &["diff", "--cached", "--name-only"]))?.trim().is_empty() {
         faire(geste(bac, &["commit", "-q", "-m", titre]))?;
@@ -496,18 +499,25 @@ fn claude_gele(bac: &Path, depart: &str, id: &str, gel: &str) -> Result<(), Refu
 ///   prend pas non plus ;
 /// - `git diff --name-only -z <depart> HEAD` : ce que les commits de la main ont changé, dont `status` ne dit rien.
 ///
-/// Rien sous un dossier `.claude` (voir [`SOUS_CLAUDE`]). Un échec de git, qu'il ne parte pas ou qu'il refuse, est le
-/// refus 7009 : une liste vide ne vaut « rien changé » que si git a réussi.
-pub(crate) fn chemins_changes(bac: &Path, depart: &str) -> Result<Vec<String>, Refus> {
+/// Rien sous un dossier `.claude` (voir [`SOUS_CLAUDE`]). Ni la butée du mur à un chemin de `proteges` absent de
+/// `depart` ([`butees_protegees`]), tant qu'elle est non suivie : commitée ou ajoutée à l'index, elle compte. Un
+/// échec de git, qu'il ne parte pas ou qu'il refuse, est le refus 7009 : une liste vide ne vaut « rien changé » que si
+/// git a réussi.
+pub(crate) fn chemins_changes(bac: &Path, depart: &str, proteges: &[String]) -> Result<Vec<String>, Refus> {
     let statut = geste(bac, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--", "."]);
     let commites = geste(bac, &["diff", "--name-only", "-z", "--no-renames", depart, "HEAD", "--", "."]);
+    let butees = butees_protegees(bac, depart, proteges);
     let mut chemins = Vec::new();
     // Chaque entrée finit par NUL, sans guillemets ; celles de `status` commencent par deux lettres d'état et un blanc.
     for (mut commande, saut) in [(statut, 3), (commites, 0)] {
         commande.args(SOUS_CLAUDE);
         let sortie = faire(commande).map_err(|vu| Refus::new(Code::GitImpossible, vu, SANS_LISTE))?;
         let entrees = sortie.split('\0').filter(|entree| !entree.is_empty());
-        chemins.extend(entrees.filter_map(|entree| entree.get(saut..)).map(String::from));
+        // Le non suivi est `?? <chemin>` : seul lui laisse passer une butée.
+        let butee =
+            |entree: &&str| saut == 3 && entree.strip_prefix("?? ").is_some_and(|nom| butees.iter().any(|b| b == nom));
+        chemins
+            .extend(entrees.filter(|entree| !butee(entree)).filter_map(|entree| entree.get(saut..)).map(String::from));
     }
     chemins.sort();
     chemins.dedup();
@@ -542,10 +552,15 @@ fn hors_des_fichiers(changes: Vec<String>, id: &str, fichiers: &[String], correc
 }
 
 /// Le refus 7018 pour les chemins de `changes` que `proteges` couvre ([`couvre`]), avec la `correction` de l'endroit
-/// qui juge.
+/// qui juge. Un dossier protégé (`entree/`) couvre aussi son propre chemin sans la barre : un fichier écrit à la place
+/// du dossier, que `couvre` ne voit pas, est un changement du chemin protégé, sauf la butée du mur qui n'est pas dans
+/// `changes` ([`chemins_changes`]).
 fn protegees_changees(changes: &[String], id: &str, proteges: &[String], correction: &str) -> Result<(), Refus> {
+    let couvert = |entree: &String, chemin: &String| {
+        couvre(entree, chemin) || entree.strip_suffix('/').is_some_and(|dossier| dossier == chemin)
+    };
     let touches: Vec<String> =
-        changes.iter().filter(|chemin| proteges.iter().any(|entree| couvre(entree, chemin))).cloned().collect();
+        changes.iter().filter(|chemin| proteges.iter().any(|entree| couvert(entree, chemin))).cloned().collect();
     if touches.is_empty() {
         return Ok(());
     }
@@ -560,18 +575,25 @@ pub(crate) fn proteges_tenus(bac: &Path, depart: &str, id: &str, proteges: &[Str
     if proteges.is_empty() {
         return Ok(());
     }
-    protegees_changees(&chemins_changes(bac, depart)?, id, proteges, PROTEGE)
+    protegees_changees(&chemins_changes(bac, depart, proteges)?, id, proteges, PROTEGE)
 }
 
 /// La main de la tâche `id` n'a changé que des chemins que `fichiers` couvre ([`couvre`]). La comparaison est exacte,
 /// octet à octet, comme git rend les chemins : la casse compte sous Windows comme ailleurs, et un écart de casse n'est
 /// jamais couvert. Un chemin de trop est le refus 7013, qui cite ces chemins et ceux de `fichiers` ; git qui ne dit pas
-/// ce que la main a changé, le refus 7009.
+/// ce que la main a changé, le refus 7009. Les `proteges` du profil ne servent qu'à ne pas compter la butée du mur à un
+/// chemin protégé absent ([`chemins_changes`]).
 // raccourci : un descendant détaché de la main peut encore écrire après le gel, dans le bac, sans effet sur la branche
 // qui ne reçoit que le gel, ou hors du bac, ce que seul le mur tient ; monter quand le nœud prouvera la mort de l'arbre
 // d'une main
-pub(crate) fn fichiers_tenus(bac: &Path, depart: &str, id: &str, fichiers: &[String]) -> Result<(), Refus> {
-    hors_des_fichiers(chemins_changes(bac, depart)?, id, fichiers, HORS_FICHIERS)
+pub(crate) fn fichiers_tenus(
+    bac: &Path,
+    depart: &str,
+    id: &str,
+    fichiers: &[String],
+    proteges: &[String],
+) -> Result<(), Refus> {
+    hors_des_fichiers(chemins_changes(bac, depart, proteges)?, id, fichiers, HORS_FICHIERS)
 }
 
 /// Le bac d'une main qui n'écrit que son fichier, le découpeur ou le relecteur, parti de `depart` : `fichier` y est,

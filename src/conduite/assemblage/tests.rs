@@ -47,6 +47,17 @@ fn vise_avec_claude_suivi(nom: &str) -> (PathBuf, PathBuf, PathBuf, String) {
     (racine, depot, kraken, base)
 }
 
+/// `chemins_changes` d'un profil sans chemin protégé : les tests qui ne parlent pas des butées d'un chemin protégé
+/// n'ont rien à lui passer. Ce nom masque celui de `super`, que les tests de butées appellent par `super::`.
+fn chemins_changes(bac: &Path, depart: &str) -> Result<Vec<String>, Refus> {
+    super::chemins_changes(bac, depart, &[])
+}
+
+/// `fichiers_tenus` d'un profil sans chemin protégé, comme [`chemins_changes`].
+fn fichiers_tenus(bac: &Path, depart: &str, id: &str, fichiers: &[String]) -> Result<(), Refus> {
+    super::fichiers_tenus(bac, depart, id, fichiers, &[])
+}
+
 /// Ces chemins, en liste de textes.
 fn chemins(chemins: &[&str]) -> Vec<String> {
     chemins.iter().map(|chemin| chemin.to_string()).collect()
@@ -849,6 +860,113 @@ fn le_gel_refuse_un_fichier_non_vide_ou_inscriptible_sous_claude() {
         assert!(refus.preuve.ends_with(r#" : ".claude/loop.md""#), "{refus}");
         let _ = fs::remove_dir_all(&racine);
     }
+}
+
+/// Rend le fichier `chemin` du bac inscriptible ou en lecture seule.
+fn regler_ecriture(bac: &Path, chemin: &str, inscriptible: bool) {
+    let fichier = bac.join(chemin);
+    let mut droits = fs::metadata(&fichier).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    droits.set_readonly(!inscriptible);
+    fs::set_permissions(&fichier, droits).unwrap();
+}
+
+#[test]
+fn une_butee_a_un_chemin_protege_absent_n_est_ni_7013_ni_7018_et_le_gel_ne_la_commite_pas() {
+    let cas = [
+        ("lecons", profil(), ".agents/skills"),
+        ("dossier", profil().avec_proteges(&["vendor/"]), "vendor"),
+        ("fichier", profil().avec_proteges(&["secret.env"]), "secret.env"),
+    ];
+    for (nom, profil, chemin) in cas {
+        let (racine, depot, kraken, base) = vise_avec_fichiers(&format!("butee-protegee-{nom}"));
+        let proteges = profil.proteges();
+        let permis = chemins(&["src/"]);
+        let bac = prise(&depot, &kraken, "t", &base, &[("src/a.txt", "fait\n")]);
+        butee(&bac, chemin);
+        // Git voit la butée, comme un non suivi : sans la tolérance, elle serait un chemin changé.
+        let vu = git(&bac, &["status", "--porcelain", "--untracked-files=all"]);
+        assert!(vu.lines().any(|ligne| ligne == format!("?? {chemin}")), "{nom} : {vu}");
+        let mut avec = vec!["src/a.txt".to_string(), chemin.to_string()];
+        avec.sort();
+        assert_eq!(super::chemins_changes(&bac, &base, &[]).unwrap(), avec, "{nom}");
+        let refus = super::fichiers_tenus(&bac, &base, "t", &permis, &[]).unwrap_err();
+        assert_eq!(refus.code, Code::HorsFichiers, "{nom}");
+        // Avec les chemins protégés du profil : ni 7018, ni 7013, ni chemin changé.
+        assert_eq!(proteges_tenus(&bac, &base, "t", proteges), Ok(()), "{nom}");
+        assert_eq!(super::fichiers_tenus(&bac, &base, "t", &permis, proteges), Ok(()), "{nom}");
+        assert_eq!(super::chemins_changes(&bac, &base, proteges).unwrap(), ["src/a.txt"], "{nom}");
+        // Le gel ne la commite pas : la branche de la vague reçoit le vrai changement, et lui seul.
+        let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+        let sha = assemblage.fusionner(&bac, &base, "t", Some(&permis), 1, |_, _| Ok(())).1.unwrap();
+        assert_eq!(git(&bac, &["diff", "--name-only", &base, "HEAD"]), "src/a.txt", "{nom}");
+        assert!(!fichiers(&depot, &sha).iter().any(|fichier| fichier.starts_with(chemin)), "{nom}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+}
+
+#[test]
+fn un_fichier_non_vide_ou_inscriptible_a_un_chemin_protege_reste_le_refus_7018() {
+    for (nom, contenu, lecture_seule) in [("non-vide", "x", true), ("inscriptible", "", false)] {
+        let (racine, depot, kraken, base) = vise_avec_fichiers(&format!("protege-pas-butee-{nom}"));
+        let profil = profil();
+        let permis = chemins(&["src/"]);
+        let bac = prise(&depot, &kraken, "t", &base, &[("src/a.txt", "fait\n"), (".agents/skills", contenu)]);
+        regler_ecriture(&bac, ".agents/skills", !lecture_seule);
+        // À la fin de la tentative, avant les `fichiers`.
+        let refus = proteges_tenus(&bac, &base, "t", profil.proteges()).unwrap_err();
+        assert_eq!(refus.code, Code::CheminProtege, "{nom}");
+        assert!(refus.preuve.ends_with(r#": ".agents/skills""#), "{nom} : {refus}");
+        // Au gel : la tâche est refusée, rien n'est noté.
+        let assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+        let (verif, issue) = assemblage.assembler(
+            &bac,
+            &base,
+            "t",
+            Some(&permis),
+            1,
+            |_| Ok(()),
+            |_, _| panic!("un chemin protégé ne se note pas"),
+        );
+        let refus = issue.unwrap_err();
+        assert_eq!((refus.code, verif), (Code::CheminProtege, None), "{nom}");
+        assert!(refus.preuve.ends_with(r#": ".agents/skills""#), "{nom} : {refus}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+}
+
+#[test]
+fn un_fichier_vide_en_lecture_seule_a_un_chemin_non_protege_reste_un_chemin_change() {
+    let (racine, depot, kraken, base) = vise_avec_fichiers("butee-non-protegee");
+    let profil = profil();
+    let permis = chemins(&["src/"]);
+    let bac = prise(&depot, &kraken, "t", &base, &[("src/a.txt", "fait\n")]);
+    butee(&bac, ".bashrc");
+    let attendu = [".bashrc", "src/a.txt"];
+    assert_eq!(super::chemins_changes(&bac, &base, profil.proteges()).unwrap(), attendu);
+    // Il n'est pas protégé : pas de 7018 ; mais il n'est pas dans les `fichiers` de la tâche : 7013.
+    assert_eq!(proteges_tenus(&bac, &base, "t", profil.proteges()), Ok(()));
+    let refus = super::fichiers_tenus(&bac, &base, "t", &permis, profil.proteges()).unwrap_err();
+    assert_eq!(refus.code, Code::HorsFichiers);
+    assert!(refus.preuve.ends_with(r#": ".bashrc""#), "{refus}");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn un_chemin_protege_qui_existait_au_depart_et_que_la_main_change_reste_le_refus_7018() {
+    let (racine, depot, kraken, _) = vise("protege-present");
+    ecrire(&depot, "secret.env", "x");
+    git(&depot, &["add", "-A"]);
+    git(&depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "secret"]);
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    let profil = profil().avec_proteges(&["secret.env"]);
+    // La main le vide et lui ôte l'écriture : il a la forme d'une butée, mais il existait au départ.
+    let bac = prise(&depot, &kraken, "t", &base, &[("secret.env", "")]);
+    regler_ecriture(&bac, "secret.env", false);
+    let refus = proteges_tenus(&bac, &base, "t", profil.proteges()).unwrap_err();
+    assert_eq!(refus.code, Code::CheminProtege);
+    assert!(refus.preuve.ends_with(r#": "secret.env""#), "{refus}");
+    let _ = fs::remove_dir_all(&racine);
 }
 
 #[test]
