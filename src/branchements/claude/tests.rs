@@ -731,7 +731,9 @@ fn la_main_ne_recoit_pas_l_epuration_de_l_environnement_des_commandes_avec_ou_sa
     let (dir, bac) = bac_jetable("epuration");
     let liste: Vec<String> =
         if cfg!(windows) { vec!["cmd".into(), "/C".into(), "set".into()] } else { vec!["env".into()] };
-    for fournisseur in [None, Some(("https://api.exemple.test/anthropic", "leurre-de-la-cle", "CLE_ESSAI"))] {
+    let api = "https://api.exemple.test/anthropic";
+    let fourni = Fournisseur { api, cle: "leurre-de-la-cle", variable: "CLE_ESSAI" };
+    for fournisseur in [None, Some(fourni)] {
         let sortie = jouer(&liste, &bac, "", DELAI, None, false, fournisseur).1.unwrap();
         let vues: Vec<_> = sortie
             .lines()

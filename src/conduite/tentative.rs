@@ -199,7 +199,7 @@ pub(crate) fn tenter(
         declaration.as_ref().map(|d| Attendu { reglages: &d.reglages, modele: &d.modele, mcp: d.mcp.as_deref() });
     // raccourci : ce que la main écrit entre au fil tel quel, et une main qui y recopierait sa clé l'y écrirait ;
     // monter (masquer la valeur de la clé dans ce qu'elle rend) si une main d'un fournisseur la répète
-    let fournisseur = profil.fournisseur().zip(profil.variable_de_la_cle()).map(|((api, cle), nom)| (api, cle, nom));
+    let fournisseur = profil.fournisseur();
     // Sous un mur exigé seul, le dossier temporaire est recréé vide avant la main ([`temporaire`]).
     let (constat, jeu) = match profil.exige().then(|| temporaire(bac, true)).transpose() {
         Err(erreur) => (attendu.as_ref().map(|_| Constat::default()), Err(ErreurMain::Autre(erreur))),

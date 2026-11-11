@@ -530,7 +530,10 @@ fn un_profil_nomme_son_fournisseur_et_sa_main_attend_sa_cle() {
     // Sa clé lue, elle part : l'URL et la clé vont à la main, l'hôte à sa déclaration, et une copie aux modèles
     // d'une tâche garde le fournisseur.
     profil.fournir(environnement(LEURRE)).unwrap();
-    assert_eq!(profil.fournisseur(), Some(("https://api.exemple.test:8443/anthropic", LEURRE)));
+    assert_eq!(
+        profil.fournisseur(),
+        Some(Fournisseur { api: "https://api.exemple.test:8443/anthropic", cle: LEURRE, variable: "CLE_ESSAI" })
+    );
     let declaration = profil.demande(&absolu("bac"), None, false).declaration.expect("la main part");
     assert_eq!(declaration.fournisseur.as_deref(), Some("api.exemple.test:8443"));
     let copie = profil.avec_modeles(Some("haiku"), None);
@@ -792,9 +795,9 @@ fn la_cle_du_fournisseur_se_lit_au_lancement_ou_c_est_le_refus_6027() {
     // Une clé posée la remplit ; relue, elle suit l'environnement du moment.
     let mut profil = borne(FOURNISSEUR);
     profil.fournir(environnement(LEURRE)).unwrap();
-    assert_eq!(profil.fournisseur().map(|(_, cle)| cle), Some(LEURRE));
+    assert_eq!(profil.fournisseur().map(|f| f.cle), Some(LEURRE));
     profil.fournir(environnement("une-autre-cle")).unwrap();
-    assert_eq!(profil.fournisseur().map(|(_, cle)| cle), Some("une-autre-cle"));
+    assert_eq!(profil.fournisseur().map(|f| f.cle), Some("une-autre-cle"));
 }
 
 #[test]

@@ -1556,14 +1556,23 @@ fn l_environnement_de_session_n_atteint_pas_la_main() {
     for (nom, valeur) in &communes {
         assert_eq!(&variables[*nom], valeur, "{nom}");
     }
-    // Son dossier temporaire est le voisin de son bac dans le dossier de Kraken, nommé des 12 premiers chiffres
-    // hexadécimaux de l'empreinte FNV-1a sur 64 bits du nom du bac, puis `.tmp` (`bac::temporaire_de`) : pas celui de
-    // Kraken.
+    // Son dossier temporaire est le seul dossier `*.tmp` voisin de son bac dans le dossier de Kraken, nommé de 12
+    // chiffres hexadécimaux puis `.tmp` (`bac::temporaire_de`, dont le test unitaire fige le nom exact) : pas celui
+    // de Kraken.
     let bac = essai.bac();
-    let nom = bac.file_name().unwrap().to_string_lossy().into_owned();
-    let empreinte =
-        nom.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, octet| (h ^ u64::from(octet)).wrapping_mul(0x100_0000_01b3));
-    let temporaire = bac.with_file_name(format!("{:012x}.tmp", empreinte >> 16));
+    let voisins: Vec<_> = fs::read_dir(bac.parent().unwrap())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|chemin| chemin.extension().is_some_and(|extension| extension == "tmp"))
+        .collect();
+    assert_eq!(voisins.len(), 1, "un seul dossier temporaire à côté du bac : {voisins:?}");
+    let temporaire = voisins[0].clone();
+    let chiffres = temporaire.file_stem().unwrap().to_string_lossy().into_owned();
+    assert!(
+        chiffres.len() == 12 && chiffres.bytes().all(|octet| octet.is_ascii_hexdigit()),
+        "12 chiffres hexadécimaux : {}",
+        temporaire.display()
+    );
     assert!(temporaire.is_dir(), "{}", temporaire.display());
     let noms_du_dossier: &[&str] = if cfg!(windows) { &["TEMP", "TMP"] } else { &["TMPDIR"] };
     for nom in noms_du_dossier {
