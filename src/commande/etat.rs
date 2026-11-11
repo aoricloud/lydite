@@ -318,6 +318,7 @@ fn mot_du_mur(main: Option<&Main>) -> String {
         (Some(true), _) => "wall active (observed)",
         (Some(false), _) => "wall inactive (observed)",
         (None, Some(fil::Mur::Exige)) => "wall required (declared)",
+        (None, Some(fil::Mur::Natif)) => "wall required, native (declared)",
         (None, Some(fil::Mur::Demande)) => "wall requested, not required (declared)",
         (None, None) => return String::new(),
     };

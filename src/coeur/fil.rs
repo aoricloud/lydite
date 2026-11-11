@@ -84,8 +84,10 @@
 //! - `main.lancement {vague, main, tentative, profil, empreinte, modele, mur, reglages, reglages_depot, foi}` : la main
 //!   part pour sa tentative, avec ce que son profil déclare. `profil`, `empreinte` et `modele` sont des jetons (de
 //!   l'ASCII sans blanc, non vide) : le nom du profil, l'empreinte de son fichier (SHA-256 en hexadécimal) et le modèle
-//!   de cette tentative. `mur` vaut `exige` ou `demande`, selon que le profil exige le mur de Claude Code ou le demande
-//!   seulement. `reglages` est le JSON exact que Kraken passe à la main en `--settings`, en chaîne.
+//!   de cette tentative. `mur` vaut `exige`, `demande` ou `natif`, selon que le profil exige le mur de Claude Code
+//!   (la preuve rejouée par srt), le demande seulement, ou l'exige et rejoue la preuve dans le mur natif de Lydite ;
+//!   un fil d'avant `natif` ne porte que les deux premiers, et se relit sans changement. `reglages` est le JSON exact
+//!   que Kraken passe à la main en `--settings`, en chaîne.
 //!   `reglages_depot` est une liste en chaîne, un élément `<chemin> <empreinte>` par ligne : les fichiers de réglages
 //!   du dépôt que le bac porte au départ, vide s'il n'y en a aucun. `foi` vaut toujours `declare` : c'est ce que le
 //!   profil dit, pas ce que la main fait. Ces lignes sont le compteur des lancements, par profil et par empreinte.
@@ -692,20 +694,23 @@ impl Foi {
     }
 }
 
-/// Ce qu'un profil demande du mur de Claude Code : l'exiger, ou seulement le demander.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Ce qu'un profil demande du mur : l'exiger et rejouer la preuve par srt, seulement le demander, ou l'exiger et
+/// rejouer la preuve dans le mur natif de Lydite.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mur {
     Exige,
     Demande,
+    Natif,
 }
 
 impl Mur {
-    const TOUS: [Mur; 2] = [Mur::Exige, Mur::Demande];
+    const TOUS: [Mur; 3] = [Mur::Exige, Mur::Demande, Mur::Natif];
 
     fn mot(self) -> &'static str {
         match self {
             Mur::Exige => "exige",
             Mur::Demande => "demande",
+            Mur::Natif => "natif",
         }
     }
 }

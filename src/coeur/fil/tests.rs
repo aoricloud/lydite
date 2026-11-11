@@ -1410,6 +1410,59 @@ fn le_lancement_et_le_constat_font_l_aller_retour() {
 }
 
 #[test]
+fn le_fil_relit_les_trois_valeurs_du_mur_sans_changer_de_version() {
+    let dir = dossier("trois-murs");
+    // Trois lancements écrits à la main : `exige` et `demande`, que le fil portait déjà, et `natif`, toujours à `v` 2.
+    let lignes: Vec<String> = ["exige", "demande", "natif"]
+        .iter()
+        .enumerate()
+        .map(|(i, mur)| {
+            let ligne = lancement("s", i as u64 + 1).replace(r#""mur":"demande""#, &format!(r#""mur":"{mur}""#));
+            assert!(ligne.contains(&format!(r#""mur":"{mur}""#)) && ligne.contains(r#""v":2,"#), "{ligne}");
+            ligne
+        })
+        .collect();
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(ecarts.is_empty(), "{ecarts:?}");
+    let murs: Vec<Mur> = notes
+        .iter()
+        .map(|note| match &note.evenement {
+            Evenement::Lancement { mur, .. } => *mur,
+            autre => panic!("{autre:?}"),
+        })
+        .collect();
+    assert_eq!(murs, [Mur::Exige, Mur::Demande, Mur::Natif]);
+    // Et le fil l'écrit du mot `natif`, que `exige` et `demande` ne remplacent pas.
+    let evenement = |mur| Evenement::Lancement {
+        vague: "v".into(),
+        main: 1,
+        tentative: 1,
+        profil: "claude".into(),
+        empreinte: EMPREINTE.into(),
+        modele: "sonnet".into(),
+        effort: None,
+        mur,
+        reglages: "{}".into(),
+        reglages_depot: String::new(),
+    };
+    for mur in [Mur::Exige, Mur::Demande, Mur::Natif] {
+        let ligne = ligne_de_note("s", 1, "humain", &evenement(mur));
+        let mot = mur.mot();
+        assert!(ligne.contains(&format!(r#""mur":"{mot}""#)), "{ligne}");
+        assert!(ligne.contains(r#""v":2,"#), "{ligne}");
+    }
+    assert_eq!([Mur::Exige, Mur::Demande, Mur::Natif].map(Mur::mot), ["exige", "demande", "natif"]);
+    // Le mot s'écrit en minuscules : « Natif » est hors du domaine, et sa preuve nomme les trois mots.
+    let majuscule = lancement("s", 1).replace(r#""mur":"demande""#, r#""mur":"Natif""#);
+    poser(&dir, &[majuscule.as_str()]);
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(notes.is_empty(), "{notes:?}");
+    assert!(ecarts[0].1.preuve.ends_with(r#"« mur » vaut "Natif", hors de son domaine : exige ou demande ou natif"#));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn un_lancement_ou_un_constat_hors_domaine_est_mal_forme() {
     let dir = dossier("hors-domaine");
     // Une ligne bien formée, changée : ce qu'on change s'y trouve.
@@ -1485,7 +1538,7 @@ fn un_lancement_ou_un_constat_hors_domaine_est_mal_forme() {
     let preuve = |i: usize| ecarts[i].1.preuve.as_str();
     assert!(preuve(0).ends_with(r#"« foi » vaut "constate", hors de son domaine : declare"#), "{}", preuve(0));
     assert!(preuve(1).ends_with(r#"« foi » vaut "declare", hors de son domaine : constate"#), "{}", preuve(1));
-    assert!(preuve(3).ends_with(r#"« mur » vaut "ferme", hors de son domaine : exige ou demande"#));
+    assert!(preuve(3).ends_with(r#"« mur » vaut "ferme", hors de son domaine : exige ou demande ou natif"#));
     assert!(preuve(5).ends_with("« mur_actif » manque, ou n'est ni un booléen ni null"), "{}", preuve(5));
     assert!(preuve(8).ends_with("champ en trop pour main.lancement : « essai »"), "{}", preuve(8));
     assert!(preuve(9).ends_with("champ en trop pour main.constat : « essai »"), "{}", preuve(9));
