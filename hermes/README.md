@@ -1,12 +1,12 @@
 # lydite: a Hermes plugin
 
-![Lydite, a plugin for Hermes Agent: issue and proof, sandboxed workers, proof replayed, pull request with a receipt](docs/banner.png)
+![Lydite, a plugin for Hermes Agent: issue and proof, workers (sandboxed under a required wall), proof replayed, pull request with a receipt](docs/banner.png)
 
 This plugin is a launcher. The engine is [Lydite](https://github.com/aoricloud/lydite), an open-source program (Rust,
 MIT) that you install separately, from a release whose binary is built and attested by GitHub Actions.
 
 From the chat you give an issue (or an objective, or a plan file), the **command that proves it done**, and a
-repository. Lydite splits the work, runs one isolated Claude Code worker per task behind its sandbox wall, **replays
+repository. Lydite splits the work, runs one isolated Claude Code worker per task behind its sandbox wall (under a required wall, `exige` or `natif`; see "A requested wall" below), **replays
 your proof itself** on every result, keeps only what passes, and opens a pull request that states the proof result and
 the review outcome. Lydite itself never merges: what happens to the pull request is up to the repository, its humans
 and its own merge rules.
@@ -114,15 +114,15 @@ Copy this `hermes/` folder to `~/.hermes/plugins/lydite`; once the plugin is in 
 
 ```bash
 hermes plugins enable lydite
-hermes config set plugins.entries.lydite.settings.binaire /home/you/lydite
+hermes config set plugins.entries.lydite.settings.binaire /srv/lydite/bin/lydite
 hermes config set plugins.entries.lydite.settings.profil  my-profile
 # only if the profile names a provider key (its `cle` line); the value goes to Hermes' own .env:
 hermes config set plugins.entries.lydite.settings.cle_nom MY_PROVIDER_KEY
 hermes config set LYDITE_CLE_FOURNISSEUR <the provider key>
 ```
 
-Then, in the chat: "do issue 15 of /home/you/project, the proof is `cargo test && cargo clippy -- -D warnings`".
-Or hand it a plan you wrote: "run the plan /home/you/plan.txt on /home/you/project". A plan names the model of each
+Then, in the chat: "do issue 15 of /srv/project, the proof is `cargo test && cargo clippy -- -D warnings`".
+Or hand it a plan you wrote: "run the plan /srv/plan.txt on /srv/project". A plan names the model of each
 task, which an issue cannot do reliably today (Lydite's planner chooses them); `lydite_plan` checks one without
 running anything. The only proof of a plan is the one in its header, and a plan whose task carries its own `preuve :`
 line is refused, because Lydite would run the task's proof, which the human is not shown.
@@ -179,6 +179,10 @@ hermes config set tools.tool_search.enabled off
   process on the host, with your GitHub login; only the commands of a hand run in Claude Code's sandbox, and the proof
   command is replayed in the wall (by srt under `mur = exige`, by Lydite's native wall under `mur = natif`); those are
   Lydite's, documented in its README.
+- **A requested wall.** A profile accepted with `mur = demande` leaves this: the commands of a hand may run outside
+  Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed on the host, outside the
+  wall. A required wall (`exige`, the default, or `natif`) is required for `--issue` and for a plan written from a
+  report.
 - **Network.** The plugin makes no network call itself. Lydite and its workers do: the model provider named in the
   profile, and GitHub (through `gh`) for the issue, the push and the pull request. Nothing is sent anywhere else, and
   there is no telemetry.
