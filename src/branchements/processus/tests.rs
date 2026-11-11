@@ -23,6 +23,24 @@ fn l_arbre_se_lit_dans_les_stats() {
     assert_eq!(descendants(30, &[(30, 31), (31, 30)]), [31]);
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn un_code_non_nul_de_kill_n_est_un_echec_que_si_un_pid_vit_encore() {
+    let pids = ["10".to_string(), "11".to_string(), "12".to_string()];
+    // Code nul : jamais un échec, même si un pid passe pour vivant.
+    assert!(!coup_en_echec(true, &pids, |_| true));
+    assert!(!coup_en_echec(true, &pids, |_| false));
+    // Code non nul, tous les pids sont morts : un descendant est sorti entre le relevé et le coup.
+    assert!(!coup_en_echec(false, &pids, |_| false));
+    // Code non nul, un seul pid vit encore : un échec.
+    assert!(coup_en_echec(false, &pids, |pid| pid == "11"));
+    assert!(coup_en_echec(false, &pids, |_| true));
+    // Le pid de la fonction `vivant` : le test lui-même vit, un pid hors de portée des pid ne vit pas.
+    let moi = std::process::id().to_string();
+    assert!(vivant(&moi));
+    assert!(!vivant("4294967295"));
+}
+
 #[test]
 fn tuer_arbre_tue_les_petits_enfants() {
     let (dir, bac) = bac_jetable("tuer");
@@ -60,17 +78,15 @@ fn tuer_et_attendre_tue_un_enfant_qui_dort_et_ne_rend_aucun_echec() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-// Sous Windows, un enfant déjà sorti donne `Ok(())` : `taskkill` ne trouve plus la racine et rend un code non nul, mais
-// la racine est sortie, et c'est ce qui compte. Le test n'a donc de sens que sous Linux.
-#[cfg(not(windows))]
+// Un enfant déjà sorti donne `Ok(())`, sous Windows comme sous Linux : `taskkill` ou `kill` ne trouve plus la racine et
+// rend un code non nul, mais plus aucun processus visé ne vit, et c'est ce qui compte.
 #[test]
-fn tuer_et_attendre_rend_l_echec_de_la_mise_a_mort_d_un_enfant_deja_sorti() {
+fn tuer_et_attendre_ne_rend_pas_d_echec_pour_un_enfant_deja_sorti() {
     let mut enfant =
         coquille("exit 0").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
     assert!(attendre(&mut enfant, Instant::now() + SORTIE).unwrap().is_some(), "l'enfant sort");
     // Son pid est rendu : on ne le tue plus.
-    let echec = tuer_et_attendre(&mut enfant).unwrap_err();
-    assert!(!echec.is_empty(), "l'échec de la mise à mort se dit");
+    assert_eq!(tuer_et_attendre(&mut enfant), Ok(()));
 }
 
 // Joué sous Windows seul : un `cmd` qui lance sans cesse des `cmd /c exit` fait sortir des descendants pendant que

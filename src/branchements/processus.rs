@@ -47,12 +47,14 @@ pub(crate) fn attendre(enfant: &mut Child, echeance: Instant) -> io::Result<Opti
 // monter vers un Job Object ou un cgroup avec le nœud ; et sous Windows, `taskkill /T` relève l'arbre puis arrête
 // chaque processus : un descendant qui sort entre les deux fait rendre un code non nul alors que tout l'arbre est mort.
 // `tuer_et_attendre` ne tient donc ce code pour un échec que si la racine vit encore : un descendant que `taskkill`
-// n'arrête pas pour une autre raison que sa sortie, la racine étant morte, n'est plus dit.
+// n'arrête pas pour une autre raison que sa sortie, la racine étant morte, n'est plus dit. Sous Linux, `kill -KILL`
+// rend de même un code non nul quand un descendant sort entre le relevé et le coup : `coup_en_echec` ne le tient pour
+// un échec que si l'un des processus visés vit encore (`vivant`).
 pub(crate) fn tuer_arbre(pid: u32) -> Result<(), EchecDeMiseAMort> {
-    let (mut tueur, nom) = if cfg!(windows) {
+    let (mut tueur, nom, pids) = if cfg!(windows) {
         let mut taskkill = Command::new("taskkill");
         taskkill.args(["/T", "/F", "/PID", &pid.to_string()]);
-        (taskkill, format!("taskkill /T /F /PID {pid}"))
+        (taskkill, format!("taskkill /T /F /PID {pid}"), Vec::new())
     } else {
         let proc = fs::read_dir("/proc").map_err(|e| EchecDeMiseAMort::NonParti(format!("/proc unreadable: {e}")))?;
         let liens: Vec<(u32, u32)> = proc
@@ -63,14 +65,30 @@ pub(crate) fn tuer_arbre(pid: u32) -> Result<(), EchecDeMiseAMort> {
             std::iter::once(pid).chain(descendants(pid, &liens)).map(|pid| pid.to_string()).collect();
         let mut kill = Command::new("kill");
         kill.arg("-KILL").args(&pids);
-        (kill, format!("kill -KILL {}", pids.join(" ")))
+        let nom = format!("kill -KILL {}", pids.join(" "));
+        (kill, nom, pids)
     };
     let sortie = tueur.output().map_err(|e| EchecDeMiseAMort::NonParti(format!("cannot start {nom}: {e}")))?;
     if sortie.status.success() {
         return Ok(());
     }
+    // Sous Linux, un code non nul n'est un échec que si l'un des processus visés vit encore après le coup.
+    #[cfg(target_os = "linux")]
+    if !coup_en_echec(false, &pids, vivant) {
+        return Ok(());
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = pids;
     let (erreur, texte) = (String::from_utf8_lossy(&sortie.stderr), String::from_utf8_lossy(&sortie.stdout));
     Err(EchecDeMiseAMort::CodeNonNul(format!("{nom} ({}): {}{}", sortie.status, erreur.trim(), texte.trim())))
+}
+
+/// Le coup de `kill -KILL` sur ces pids est un échec : `kill` n'a pas réussi (`reussi` faux) et l'un des pids, selon
+/// `vit`, vit encore. Un processus mort entre le relevé et le coup fait rendre un code non nul à `kill` sans que
+/// l'arbre vive encore : ce n'est pas un échec.
+#[cfg(target_os = "linux")]
+fn coup_en_echec(reussi: bool, pids: &[String], vit: impl Fn(&str) -> bool) -> bool {
+    !reussi && pids.iter().any(|pid| vit(pid))
 }
 
 /// L'échec de [`tuer_arbre`] : l'outil n'a pas pu partir, ou il a tourné et rendu un code non nul. Le texte le dit.
