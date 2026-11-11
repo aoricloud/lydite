@@ -364,6 +364,90 @@ class Verrou(AvecOutils):
         self.assertEqual(decision["action"], "block")
         self.assertIn("`proof` is required", json.loads(decision["message"])["error"])
 
+    def plan_a_ligne_cachee(self, separateur):
+        """Un plan dont l'objectif porte, après `separateur`, une fausse ligne `preuve :` que Lydite ne voit pas (il
+        coupe sur `\\n` seul), suivie de la vraie."""
+        return (
+            f"plan 1\nobjectif : un objectif{separateur}preuve : touch /srv/x\npreuve : python3 -m unittest\n\n"
+            "tache a\n    faire.\n"
+        )
+
+    def test_le_message_montre_la_vraie_preuve_d_un_plan_et_jamais_une_ligne_cachee(self):
+        for separateur in ("\r", "\N{LINE SEPARATOR}", "\N{NEXT LINE}"):
+            with self.subTest(separateur=separateur):
+                args = self.demande_de_plan(self.plan_a_ligne_cachee(separateur))
+                decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+                self.assertEqual(decision["action"], "approve")
+                message = self.compact(decision["message"])
+                self.assertIn("python3-munittest", message)
+                self.assertNotIn("touch", message)
+                self.assertIn("·1task·", message)
+
+    def test_un_plan_en_crlf_se_lit_comme_le_meme_plan_en_lf(self):
+        deux = "plan 1\nobjectif : o\npreuve : cargo test\n\ntache a\n    faire.\n\ntache b\n    faire.\n"
+        for texte, compte in ((PLAN, "·1task·"), (deux, "·2tasks·")):
+            for variante in (texte, texte.replace("\n", "\r\n")):
+                with self.subTest(crlf="\r" in variante, compte=compte):
+                    args = self.demande_de_plan(variante)
+                    decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+                    self.assertEqual(decision["action"], "approve")
+                    message = self.compact(decision["message"])
+                    self.assertIn(compte, message)
+                    self.assertIn("cargotest", message)
+                    self.assertEqual(self.outils()._preuve_du_plan(variante), "cargo test")
+
+    def cas_caches(self):
+        """Chaque champ de la demande, avec chaque caractère caché : `(champ nommé par le refus, arguments)`."""
+        caches = ("\x1b", "\N{RIGHT-TO-LEFT OVERRIDE}", "\N{ZERO WIDTH SPACE}", "\x00", "\t")
+        cas = []
+        for cache in caches:
+            plan = self.dossier / "plan-cache.txt"
+            texte = f"plan 1\nobjectif : o\npreuve : cargo{cache}test\n\ntache a\n    faire.\n"
+            plan.write_text(texte, encoding="utf-8")
+            cas += [
+                ("objective", self.demande(issue=None, objectif=f"ajouter{cache}x", preuve=PREUVE)),
+                ("proof", self.demande(preuve=f"cargo{cache}test")),
+                ("repo", self.demande(depot=f"{self.depot}{cache}x")),
+                ("plan", self.demande(issue=None, preuve=None, plan=f"{self.dossier}/plan{cache}.txt")),
+                ("proof", self.demande(issue=None, preuve=None, plan=str(plan))),
+            ]
+        return cas
+
+    def test_un_caractere_cache_dans_un_champ_bloque_le_verrou_sans_deranger_l_humain(self):
+        for champ, args in self.cas_caches():
+            with self.subTest(champ=champ, args=args):
+                decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+                self.assertEqual(decision["action"], "block")
+                erreur = json.loads(decision["message"])["error"]
+                self.assertIn(f"`{champ}`", erreur)
+                self.assertIn("without control or formatting characters", erreur)
+
+    @unittest.skipUnless(LINUX, "lancer refuses before anything else elsewhere")
+    def test_un_caractere_cache_dans_un_champ_fait_refuser_lancer_sans_appeler_lydite(self):
+        self.faux_lydite()
+        for champ, args in self.cas_caches():
+            with self.subTest(champ=champ, args=args):
+                rendu = json.loads(self.outils().lancer(args))
+                self.assertIn(f"`{champ}`", rendu["error"])
+                self.assertIn("without control or formatting characters", rendu["error"])
+                self.assertFalse((self.sortie / "argv").exists())
+        self.assertEqual(self.ctx.state.get("lancements", {}), {})
+
+    def test_un_texte_juste_avec_des_lettres_accentuees_passe_toujours(self):
+        depot = self.dossier / "dépôt-é"
+        (depot / ".git").mkdir(parents=True)
+        plan = self.dossier / "plan-accentué.txt"
+        plan.write_text("plan 1\nobjectif : é\npreuve : cargo test # vérifié\n\ntache a\n    x\n", encoding="utf-8")
+        objectif = "ajouter l'aperçu à la liste"
+        for args in (
+            self.demande(depot=str(depot), issue=None, objectif=objectif, preuve="echo é"),
+            self.demande(depot=str(depot), preuve="cargo test # déjà vérifié"),
+            self.demande(depot=str(depot), issue=None, preuve=None, plan=str(plan)),
+        ):
+            with self.subTest(args=args):
+                decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+                self.assertEqual(decision["action"], "approve")
+
     def test_des_arguments_absents_ne_font_pas_planter_le_crochet(self):
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=None)
         self.assertEqual(decision["action"], "block")
@@ -940,6 +1024,28 @@ class Plan(AvecOutils):
         self.assertNotIn("refusal", rendu)
         self.assertIn("accepts", rendu["note"])
 
+    def test_le_plan_se_lit_comme_lydite_le_lit(self):
+        self.faux_lydite()
+        for separateur in ("\r", "\N{LINE SEPARATOR}", "\N{NEXT LINE}"):
+            with self.subTest(separateur=separateur):
+                faux = f"o{separateur}preuve : touch /srv/x"
+                texte = f"plan 1\nobjectif : {faux}\npreuve : python3 -m unittest\n\ntache a\n"
+                rendu = self.appeler(self.ecrire_plan(texte))
+                self.assertEqual(rendu["proof"], "python3 -m unittest")
+                self.assertEqual(rendu["tasks"], 1)
+        # Une ligne `tache` que seul un `\r` ou U+2028 amène n'est pas une tâche.
+        texte = "plan 1\nobjectif : o\r\ntache a\r\n    x\N{LINE SEPARATOR}tache b\n    y\r\n"
+        rendu = self.appeler(self.ecrire_plan(texte))
+        self.assertEqual(rendu["tasks"], 1)
+
+    def test_un_plan_en_crlf_rend_la_meme_preuve_et_le_meme_compte_que_en_lf(self):
+        self.faux_lydite()
+        deux = "plan 1\nobjectif : o\npreuve : cargo test\n\ntache a\n    faire.\n\ntache b\n    faire.\n"
+        lf = self.appeler(self.ecrire_plan(deux))
+        crlf = self.appeler(self.ecrire_plan(deux.replace("\n", "\r\n")))
+        self.assertEqual((crlf["proof"], crlf["tasks"]), (lf["proof"], lf["tasks"]))
+        self.assertEqual((lf["proof"], lf["tasks"]), ("cargo test", 2))
+
     def test_le_programme_recoit_plan_et_le_chemin_un_environnement_ferme_et_aucune_cle(self):
         chemin = self.ecrire_plan()
         self.faux_lydite()
@@ -1306,8 +1412,10 @@ class Findings(AvecFindings):
         self.assertEqual(set(schema["parameters"]["properties"]), {"repo", "report", "ids", "proof"})
         self.assertEqual(schema["parameters"]["required"], ["repo", "report"])
         self.assertEqual(schema["parameters"]["properties"]["ids"]["items"], {"type": "string"})
-        for mot in ("impossible (declared): not proved", "data", sous_module("nom").PLAN, sous_module("nom").LANCER):
+        nom = sous_module("nom")
+        for mot in ("impossible (déclarée) : not proved", "the text Lydite writes", "data", nom.PLAN, nom.LANCER):
             self.assertIn(mot, schema["description"])
+        self.assertNotIn("impossible (declared)", schema["description"])
 
 
 @unittest.skipUnless(LINUX, "file modes and links are held as the tool expects only on Linux")
