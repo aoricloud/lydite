@@ -35,12 +35,12 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
     let profils = kraken.join("profils");
     fs::create_dir_all(&profils).unwrap();
     let code = |nom: &str, visee: &Path, dossier: &Path| {
-        let issue = preparer_dans(nom, Some(visee), dossier.to_path_buf(), Some(&config), Some(&personnel));
+        let issue = preparer_dans(nom, Some(visee), dossier.to_path_buf(), Some(&config), None, Some(&personnel));
         issue.err().unwrap_or_else(|| panic!("{nom} dans {} devait être refusé", dossier.display())).code
     };
     // Le dépôt d'abord, le profil, inconnu ici, ensuite. Un chemin vide ne se rend pas absolu (6006) ; un dépôt
     // absent n'est pas un dossier (6002, avant tout geste git) ; un dossier hors git est refusé par git (6003).
-    let vide = preparer_dans("inconnu", Some(Path::new("")), kraken.clone(), Some(&config), Some(&personnel));
+    let vide = preparer_dans("inconnu", Some(Path::new("")), kraken.clone(), Some(&config), None, Some(&personnel));
     let refus = vide.err().expect("un dépôt vide");
     assert_eq!(refus.code, Code::EntreeSortie);
     assert!(refus.preuve.contains("chemin absolu de"), "{refus}");
@@ -81,11 +81,14 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
     // personnel à un chemin refusé qui garde un fichier de connexion. Sans lui, `CLAUDE_CONFIG_DIR` posé, ce dossier
     // personnel n'est plus un refus.
     fs::create_dir_all(rare.join(".claude")).unwrap();
-    assert_eq!(preparer_dans("veille", Some(&depot), kraken.clone(), Some(&config), Some(&rare)).map(drop), Ok(()));
+    assert_eq!(
+        preparer_dans("veille", Some(&depot), kraken.clone(), Some(&config), None, Some(&rare)).map(drop),
+        Ok(())
+    );
     fs::write(rare.join(".claude").join(".credentials.json"), "").unwrap();
     let relatif = PathBuf::from("relatif");
     for (config, personnel) in [(&relatif, &personnel), (&rare, &personnel), (&config, &rare)] {
-        let refus = preparer_dans("veille", Some(&depot), kraken.clone(), Some(config), Some(personnel)).err();
+        let refus = preparer_dans("veille", Some(&depot), kraken.clone(), Some(config), None, Some(personnel)).err();
         assert_eq!(refus.map(|refus| refus.code), Some(Code::DossierCheminRefuse), "{}", config.display());
     }
     poser("lecteur", format!("sorte = claude\nlecture = {}\n", racine.display()).as_bytes());
@@ -93,7 +96,7 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
     assert_eq!(code("lecteur", &depot, &kraken), Code::ProfilLigneRefusee);
     // Aucun refus : le profil, le dépôt en chemin absolu et le dossier, tels quels ; le profil est borné, sa main part.
     for nom in ["claude", "veille"] {
-        let pret = preparer_dans(nom, Some(&depot), kraken.clone(), Some(&config), Some(&personnel));
+        let pret = preparer_dans(nom, Some(&depot), kraken.clone(), Some(&config), None, Some(&personnel));
         let Ok((profil, visee, dossier)) = pret else { panic!("{nom} devait passer") };
         assert_eq!((visee, dossier), (depot.clone(), kraken.clone()));
         let Demande { argv, declaration } = profil.demande(&racine.join("bac"), None, false);
@@ -105,6 +108,42 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
     }
     // Rien n'a été créé hors du dossier jetable, et le dépôt ne porte que son `.git`.
     assert_eq!(fs::read_dir(&depot).unwrap().count(), 1);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn le_dossier_de_gh_se_resout_comme_gh_le_resout() {
+    // Un environnement fictif, que `lire` consulte : celui de l'humain n'est pas lu.
+    let resolu = |variables: &[(&str, &str)]| {
+        dossier_de_gh(|nom| variables.iter().find(|(cle, _)| *cle == nom).map(|(_, valeur)| OsString::from(valeur)))
+    };
+    let (gh, xdg) = ("/srv/gh", "/srv/xdg");
+    assert_eq!(resolu(&[("GH_CONFIG_DIR", gh), ("XDG_CONFIG_HOME", xdg)]), Some(PathBuf::from(gh)));
+    assert_eq!(resolu(&[("XDG_CONFIG_HOME", xdg)]), Some(Path::new(xdg).join("gh")));
+    // Vide, une variable compte comme absente.
+    assert_eq!(resolu(&[("GH_CONFIG_DIR", ""), ("XDG_CONFIG_HOME", xdg)]), Some(Path::new(xdg).join("gh")));
+    // Sans l'une ni l'autre, gh prend `~/.config/gh`, sous le dossier personnel déjà fermé : rien à fermer de plus.
+    assert_eq!(resolu(&[("GH_CONFIG_DIR", ""), ("XDG_CONFIG_HOME", "")]), None);
+    assert_eq!(resolu(&[("HOME", "/home/humain")]), None);
+}
+
+#[test]
+fn le_dossier_de_gh_tire_de_xdg_config_home_est_ferme_a_la_main() {
+    // `XDG_CONFIG_HOME` posé hors du dossier personnel, sans `GH_CONFIG_DIR` : le dossier de gh qui s'en tire, résolu
+    // comme dans `preparer`, se ferme aux commandes de la main et son fichier de jeton à ses outils.
+    let racine = racine("preparer-gh");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let (config, personnel, xdg) = (racine.join("config"), racine.join("personnel"), racine.join("xdg"));
+    fs::create_dir_all(kraken.join("profils")).unwrap();
+    let gh = dossier_de_gh(|nom| (nom == "XDG_CONFIG_HOME").then(|| xdg.clone().into_os_string()));
+    assert_eq!(gh, Some(xdg.join("gh")));
+    let pret = preparer_dans("claude", Some(&depot), kraken.clone(), Some(&config), gh.as_deref(), Some(&personnel));
+    let Ok((profil, _, _)) = pret else { panic!("le profil intégré devait passer") };
+    let reglages =
+        profil.demande(&racine.join("bac"), None, false).declaration.expect("une main Claude bornée").reglages;
+    let (fermee, du_gh) = (json::chaine(&kraken.to_string_lossy()), json::chaine(&xdg.join("gh").to_string_lossy()));
+    assert!(reglages.contains(&format!(r#""denyRead":["~/",{fermee},{du_gh}]"#)), "{reglages}");
+    assert!(reglages.contains("/hosts.yml)"), "{reglages}");
     let _ = fs::remove_dir_all(&racine);
 }
 

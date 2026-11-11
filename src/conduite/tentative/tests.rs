@@ -22,9 +22,10 @@ use std::fs;
 
 #[test]
 fn l_environnement_de_session_est_retire() {
-    // Les marques de session, les jetons, les moyens de s'authentifier comme l'humain et les variables de git qui
-    // nomment un dépôt, ses objets, sa configuration ou son programme partent de la main et de sa preuve, quelle que
-    // soit la casse ; les fichiers de configuration de git de l'humain, `MCP_*` et le reste passent aux deux.
+    // Les marques de session, les jetons, le dossier de configuration de gh, les moyens de s'authentifier comme
+    // l'humain et les variables de git qui nomment un dépôt, ses objets, sa configuration ou son programme partent de
+    // la main et de sa preuve, quelle que soit la casse ; les fichiers de configuration de git de l'humain,
+    // `XDG_CONFIG_HOME`, `MCP_*` et le reste passent aux deux.
     let retires = [
         "CLAUDECODE",
         "CLAUDE_CODE_ENTRYPOINT",
@@ -40,6 +41,8 @@ fn l_environnement_de_session_est_retire() {
         "GH_ENTERPRISE_TOKEN",
         "GITHUB_ENTERPRISE_TOKEN",
         "github_enterprise_token",
+        "GH_CONFIG_DIR",
+        "gh_config_dir",
         "GIT_DIR",
         "GIT_WORK_TREE",
         "GIT_INDEX_FILE",
@@ -68,6 +71,7 @@ fn l_environnement_de_session_est_retire() {
         "HOME",
         "XCLAUDE",
         "GH_HOST",
+        "XDG_CONFIG_HOME",
         "GITHUB_ACTIONS",
         "GIT_AUTHOR_NAME",
         "GIT_CONFIG_GLOBAL",

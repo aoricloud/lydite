@@ -81,10 +81,12 @@ fn faux_srt(racine: &Path) -> PathBuf {
     chemin
 }
 
-/// Les leurres du dossier personnel et de `CLAUDE_CONFIG_DIR` que `commande` reçoit, sous la racine du test.
+/// Les leurres du dossier personnel et de `CLAUDE_CONFIG_DIR` que `commande` reçoit, sous la racine du test, sans le
+/// dossier de configuration de gh de l'humain ou de la CI, qui changerait les réglages attendus.
 fn avec_leurres<'a>(commande: &'a mut Command, racine: &Path) -> &'a mut Command {
     let personnel = racine.join("personnel");
-    commande.env("USERPROFILE", &personnel).env("HOME", personnel).env("CLAUDE_CONFIG_DIR", racine.join("config"))
+    commande.env("USERPROFILE", &personnel).env("HOME", personnel).env("CLAUDE_CONFIG_DIR", racine.join("config"));
+    commande.env_remove("GH_CONFIG_DIR").env_remove("XDG_CONFIG_HOME")
 }
 
 /// Un refus lu sur stderr : sa première ligne, `lydite : <numéro> <nom>`, puis la preuve et la correction, sans leur

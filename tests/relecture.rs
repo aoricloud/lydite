@@ -423,7 +423,10 @@ impl Essai {
             .env("LYDITE_SRT", self.faux_srt())
             .env("USERPROFILE", &personnel)
             .env("HOME", personnel)
-            .env("CLAUDE_CONFIG_DIR", self.racine.join("config"));
+            .env("CLAUDE_CONFIG_DIR", self.racine.join("config"))
+            // Le dossier de configuration de gh de l'humain, ou de la CI, ne change pas les réglages attendus.
+            .env_remove("GH_CONFIG_DIR")
+            .env_remove("XDG_CONFIG_HOME");
         commande
     }
 
