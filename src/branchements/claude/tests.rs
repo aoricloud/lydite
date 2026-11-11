@@ -614,7 +614,7 @@ fn une_main_qui_sort_en_erreur_apres_son_resultat_est_rouge() {
     for code in [0, 3] {
         let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(&en_erreur), Geste::Sortir(code)];
         let (_, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
-        let dit = ErreurMain::Autre("main : résultat en erreur (success) : fait\nPREUVE: vert".into());
+        let dit = ErreurMain::Autre("hand: result in error (success) : fait\nPREUVE: vert".into());
         assert_eq!(sortie, Err(dit), "code {code}");
     }
     let _ = fs::remove_dir_all(&dir);
@@ -633,7 +633,7 @@ fn un_resultat_en_erreur_de_l_api_est_une_coupure_dans_le_constat() {
     for (statut, code, coupure) in [("529", 0, Some(529)), ("429", 3, Some(429)), ("401", 0, None), ("null", 0, None)] {
         let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(&en_erreur(statut)), Geste::Sortir(code)];
         let (constat, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
-        let dit = ErreurMain::Autre("main : résultat en erreur (success) : API Error".into());
+        let dit = ErreurMain::Autre("hand: result in error (success) : API Error".into());
         assert_eq!(sortie, Err(dit), "{statut} code {code}");
         assert_eq!(constat.unwrap().coupure, coupure, "{statut} code {code}");
     }

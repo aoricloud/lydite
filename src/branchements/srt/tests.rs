@@ -191,7 +191,7 @@ fn un_mur_exige_que_srt_ne_tient_pas_est_refuse_et_rien_ne_reste() {
         profil.avec_srt(srt);
         let refus = eprouver_le_mur(&profil, &kraken).unwrap_err();
         assert_eq!(refus.code, Code::MurRefuse, "{refus}");
-        assert!(refus.preuve.starts_with("le mur est exigé, et srt ne joue pas `true` : "), "{refus}");
+        assert!(refus.preuve.starts_with("the wall is required, and srt does not play `true`: "), "{refus}");
         assert_eq!(fs::read_dir(kraken.join("bacs")).unwrap().count(), 0);
         // Le texte du refus est celui du système qui joue le test : seul celui de Windows parle de Windows et du
         // moyen de lancer quand même.

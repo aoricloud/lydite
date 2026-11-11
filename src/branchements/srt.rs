@@ -138,7 +138,8 @@ fn eprouver_le_mur_avec(profil: &Profil, dossier: &Path, natif: &MurNatif) -> Re
         if sous_natif {
             refus_du_mur_natif(&natif.programme, &Cause::Rejeu(natif::manque(&erreur), erreur))
         } else {
-            Refus::new(Code::MurRefuse, format!("le mur est exigé, et srt ne joue pas `true` : {erreur}"), MUR_REFUSE)
+            let preuve = format!("the wall is required, and srt does not play `true`: {erreur}");
+            Refus::new(Code::MurRefuse, preuve, MUR_REFUSE)
         }
     })
 }

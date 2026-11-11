@@ -81,7 +81,15 @@ const VARIABLES: &str = "sandbox.credentials.envVars";
 
 /// Les listes du mur qui l'ouvrent quand elles grandissent : chaque entrée effective doit être une entrée déclarée. Une
 /// entrée de moins ferme le mur davantage, ce n'est pas un écart ; une clé absente de l'effectif vaut une liste vide.
-const OUVRANT: [&str; 2] = ["sandbox.filesystem.allowRead", "sandbox.network.allowedDomains"];
+/// `allowWrite` y est aussi : Lydite n'en déclare aucune, donc chaque entrée effective est un écart.
+const OUVRANT: [&str; 3] =
+    ["sandbox.filesystem.allowRead", "sandbox.filesystem.allowWrite", "sandbox.network.allowedDomains"];
+
+/// Les clés de `effective.sandbox` qu'aucune liste ne juge et qui n'ouvrent pas le bac : `denyWrite` et `deniedDomains`
+/// le ferment, `autoAllowBashIfSandboxed` ne l'ouvre pas. Toute autre feuille qu'aucune liste ne juge est un écart dès
+/// que sa valeur n'est ni absente, ni `false`, ni `[]`, ni `{}` ([`feuilles_non_jugees`]).
+const PASSANTES: [&str; 3] =
+    ["sandbox.filesystem.denyWrite", "sandbox.network.deniedDomains", "sandbox.autoAllowBashIfSandboxed"];
 
 /// Les dossiers que les outils de fichiers d'une main lisent et écrivent sans règle, en plus de son bac. Lydite n'en
 /// déclare aucun : une entrée effective est un écart, une clé absente vaut une liste vide.
@@ -92,8 +100,9 @@ const DOSSIERS: &str = "permissions.additionalDirectories";
 const FERMANT: &str = "sandbox.filesystem.denyRead";
 
 /// Les clés `sandbox.*` que le JSON de `--settings` écrit sans que `get_settings` les compare, chacune avec sa raison.
-/// Aucune aujourd'hui : toutes sont jugées, par [`MUR`], [`VARIABLES`], [`OUVRANT`] ou [`FERMANT`]. Un test lit les
-/// clés du JSON du profil et exige que chacune soit jugée ou nommée ici.
+/// Aucune aujourd'hui : toutes sont jugées, par [`MUR`], [`VARIABLES`], [`OUVRANT`] ou [`FERMANT`] (les autres feuilles
+/// de l'effectif, par [`PASSANTES`] et [`feuilles_non_jugees`]). Un test lit les clés du JSON du profil et exige que
+/// chacune soit jugée ou nommée ici.
 #[cfg(test)]
 const NON_JUGEES: [(&str, &str); 0] = [];
 
@@ -334,7 +343,7 @@ pub(crate) fn juger_ouverture(attendu: &Attendu, ouverture: &Json) -> (Option<St
 }
 
 /// La sortie de la main : le texte `result` de sa ligne de résultat, vide s'il manque. Un résultat en erreur
-/// (`is_error` vrai, ou un `subtype` autre que `success`) rend `main : résultat en erreur (<subtype>) : <result>`,
+/// (`is_error` vrai, ou un `subtype` autre que `success`) rend `hand: result in error (<subtype>) : <result>`,
 /// sans ` : <result>` s'il n'a pas de texte. Une coupure de l'API ([`coupure`]) est une erreur de ce texte aussi :
 /// `jouer` la reconnaît à part, dans le constat, pour que la vague la relance sans la compter.
 pub(crate) fn resultat(ligne: &Json) -> Result<String, String> {
@@ -345,7 +354,7 @@ pub(crate) fn resultat(ligne: &Json) -> Result<String, String> {
     }
     let subtype = texte_de(ligne, "subtype").map_or_else(|| montre(champ(ligne, "subtype")), str::to_string);
     let texte = if sortie.is_empty() { String::new() } else { format!(" : {sortie}") };
-    Err(format!("main : résultat en erreur ({subtype}){texte}"))
+    Err(format!("hand: result in error ({subtype}){texte}"))
 }
 
 /// Un statut HTTP d'API qui est une coupure : 408, 429, ou 500 et plus. Un autre statut (400, 401…) est une erreur.
@@ -568,6 +577,9 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
             }
         }
     }
+    if let Some(bac) = vu("effective.sandbox") {
+        feuilles_non_jugees(bac, "sandbox", &mut ecarts);
+    }
     let applique = vu("applied.model");
     let pris =
         matches!(applique, Some(Json::Texte(nom)) if nom == modele || nom.starts_with(&format!("claude-{modele}-")));
@@ -582,6 +594,31 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
         }
     }
     ecarts
+}
+
+/// Les écarts des feuilles de `effective.sandbox` qu'aucune liste ne juge : on descend dans les objets seulement, une
+/// clé jugée ([`MUR`], [`VARIABLES`], [`OUVRANT`], [`FERMANT`]) ou [`PASSANTES`] n'est pas reprise, et une valeur
+/// `false`, `[]` ou `{}` passe. Une clé que Claude Code ajoutera et que l'humain pose arrête la main : échec fermé.
+fn feuilles_non_jugees(json: &Json, chemin: &str, ecarts: &mut Vec<String>) {
+    if let Json::Objet(objet) = json {
+        for (cle, valeur) in objet {
+            feuilles_non_jugees(valeur, &format!("{chemin}.{cle}"), ecarts);
+        }
+        return;
+    }
+    let jugee = MUR.contains(&chemin)
+        || OUVRANT.contains(&chemin)
+        || PASSANTES.contains(&chemin)
+        || chemin == VARIABLES
+        || chemin == FERMANT;
+    let vide = match json {
+        Json::Booleen(false) => true,
+        Json::Liste(liste) => liste.is_empty(),
+        _ => false,
+    };
+    if !jugee && !vide {
+        ecarts.push(format!("effective.{chemin} {}, declared absent", montre(Some(json))));
+    }
 }
 
 /// Vrai si l'effectif garde les règles d'identifiants déclarées : chaque entrée déclarée y paraît, à l'égalité du JSON,
