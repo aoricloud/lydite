@@ -36,6 +36,7 @@ use crate::conduite::publication;
 use crate::conduite::relecture;
 use crate::conduite::relecture::Origine;
 
+pub(crate) mod doctor;
 pub(crate) mod etat;
 pub(crate) mod ligne;
 
@@ -63,6 +64,7 @@ fn executer() -> Result<ExitCode, Refus> {
         }
         Commande::Accepter(nom) => return accepter_cmd(&nom),
         Commande::Profil(nom) => return profil_cmd(&nom),
+        Commande::Doctor(nom) => return doctor::doctor_cmd(nom.as_deref()),
         Commande::Etat => return etat_cmd(),
         Commande::Attendre => return attendre_cmd(),
         Commande::LirePlan { fichier, decoupe } => return plan_cmd(&fichier, decoupe),
