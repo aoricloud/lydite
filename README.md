@@ -1,7 +1,8 @@
 # Lydite
 
-**Lydite runs coding agents (called *hands*) on your repository, each behind a sandbox wall, replays your proof
-command itself, and opens a pull request only for what passed, with a receipt.** The agents' word is never the proof.
+**Lydite runs coding agents (called *hands*) on your repository, each hand's commands behind a sandbox wall, replays
+your proof command itself, and opens a pull request only for what passed, with a receipt.** The agents' word is never
+the proof.
 
 <p>
   <a href="https://aoricloud.github.io/givre-lab/"><img src="https://raw.githubusercontent.com/aoricloud/givre-lab/main/apercus/etape-3-planche.png" alt="Nine simulated snow crystals, from Givre Lab" height="240"></a>
@@ -12,12 +13,13 @@ command itself, and opens a pull request only for what passed, with a receipt.**
 [Givre Lab](https://github.com/aoricloud/givre-lab) (crystal growth) and
 [Mycelium Lab](https://github.com/aoricloud/mycelium-lab). Click an image to run it in your browser.*
 
-Lydite is the foreman that proves. Each hand works in its own sandbox behind the same wall. Lydite replays your proof
-itself, after every merge, and returns a pull request with its receipt: what was replayed, what the review could not
-see replayed, and the seal of the run's journal. A hand that finds that no honest code can pass your proof says so,
-and its task comes back not proved, with its reason, instead of a blind fix. The hands run in Claude Code, on any model
-that speaks Anthropic's API format (Claude, DeepSeek…), with no Claude account needed for another provider. You launch
-Lydite from a shell, from Claude Code or another agent, or from Hermes, whatever model your Hermes runs.
+Lydite is the foreman that proves. Each hand works in its own git worktree, its commands behind the same wall; the
+hand's Claude Code session itself runs on your machine, outside the wall. Lydite replays your proof itself, after every
+merge, and returns a pull request with its receipt: what was replayed, what the review could not see replayed, and the
+seal of the run's journal. A hand that finds that no honest code can pass your proof says so, and its task is set
+aside with the hand's reason, instead of a blind fix. The hands run in Claude Code, on any model that speaks
+Anthropic's API format (Claude, DeepSeek…), with no Claude account needed for another provider. You launch Lydite from
+a shell, from Claude Code or another agent, or from Hermes, whatever model your Hermes runs.
 
 The *wall* is Claude Code's sandbox (`srt`): it confines what each hand's commands can read, write and reach on the
 network. A *wave* is one launch: an objective, its tasks, one pull request.
@@ -67,9 +69,10 @@ The receipt counts the hands, their retries and the tasks set aside, and seals t
 Four more things to notice. The proof line is your command, run again by Lydite after the hands have finished, not by
 them. The points to justify are found by Lydite itself, without a model: here a test of the base lost lines, and the
 reviewer had to say why. The commit line names the exact commit that was replayed (and reviewed, when the plan marked
-a task critical): on this repository, the CI check `tete` fails for a Lydite pull request unless its head's files are
-those of a commit named as replayed after a review, in its body or in a correction merged into its branch. And the
-last block is what the review could **not** see replayed. Lydite prints it.
+a task critical): on this repository, the CI check `tete` fails for a pull request whose branch is named `lydite/…`
+unless its head's files are those of a commit named as replayed after a review, in its body or in a correction merged
+into its branch; a pull request from any other branch passes it unchecked. And the last block is what the review could
+**not** see replayed. Lydite prints it.
 
 As of 11 November 2026, on our own repositories:
 
@@ -92,13 +95,17 @@ Each refusal has a number, says what it saw, and says what to do.
   replays your proof itself; without `--verify`, that word is all there is, and the work stays declared. A fact a hand
   only declared is shown as declared, never as observed.
 - **It starts nothing if your proof is already red** on the base commit (6022): a red proof proves nothing afterwards.
-- **It starts nothing if the wall does not start** (6028): before any hand, it runs a command under the wall. That
-  check shows the wall starts, not what it closes. It takes no issue as input without the wall (6029): an issue is
-  text from outside.
+- **It starts nothing if the wall does not start** (6028): before any hand, it runs a command under the wall that
+  replays your proof (your `srt`, or the native wall under `mur = natif`). That check shows the wall starts, not what
+  it closes, and it does not try the sandbox Claude Code starts for each hand: that one is required as each hand
+  starts, and a hand that Claude Code reports outside it is stopped before its task. It takes no issue as input
+  without the wall (6029): an issue is text from outside.
 - **It keeps a hand inside its task**: a change outside the task's list of files (7013), to a protected path or a
   lesson (7018), or to a `.claude/` folder (7006) is refused; a hand does not run `git commit` (Lydite commits).
 - **It does not push a hand to cheat.** A hand that finds a test no honest code can pass says `IMPOSSIBLE: <reason>`;
-  Lydite sets the task aside, replays nothing, retries nothing and merges nothing from it.
+  Lydite sets the task aside, replays nothing, retries nothing and merges nothing from it. The reason is the hand's
+  word, shown as `impossible (déclarée)` and never checked: a task set aside this way does not show that the test is
+  wrong, and a finding that comes back not proved does not show that there is no flaw.
 - **It does not publish** a change under `.github/`, a path of your machine, or a line of your `garde` file (8005),
   nor take a pull request whose CI stays silent (8008). The `garde` file, in the state folder, holds one word or name
   per line (`#` starts a comment), matched without case: write your private names there. Without it, only `.github/`
@@ -116,7 +123,8 @@ rule.
 
 1. You give an objective (or an issue) and **the command that proves the work done**.
 2. A hand splits it into tasks; Lydite reads the plan itself. With `--dry-run` it stops here and shows the plan.
-3. Each task goes to a hand in its own git worktree and branch, behind the wall, with a filtered network exit.
+3. Each task goes to a hand in its own git worktree and branch; the hand's commands run behind the wall, with a
+   filtered network exit.
 4. When a hand says it is done, Lydite replays your proof itself, in a new sandboxed process. Green: the work is
    merged into the wave's branch, and the proof is replayed after every merge. Red: one retry, with the error given to
    the hand, then the task is set aside.
@@ -138,7 +146,7 @@ your own account or provider key: even looking at a plan runs one hand.
 |---|---|---|
 | `git`, and `gh` logged in | the pull request | `gh auth status`. To verify the download you need `gh` 2.67 or later; Debian 13's packaged 2.46 has no `gh attestation` (use the `.sha256` file instead) |
 | [Claude Code](https://claude.com/claude-code), signed in | the hands | Lydite reads Claude Code's output in a precise form, checked on 2.1.312 to 2.1.317; another version may break it |
-| Node and npm; `srt` | the wall | `sudo apt install bubblewrap socat ripgrep`, then `sudo npm install -g @anthropic-ai/sandbox-runtime`. Its current version (0.0.81) needs Node 22.12 or later; with Debian 13's Node 20, install `@anthropic-ai/sandbox-runtime@0.0.78`, the version we run. Install it outside your home folder: the wall closes your home, and an `srt` under it fails with 6028 unless a `lecture` line of the profile opens its folder. `LYDITE_SRT` names an `srt` that is not on your `PATH`. On Ubuntu 24.04 and later, see the sandbox runtime's note on AppArmor and user namespaces. With `mur = natif`, Lydite neither looks for nor runs `srt` (see [Native wall](#native-wall-optional)) |
+| Node and npm; `srt` | the wall | `sudo apt install bubblewrap socat ripgrep`, then `sudo npm install -g @anthropic-ai/sandbox-runtime`. Its current version (0.0.81) needs Node 22.12 or later; with Debian 13's Node 20, install `@anthropic-ai/sandbox-runtime@0.0.78`, the version we run. Install it outside your home folder: the wall closes your home, and an `srt` under it fails with 6028 unless a `lecture` line of the profile opens its folder. `LYDITE_SRT` names an `srt` that is not on your `PATH`. On Ubuntu 24.04 and later, see the sandbox runtime's note on AppArmor and user namespaces. With `mur = natif`, Lydite neither looks for nor runs `srt`, but the hands' commands still run in Claude Code's sandbox, which needs bubblewrap and socat according to its [sandboxing page](https://code.claude.com/docs/en/sandboxing): keep the `apt install` above, with which we ran it (Debian 13, Claude Code 2.1.317; see [Native wall](#native-wall-optional)) |
 | a target repository | the work | on GitHub, with a branch you may push to, a CI that runs on pull requests, and a proof command that is green today |
 
 **Install.** Download the archive, verify it was built by this repository's GitHub Actions, and put the binary on your
@@ -172,16 +180,17 @@ relance = sonnet
 decoupeur = sonnet
 relecteur = sonnet
 mur = exige
-# the wall closes your home folder: open what your proof's tools need to read there, and lydite's folder
-lecture = ~/.cargo, ~/.rustup, ~/.local/bin
+# the wall closes your home folder: open what your proof's tools need to read there
+lecture = ~/.cargo, ~/.rustup
 delai_main = 3600
 delai_preuve = 300
 ```
 
-Why `~/.local/bin`: the hands that split an objective and review a task check their work with `lydite` itself, behind
-the wall, and the wall closes your home folder. A `lydite` installed under it, as above, is not found there unless the
-profile lends its folder for reading. Lending it makes everything in that folder readable by the hands; install
-`lydite` outside your home folder if you would rather not.
+The hands that split an objective and review a task check their work with `lydite` itself, behind the wall, which
+closes your home folder. Under a required wall (`mur = exige` or `natif`), Lydite lends every hand's commands, and the
+replay of your proof, the real file of its own executable (links followed; that file must be named `lydite`), that
+file only and never its folder, so a `lydite` installed under your home folder, as above, runs there with nothing in
+`lecture`. Under `mur = demande` nothing more is lent: those checks run outside the sandbox and find it anyway.
 
 A proof that downloads something (dependencies, say) also needs a `reseau` line naming the domains it may reach.
 
@@ -257,9 +266,10 @@ with its `.sha256` file), unzip it, and put `lydite.exe` on your `PATH`.
 - A wave from a plan, and its pull request with a receipt
   ([givre-lab#29](https://github.com/aoricloud/givre-lab/pull/29)).
 - A review that judges on the replayed proof and names the commit; on this repository's own pull requests, a merge
-  check that refuses a head Lydite did not review and replay. It reads that commit from the pull request body: a line
-  of text, not a signature ([#21](https://github.com/aoricloud/lydite/pull/21),
-  [#22](https://github.com/aoricloud/lydite/pull/22), [mycelium-lab#47](https://github.com/aoricloud/mycelium-lab/pull/47)).
+  check that refuses a head Lydite did not replay after a review, on a branch named `lydite/…` (any other branch
+  passes unchecked). It reads that commit from the pull request body: a line of text, not a signature
+  ([#21](https://github.com/aoricloud/lydite/pull/21), [#22](https://github.com/aoricloud/lydite/pull/22),
+  [mycelium-lab#47](https://github.com/aoricloud/mycelium-lab/pull/47)).
 - The honest way out, `IMPOSSIBLE` ([#6](https://github.com/aoricloud/lydite/pull/6)); protected paths and the exact
   text of a plan ([#14](https://github.com/aoricloud/lydite/pull/14)).
 - The sealed thread ([#21](https://github.com/aoricloud/lydite/pull/21)); written lessons given to each hand
@@ -317,12 +327,16 @@ account, their own API key or their provider's key, as they would without Lydite
   where Claude Code keeps your sign-in: both are closed to the hands' commands and to the replayed proof. Sign in with `claude` itself, or use an API key. The
   agent keeps the key to reach its model, but the commands it runs in the sandbox do not see `ANTHROPIC_API_KEY` or
   `ANTHROPIC_AUTH_TOKEN`.
-- **Your own Claude Code settings.** A hand loads your Claude Code settings (`~/.claude/settings.json`). An `allow` rule there that
-  Lydite did not declare, on any tool but `Bash` and `PowerShell` (the file tools, WebFetch, WebSearch, an MCP tool…),
-  or an `additionalDirectories` entry, would let a hand reach outside its sandbox: Lydite stops the hand before it
-  gets its task, names the rule and where it was found, and says to remove it. Your `allow` rules on `Bash` and
-  `PowerShell` pass under a required wall (the default), because the sandbox still holds those commands; under a wall
-  that is only requested, they are refused too.
+- **Your own Claude Code settings.** A hand loads your Claude Code settings (`~/.claude/settings.json`). Two kinds of
+  entry there would let a hand reach outside its sandbox. One is an `allow` rule that Lydite did not declare, on any
+  tool but `Bash` and `PowerShell` (the file tools, WebFetch, WebSearch, an MCP tool…), or an `additionalDirectories`
+  entry. The other is a sandbox setting that opens it: an entry Lydite did not declare in `allowRead` or
+  `allowedDomains`, or any sandbox key Lydite does not set, such as `allowWrite`, set to anything but false or empty
+  (only `denyWrite`, `deniedDomains` and `autoAllowBashIfSandboxed` pass; under a required wall, an `excludedCommands`
+  of yours stops it even empty). Lydite stops the hand before it gets its task and names what it saw; for an `allow`
+  rule or an `additionalDirectories` entry, it also says where it was found and to remove it. Your `allow` rules on
+  `Bash` and `PowerShell` pass under a required wall (the default), because the sandbox still holds those commands;
+  under a wall that is only requested, they are refused too.
 - **Subscriptions.** Anthropic's advertised limits for the Pro, Max and Ultra plans assume ordinary, individual use of
   Claude Code, and a wave runs many sessions: for large waves, prefer an API key or a provider profile.
 
@@ -352,8 +366,9 @@ Any agent that reads `SKILL.md` files can take the same pointer.
 ## From Hermes
 
 [`hermes/`](https://github.com/aoricloud/lydite/blob/main/hermes/README.md) is a [Hermes Agent](https://hermes-agent.nousresearch.com) plugin. You talk to Hermes,
-Hermes hands the job to Lydite, and Lydite does what it does anywhere else: its own Claude Code workers behind the wall,
-your proof replayed by Lydite itself, a pull request with its receipt. The plugin adds five tools and one skill:
+Hermes hands the job to Lydite, and Lydite does what it does anywhere else: its own Claude Code workers, their commands
+behind the wall, your proof replayed by Lydite itself, a pull request with its receipt. The plugin adds five tools and
+one skill:
 
 - `lydite_lancer` starts a wave from an issue, an objective or a plan file, with your proof command. Hermes shows you
   the repository, the work, the proof and the profile, and waits for your approval before anything starts.
@@ -453,9 +468,9 @@ lydite profile <name>         # read-only: loads the profile as `launch` does an
 
 By default, the wall check before a wave and the replay of your proof go through srt. With `mur = natif`, Lydite runs bubblewrap itself and filters the network with `lydite-reseau`, instead of srt, for both: the wall is required exactly as with `mur = exige`, and srt is neither looked for nor run.
 
-To turn it on, write `mur = natif` in the profile, then accept it again (`lydite accept <name>`). It needs Linux, bubblewrap (`bwrap`, or the program `LYDITE_BWRAP` names), and `lydite-reseau` next to `lydite` or named by `LYDITE_RESEAU`; unprivileged user namespaces must be open on the system. Neither Node nor srt is needed to replay your proof. `lydite doctor <name>` then checks bubblewrap and `lydite-reseau` instead of srt. A wall that does not hold is refused with 6028 before any hand, and the refusal says what is missing: bubblewrap, `lydite-reseau`, or the user namespaces the system closes. `mur = exige` goes back to srt.
+To turn it on, write `mur = natif` in the profile, then accept it again (`lydite accept <name>`). It needs Linux, bubblewrap (`bwrap`, or the program `LYDITE_BWRAP` names), and, if the profile has a `reseau` line, `lydite-reseau` next to `lydite` or named by `LYDITE_RESEAU`; unprivileged user namespaces must be open on the system. Neither Node nor srt is needed to replay your proof. `lydite doctor <name>` then checks bubblewrap instead of srt, and `lydite-reseau` when the profile has a `reseau` line. A wall that does not hold is refused with 6028 before any hand, and the refusal says why: bubblewrap or `lydite-reseau` missing, the user namespaces the system closes, a state folder too long for the filter's socket, a filter that never says it is ready, or else the error itself. `mur = exige` goes back to srt.
 
-Its limit: it covers the wall check and the replay of your proof only. The commands of a Claude Code hand still run under Claude Code's own sandbox, as with `mur = exige`. srt stays the default.
+Its limits: it covers the wall check and the replay of your proof only. The commands of a Claude Code hand still run under Claude Code's own sandbox, which needs bubblewrap and socat according to Claude Code's sandboxing page, as with `mur = exige`: neither the 6028 check nor `lydite doctor` tries it, and a hand that Claude Code reports outside it is stopped before its task. Its network filter decides by name: a domain in `reseau` is allowed on all its ports, even when it resolves to this machine's own public address, and an IPv4 address written in `reseau` is joined as written, loopback and private ones included. Its log, `reseau.journal` in the state folder, has no dates and no size bound. srt stays the default.
 
 ### Plans
 
