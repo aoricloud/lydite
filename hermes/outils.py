@@ -304,7 +304,7 @@ class Outils:
                 raise Refus("`observe` goes with `issue` or `objective`, not with `plan`")
             _exiger_lisible("plan", plan)
             plan, plan_octets = self._lire_le_plan(plan)
-            _exiger_lisible("proof", self._preuve_du_plan(plan_octets.decode("utf-8")))
+            _exiger_lisible("proof", self._valeur_brute_de_la_preuve(plan_octets.decode("utf-8")) or "")
             preuve = ""
         elif not isinstance(preuve, str) or not preuve.strip():
             raise Refus("`proof` is required: the command that proves the work done (Lydite replays it itself)")
@@ -403,15 +403,23 @@ class Outils:
         return str(chemin), octets
 
     @staticmethod
-    def _preuve_du_plan(texte: str) -> str:
-        """La commande de la ligne `preuve :` de l'en-tête du plan, ou de quoi le dire si elle manque."""
+    def _valeur_brute_de_la_preuve(texte: str):
+        """La valeur de la ligne `preuve :` de l'en-tête du plan telle qu'elle est écrite, blancs des bords compris, ou
+        None si la ligne manque. Le `strip()` de Python ôte U+001C à U+001F, que Lydite garde (`trim()` de Rust) : le
+        refus des caractères cachés doit donc regarder cette valeur, jamais la valeur ôtée."""
         for ligne in _lignes_du_plan(texte):
             if ligne == "tache" or ligne.startswith(("tache ", "tache\t")):
                 break
             cle, separateur, valeur = ligne.partition(":")
             if separateur and cle.strip() == "preuve":
-                return valeur.strip()
-        return "no `preuve :` line in the plan header"
+                return valeur
+        return None
+
+    @staticmethod
+    def _preuve_du_plan(texte: str) -> str:
+        """La commande de la ligne `preuve :` de l'en-tête du plan, ou de quoi le dire si elle manque."""
+        valeur = Outils._valeur_brute_de_la_preuve(texte)
+        return "no `preuve :` line in the plan header" if valeur is None else valeur.strip()
 
     @staticmethod
     def _commande(binaire: str, demande: dict) -> list:
@@ -580,12 +588,14 @@ class Outils:
         if demande["plan"]:
             self._plans_montres[(demande["depot"], demande["profil"], demande["plan"])] = empreinte
         message = self._message_de_l_approbation(demande, empreinte)
-        # L'accord « toujours » ne vaut que pour ce dépôt, ce profil, cette issue, cet objectif, cette branche cible et
-        # cette preuve (ou ce plan) exactement. Six champs séparés par `\0`, chacun à une place fixe (un champ absent
-        # est une chaîne vide) : deux demandes différentes ne donnent jamais le même texte haché.
+        # L'accord « toujours » ne vaut que pour ce dépôt, ce profil, cette issue, cet objectif, cette branche cible, ce
+        # mode (essai à blanc ou lancement réel) et cette preuve (ou ce plan) exactement. Sept champs séparés par `\0`,
+        # chacun à une place fixe (un champ absent est une chaîne vide) : deux demandes différentes ne donnent jamais
+        # le même texte haché.
         corps = demande["plan_octets"].decode("utf-8") if demande["plan"] else demande["preuve"]
         issue = "" if demande["issue"] is None else str(demande["issue"])
-        champs = [demande["depot"], demande["profil"], issue, demande["objectif"] or "", demande["pr"], corps]
+        observer = "1" if demande["observer"] else ""
+        champs = [demande["depot"], demande["profil"], issue, demande["objectif"] or "", demande["pr"], observer, corps]
         cle = _empreinte("\0".join(champs).encode("utf-8"))
         return {"action": "approve", "message": message, "rule_key": f"{LANCER}:{cle[:16]}"}
 
