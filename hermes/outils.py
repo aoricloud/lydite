@@ -322,11 +322,12 @@ class Outils:
         }
 
     def _est_un_plan_de_rapport(self, plan: str) -> bool:
-        """Le plan, résolu, est-il sous le dossier `findings/` du plugin, résolu lui aussi ?"""
+        """Le plan, résolu, est-il sous le dossier `findings/` du plugin, résolu lui aussi ? Le contrôle échoue fermé :
+        si un chemin ne se résout pas, le plan est tenu pour un plan né d'un rapport."""
         try:
             return Path(plan).resolve().is_relative_to((self._donnees() / "findings").resolve())
         except (OSError, RuntimeError):
-            return False
+            return True
 
     def _exiger_le_mur(self, profil: str) -> None:
         """Un plan né d'un rapport ne part que sous un mur exigé : `lydite profil <nom>` (lecture seule) doit dire

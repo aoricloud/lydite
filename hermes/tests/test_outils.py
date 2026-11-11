@@ -1010,7 +1010,7 @@ class AvecFindings(AvecOutils):
         for chemin in ("src/db.py", "src/app.py", "web/upload.py"):
             (self.depot / chemin).parent.mkdir(parents=True, exist_ok=True)
             (self.depot / chemin).write_text("pass\n", encoding="utf-8")
-        self.faux_lydite()  # jamais appelé : chacun des essais le vérifie
+        self.faux_lydite()  # jamais appelé : seul `test_aucun_programme_n_est_lance` le vérifie
         self.rapport = self.dossier / "rapport.json"
         self.ecrire_le_rapport(document(retained=[candidat()]))
 
@@ -1243,14 +1243,6 @@ class Findings(AvecFindings):
         self.assertIn("one at a time", rendu["note"])
         self.assertIn("wall", rendu["note"])
 
-    def test_un_plan_ecrit_est_celui_que_lydite_lancer_lit(self):
-        """Le plan écrit passe les bornes de `lydite_lancer` pour un plan : le même fichier, la même empreinte."""
-        rendu = self.appeler(ids=[ID_FINDING], proof=PREUVE)
-        chemin = rendu["plans"][0]["plan"]
-        self.faux_lydite("echo 'wall: required'")  # ce plan est sous `findings/` : il ne part que sous un mur exigé
-        demande = self.outils()._demande({"depot": str(self.depot), "plan": chemin})
-        self.assertEqual(hashlib.sha256(demande["plan_octets"]).hexdigest(), rendu["plans"][0]["sha256"])
-
     def test_un_second_appel_remplace_le_fichier(self):
         premier = self.appeler(ids=[ID_FINDING], proof=PREUVE)
         chemin = Path(premier["plans"][0]["plan"])
@@ -1396,7 +1388,16 @@ class FindingsSysteme(AvecFindings):
         self.assertIn("is a link", rendu["error"])
         self.assertEqual(list(dehors.iterdir()), [])
 
+    def test_un_plan_ecrit_est_celui_que_lydite_lancer_lit(self):
+        """Le plan écrit passe les bornes de `lydite_lancer` pour un plan : le même fichier, la même empreinte."""
+        rendu = self.appeler(ids=[ID_FINDING], proof=PREUVE)
+        chemin = rendu["plans"][0]["plan"]
+        self.faux_lydite("echo 'wall: required'")  # ce plan est sous `findings/` : il ne part que sous un mur exigé
+        demande = self.outils()._demande({"depot": str(self.depot), "plan": chemin})
+        self.assertEqual(hashlib.sha256(demande["plan_octets"]).hexdigest(), rendu["plans"][0]["sha256"])
 
+
+@unittest.skipUnless(LINUX, "the fake Lydite is a shell script: Linux only")
 class PlanDeRapport(AvecOutils):
     """Un plan sous `findings/` du plugin vient d'un rapport : il ne part que sous un mur exigé, que le plugin demande
     à `lydite profil`."""
@@ -1500,6 +1501,20 @@ class PlanDeRapport(AvecOutils):
         self.faux_lydite_du_mur("walls: required")
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.args(self.plan_ecrit()))
         self.assertEqual(decision["action"], "block")
+
+    def test_un_chemin_qui_ne_se_resout_pas_est_tenu_pour_un_plan_de_rapport(self):
+        """Le contrôle échoue fermé : si `resolve` lève, le plan est jugé né d'un rapport et le mur est demandé."""
+        self.faux_lydite_du_mur("wall: requested")
+        plan = self.plan_ecrit()
+        # Chargés avant le patch : le plugin résout lui-même son chemin à l'import.
+        outils, lancer = self.outils(), sous_module("nom").LANCER
+        for erreur in (OSError("boucle de liens"), RuntimeError("Symlink loop")):
+            with self.subTest(erreur=type(erreur).__name__):
+                with mock.patch.object(Path, "resolve", side_effect=erreur):
+                    decision = outils.verrou(tool_name=lancer, args=self.args(plan))
+                self.assertEqual(decision["action"], "block")
+                self.assertIn("wall: requested", json.loads(decision["message"])["error"])
+        self.assertIn("profil nautile", self.appels())
 
     def test_un_plan_ailleurs_ne_change_en_rien_et_profil_n_est_pas_appele(self):
         self.faux_lydite_du_mur("wall: requested")
