@@ -122,7 +122,8 @@ hermes config set LYDITE_CLE_FOURNISSEUR <the provider key>
 Then, in the chat: "do issue 15 of /home/you/project, the proof is `cargo test && cargo clippy -- -D warnings`".
 Or hand it a plan you wrote: "run the plan /home/you/plan.txt on /home/you/project". A plan names the model of each
 task, which an issue cannot do reliably today (Lydite's planner chooses them); `lydite_plan` checks one without
-running anything.
+running anything. The only proof of a plan is the one in its header, and a plan whose task carries its own `preuve :`
+line is refused, because Lydite would run the task's proof, which the human is not shown.
 
 Hermes shows at most ten rows of an approval, and the plugin's message holds in nine: the repository, the work, the
 proof, the profile and the target branch. A plan file is shown by its name, its size, its number of tasks, its proof

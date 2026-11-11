@@ -156,6 +156,32 @@ def _lignes_du_plan(texte: str) -> list:
     return [ligne.removesuffix("\r") for ligne in texte.split("\n")]
 
 
+def _ouvre_une_tache(ligne: str) -> bool:
+    """Cette ligne ouvre-t-elle une tâche ? Lydite y voit `tache` suivi d'une espace ou d'une tabulation, ou seul
+    (`strip_prefix("tache")`, src/coeur/plan.rs)."""
+    return ligne == "tache" or ligne.startswith(("tache ", "tache\t"))
+
+
+def _compter_les_taches(texte: str) -> int:
+    """Le nombre de tâches d'un plan, comme Lydite les compte."""
+    return sum(1 for ligne in _lignes_du_plan(texte) if _ouvre_une_tache(ligne))
+
+
+def _une_tache_porte_une_preuve(texte: str) -> bool:
+    """Une ligne `preuve :` suit-elle une ligne de tâche ? Lydite lit ainsi une clé de tâche : une ligne qui ne
+    commence ni par une espace ni par une tabulation, qui porte un `:`, et dont la clé (avant le premier `:`, blancs
+    des bords ôtés) est `preuve`."""
+    dans_une_tache = False
+    for ligne in _lignes_du_plan(texte):
+        if _ouvre_une_tache(ligne):
+            dans_une_tache = True
+        elif dans_une_tache and not ligne.startswith((" ", "\t")):
+            cle, separateur, _ = ligne.partition(":")
+            if separateur and cle.strip() == "preuve":
+                return True
+    return False
+
+
 def _exiger_lisible(champ: str, valeur: str) -> None:
     """Refuse une valeur qui porte un caractère de contrôle, de format ou de sens d'écriture : il maquillerait ce que
     l'humain approuve."""
@@ -400,6 +426,11 @@ class Outils:
             raise Refus(f"`plan` {str(chemin)!r} cannot be read as UTF-8 text: {exc}") from exc
         if not texte.strip() or len(texte) > LIMITE_DU_PLAN:
             raise Refus(f"`plan` must hold between 1 and {LIMITE_DU_PLAN} characters")
+        if _une_tache_porte_une_preuve(texte):
+            raise Refus(
+                "a task of this `plan` carries its own `preuve :` line: keep a single proof, in the plan header. "
+                "Lydite would run the task's proof instead of the header's, and the human is shown only the header's"
+            )
         return str(chemin), octets
 
     @staticmethod
@@ -408,7 +439,7 @@ class Outils:
         None si la ligne manque. Le `strip()` de Python ôte U+001C à U+001F, que Lydite garde (`trim()` de Rust) : le
         refus des caractères cachés doit donc regarder cette valeur, jamais la valeur ôtée."""
         for ligne in _lignes_du_plan(texte):
-            if ligne == "tache" or ligne.startswith(("tache ", "tache\t")):
+            if _ouvre_une_tache(ligne):
                 break
             cle, separateur, valeur = ligne.partition(":")
             if separateur and cle.strip() == "preuve":
@@ -532,7 +563,7 @@ class Outils:
         if demande["plan"]:
             texte = demande["plan_octets"].decode("utf-8")
             nom = Path(demande["plan"]).name
-            taches = sum(1 for ligne in _lignes_du_plan(texte) if ligne.startswith("tache "))
+            taches = _compter_les_taches(texte)
             compte = "1 task" if taches == 1 else f"{taches} tasks"
             avant = [
                 ("repo", demande["depot"], "debut"),
@@ -962,7 +993,7 @@ class Outils:
             "accepted": fin.returncode == 0,
             "plan": chemin,
             "sha256": _empreinte(octets),
-            "tasks": sum(1 for ligne in _lignes_du_plan(texte) if ligne.startswith("tache ")),
+            "tasks": _compter_les_taches(texte),
             "proof": self._preuve_du_plan(texte),
         }
         if fin.returncode == 0:
