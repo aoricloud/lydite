@@ -19,6 +19,11 @@ pub(crate) const SORTIE: Duration = Duration::from_secs(10);
 /// Le temps qu'un arbre tué a pour finir de sortir, après sa mise à mort ([`tuer_et_attendre`]).
 pub(crate) const MORT: Duration = Duration::from_secs(10);
 
+/// Le temps qu'a un processus frappé par `kill -KILL` pour sortir, avant qu'un code non nul du coup soit un échec
+/// ([`tuer_arbre`], sous Linux).
+#[cfg(target_os = "linux")]
+const APRES_LE_COUP: Duration = Duration::from_secs(1);
+
 /// L'instant où tombe ce délai, compté d'ici. Un délai démesuré se borne à cent ans : l'addition d'un `Instant` ne
 /// déborde pas.
 pub(crate) fn echeance(delai: Duration) -> Instant {
@@ -49,7 +54,8 @@ pub(crate) fn attendre(enfant: &mut Child, echeance: Instant) -> io::Result<Opti
 // `tuer_et_attendre` ne tient donc ce code pour un échec que si la racine vit encore : un descendant que `taskkill`
 // n'arrête pas pour une autre raison que sa sortie, la racine étant morte, n'est plus dit. Sous Linux, `kill -KILL`
 // rend de même un code non nul quand un descendant sort entre le relevé et le coup : `coup_en_echec` ne le tient pour
-// un échec que si l'un des processus visés vit encore (`vivant`).
+// un échec que si l'un des processus visés vit encore (`vivant`) à `APRES_LE_COUP` : un processus frappé se lit « R »
+// ou « S » tant que l'ordonnanceur ne l'a pas fait sortir, et `coup_en_echec` le relit jusque-là.
 pub(crate) fn tuer_arbre(pid: u32) -> Result<(), EchecDeMiseAMort> {
     let (mut tueur, nom, pids) = if cfg!(windows) {
         let mut taskkill = Command::new("taskkill");
@@ -72,9 +78,9 @@ pub(crate) fn tuer_arbre(pid: u32) -> Result<(), EchecDeMiseAMort> {
     if sortie.status.success() {
         return Ok(());
     }
-    // Sous Linux, un code non nul n'est un échec que si l'un des processus visés vit encore après le coup.
+    // Sous Linux, un code non nul n'est un échec que si l'un des processus visés vit encore à `APRES_LE_COUP`.
     #[cfg(target_os = "linux")]
-    if !coup_en_echec(false, &pids, vivant) {
+    if !coup_en_echec(false, &pids, vivant, echeance(APRES_LE_COUP)) {
         return Ok(());
     }
     #[cfg(not(target_os = "linux"))]
@@ -84,11 +90,24 @@ pub(crate) fn tuer_arbre(pid: u32) -> Result<(), EchecDeMiseAMort> {
 }
 
 /// Le coup de `kill -KILL` sur ces pids est un échec : `kill` n'a pas réussi (`reussi` faux) et l'un des pids, selon
-/// `vit`, vit encore. Un processus mort entre le relevé et le coup fait rendre un code non nul à `kill` sans que
-/// l'arbre vive encore : ce n'est pas un échec.
+/// `vit`, vit encore à l'`echeance`. Un processus mort entre le relevé et le coup fait rendre un code non nul à `kill`
+/// sans que l'arbre vive encore : ce n'est pas un échec. Un processus qui a reçu le coup peut se lire vivant un instant
+/// encore, le temps que l'ordonnanceur le fasse sortir : `vit` se relit à intervalle court jusqu'à l'échéance, et
+/// l'attente finit dès que plus aucun pid ne vit. Un code nul ne lit rien.
 #[cfg(target_os = "linux")]
-fn coup_en_echec(reussi: bool, pids: &[String], vit: impl Fn(&str) -> bool) -> bool {
-    !reussi && pids.iter().any(|pid| vit(pid))
+fn coup_en_echec(reussi: bool, pids: &[String], vit: impl Fn(&str) -> bool, echeance: Instant) -> bool {
+    if reussi {
+        return false;
+    }
+    loop {
+        if !pids.iter().any(|pid| vit(pid)) {
+            return false;
+        }
+        if Instant::now() >= echeance {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
 }
 
 /// L'échec de [`tuer_arbre`] : l'outil n'a pas pu partir, ou il a tourné et rendu un code non nul. Le texte le dit.
