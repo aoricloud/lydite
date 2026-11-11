@@ -755,6 +755,60 @@ fn une_commande_blanche_ne_part_pas() {
 }
 
 #[test]
+fn ce_qui_manque_au_mur_natif_se_lit_dans_l_erreur_de_son_rejeu() {
+    // Le filtre réseau : les erreurs que le mur écrit pour lui, prises à leur source, portent ses deux noms.
+    let absent = PathBuf::from("/srv/outils/lydite-reseau-absent");
+    let manque_le_programme = programme_reel(&Ok(absent)).unwrap_err();
+    assert_eq!(manque(&manque_le_programme), Manque::Reseau, "{manque_le_programme}");
+    let inconnu = reseau_selon(None, Err(io::Error::other("inconnu")));
+    assert_eq!(manque(&programme_reel(&inconnu).unwrap_err()), Manque::Reseau, "{inconnu:?}");
+    let socket_long = socket_assez_court(Path::new(&format!("/{}", "a".repeat(120)))).unwrap_err();
+    assert_eq!(manque(&socket_long), Manque::Reseau, "{socket_long}");
+    let mort = "vérification « true » impossible : the network filter /srv/lydite-reseau exited before it said ready";
+    assert_eq!(manque(mort), Manque::Reseau);
+    // Les espaces d'utilisateur : ce que bwrap écrit quand le système les ferme, sa sortie suivant le statut rouge.
+    for dit in [
+        "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user \
+         namespaces",
+        "bwrap: setting up uid map: Permission denied",
+        "bwrap: Can't mount proc on /newroot/proc: Operation not permitted",
+    ] {
+        let erreur = format!("vérification « true » rouge (exit status: 1) :\n{dit}");
+        assert_eq!(manque(&erreur), Manque::Espaces, "{erreur}");
+    }
+    // Le reste n'accuse ni le filtre ni le système : l'erreur du rejeu se lit telle quelle.
+    for erreur in [
+        "vérification « true » rouge (exit status: 1) :\nboum",
+        "vérification « true » : temps dépassé (30 s) :\n",
+        "vérification « true » impossible : journal /srv/k/verif.tmp : Permission denied (os error 13)",
+    ] {
+        assert_eq!(manque(erreur), Manque::Autre, "{erreur}");
+    }
+}
+
+#[test]
+fn bwrap_part_ne_juge_que_le_lancement() {
+    let dir = dossier("natif-bwrap-part");
+    let absent = dir.join("bwrap-absent");
+    let erreur = bwrap_part(absent.as_os_str()).unwrap_err();
+    assert!(erreur.contains("os error"), "{erreur}");
+    // Un dossier n'est pas un programme : il ne part pas non plus.
+    assert!(bwrap_part(dir.as_os_str()).is_err());
+    #[cfg(unix)]
+    {
+        // Un programme qui part, quel que soit son code : sa sortie n'est pas jugée.
+        let (vert, rouge) = (dir.join("vert.sh"), dir.join("rouge.sh"));
+        crate::essais::script(&vert, "exit 0");
+        crate::essais::script(&rouge, "echo non >&2\nexit 7");
+        crate::essais::chauffer(&vert);
+        crate::essais::chauffer(&rouge);
+        assert_eq!(bwrap_part(vert.as_os_str()), Ok(()));
+        assert_eq!(bwrap_part(rouge.as_os_str()), Ok(()));
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn le_programme_et_la_maison_se_lisent_de_l_environnement() {
     assert_eq!(programme_selon(None), "bwrap");
     assert_eq!(programme_selon(Some(OsString::new())), "bwrap");

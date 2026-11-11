@@ -189,3 +189,50 @@ fn doctor_d_un_profil_dit_le_refus_avant_accepter_et_sort_en_0_apres() {
         fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn doctor_d_un_profil_natif_verifie_bwrap_et_lydite_reseau_a_la_place_de_srt() {
+    let (dir, (dossier, _)) = (neuf("natif"), dossier_de_lydite("natif"));
+    let depot = dir.join("depot");
+    fs::create_dir_all(&depot).unwrap();
+    git(&depot, &["init", "-q"]);
+    git(&depot, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    fs::create_dir_all(dossier.join("profils")).unwrap();
+    // Le même profil, au mur natif (`p`) puis au mur de srt (`s`).
+    fs::write(dossier.join("profils").join("p.profil"), "sorte = claude\nmur = natif\n").unwrap();
+    fs::write(dossier.join("profils").join("s.profil"), "sorte = claude\nmur = exige\n").unwrap();
+    // `lydite-reseau` est là, `bwrap` et srt n'y sont pas : aucun mur ne tient, et `doctor` dit ce qui manque à celui
+    // que le profil choisit.
+    let reseau = dir.join("lydite-reseau");
+    fs::write(&reseau, "x").unwrap();
+    let doctor = || {
+        let mut commande = kraken();
+        avec_les_faux(commande.current_dir(&depot).env("LYDITE_DOSSIER", &dossier), &dir);
+        commande
+            .env("LYDITE_SRT", dir.join("srt-n-existe-pas"))
+            .env("LYDITE_BWRAP", dir.join("bwrap-n-existe-pas"))
+            .env("LYDITE_RESEAU", &reseau);
+        commande
+    };
+    for profil in ["p", "s"] {
+        let accepter = doctor().args(["accepter", profil]).output().unwrap();
+        assert!(accepter.status.success(), "{}", String::from_utf8_lossy(&accepter.stderr));
+    }
+    let a = |lignes: &[String], debut: &str| lignes.iter().any(|ligne| ligne.starts_with(debut));
+    let (lignes, code) = jouer(doctor().args(["doctor", "p"]));
+    assert_eq!(code, 1, "{lignes:?}");
+    assert!(a(&lignes, "missing bwrap: `") && a(&lignes, "missing profile: p, refusal 6028"), "{lignes:?}");
+    let bwrap = lignes.iter().find(|ligne| ligne.starts_with("missing bwrap: ")).unwrap();
+    assert!(bwrap.contains(" Fix: install bubblewrap ") && bwrap.contains("LYDITE_BWRAP"), "{bwrap}");
+    assert!(lignes.contains(&format!("ok lydite-reseau: {}", reseau.display())), "{lignes:?}");
+    assert!(a(&lignes, "skipped srt: the profile uses the native wall"), "{lignes:?}");
+    assert!(!a(&lignes, "missing srt"), "{lignes:?}");
+    // Le profil au mur de srt : srt se vérifie, et ni bwrap ni lydite-reseau.
+    let (lignes, code) = jouer(doctor().args(["doctor", "s"]));
+    assert_eq!(code, 1, "{lignes:?}");
+    assert!(a(&lignes, "missing srt: `") && a(&lignes, "missing profile: s, refusal 6028"), "{lignes:?}");
+    assert!(!a(&lignes, "missing bwrap") && !a(&lignes, "ok bwrap") && !a(&lignes, "ok lydite-reseau"), "{lignes:?}");
+    for dir in [&dir, &dossier] {
+        fs::remove_dir_all(dir).unwrap();
+    }
+}

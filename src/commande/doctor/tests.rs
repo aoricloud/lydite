@@ -68,6 +68,18 @@ fn faux_srt(dir: &Path) -> OsString {
     faux(dir, "srt", "echo 'srt 9.9'", "echo srt 9.9")
 }
 
+/// Un faux `bwrap` qui dit sa version.
+fn faux_bwrap(dir: &Path) -> OsString {
+    faux(dir, "bwrap", "echo 'bubblewrap 9.9'", "echo bubblewrap 9.9")
+}
+
+/// Un faux `lydite-reseau` : un fichier, que `doctor` ne lance pas.
+fn faux_reseau(dir: &Path) -> PathBuf {
+    let chemin = dir.join("lydite-reseau");
+    fs::write(&chemin, "x").unwrap();
+    chemin
+}
+
 /// Tous les programmes présents et connectés, dans `dir`.
 fn tout_present(dir: &Path) -> Programmes {
     Programmes {
@@ -75,10 +87,13 @@ fn tout_present(dir: &Path) -> Programmes {
         gh: faux_gh(dir, 0),
         claude: faux_claude(dir, 0),
         srt: faux_srt(dir),
+        bwrap: faux_bwrap(dir),
+        reseau: Ok(faux_reseau(dir)),
         delai_git: DELAI,
         delai_gh: DELAI,
         delai_claude: DELAI,
         delai_srt: DELAI,
+        delai_bwrap: DELAI,
     }
 }
 
@@ -243,7 +258,7 @@ fn sous_windows_srt_est_saute_meme_absent() {
 fn le_profil_nomme_se_dit_accepte_ou_refuse() {
     let dir = racine("doctor-profil");
     let programmes = tout_present(&dir);
-    let vu = |fournisseur, mur| Ok(ProfilVu { fournisseur, mur });
+    let vu = |fournisseur, mur| Ok(ProfilVu { fournisseur, mur, natif: false });
     for (mur, fin) in [(true, ", wall checked"), (false, "")] {
         let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &vu(false, mur))), false);
         let mut attendues = lignes_pretes();
@@ -267,16 +282,126 @@ fn le_profil_nomme_se_dit_accepte_ou_refuse() {
 fn un_profil_qui_nomme_un_fournisseur_n_a_pas_besoin_d_un_compte_claude() {
     let dir = racine("doctor-fournisseur");
     let programmes = Programmes { claude: faux_claude(&dir, 1), ..tout_present(&dir) };
-    let profil = Ok(ProfilVu { fournisseur: true, mur: true });
+    let profil = Ok(ProfilVu { fournisseur: true, mur: true, natif: false });
     let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("api", &profil)), false);
     let saute = "skipped claude login: the profile names another provider, whose hands need no Claude account.";
     assert_eq!(lignes[3], saute);
     assert_eq!((lignes.last().unwrap().as_str(), code), ("ready", 0));
     // Sans fournisseur, le même `claude auth status` rouge est un manque.
-    let profil = Ok(ProfilVu { fournisseur: false, mur: true });
+    let profil = Ok(ProfilVu { fournisseur: false, mur: true, natif: false });
     let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("claude", &profil)), false);
     assert!(lignes[3].starts_with("missing claude login: not signed in."), "{}", lignes[3]);
     assert_eq!(code, 1);
+    effacer(&dir);
+}
+
+/// Le profil `p`, accepté, au mur natif ou non.
+fn profil_vu(natif: bool) -> Result<ProfilVu, Refus> {
+    Ok(ProfilVu { fournisseur: false, mur: true, natif })
+}
+
+/// La ligne de `doctor` qui parle du programme `nom` (`ok <nom>:`, `skipped <nom>:` ou `missing <nom>:`), ou `None`.
+fn ligne_de<'a>(lignes: &'a [String], nom: &str) -> Option<&'a String> {
+    lignes
+        .iter()
+        .find(|ligne| ["ok", "skipped", "missing"].iter().any(|etat| ligne.starts_with(&format!("{etat} {nom}:"))))
+}
+
+#[test]
+fn un_profil_natif_verifie_bwrap_et_lydite_reseau_a_la_place_de_srt() {
+    let dir = racine("doctor-natif");
+    // srt manque, et le profil n'en a pas besoin : rien ne manque.
+    let programmes = Programmes { srt: absent(&dir), ..tout_present(&dir) };
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &profil_vu(true))), false);
+    let reseau = faux_reseau(&dir);
+    let attendues = [
+        "ok git: git version 9.9".to_string(),
+        "ok gh: logged in".into(),
+        "ok claude: claude 9.9".into(),
+        "ok claude login: signed in".into(),
+        "ok bwrap: bubblewrap 9.9".into(),
+        format!("ok lydite-reseau: {}", reseau.display()),
+        "skipped srt: the profile uses the native wall (`mur = natif`), which runs bubblewrap itself: it needs no srt."
+            .into(),
+        format!("ok state folder: {} (created at the first launch)", dossier_court().unwrap().display()),
+        "ok profile: p accepted, ready to launch here, wall checked".into(),
+        "ready".into(),
+    ];
+    assert_eq!(lignes, attendues);
+    assert_eq!(code, 0);
+    // Le même regard, sur le même profil qui n'est pas natif : srt se vérifie, bwrap et lydite-reseau non. Il voit
+    // donc bien ce qu'il cherche.
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &profil_vu(false))), false);
+    assert!(ligne_de(&lignes, "srt").is_some_and(|ligne| ligne.starts_with("missing srt: `")), "{lignes:?}");
+    assert_eq!((ligne_de(&lignes, "bwrap"), ligne_de(&lignes, "lydite-reseau")), (None, None), "{lignes:?}");
+    assert_eq!(code, 1);
+    // Sans profil, la sortie ne change pas : ni bwrap ni lydite-reseau, même absents.
+    let sans = Programmes { bwrap: absent(&dir), reseau: Err("rien".into()), ..tout_present(&dir) };
+    let (lignes, code) = verifier(&sans, &dossier_court(), None, false);
+    assert_eq!((lignes, code), (lignes_pretes(), 0));
+    effacer(&dir);
+}
+
+#[test]
+fn un_profil_natif_dit_pour_chaque_manque_quoi_faire() {
+    let dir = racine("doctor-natif-manques");
+    let installer = "install bubblewrap (Linux only; on Debian and Ubuntu, `apt install bubblewrap`) or name its path \
+                     in LYDITE_BWRAP.";
+    let construire = "build it (`cargo build --release --manifest-path reseau/Cargo.toml`) and put it next to the \
+                      `lydite` executable, or name its path in LYDITE_RESEAU.";
+    // `bwrap` ne part pas, `lydite-reseau` n'est pas là où on le cherche.
+    let absent_reseau = dir.join("lydite-reseau-absent");
+    let programmes = Programmes { bwrap: absent(&dir), reseau: Ok(absent_reseau.clone()), ..tout_present(&dir) };
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &profil_vu(true))), false);
+    let bwrap = ligne_de(&lignes, "bwrap").unwrap();
+    let commande = format!("{} --version", absent(&dir).to_string_lossy());
+    assert!(bwrap.starts_with(&format!("missing bwrap: `{commande}` could not start: ")), "{bwrap}");
+    assert!(bwrap.ends_with(&format!(" Fix: {installer}")), "{bwrap}");
+    let reseau = format!("missing lydite-reseau: {} is not a file. Fix: {construire}", absent_reseau.display());
+    assert_eq!(ligne_de(&lignes, "lydite-reseau"), Some(&reseau));
+    assert_eq!(lignes.last().map(String::as_str), Some("not ready: 2 missing"));
+    assert_eq!(code, 1);
+    // Un dossier n'est pas `lydite-reseau`.
+    let programmes = Programmes { reseau: Ok(dir.clone()), ..tout_present(&dir) };
+    let (lignes, _) = verifier(&programmes, &dossier_court(), Some(("p", &profil_vu(true))), false);
+    let attendue = format!("missing lydite-reseau: {} is not a file. Fix: {construire}", dir.display());
+    assert_eq!(ligne_de(&lignes, "lydite-reseau"), Some(&attendue));
+    // Aucun chemin à chercher : ni `LYDITE_RESEAU`, ni dossier de l'exécutable.
+    let programmes = Programmes { reseau: Err("inconnu".into()), ..tout_present(&dir) };
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &profil_vu(true))), false);
+    let attendue = format!(
+        "missing lydite-reseau: there is no path to it: LYDITE_RESEAU is not set, and the folder of the Lydite \
+         executable is unknown. Fix: {construire}"
+    );
+    assert_eq!(ligne_de(&lignes, "lydite-reseau"), Some(&attendue));
+    assert_eq!((lignes.last().map(String::as_str), code), (Some("not ready: 1 missing"), 1));
+    effacer(&dir);
+}
+
+#[test]
+fn un_profil_que_le_mur_natif_a_refuse_se_lit_natif_et_ne_demande_pas_srt() {
+    let dir = racine("doctor-natif-refuse");
+    // srt manque : un profil natif refusé n'en a pas besoin, mais `bwrap` et `lydite-reseau` se disent.
+    let programmes = Programmes { srt: absent(&dir), bwrap: absent(&dir), ..tout_present(&dir) };
+    let natif = Refus::new(
+        Code::MurRefuse,
+        format!("{PREUVE_DU_MUR_NATIF} needs bubblewrap (LYDITE_BWRAP), and `bwrap` cannot start: x"),
+        "Install bubblewrap.",
+    );
+    let (lignes, code) = verifier(&programmes, &dossier_court(), Some(("p", &Err(natif.clone()))), false);
+    assert!(ligne_de(&lignes, "bwrap").is_some_and(|ligne| ligne.starts_with("missing bwrap: `")), "{lignes:?}");
+    assert!(ligne_de(&lignes, "srt").is_some_and(|ligne| ligne.starts_with("skipped srt: ")), "{lignes:?}");
+    assert!(lignes.contains(&"missing profile: p, refusal 6028".to_string()), "{lignes:?}");
+    assert_eq!(lignes.last().map(String::as_str), Some("not ready: 2 missing"));
+    assert_eq!(code, 1);
+    // Le refus 6028 de srt, ou un autre refus, ne dit rien du mur natif : srt se vérifie comme avant.
+    let de_srt = Refus::new(Code::MurRefuse, "le mur est exigé, et srt ne joue pas `true` : x", "Installe srt.");
+    let autre = Refus::new(Code::ProfilNonAccepte, format!("{PREUVE_DU_MUR_NATIF} n'est pas accepté"), "Accepte-le.");
+    for refus in [de_srt, autre] {
+        let (lignes, _) = verifier(&programmes, &dossier_court(), Some(("p", &Err(refus))), false);
+        assert!(ligne_de(&lignes, "srt").is_some_and(|ligne| ligne.starts_with("missing srt: `")), "{lignes:?}");
+        assert_eq!((ligne_de(&lignes, "bwrap"), ligne_de(&lignes, "lydite-reseau")), (None, None), "{lignes:?}");
+    }
     effacer(&dir);
 }
 

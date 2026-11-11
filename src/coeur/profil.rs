@@ -913,13 +913,14 @@ impl Profil {
     /// Code y met ses sockets de pont (`<dossier temporaire>/claude-http-<16 hex>.sock`) et donne à ses commandes
     /// `<dossier temporaire>/claude-<uid>` en `TMPDIR`. `None` sous un mur demandé et pour une main brute : la preuve
     /// se rejoue par la coquille. Sous `mur = natif`, le mur natif ne lit pas de réglages de srt, il lit les règles de
-    /// [`Profil::listes_du_mur`] ; tant qu'il n'est pas branché, c'est une erreur, et non `None` (qui voudrait dire
-    /// « la coquille, sans mur ») : la preuve ne se rejoue pas. Un mur exigé, de srt ou natif, que `borner` n'a pas
-    /// borné est aussi une erreur : la preuve ne se rejoue pas.
+    /// [`Profil::listes_du_mur`] et rejoue par ses propres moyens ([`Profil::mur_du_rejeu`]) : demander ici des
+    /// réglages de srt est une erreur, et non `None` (qui voudrait dire « la coquille, sans mur »), si bien qu'aucune
+    /// preuve ne se rejoue hors d'un mur par cette porte. Un mur exigé, de srt ou natif, que `borner` n'a pas borné
+    /// est aussi une erreur : la preuve ne se rejoue pas.
     pub(crate) fn rejeu(&self, worktree: &Path, temporaire: &Path) -> Result<Option<Srt>, String> {
         let Some((claude, bornes, listes)) = self.mur_exige(worktree, temporaire)? else { return Ok(None) };
         if claude.mur == Mur::Natif {
-            return Err("le mur natif n'est pas encore branché : la preuve ne se rejoue pas".into());
+            return Err("`mur = natif` n'a pas de réglages de srt : le mur natif rejoue la preuve, sans srt".into());
         }
         let reglages = format!(
             concat!(
