@@ -38,12 +38,13 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install --no-self-update
-      # Une étiquette nomme la version de Cargo.toml, ou rien ne se construit.
+      # Une étiquette nomme la version de Cargo.toml, ou rien ne se construit. Un Cargo.lock resté en arrière est
+      # arrêté juste après, par `cargo test --locked`.
       - name: Comparer la version à l'étiquette
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          version="$(cargo pkgid --locked)"
+          version="$(cargo pkgid)"
           version="${version##*[#@]}"
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "::error::The tag $GITHUB_REF_NAME does not name the version of Cargo.toml (v$version)."
@@ -51,8 +52,7 @@ jobs:
           fi
       - run: cargo test --locked
       - run: cargo build --release --locked
-      # Le filtre réseau du mur natif, lydite-reseau, ne se construit que sous Linux ; Lydite le cherche à côté de
-      # son propre exécutable.
+      # Le filtre réseau du mur natif, lydite-reseau, ne se construit que sous Linux ; il est livré à côté de lydite.
       - name: Construire le filtre réseau (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -104,7 +104,10 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # `--verify-tag` : une étiquette retirée pendant la construction n'est pas recréée sur la branche par défaut.
       - name: Attacher à la version
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
+            --generate-notes --verify-tag
