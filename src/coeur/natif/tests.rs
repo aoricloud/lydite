@@ -46,6 +46,7 @@ struct Cas {
 impl Cas {
     fn jouer(&self, faux: &Faux) -> Result<Natif, String> {
         let regles = Regles {
+            maison: Path::new("/srv/maison"),
             fermes: &self.fermes,
             lus: &self.lus,
             ecrits: &self.ecrits,
@@ -256,6 +257,57 @@ fn un_chemin_ferme_ou_refuse_absent_est_saute_sans_bruit() {
     let args = cas.args(&present);
     assert!(place(&args, &["--tmpfs", "/srv/ferme"]).is_some(), "{args:?}");
     assert_eq!(destinations(&args, "--ro-bind"), ["/srv/ecrit/refuse"]);
+}
+
+#[test]
+fn un_chemin_ferme_absent_est_rendu_dans_fermes_absents() {
+    let cas = Cas { fermes: chemins(&["/srv/ferme-absent", "/srv/ferme"]), ..Cas::default() };
+    let natif = cas.jouer(&Faux(vec![dossier("/srv/ferme")])).unwrap();
+    assert_eq!(natif.fermes_absents, chemins(&["/srv/ferme-absent"]));
+    assert!(natif.sautes.is_empty());
+
+    let natif = cas.jouer(&Faux(vec![dossier("/srv/ferme"), dossier("/srv/ferme-absent")])).unwrap();
+    assert!(natif.fermes_absents.is_empty());
+}
+
+#[test]
+fn le_tilde_se_deplie_en_maison_et_ferme_le_dossier_personnel() {
+    // la maison des tests est /srv/maison ; `~/` et `~` en tête se déplient, `~x` n'est pas un tilde
+    let faux = Faux(vec![dossier("/srv/maison"), dossier("/srv/maison/.cargo"), dossier("/srv/maison/bac")]);
+    let cas =
+        Cas { fermes: chemins(&["~/"]), lus: chemins(&["~/.cargo"]), ecrits: chemins(&["~/bac"]), ..Cas::default() };
+    let args = cas.args(&faux);
+    assert!(place(&args, &["--tmpfs", "/srv/maison"]).is_some(), "{args:?}");
+    assert!(place(&args, &["--ro-bind", "/srv/maison/.cargo", "/srv/maison/.cargo"]).is_some(), "{args:?}");
+    assert!(place(&args, &["--bind", "/srv/maison/bac", "/srv/maison/bac"]).is_some(), "{args:?}");
+
+    let cas = Cas { fermes: chemins(&["~"]), ..Cas::default() };
+    assert!(place(&cas.args(&faux), &["--tmpfs", "/srv/maison"]).is_some());
+
+    // le dossier personnel absent se dit, il ne se tait pas
+    let natif = Cas { fermes: chemins(&["~/"]), ..Cas::default() }.jouer(&Faux(Vec::new())).unwrap();
+    assert_eq!(natif.fermes_absents, chemins(&["/srv/maison"]));
+}
+
+#[test]
+fn un_chemin_qui_n_est_pas_absolu_est_refuse() {
+    let faux = Faux(vec![dossier("/srv/maison"), dossier("relatif"), dossier("~x")]);
+    let base = Cas { bac: PathBuf::from("/srv/bac"), ..Cas::default() };
+    let cas = [
+        Cas { fermes: chemins(&["relatif"]), ..base.clone() },
+        Cas { fermes: chemins(&["~x"]), ..base.clone() },
+        Cas { lus: chemins(&["relatif"]), ..base.clone() },
+        Cas { ecrits: chemins(&["relatif"]), ..base.clone() },
+        Cas { refuses: chemins(&["relatif"]), ..base.clone() },
+        Cas { bac: PathBuf::from("relatif"), toujours: vec![".gitconfig"], ..Cas::default() },
+    ];
+    for cas in cas {
+        let refus = cas.jouer(&faux).expect_err("un chemin relatif est refusé");
+        assert!(refus.contains("n'est pas absolu"), "{refus}");
+    }
+    // les mêmes règles en absolu passent
+    let absolu = Cas { fermes: chemins(&["/srv/maison"]), bac: PathBuf::from("/srv/bac"), ..Cas::default() };
+    assert!(absolu.jouer(&faux).is_ok());
 }
 
 #[test]

@@ -21,8 +21,12 @@
 //!
 //! - Chaque chemin se monte à son chemin réel, des deux côtés : `bwrap` suit un lien, et monter à l'endroit du lien
 //!   monterait par-dessus sa cible.
-//! - Un chemin lu ou écrit absent est sauté et rendu dans [`Natif::sautes`], que l'appelant dira. Un chemin fermé ou
-//!   refusé en écriture qui est absent n'a rien à fermer : il est sauté sans bruit.
+//! - Un `~` en tête d'un chemin (`~/`, `~/x`) se déplie en [`Regles::maison`] ; un chemin qui n'est pas absolu après
+//!   cela est refusé par une erreur : `bwrap` ne monte que des chemins absolus, et un chemin relatif que le disque dit
+//!   absent laisserait un chemin fermé ouvert.
+//! - Un chemin lu ou écrit absent est sauté et rendu dans [`Natif::sautes`], que l'appelant dira. Un chemin fermé
+//!   absent n'a rien à fermer : il est rendu dans [`Natif::fermes_absents`], que l'appelant dira aussi. Un chemin
+//!   refusé en écriture qui est absent est sauté sans bruit.
 //! - Un dossier fermé se couvre d'un `--tmpfs`, un fichier fermé de `/dev/null`. Le `--tmpfs` vient avant tout
 //!   montage : un chemin lu ou écrit sous un dossier fermé est rouvert par son propre montage, qui le suit.
 //! - Un chemin lu et écrit à la fois (le bac) est monté deux fois, en lecture seule puis en écriture : l'écriture, qui
@@ -61,8 +65,10 @@ pub(crate) const TOUJOURS_REFUSES: [&str; 13] = [
     ".claude/agents",
 ];
 
-/// Les règles du mur, telles que srt les reçoit.
+/// Les règles du mur, telles que srt les reçoit : un `~` en tête d'un chemin se déplie en `maison`.
 pub(crate) struct Regles<'a> {
+    /// Le dossier personnel, absolu, où se déplie `~`.
+    pub(crate) maison: &'a Path,
     /// `denyRead` : les dossiers et fichiers fermés.
     pub(crate) fermes: &'a [PathBuf],
     /// `allowRead` : les chemins lus.
@@ -90,8 +96,10 @@ pub(crate) enum Disque {
 pub(crate) struct Natif {
     /// Les arguments de `bwrap`, sans le programme ni la commande qu'il lance.
     pub(crate) arguments: Vec<OsString>,
-    /// Les chemins lus ou écrits absents, tels que les règles les nomment : d'abord les lus, puis les écrits.
+    /// Les chemins lus ou écrits absents, dépliés : d'abord les lus, puis les écrits.
     pub(crate) sautes: Vec<PathBuf>,
+    /// Les chemins fermés absents, dépliés : rien n'a été fermé à leur place.
+    pub(crate) fermes_absents: Vec<PathBuf>,
 }
 
 /// Un chemin que le disque connaît : son chemin réel, et s'il est un dossier.
@@ -102,14 +110,18 @@ struct Present {
 
 /// Les arguments de `bwrap` des `regles`, `disque` disant ce que le disque tient de chaque chemin (voir l'en-tête).
 /// Pure : `disque` est la seule chose qui touche le monde, et l'appelant la donne. Une erreur dit le montage qui
-/// rouvrirait un chemin fermé.
+/// rouvrirait un chemin fermé, ou un chemin qui n'est pas absolu une fois `~` déplié.
 pub(crate) fn arguments(regles: &Regles, disque: impl Fn(&Path) -> Disque) -> Result<Natif, String> {
     let toujours: Vec<PathBuf> = regles.toujours.iter().map(|nom| regles.bac.join(nom)).collect();
-    let (fermes, _) = resoudre(regles.fermes, &disque);
-    let (lus, mut sautes) = resoudre(regles.lus, &disque);
-    let (ecrits, sautes_ecrits) = resoudre(regles.ecrits, &disque);
+    let fermes = deplier(regles.fermes, regles.maison)?;
+    let lus = deplier(regles.lus, regles.maison)?;
+    let ecrits = deplier(regles.ecrits, regles.maison)?;
+    let refuses = deplier(regles.refuses.iter().chain(&toujours), regles.maison)?;
+    let (fermes, fermes_absents) = resoudre(&fermes, &disque);
+    let (lus, mut sautes) = resoudre(&lus, &disque);
+    let (ecrits, sautes_ecrits) = resoudre(&ecrits, &disque);
     sautes.extend(sautes_ecrits);
-    let (refuses, _) = resoudre(regles.refuses.iter().chain(&toujours), &disque);
+    let (refuses, _) = resoudre(&refuses, &disque);
 
     let rouverts: Vec<&Path> = lus.iter().chain(&ecrits).map(|present| present.reel.as_path()).collect();
     // Un chemin que la fermeture cache : sous un dossier fermé, sans chemin lu ou écrit entre les deux qui le rouvre.
@@ -174,15 +186,29 @@ pub(crate) fn arguments(regles: &Regles, disque: impl Fn(&Path) -> Disque) -> Re
         monter(&mut args, "--ro-bind", ancetre, ancetre);
     }
     args.extend(["--dev", "/dev", "--proc", "/proc"].map(OsString::from));
-    Ok(Natif { arguments: args, sautes })
+    Ok(Natif { arguments: args, sautes, fermes_absents })
+}
+
+/// Les `chemins` avec un `~` en tête déplié en `maison`. `Err` si l'un n'est pas absolu après cela : `maison` compris.
+fn deplier<'a>(chemins: impl IntoIterator<Item = &'a PathBuf>, maison: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut deplies = Vec::new();
+    for chemin in chemins {
+        let deplie = match chemin.strip_prefix("~") {
+            Ok(reste) => maison.join(reste),
+            Err(_) => chemin.clone(),
+        };
+        // la racine seule suffit : sous Windows `/srv` n'a pas de lettre de lecteur, et les tests l'écrivent ainsi
+        if !deplie.has_root() {
+            return Err(format!("le chemin {} n'est pas absolu (déplié : {})", chemin.display(), deplie.display()));
+        }
+        deplies.push(deplie);
+    }
+    Ok(deplies)
 }
 
 /// Ce que `disque` sait de chacun des `chemins`, dans leur ordre : les présents par leur chemin réel, sans doublon, et
-/// les absents tels que les règles les nomment.
-fn resoudre<'a>(
-    chemins: impl IntoIterator<Item = &'a PathBuf>,
-    disque: &impl Fn(&Path) -> Disque,
-) -> (Vec<Present>, Vec<PathBuf>) {
+/// les absents tels que dépliés.
+fn resoudre(chemins: &[PathBuf], disque: &impl Fn(&Path) -> Disque) -> (Vec<Present>, Vec<PathBuf>) {
     let (mut presents, mut absents) = (Vec::<Present>::new(), Vec::new());
     for chemin in chemins {
         let (reel, dossier) = match disque(chemin) {
