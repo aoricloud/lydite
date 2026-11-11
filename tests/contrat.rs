@@ -643,7 +643,7 @@ fn kraken_lecons_sort_en_0_sans_rien_dire_ou_en_2_sur_le_refus_de_la_premiere_fa
     let refus = lire_refus(kraken().arg("lecons").arg(&depot));
     assert_eq!(refus.code, "lydite : 6031 lancer.lecon_mal_formee");
     let fichier = skills.join("fausse").join("SKILL.md");
-    assert!(refus.preuve.starts_with(&format!("{} : ligne 9 : ", fichier.display())), "{}", refus.preuve);
-    assert!(refus.preuve.contains("il manque `## Why`"), "{}", refus.preuve);
+    assert!(refus.preuve.starts_with(&format!("{} : line 9: ", fichier.display())), "{}", refus.preuve);
+    assert!(refus.preuve.contains("`## Why` is missing"), "{}", refus.preuve);
     let _ = fs::remove_dir_all(&depot);
 }

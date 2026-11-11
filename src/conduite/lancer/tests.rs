@@ -1196,7 +1196,7 @@ fn une_lecon_fausse_au_commit_de_base_refuse_la_vague_avant_toute_main() {
     let profil = Profil::faux(fausse_main(&racine), DELAI);
     let refus = lancer(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL).err().unwrap();
     assert_eq!(refus.code, Code::LeconMalFormee, "{refus}");
-    assert!(refus.preuve.contains(".agents/skills/g/SKILL.md") && refus.preuve.contains("ligne 1"), "{refus}");
+    assert!(refus.preuve.contains(".agents/skills/g/SKILL.md") && refus.preuve.contains("line 1"), "{refus}");
     // Ni fil, ni bac, ni main.
     assert!(!kraken.exists(), "rien n'est créé");
     assert!(!racine.join("entree.txt").exists());

@@ -35,7 +35,7 @@ fn refusee(texte: &str) -> Refus {
 
 fn refusee_ligne(texte: &str, ligne: usize) -> Refus {
     let refus = refusee(texte);
-    assert!(refus.preuve.starts_with(&format!("ligne {ligne} : ")), "ligne {ligne} attendue : {refus}");
+    assert!(refus.preuve.starts_with(&format!("line {ligne}: ")), "ligne {ligne} attendue : {refus}");
     refus
 }
 
@@ -84,12 +84,12 @@ fn une_cle_de_plus_est_refusee() {
 #[test]
 fn un_nom_qui_n_est_pas_celui_du_dossier_est_refuse() {
     let refus = lire("autre", en_texte(&lecon_avec(&[])).as_bytes()).unwrap_err();
-    assert!(refus.preuve.starts_with("ligne 2 : "), "{refus}");
+    assert!(refus.preuve.starts_with("line 2: "), "{refus}");
     for mauvais in ["Ma-Lecon", "ma_lecon", "", &"a".repeat(65)] {
         let mut lignes = lecon_avec(&[]);
         lignes[1] = format!("name: {mauvais}");
         let refus = lire(mauvais, en_texte(&lignes).as_bytes()).unwrap_err();
-        assert!(refus.preuve.starts_with("ligne 2 : "), "{mauvais:?} : {refus}");
+        assert!(refus.preuve.starts_with("line 2: "), "{mauvais:?} : {refus}");
     }
     let long = "a".repeat(64);
     let mut lignes = lecon_avec(&[]);
@@ -119,15 +119,15 @@ fn une_section_qui_manque_est_refusee() {
     let place = lignes.iter().position(|ligne| ligne == "## Why").unwrap();
     lignes.drain(place..place + 2);
     let refus = refusee_ligne(&en_texte(&lignes), place + 2);
-    assert!(refus.preuve.contains("il manque `## Why`"), "{refus}");
+    assert!(refus.preuve.contains("`## Why` is missing"), "{refus}");
     // Sans la dernière : à la fin du fichier.
     let mut lignes = lecon_avec(&[]);
     lignes.truncate(lignes.len() - 2);
     let refus = refusee_ligne(&en_texte(&lignes), lignes.len());
-    assert!(refus.preuve.contains("il manque `## Falls when`"), "{refus}");
+    assert!(refus.preuve.contains("`## Falls when` is missing"), "{refus}");
     // Sans aucune.
     let refus = refusee_ligne(&texte(&ENTETE), 4);
-    assert!(refus.preuve.contains("il manque `## What happened`"), "{refus}");
+    assert!(refus.preuve.contains("`## What happened` is missing"), "{refus}");
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn une_section_vide_est_refusee() {
     let place = lignes.iter().position(|ligne| ligne == "## Why").unwrap();
     lignes.remove(place + 1);
     let refus = refusee_ligne(&en_texte(&lignes), place + 1);
-    assert!(refus.preuve.contains("`## Why` est vide"), "{refus}");
+    assert!(refus.preuve.contains("`## Why` is empty"), "{refus}");
     let mut lignes = lecon_avec(&[]);
     let dernier = lignes.len() - 1;
     lignes[dernier] = "   ".into();
@@ -150,7 +150,7 @@ fn une_section_en_double_ou_hors_d_ordre_est_refusee() {
     lignes.extend(["## Why".to_string(), "Encore.".to_string()]);
     let fin = lignes.len() - 1;
     let refus = refusee_ligne(&en_texte(&lignes), fin);
-    assert!(refus.preuve.contains("en double ou hors d'ordre"), "{refus}");
+    assert!(refus.preuve.contains("is duplicated or out of order"), "{refus}");
     // `## Pitfall` avant `## How it is checked`.
     let mut lignes = lecon_avec(&[]);
     let (a, b) = (
@@ -159,7 +159,7 @@ fn une_section_en_double_ou_hors_d_ordre_est_refusee() {
     );
     lignes.swap(a, b);
     let refus = refusee_ligne(&en_texte(&lignes), a + 1);
-    assert!(refus.preuve.contains("il manque `## How it is checked` avant `## Pitfall`"), "{refus}");
+    assert!(refus.preuve.contains("`## How it is checked` is missing before `## Pitfall`"), "{refus}");
     // Une section inconnue.
     let mut lignes = lecon_avec(&[]);
     lignes.extend(["## Autre".to_string(), "Texte.".to_string()]);
@@ -173,21 +173,21 @@ fn une_section_en_double_ou_hors_d_ordre_est_refusee() {
 
 #[test]
 fn un_chemin_hors_forme_est_refuse() {
-    let cas = [
-        ("- /abs", "est absolu"),
-        ("- src\\a.rs", "barre inverse"),
-        ("- ../a", "`..`"),
-        ("- .git/config", "`.git/`"),
-        ("- .claude/x", "`.claude/`"),
-        ("- ", "nom vide"),
-        ("src/a.rs", "`- <chemin>`"),
-        ("-  src/a.rs", "`- <chemin>`"),
-    ];
-    for (ligne, raison) in cas {
+    // Un chemin que `plan::hors_forme` reprend : la preuve dit la raison même que cette fonction donne.
+    for ligne in ["- /abs", "- src\\a.rs", "- ../a", "- .git/config", "- .claude/x", "- "] {
+        let chemin = ligne.strip_prefix("- ").unwrap();
+        let raison = plan::hors_forme(chemin).expect(ligne);
         let lignes = lecon_avec(&["- bon/chemin", ligne]);
         let place = lignes.iter().position(|l| l == ligne).unwrap();
         let refus = refusee_ligne(&en_texte(&lignes), place + 1);
         assert!(refus.preuve.contains(raison), "{ligne:?} : {refus}");
+    }
+    // Une ligne qui n'est pas `- <chemin>`.
+    for ligne in ["src/a.rs", "-  src/a.rs"] {
+        let lignes = lecon_avec(&["- bon/chemin", ligne]);
+        let place = lignes.iter().position(|l| l == ligne).unwrap();
+        let refus = refusee_ligne(&en_texte(&lignes), place + 1);
+        assert!(refus.preuve.contains("`- <path>`"), "{ligne:?} : {refus}");
     }
 }
 
@@ -201,7 +201,7 @@ fn une_lecon_de_plus_de_4096_octets_est_refusee() {
     assert!(lire("ma-lecon", pile.as_bytes()).is_ok());
     lignes[6].push('x');
     let refus = refusee_ligne(&en_texte(&lignes), 1);
-    assert!(refus.preuve.contains("4097 octets"), "{refus}");
+    assert!(refus.preuve.contains("4097 bytes"), "{refus}");
 }
 
 #[test]
@@ -211,7 +211,7 @@ fn une_lecon_qui_n_est_pas_de_l_utf_8_est_refusee() {
     octets[place] = 0xff;
     let refus = lire("ma-lecon", &octets).unwrap_err();
     assert_eq!(refus.code, Code::LeconMalFormee);
-    assert!(refus.preuve.starts_with("ligne 15 : "), "{refus}");
+    assert!(refus.preuve.starts_with("line 15: "), "{refus}");
 }
 
 /// Une leçon juste de ce nom, qui vise ces chemins.

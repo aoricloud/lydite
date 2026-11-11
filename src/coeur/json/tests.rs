@@ -133,130 +133,130 @@ fn chaque_ligne_hors_grammaire_est_refusee() {
     // Chaque ligne avec un bout de son refus : elle l'est pour la raison que la table donne.
     let cas = [
         // Une clé redite au premier niveau, avant comme après décodage.
-        (r#"{"a":1,"a":2}"#, "clé redite : \"a\""),
-        (r#"{"a":1,"b":3,"a":"x"}"#, "clé redite : \"a\""),
-        (r#"{"a":1,"\u0061":2}"#, "clé redite : \"a\""),
+        (r#"{"a":1,"a":2}"#, "repeated key: \"a\""),
+        (r#"{"a":1,"b":3,"a":"x"}"#, "repeated key: \"a\""),
+        (r#"{"a":1,"\u0061":2}"#, "repeated key: \"a\""),
         // Un nombre hors de la grammaire.
-        (r#"{"a":01}"#, "attendu `,` ou `}`, vu '1'"),
-        (r#"{"a":00}"#, "vu '0'"),
-        (r#"{"a":-01}"#, "vu '1'"),
-        (r#"{"a":1.}"#, "attendu un chiffre, vu '}'"),
-        (r#"{"a":1.e3}"#, "attendu un chiffre, vu 'e'"),
-        (r#"{"a":.5}"#, "attendu une valeur, vu '.'"),
-        (r#"{"a":+1}"#, "attendu une valeur, vu '+'"),
-        (r#"{"a":1e}"#, "attendu un chiffre"),
-        (r#"{"a":1e+}"#, "attendu un chiffre"),
-        (r#"{"a":-}"#, "attendu un chiffre"),
-        (r#"{"a":- 1}"#, "attendu un chiffre"),
-        (r#"{"a":0x10}"#, "vu 'x'"),
-        (r#"{"a":1_000}"#, "vu '_'"),
-        (r#"{"a":NaN}"#, "attendu une valeur"),
-        (r#"{"a":Infinity}"#, "attendu une valeur"),
-        (r#"{"a":[01]}"#, "attendu `,` ou `]`, vu '1'"),
+        (r#"{"a":01}"#, "expected `,` or `}`, saw '1'"),
+        (r#"{"a":00}"#, "saw '0'"),
+        (r#"{"a":-01}"#, "saw '1'"),
+        (r#"{"a":1.}"#, "expected a digit, saw '}'"),
+        (r#"{"a":1.e3}"#, "expected a digit, saw 'e'"),
+        (r#"{"a":.5}"#, "expected a value, saw '.'"),
+        (r#"{"a":+1}"#, "expected a value, saw '+'"),
+        (r#"{"a":1e}"#, "expected a digit"),
+        (r#"{"a":1e+}"#, "expected a digit"),
+        (r#"{"a":-}"#, "expected a digit"),
+        (r#"{"a":- 1}"#, "expected a digit"),
+        (r#"{"a":0x10}"#, "saw 'x'"),
+        (r#"{"a":1_000}"#, "saw '_'"),
+        (r#"{"a":NaN}"#, "expected a value"),
+        (r#"{"a":Infinity}"#, "expected a value"),
+        (r#"{"a":[01]}"#, "expected `,` or `]`, saw '1'"),
         // Un substitut seul.
-        (r#"{"a":"\ud83d"}"#, "substitut seul \\ud83d"),
-        (r#"{"a":"\ude00"}"#, "substitut seul \\ude00"),
-        (r#"{"a":"\ud83dx"}"#, "substitut seul"),
-        (r#"{"a":"\ud83d\u0041"}"#, "substitut seul"),
-        (r#"{"a":"\ud83d\ud83d"}"#, "substitut seul"),
-        (r#"{"a":"\ude00\ud83d"}"#, "substitut seul \\ude00"),
-        (r#"{"a":"\ud83d\n"}"#, "substitut seul"),
-        (r#"{"a":"\ud83d\\ude00"}"#, "substitut seul"),
-        (r#"{"a":"\uDBFF"}"#, "substitut seul \\udbff"),
-        (r#"{"a":"\uDC00"}"#, "substitut seul \\udc00"),
-        (r#"{"a":"\ud83d\ue000"}"#, "substitut seul"),
-        (r#"{"a":"\ud83d\udbff"}"#, "substitut seul"),
-        (r#"{"a":"\ud800"}"#, "substitut seul \\ud800"),
-        (r#"{"a":"\udfff"}"#, "substitut seul \\udfff"),
+        (r#"{"a":"\ud83d"}"#, "lone surrogate \\ud83d"),
+        (r#"{"a":"\ude00"}"#, "lone surrogate \\ude00"),
+        (r#"{"a":"\ud83dx"}"#, "lone surrogate"),
+        (r#"{"a":"\ud83d\u0041"}"#, "lone surrogate"),
+        (r#"{"a":"\ud83d\ud83d"}"#, "lone surrogate"),
+        (r#"{"a":"\ude00\ud83d"}"#, "lone surrogate \\ude00"),
+        (r#"{"a":"\ud83d\n"}"#, "lone surrogate"),
+        (r#"{"a":"\ud83d\\ude00"}"#, "lone surrogate"),
+        (r#"{"a":"\uDBFF"}"#, "lone surrogate \\udbff"),
+        (r#"{"a":"\uDC00"}"#, "lone surrogate \\udc00"),
+        (r#"{"a":"\ud83d\ue000"}"#, "lone surrogate"),
+        (r#"{"a":"\ud83d\udbff"}"#, "lone surrogate"),
+        (r#"{"a":"\ud800"}"#, "lone surrogate \\ud800"),
+        (r#"{"a":"\udfff"}"#, "lone surrogate \\udfff"),
         // Un contrôle brut, dans une chaîne, une clé ou un tableau.
-        ("{\"a\":\"x\ty\"}", "contrôle brut '\\t'"),
-        ("{\"a\":\"x\ny\"}", "contrôle brut '\\n'"),
-        ("{\"a\":\"x\ry\"}", "contrôle brut '\\r'"),
-        ("{\"a\":\"x\u{0}y\"}", "contrôle brut '\\0'"),
-        ("{\"a\":\"x\u{1f}y\"}", "contrôle brut '\\u{1f}'"),
-        ("{\"\t\":1}", "contrôle brut"),
-        ("{\"a\":[\"\u{1}\"]}", "contrôle brut"),
+        ("{\"a\":\"x\ty\"}", "raw control '\\t'"),
+        ("{\"a\":\"x\ny\"}", "raw control '\\n'"),
+        ("{\"a\":\"x\ry\"}", "raw control '\\r'"),
+        ("{\"a\":\"x\u{0}y\"}", "raw control '\\0'"),
+        ("{\"a\":\"x\u{1f}y\"}", "raw control '\\u{1f}'"),
+        ("{\"\t\":1}", "raw control"),
+        ("{\"a\":[\"\u{1}\"]}", "raw control"),
         // Une suite après `}`, hors blancs.
-        (r#"{"a":1}x"#, "après `}`, vu 'x'"),
-        (r#"{"a":1} x"#, "après `}`, vu 'x'"),
-        (r#"{"a":1}}"#, "après `}`, vu '}'"),
-        (r#"{"a":1}{"b":2}"#, "après `}`, vu '{'"),
-        ("{\"a\":1}\n{\"b\":2}", "après `}`, vu '{'"),
-        ("{\"a\":1}\u{0}", "après `}`"),
-        ("{\"a\":1}\u{a0}", "après `}`"),
-        ("{\"a\":1}\u{b}", "après `}`"),
-        (r#"{"a":1}//"#, "après `}`"),
-        (r#"{"a":1} /* */"#, "après `}`"),
+        (r#"{"a":1}x"#, "after `}`, saw 'x'"),
+        (r#"{"a":1} x"#, "after `}`, saw 'x'"),
+        (r#"{"a":1}}"#, "after `}`, saw '}'"),
+        (r#"{"a":1}{"b":2}"#, "after `}`, saw '{'"),
+        ("{\"a\":1}\n{\"b\":2}", "after `}`, saw '{'"),
+        ("{\"a\":1}\u{0}", "after `}`"),
+        ("{\"a\":1}\u{a0}", "after `}`"),
+        ("{\"a\":1}\u{b}", "after `}`"),
+        (r#"{"a":1}//"#, "after `}`"),
+        (r#"{"a":1} /* */"#, "after `}`"),
         // Une virgule en trop ou en moins.
-        (r#"{"a":1,}"#, "attendu une clé (une chaîne), vu '}'"),
-        (r#"{"a":1 ,}"#, "attendu une clé"),
-        (r#"{,}"#, "attendu une clé"),
-        (r#"{"a":1,,"b":2}"#, "attendu une clé"),
-        (r#"{"a":[1,]}"#, "attendu une valeur, vu ']'"),
-        (r#"{"a":[,1]}"#, "attendu une valeur, vu ','"),
-        (r#"{"a":{"b":1,}}"#, "attendu une clé"),
-        (r#"{"a":1 "b":2}"#, "attendu `,` ou `}`, vu '\"'"),
-        (r#"{"a":[1 2]}"#, "attendu `,` ou `]`, vu '2'"),
+        (r#"{"a":1,}"#, "expected a key (a string), saw '}'"),
+        (r#"{"a":1 ,}"#, "expected a key"),
+        (r#"{,}"#, "expected a key"),
+        (r#"{"a":1,,"b":2}"#, "expected a key"),
+        (r#"{"a":[1,]}"#, "expected a value, saw ']'"),
+        (r#"{"a":[,1]}"#, "expected a value, saw ','"),
+        (r#"{"a":{"b":1,}}"#, "expected a key"),
+        (r#"{"a":1 "b":2}"#, "expected `,` or `}`, saw '\"'"),
+        (r#"{"a":[1 2]}"#, "expected `,` or `]`, saw '2'"),
         // Un guillemet qui manque.
-        (r#"{"a:1}"#, "vu la fin de la ligne"),
-        (r#"{"a":"x}"#, "attendu `\"` fermant, vu la fin de la ligne"),
-        (r#"{"a":"x\"}"#, "vu la fin de la ligne"),
-        (r#"{a":1}"#, "attendu une clé"),
-        (r#"{'a':1}"#, "attendu une clé"),
-        (r#"{"a":x"}"#, "attendu une valeur"),
-        (r#"{"a":'x'}"#, "attendu une valeur"),
+        (r#"{"a:1}"#, "saw the end of the line"),
+        (r#"{"a":"x}"#, "expected a closing `\"`, saw the end of the line"),
+        (r#"{"a":"x\"}"#, "saw the end of the line"),
+        (r#"{a":1}"#, "expected a key"),
+        (r#"{'a':1}"#, "expected a key"),
+        (r#"{"a":x"}"#, "expected a value"),
+        (r#"{"a":'x'}"#, "expected a value"),
         // Un échappement faux.
-        (r#"{"a":"\x"}"#, "attendu un échappement"),
-        (r#"{"a":"\'"}"#, "attendu un échappement"),
-        (r#"{"a":"\U0041"}"#, "attendu un échappement"),
-        (r#"{"a":"\"#, "ou `u`), vu la fin de la ligne"),
-        (r#"{"a":"\u12"}"#, "attendu un chiffre hexadécimal, vu '\"'"),
-        (r#"{"a":"\u12G4"}"#, "vu 'G'"),
-        (r#"{"a":"\u+123"}"#, "vu '+'"),
-        (r#"{"a":"\u-123"}"#, "vu '-'"),
-        (r#"{"a":"\u00é9"}"#, "vu 'é'"),
-        (r#"{"a":"\u"#, "vu la fin de la ligne"),
-        (r#"{"a":"\ud83d\uZZZZ"}"#, "attendu un chiffre hexadécimal, vu 'Z'"),
+        (r#"{"a":"\x"}"#, "expected an escape"),
+        (r#"{"a":"\'"}"#, "expected an escape"),
+        (r#"{"a":"\U0041"}"#, "expected an escape"),
+        (r#"{"a":"\"#, "or `u`), saw the end of the line"),
+        (r#"{"a":"\u12"}"#, "expected a hexadecimal digit, saw '\"'"),
+        (r#"{"a":"\u12G4"}"#, "saw 'G'"),
+        (r#"{"a":"\u+123"}"#, "saw '+'"),
+        (r#"{"a":"\u-123"}"#, "saw '-'"),
+        (r#"{"a":"\u00é9"}"#, "saw 'é'"),
+        (r#"{"a":"\u"#, "saw the end of the line"),
+        (r#"{"a":"\ud83d\uZZZZ"}"#, "expected a hexadecimal digit, saw 'Z'"),
         // Des mots qui ne sont pas des valeurs.
-        (r#"{"a":tru}"#, "attendu `true`"),
-        (r#"{"a":True}"#, "attendu une valeur"),
-        (r#"{"a":fals}"#, "attendu `false`"),
-        (r#"{"a":nul}"#, "attendu `null`"),
-        (r#"{"a":nulll}"#, "vu 'l'"),
-        (r#"{"a":truefalse}"#, "vu 'f'"),
-        (r#"{"a":undefined}"#, "attendu une valeur"),
+        (r#"{"a":tru}"#, "expected `true`"),
+        (r#"{"a":True}"#, "expected a value"),
+        (r#"{"a":fals}"#, "expected `false`"),
+        (r#"{"a":nul}"#, "expected `null`"),
+        (r#"{"a":nulll}"#, "saw 'l'"),
+        (r#"{"a":truefalse}"#, "saw 'f'"),
+        (r#"{"a":undefined}"#, "expected a value"),
         // Des valeurs imbriquées mal formées : lues jusqu'au bout, donc refusées.
-        (r#"{"a":[}"#, "attendu une valeur, vu '}'"),
-        (r#"{"a":[1}"#, "attendu `,` ou `]`, vu '}'"),
-        (r#"{"a":{"b":1]}"#, "attendu `,` ou `}`, vu ']'"),
-        (r#"{"a":{"b"}}"#, "attendu `:`, vu '}'"),
-        (r#"{"a":{"b":}}"#, "attendu une valeur"),
-        (r#"{"a":{1:2}}"#, "attendu une clé"),
-        (r#"{"a":["\ud83d"]}"#, "substitut seul"),
-        (r#"{"a":[[[[1}"#, "attendu `,` ou `]`"),
+        (r#"{"a":[}"#, "expected a value, saw '}'"),
+        (r#"{"a":[1}"#, "expected `,` or `]`, saw '}'"),
+        (r#"{"a":{"b":1]}"#, "expected `,` or `}`, saw ']'"),
+        (r#"{"a":{"b"}}"#, "expected `:`, saw '}'"),
+        (r#"{"a":{"b":}}"#, "expected a value"),
+        (r#"{"a":{1:2}}"#, "expected a key"),
+        (r#"{"a":["\ud83d"]}"#, "lone surrogate"),
+        (r#"{"a":[[[[1}"#, "expected `,` or `]`"),
         // Pas un objet, ou pas fini.
-        ("", "attendu un objet `{`, vu la fin de la ligne"),
-        (" \t\r\n", "attendu un objet `{`, vu la fin de la ligne"),
-        ("[]", "attendu un objet `{`, vu '['"),
-        (r#"[{"a":1}]"#, "attendu un objet `{`, vu '['"),
-        ("\"a\"", "attendu un objet `{`, vu '\"'"),
-        ("1", "attendu un objet `{`, vu '1'"),
-        ("null", "attendu un objet `{`, vu 'n'"),
-        ("\u{feff}{\"a\":1}", "attendu un objet `{`, vu '\\u{feff}'"),
-        ("\u{a0}{\"a\":1}", "attendu un objet `{`"),
-        ("\u{b}{\"a\":1}", "attendu un objet `{`"),
-        ("{", "attendu une clé (une chaîne), vu la fin de la ligne"),
-        ("{ ", "attendu une clé"),
-        (r#"{"a""#, "attendu `:`, vu la fin de la ligne"),
-        (r#"{"a" 1}"#, "attendu `:`, vu '1'"),
-        (r#"{"a":"#, "attendu une valeur, vu la fin de la ligne"),
-        (r#"{"a":}"#, "attendu une valeur, vu '}'"),
-        (r#"{"a":1"#, "attendu `,` ou `}`, vu la fin de la ligne"),
-        (r#"{"a":1,"#, "attendu une clé"),
-        ("{\u{b}\"a\":1}", "attendu une clé"),
+        ("", "expected an object `{`, saw the end of the line"),
+        (" \t\r\n", "expected an object `{`, saw the end of the line"),
+        ("[]", "expected an object `{`, saw '['"),
+        (r#"[{"a":1}]"#, "expected an object `{`, saw '['"),
+        ("\"a\"", "expected an object `{`, saw '\"'"),
+        ("1", "expected an object `{`, saw '1'"),
+        ("null", "expected an object `{`, saw 'n'"),
+        ("\u{feff}{\"a\":1}", "expected an object `{`, saw '\\u{feff}'"),
+        ("\u{a0}{\"a\":1}", "expected an object `{`"),
+        ("\u{b}{\"a\":1}", "expected an object `{`"),
+        ("{", "expected a key (a string), saw the end of the line"),
+        ("{ ", "expected a key"),
+        (r#"{"a""#, "expected `:`, saw the end of the line"),
+        (r#"{"a" 1}"#, "expected `:`, saw '1'"),
+        (r#"{"a":"#, "expected a value, saw the end of the line"),
+        (r#"{"a":}"#, "expected a value, saw '}'"),
+        (r#"{"a":1"#, "expected `,` or `}`, saw the end of the line"),
+        (r#"{"a":1,"#, "expected a key"),
+        ("{\u{b}\"a\":1}", "expected a key"),
         // Plus de 64 niveaux : l'objet de la ligne est le premier, le 65e est de trop.
-        (tableaux.as_str(), "plus de 64 niveaux d'imbrication"),
-        (objets.as_str(), "plus de 64 niveaux d'imbrication"),
+        (tableaux.as_str(), "more than 64 levels of nesting"),
+        (objets.as_str(), "more than 64 levels of nesting"),
     ];
     for (ligne, bout) in cas {
         let erreur = lire(ligne).expect_err(ligne);
@@ -264,15 +264,12 @@ fn chaque_ligne_hors_grammaire_est_refusee() {
     }
     // Le refus entier, avec le rang du caractère fautif, compté en caractères et non en octets.
     let refus = |ligne: &str| lire(ligne).unwrap_err();
-    assert_eq!(refus(r#"{"é":1,}"#), "au caractère 8 : attendu une clé (une chaîne), vu '}'");
-    assert_eq!(
-        refus("{\"a\":\"😀\u{1}\"}"),
-        "contrôle brut '\\u{1}' dans une chaîne (à écrire \\u00xx), au caractère 8"
-    );
-    assert_eq!(refus(r#"{"a":"😀\ud83d"}"#), "substitut seul \\ud83d, au caractère 8");
-    assert_eq!(refus(&tableaux), "plus de 64 niveaux d'imbrication, au caractère 75");
-    assert_eq!(refus(r#"{"a":1}x"#), "au caractère 8 : attendu la fin de la ligne après `}`, vu 'x'");
-    assert_eq!(refus(""), "au caractère 1 : attendu un objet `{`, vu la fin de la ligne");
+    assert_eq!(refus(r#"{"é":1,}"#), "at character 8: expected a key (a string), saw '}'");
+    assert_eq!(refus("{\"a\":\"😀\u{1}\"}"), "raw control '\\u{1}' in a string (to write as \\u00xx), at character 8");
+    assert_eq!(refus(r#"{"a":"😀\ud83d"}"#), "lone surrogate \\ud83d, at character 8");
+    assert_eq!(refus(&tableaux), "more than 64 levels of nesting, at character 75");
+    assert_eq!(refus(r#"{"a":1}x"#), "at character 8: expected the end of the line after `}`, saw 'x'");
+    assert_eq!(refus(""), "at character 1: expected an object `{`, saw the end of the line");
 }
 
 #[test]
@@ -301,7 +298,7 @@ fn aucune_coupe_ne_fait_paniquer() {
     for ouvrant in [r#"{"p":"#, r#"{"p":["#, "["] {
         let ligne = format!(r#"{{"v":2,"p":{}"#, ouvrant.repeat(100_000));
         let erreur = lire(&ligne).unwrap_err();
-        assert!(erreur.contains("plus de 64 niveaux d'imbrication"), "{erreur}");
+        assert!(erreur.contains("more than 64 levels of nesting"), "{erreur}");
     }
     let fermees = format!(r#"{{"p":{}{}}}"#, "[".repeat(100_000), "]".repeat(100_000));
     assert!(lire(&fermees).is_err());
@@ -386,19 +383,19 @@ fn un_document_garde_ses_valeurs_imbriquees() {
         format!(r#"{{"x":{{"é":1,"{}":2}}}}"#, u("00e9")),
     ];
     for (redite, cle) in redites.iter().zip(["b", "d", "é"]) {
-        assert_eq!(document(redite), Err(format!("clé redite : {cle:?}")), "{redite}");
+        assert_eq!(document(redite), Err(format!("repeated key: {cle:?}")), "{redite}");
     }
     for redite in [&redites[0], &redites[2]] {
         assert!(lire(redite).is_ok(), "{redite}");
     }
     // Ce que la RFC 8259 n'écrit pas est refusé comme par `lire`, avec le caractère fautif.
     let refus = |texte: &str| document(texte).unwrap_err();
-    assert_eq!(refus(""), "au caractère 1 : attendu une valeur, vu la fin de la ligne");
-    assert_eq!(refus(r#"{"a":1}x"#), "au caractère 8 : attendu la fin du document, vu 'x'");
-    assert_eq!(refus("[01]"), "au caractère 3 : attendu `,` ou `]`, vu '1'");
-    assert_eq!(refus(r#"{"a":[1,]}"#), "au caractère 9 : attendu une valeur, vu ']'");
-    assert_eq!(refus(&format!(r#"["{}"]"#, u("d83d"))), format!("substitut seul {}, au caractère 3", u("d83d")));
-    assert_eq!(refus("[\"\t\"]"), "contrôle brut '\\t' dans une chaîne (à écrire \\u00xx), au caractère 3");
+    assert_eq!(refus(""), "at character 1: expected a value, saw the end of the line");
+    assert_eq!(refus(r#"{"a":1}x"#), "at character 8: expected the end of the document, saw 'x'");
+    assert_eq!(refus("[01]"), "at character 3: expected `,` or `]`, saw '1'");
+    assert_eq!(refus(r#"{"a":[1,]}"#), "at character 9: expected a value, saw ']'");
+    assert_eq!(refus(&format!(r#"["{}"]"#, u("d83d"))), format!("lone surrogate {}, at character 3", u("d83d")));
+    assert_eq!(refus("[\"\t\"]"), "raw control '\\t' in a string (to write as \\u00xx), at character 3");
     // 64 niveaux se lisent et le 65e est de trop, en objets comme en tableaux, que le premier soit l'objet d'une
     // ligne ou un tableau.
     let tableaux = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n));
@@ -407,7 +404,7 @@ fn un_document_garde_ses_valeurs_imbriquees() {
     }
     for ligne in profondes(65).into_iter().chain([tableaux(65)]) {
         let erreur = document(&ligne).unwrap_err();
-        assert!(erreur.starts_with("plus de 64 niveaux d'imbrication, au caractère "), "{erreur}");
+        assert!(erreur.starts_with("more than 64 levels of nesting, at character "), "{erreur}");
     }
 }
 
@@ -437,6 +434,6 @@ fn aucune_coupe_d_un_document_ne_fait_paniquer() {
     // Une pile de 100 000 ouvrants, tableaux, objets ou les deux : refusée au 65e niveau, sans descendre au fond.
     for ouvrant in ["[", r#"{"p":"#, r#"[{"p":"#] {
         let erreur = document(&ouvrant.repeat(100_000)).unwrap_err();
-        assert!(erreur.starts_with("plus de 64 niveaux d'imbrication"), "{erreur}");
+        assert!(erreur.starts_with("more than 64 levels of nesting"), "{erreur}");
     }
 }
