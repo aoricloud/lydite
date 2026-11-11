@@ -35,12 +35,13 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
     let profils = kraken.join("profils");
     fs::create_dir_all(&profils).unwrap();
     let code = |nom: &str, visee: &Path, dossier: &Path| {
-        let issue = preparer_dans(nom, Some(visee), dossier.to_path_buf(), Some(&config), None, Some(&personnel));
+        let issue = preparer_dans(nom, Some(visee), dossier.to_path_buf(), Some(&config), None, Some(&personnel), None);
         issue.err().unwrap_or_else(|| panic!("{nom} dans {} devait être refusé", dossier.display())).code
     };
     // Le dépôt d'abord, le profil, inconnu ici, ensuite. Un chemin vide ne se rend pas absolu (6006) ; un dépôt
     // absent n'est pas un dossier (6002, avant tout geste git) ; un dossier hors git est refusé par git (6003).
-    let vide = preparer_dans("inconnu", Some(Path::new("")), kraken.clone(), Some(&config), None, Some(&personnel));
+    let vide =
+        preparer_dans("inconnu", Some(Path::new("")), kraken.clone(), Some(&config), None, Some(&personnel), None);
     let refus = vide.err().expect("un dépôt vide");
     assert_eq!(refus.code, Code::EntreeSortie);
     assert!(refus.preuve.contains("chemin absolu de"), "{refus}");
@@ -82,13 +83,14 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
     // personnel n'est plus un refus.
     fs::create_dir_all(rare.join(".claude")).unwrap();
     assert_eq!(
-        preparer_dans("veille", Some(&depot), kraken.clone(), Some(&config), None, Some(&rare)).map(drop),
+        preparer_dans("veille", Some(&depot), kraken.clone(), Some(&config), None, Some(&rare), None).map(drop),
         Ok(())
     );
     fs::write(rare.join(".claude").join(".credentials.json"), "").unwrap();
     let relatif = PathBuf::from("relatif");
     for (config, personnel) in [(&relatif, &personnel), (&rare, &personnel), (&config, &rare)] {
-        let refus = preparer_dans("veille", Some(&depot), kraken.clone(), Some(config), None, Some(personnel)).err();
+        let refus = preparer_dans("veille", Some(&depot), kraken.clone(), Some(config), None, Some(personnel), None);
+        let refus = refus.err();
         assert_eq!(refus.map(|refus| refus.code), Some(Code::DossierCheminRefuse), "{}", config.display());
     }
     poser("lecteur", format!("sorte = claude\nlecture = {}\n", racine.display()).as_bytes());
@@ -96,7 +98,7 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
     assert_eq!(code("lecteur", &depot, &kraken), Code::ProfilLigneRefusee);
     // Aucun refus : le profil, le dépôt en chemin absolu et le dossier, tels quels ; le profil est borné, sa main part.
     for nom in ["claude", "veille"] {
-        let pret = preparer_dans(nom, Some(&depot), kraken.clone(), Some(&config), None, Some(&personnel));
+        let pret = preparer_dans(nom, Some(&depot), kraken.clone(), Some(&config), None, Some(&personnel), None);
         let Ok((profil, visee, dossier)) = pret else { panic!("{nom} devait passer") };
         assert_eq!((visee, dossier), (depot.clone(), kraken.clone()));
         let Demande { argv, declaration } = profil.demande(&racine.join("bac"), None, false);
@@ -139,7 +141,8 @@ fn le_dossier_de_gh_tire_de_xdg_config_home_est_ferme_a_la_main() {
     fs::create_dir_all(kraken.join("profils")).unwrap();
     let gh = dossier_de_gh(|nom| (nom == "XDG_CONFIG_HOME").then(|| xdg.clone().into_os_string()));
     assert_eq!(gh, Some(xdg.join("gh")));
-    let pret = preparer_dans("claude", Some(&depot), kraken.clone(), Some(&config), gh.as_deref(), Some(&personnel));
+    let pret =
+        preparer_dans("claude", Some(&depot), kraken.clone(), Some(&config), gh.as_deref(), Some(&personnel), None);
     let Ok((profil, _, _)) = pret else { panic!("le profil intégré devait passer") };
     let reglages =
         profil.demande(&racine.join("bac"), None, false).declaration.expect("une main Claude bornée").reglages;
@@ -147,6 +150,47 @@ fn le_dossier_de_gh_tire_de_xdg_config_home_est_ferme_a_la_main() {
     let du_gh = json::chaine(&xdg.join("gh").to_string_lossy());
     assert!(reglages.contains(&format!(r#""denyRead":["~/",{fermee},{de_config},{du_gh}]"#)), "{reglages}");
     assert!(reglages.contains("/hosts.yml)"), "{reglages}");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn l_executable_de_lydite_prepare_n_est_lu_que_sous_un_mur_exige_et_s_il_se_resout() {
+    // `preparer_dans` reçoit le fichier réel de l'exécutable : le profil le garde, et le `--settings` de la main le
+    // met dans `allowRead` sous `exige` et `natif`, jamais sous `demande`, ni quand il manque.
+    let racine = racine("preparer-lydite");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let (config, personnel) = (racine.join("config"), racine.join("personnel"));
+    let reel = racine.join("outils").join("bin").join("lydite");
+    fs::create_dir_all(kraken.join("profils")).unwrap();
+    let preter = |mur: &str, lydite: Option<&Path>| {
+        let nom = format!("m-{mur}");
+        let texte = format!("sorte = claude\nmur = {mur}\n");
+        fs::write(kraken.join("profils").join(format!("{nom}.profil")), texte).unwrap();
+        dossier::accepter(&nom, &kraken).unwrap();
+        let pret = preparer_dans(
+            &nom,
+            Some(&depot),
+            kraken.clone(),
+            Some(&config),
+            None,
+            Some(&personnel),
+            lydite.map(Path::to_path_buf),
+        );
+        let Ok((profil, _, _)) = pret else { panic!("{nom} devait passer") };
+        profil.demande(&racine.join("bac"), None, false).declaration.expect("une main Claude bornée").reglages
+    };
+    let ecrit = json::chaine(&reel.to_string_lossy());
+    for mur in ["exige", "natif"] {
+        let reglages = preter(mur, Some(&reel));
+        let lus = reglages.split_once(r#""allowRead":["#).map_or("", |(_, reste)| reste);
+        let lus = lus.split_once(']').map_or("", |(lus, _)| lus);
+        assert!(lus.split(',').any(|lu| lu == ecrit), "{mur} : {ecrit} manque de {lus}");
+        // Le fichier seul : son dossier n'est pas lu.
+        let dossier_lu = json::chaine(&reel.parent().unwrap().to_string_lossy());
+        assert!(!lus.split(',').any(|lu| lu == dossier_lu), "{mur} : le dossier est lu : {lus}");
+        assert!(!preter(mur, None).contains(&ecrit), "{mur} sans exécutable");
+    }
+    assert!(!preter("demande", Some(&reel)).contains(&ecrit), "demande");
     let _ = fs::remove_dir_all(&racine);
 }
 
