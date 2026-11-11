@@ -334,7 +334,7 @@ fn un_decoupeur_qui_touche_un_fichier_du_depot_est_rouge_en_7014() {
     assert_eq!(rouges.len(), 2);
     let debut = format!("7014 vague.bac_touche : {}\n", Code::BacTouche.regle());
     for rouge in &rouges {
-        assert!(rouge.starts_with(&debut) && rouge.contains(r#"en plus de PLAN.lydite : "autre.txt""#), "{rouge}");
+        assert!(rouge.starts_with(&debut) && rouge.contains(r#"besides PLAN.lydite: "autre.txt""#), "{rouge}");
     }
     assert_eq!(decoupage(&evenements), None);
     let _ = fs::remove_dir_all(&essai.racine);
@@ -348,7 +348,7 @@ fn une_base_rouge_ne_lance_aucun_decoupeur() {
     let refus = essai.lancer(rouge, false, None).unwrap_err();
     assert_eq!(refus.code, Code::BaseRouge, "{refus}");
     let base = git(&essai.depot, &["rev-parse", "HEAD"]);
-    assert!(refus.preuve.starts_with(&format!("la preuve de la vague, jouée sur la base {base} : ")), "{refus}");
+    assert!(refus.preuve.starts_with(&format!("the wave's proof, played on the base {base}: ")), "{refus}");
     assert!(refus.preuve.contains("base rouge"), "{refus}");
     // Ni fil, ni bac, ni branche, ni worktree de plus, ni journal ; aucun découpeur n'est parti.
     assert!(!essai.kraken.join("fil.jsonl").exists(), "ni fil");
@@ -490,9 +490,9 @@ fn le_juge_ne_prend_que_plan_kraken_seul_ordinaire_et_que_le_depot_n_ignore_pas(
     commiter(&essai.depot, &[("suivi.txt", "1\n"), (".gitignore", "ignore/\n")]);
     // Absent, ou un dossier : 7014.
     let (bac, base) = bac_neuf(&essai, "absent");
-    touche(juge(&essai, &bac, &base).unwrap_err(), "PLAN.lydite n'est pas à la racine du bac");
+    touche(juge(&essai, &bac, &base).unwrap_err(), "PLAN.lydite is not at the root of the sandbox");
     fs::create_dir(bac.join(PLAN)).unwrap();
-    touche(juge(&essai, &bac, &base).unwrap_err(), "est un dossier, et non un fichier ordinaire");
+    touche(juge(&essai, &bac, &base).unwrap_err(), "is a folder, and not an ordinary file");
     // Seul et ordinaire, il se lit, et ses octets sont ceux du fichier. Un fichier que le dépôt ignore et l'état que
     // Claude Code tient sous `.claude/` ne comptent pas.
     let (bac, base) = bac_neuf(&essai, "juste");
@@ -505,7 +505,7 @@ fn le_juge_ne_prend_que_plan_kraken_seul_ordinaire_et_que_le_depot_n_ignore_pas(
     ecrire(&bac, "suivi.txt", "2\n");
     ecrire(&bac, "autre.txt", "x");
     ecrire(&bac, ".claude/settings.json", "{}");
-    let cites = r#"en plus de PLAN.lydite : ".claude/settings.json", "autre.txt", "suivi.txt""#;
+    let cites = r#"besides PLAN.lydite: ".claude/settings.json", "autre.txt", "suivi.txt""#;
     touche(juge(&essai, &bac, &base).unwrap_err(), cites);
     // Ce que l'appelant permet en plus ne compte pas : le relecteur a aussi le fichier de Kraken.
     let aussi = [".claude/settings.json", "autre.txt", "suivi.txt"];
@@ -515,7 +515,7 @@ fn le_juge_ne_prend_que_plan_kraken_seul_ordinaire_et_que_le_depot_n_ignore_pas(
     fs::write(bac.join(PLAN), plan_juste()).unwrap();
     git(&bac, &["add", PLAN]);
     git(&bac, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "plan"]);
-    touche(juge(&essai, &bac, &base).unwrap_err(), "la main a commité dans son bac");
+    touche(juge(&essai, &bac, &base).unwrap_err(), "the hand committed in its sandbox");
     // Un lien symbolique vers un plan juste : 7014. Sous Windows, un lien ne se pose qu'avec le droit de le faire.
     let (bac, base) = bac_neuf(&essai, "lien");
     let cible = essai.racine.join("cible.lydite");
@@ -525,7 +525,7 @@ fn le_juge_ne_prend_que_plan_kraken_seul_ordinaire_et_que_le_depot_n_ignore_pas(
     #[cfg(windows)]
     let lien = std::os::windows::fs::symlink_file(&cible, bac.join(PLAN));
     match lien {
-        Ok(()) => touche(juge(&essai, &bac, &base).unwrap_err(), "est un lien symbolique, et non un fichier"),
+        Ok(()) => touche(juge(&essai, &bac, &base).unwrap_err(), "is a symbolic link, and not an ordinary file"),
         Err(e) if cfg!(windows) => eprintln!("lien symbolique non posé, faute du droit de le faire : {e}"),
         Err(e) => panic!("lien symbolique : {e}"),
     }
@@ -533,7 +533,7 @@ fn le_juge_ne_prend_que_plan_kraken_seul_ordinaire_et_que_le_depot_n_ignore_pas(
     commiter(&essai.depot, &[(".gitignore", "ignore/\nPLAN.lydite\n")]);
     let (bac, base) = bac_neuf(&essai, "ignore");
     fs::write(bac.join(PLAN), plan_juste()).unwrap();
-    touche(juge(&essai, &bac, &base).unwrap_err(), "le dépôt visé ignore PLAN.lydite");
+    touche(juge(&essai, &bac, &base).unwrap_err(), "the target repository ignores PLAN.lydite");
     let _ = fs::remove_dir_all(&essai.racine);
 }
 

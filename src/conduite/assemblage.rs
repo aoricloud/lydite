@@ -55,21 +55,21 @@ use crate::coeur::profil::Profil;
 const CITES_MAX: usize = 20;
 
 /// La correction d'un chemin changé hors des `fichiers` de la tâche (7013), que la relance reçoit en contexte.
-const HORS_FICHIERS: &str = "Remets chacun de ces chemins comme dans la base, ou retire-le, dans ce même bac : un \
-                             travail n'est pris que s'il ne change que les chemins de `fichiers`, un dossier (fini par \
-                             `/`) couvrant ce qu'il contient.";
+const HORS_FICHIERS: &str = "Put each of these paths back as in the base, or remove it, in this same sandbox: work is \
+                             taken only if it changes only the paths of `fichiers`, a folder (ending in `/`) covering \
+                             what it contains.";
 
 /// La correction d'un chemin changé hors des `fichiers` de la tâche, vu au gel (7013) : la fusion n'a pas eu lieu, et
 /// la tâche est refusée sans relance automatique.
-const HORS_FICHIERS_GEL: &str = "La tâche est refusée, et il n'y a pas de relance automatique ; la fusion n'a pas eu \
-                                 lieu, et la branche comme le worktree de la vague restent à leur tête. Un nouveau \
-                                 travail qui ne change que les chemins de `fichiers`, un dossier (fini par `/`) \
-                                 couvrant ce qu'il contient, repartira de cette tête.";
+const HORS_FICHIERS_GEL: &str = "The task is refused, and there is no automatic retry; the merge did not happen, and \
+                                 the wave branch and the wave's worktree stay at their head. New work that changes \
+                                 only the paths of `fichiers`, a folder (ending in `/`) covering what it contains, \
+                                 will start again from this head.";
 
 /// La correction d'un chemin protégé changé pendant une tentative (7018), que la relance reçoit en contexte.
-const PROTEGE: &str = "Restore these paths as in the base, in this same bac, then run your proof again: a protected \
-                       path changes only through its profile, which the human accepts. Do not change them by an edit, \
-                       nor by a command.";
+const PROTEGE: &str = "Restore these paths as in the base, in this same sandbox, then run your proof again: a \
+                       protected path changes only through its profile, which the human accepts. Do not change them \
+                       by an edit, nor by a command.";
 
 /// La correction d'un chemin protégé que le gel porterait (7018) : la fusion n'a pas eu lieu.
 const PROTEGE_GEL: &str = "The task is refused and nothing of it is merged. Restore these paths as in the base, then \
@@ -78,37 +78,36 @@ const PROTEGE_GEL: &str = "The task is refused and nothing of it is merged. Rest
 
 /// La correction d'un `.claude` que le gel prendrait (7006), vu après `sans_claude` : la fusion n'a pas eu lieu, et la
 /// tâche est refusée sans relance automatique.
-const CLAUDE_GELE: &str = "La tâche est refusée, et il n'y a pas de relance automatique ; la fusion n'a pas eu \
-                           lieu, et la branche comme le worktree de la vague restent à leur tête. Un réglage, un \
-                           crochet, une commande, une compétence, un agent ou une mémoire de projet se pose par \
-                           l'humain, hors de la vague ; un nouveau travail qui n'écrit dans aucun dossier .claude \
-                           repartira de cette tête.";
+const CLAUDE_GELE: &str = "The task is refused, and there is no automatic retry; the merge did not happen, and the \
+                           wave branch and the wave's worktree stay at their head. A setting, a hook, a command, a \
+                           skill, an agent or a project memory is set by the human, outside the wave; new work that \
+                           writes in no .claude folder will start again from this head.";
 
 /// La correction d'un git qui ne dit pas ce que la main a changé (7009).
-const SANS_LISTE: &str = "Vérifie que git se lance et que le bac est un worktree du dépôt visé : faute de savoir ce \
-                          que la main a changé, sa tentative ne peut pas être prise.";
+const SANS_LISTE: &str = "Check that git runs and that the sandbox is a worktree of the target repository: without \
+                          knowing what the hand changed, its attempt cannot be taken.";
 
 /// La correction d'un bac du découpeur ou du relecteur qui porte autre chose que son fichier (7014), que la relance
 /// reçoit en contexte.
-const SEUL: &str = "Écris ton fichier, et rien d'autre, à la racine du bac, en fichier ordinaire que le dépôt visé \
-                    n'ignore pas ; remets comme dans la base tout autre chemin, ou retire-le, et ne commite rien.";
+const SEUL: &str = "Write your file, and nothing else, at the root of the sandbox, as an ordinary file that the \
+                    target repository does not ignore; put every other path back as in the base, or remove it, and \
+                    commit nothing.";
 
 /// La correction d'une base rouge (6022).
-const BASE_ROUGE: &str = "Donne à la vague une preuve qui passe sur la base ; pour réparer la base, donne à la tâche \
-                          de réparation sa propre preuve, puis relance.";
+const BASE_ROUGE: &str = "Give the wave a proof that passes on the base; to repair the base, give the repair task its \
+                          own proof, then run again.";
 
 /// Tout dossier `.claude` d'un bac, à toute profondeur et en toute casse, ce qui est sous lui comme l'entrée elle-même,
 /// ôtés d'un geste de git : ce que la main y change est à 7006, qui ne fige ni ne relance ce bac.
 const SOUS_CLAUDE: [&str; 2] = [":(exclude,icase,glob)**/.claude/**", ":(exclude,icase,glob)**/.claude"];
 
 /// La correction d'un assemblage fermé (7010).
-const FERME: &str = "Plus rien ne se fusionne dans cette vague, et sa branche reste à sa dernière tête : regarde le \
-                     worktree de la vague et ses verrous (index.lock), puis relance les tâches non assemblées dans une \
-                     vague neuve.";
+const FERME: &str = "Nothing more is merged in this wave, and its branch stays at its last head: look at the wave's \
+                     worktree and its locks (index.lock), then run the unassembled tasks again in a fresh wave.";
 
 /// La correction d'un geste git raté dans la vague (7009).
-const RATE: &str = "La branche de la vague n'a pas avancé pour cette tâche : vérifie que git se lance et que le bac et \
-                    le worktree de la vague sont des worktrees du dépôt visé.";
+const RATE: &str = "The wave branch did not advance for this task: check that git runs and that the sandbox and the \
+                    wave's worktree are worktrees of the target repository.";
 
 /// L'assemblage ouvert d'une vague : son worktree, sa branche et sa tête, et la preuve qu'il rejoue après chaque
 /// fusion.
@@ -154,8 +153,8 @@ pub(crate) fn ouvrir<'a>(
     };
     let rate = |vu: String| {
         let correction = format!(
-            "Vérifie que git se lance dans le dépôt visé, et que ni la branche {} ni le dossier {} n'existent, puis \
-             relance.",
+            "Check that git runs in the target repository, and that neither the branch {} nor the folder {} exists, \
+             then run again.",
             assemblage.branche,
             assemblage.worktree.display()
         );
@@ -165,13 +164,13 @@ pub(crate) fn ouvrir<'a>(
     // retire.
     faire(geste(depot, &["branch", &assemblage.branche, base])).map_err(rate)?;
     if let Err(vu) = poser(depot, &assemblage.worktree, &["--detach"], base) {
-        let retrait = assemblage.effacer_branche().err().map_or_else(String::new, |echec| format!("\npuis {echec}"));
+        let retrait = assemblage.effacer_branche().err().map_or_else(String::new, |echec| format!("\nthen {echec}"));
         return Err(rate(format!("{vu}{retrait}")));
     }
     let journal = dossier.join(format!("verif-{vague}-base.tmp"));
     if let Err(mut refus) = eprouver(profil, preuve, &assemblage.worktree, &journal, base) {
         if let Err(echec) = assemblage.retirer() {
-            refus.preuve = format!("{}\npuis {echec}", refus.preuve);
+            refus.preuve = format!("{}\nthen {echec}", refus.preuve);
         }
         return Err(refus);
     }
@@ -183,7 +182,7 @@ pub(crate) fn ouvrir<'a>(
 fn eprouver(profil: &Profil, preuve: &str, worktree: &Path, journal: &Path, base: &str) -> Result<(), Refus> {
     let (_, rejeu) = rejouer(profil, preuve, worktree, journal);
     rejeu.map_err(|erreur| {
-        Refus::new(Code::BaseRouge, format!("la preuve de la vague, jouée sur la base {base} : {erreur}"), BASE_ROUGE)
+        Refus::new(Code::BaseRouge, format!("the wave's proof, played on the base {base}: {erreur}"), BASE_ROUGE)
     })
 }
 
@@ -201,13 +200,12 @@ pub(crate) fn eprouver_la_base(
     base: &str,
     preuve: &str,
 ) -> Result<(), Refus> {
-    fs::create_dir_all(dossier)
-        .map_err(|e| nommee(e, format!("création du dossier de Lydite {}", dossier.display())))?;
+    fs::create_dir_all(dossier).map_err(|e| nommee(e, format!("creating the state folder {}", dossier.display())))?;
     let lot = lot();
     let worktree = dossier.join("bacs").join(format!("base-{lot}"));
     let rate = |vu: String| {
         let correction = format!(
-            "Vérifie que git se lance dans le dépôt visé, et que le dossier {} n'existe pas, puis relance.",
+            "Check that git runs in the target repository, and that the folder {} does not exist, then run again.",
             worktree.display()
         );
         Refus::new(Code::EntreeSortie, vu, correction)
@@ -224,7 +222,7 @@ pub(crate) fn eprouver_la_base(
         (Ok(()), Err(echec)) => Err(rate(echec)),
         (Err(refus), Ok(())) => Err(refus),
         (Err(mut refus), Err(echec)) => {
-            refus.preuve = format!("{}\npuis {echec}", refus.preuve);
+            refus.preuve = format!("{}\nthen {echec}", refus.preuve);
             Err(refus)
         }
     }
@@ -234,7 +232,7 @@ fn effacer_le_temporaire(worktree: &Path) -> Result<(), String> {
     let Some(temporaire) = temporaire_de(worktree).filter(|t| t.exists()) else {
         return Ok(());
     };
-    fs::remove_dir_all(&temporaire).map_err(|e| format!("effacement de {} : {e}", temporaire.display()))
+    fs::remove_dir_all(&temporaire).map_err(|e| format!("removing {}: {e}", temporaire.display()))
 }
 
 impl Assemblage<'_> {
@@ -300,10 +298,10 @@ impl Assemblage<'_> {
     ) -> (Option<String>, Result<String, Refus>) {
         if let Some(fermeture) = &self.fermeture {
             let preuve =
-                format!("l'assemblage de la vague {} est fermé, et {id} n'y entre pas : {fermeture}", self.vague);
+                format!("the assembly of wave {} is closed, and {id} does not enter it: {fermeture}", self.vague);
             return (None, Err(Refus::new(Code::AssemblageFerme, preuve, FERME)));
         }
-        if let Err(refus) = sans_claude(bac, depart).and_then(|()| self.revenir(&format!("avant la fusion de {id}"))) {
+        if let Err(refus) = sans_claude(bac, depart).and_then(|()| self.revenir(&format!("before the merge of {id}"))) {
             return (None, Err(refus));
         }
         let (verif, issue) = self.assembler(bac, depart, id, fichiers, k, noter_gel, noter);
@@ -313,7 +311,7 @@ impl Assemblage<'_> {
                 Ok(sha)
             }
             Err(refus) => {
-                let pourquoi = format!("après le refus {} de {id} ({})", refus.code, refus.preuve);
+                let pourquoi = format!("after refusal {} of {id} ({})", refus.code, refus.preuve);
                 Err(self.revenir(&pourquoi).err().unwrap_or(refus))
             }
         };
@@ -339,9 +337,9 @@ impl Assemblage<'_> {
             Err(vu) => return (None, Err(rate(vu))),
         };
         if let Err(erreur) = noter_gel(&gel) {
-            let preuve = format!("le gel de {id} ({gel}) n'est pas noté : {erreur}");
-            let correction = "Rien n'est fusionné et la vague s'arrête : rends le fil inscriptible, puis relance les \
-                              tâches non assemblées.";
+            let preuve = format!("the freeze of {id} ({gel}) is not noted: {erreur}");
+            let correction = "Nothing is merged and the wave stops: make the thread writable, then run the \
+                              unassembled tasks again.";
             return (None, Err(Refus::new(Code::FilInjoignable, preuve, correction)));
         }
         // `sans_claude` a jugé le bac avant le gel : ce qu'un processus resté derrière la main y écrit ou y commite
@@ -373,11 +371,9 @@ impl Assemblage<'_> {
             if fichiers.is_empty() {
                 return (None, Err(rate(vu)));
             }
-            let preuve =
-                format!("la fusion de {id} sur la tête {} est en conflit : {}", self.tete, fichiers.join(", "));
-            let correction = "La tâche est refusée sans relance, et la branche de la vague n'a pas bougé : relance-la \
-                              sur la tête de la vague, ou fais dépendre l'une de l'autre les tâches qui touchent ces \
-                              fichiers.";
+            let preuve = format!("the merge of {id} on head {} is in conflict: {}", self.tete, fichiers.join(", "));
+            let correction = "The task is refused without a retry, and the wave branch did not move: run it again on \
+                              the head of the wave, or make the tasks that touch these files depend on one another.";
             return (None, Err(Refus::new(Code::Conflit, preuve, correction)));
         }
         let sha = match faire(geste(&self.worktree, &["rev-parse", "HEAD"])) {
@@ -387,20 +383,20 @@ impl Assemblage<'_> {
         let journal = self.dossier.join(format!("verif-{}-fusion-{k}.tmp", self.vague));
         let (verif, rejeu) = rejouer(self.profil, &self.preuve, &self.worktree, &journal);
         if let Err(erreur) = rejeu {
-            let preuve = format!("la preuve de la vague, rejouée après la fusion de {id} : {erreur}");
-            let correction = "La tâche est refusée sans relance, et la branche de la vague n'a pas bougé : lis la fin \
-                              de la sortie de la preuve, puis relance la tâche sur la tête de la vague.";
+            let preuve = format!("the wave's proof, replayed after the merge of {id}: {erreur}");
+            let correction = "The task is refused without a retry, and the wave branch did not move: read the end of \
+                              the proof's output, then run the task again on the head of the wave.";
             return (verif, Err(Refus::new(Code::PreuveRouge, preuve, correction)));
         }
         if let Err(erreur) = noter(&sha, verif.as_deref().unwrap_or_default()) {
-            let preuve = format!("la fusion de {id} ({sha}) n'est pas notée : {erreur}");
-            let correction = "La fusion est défaite et la vague s'arrête : rends le fil inscriptible, puis relance les \
-                              tâches non assemblées.";
+            let preuve = format!("the merge of {id} ({sha}) is not noted: {erreur}");
+            let correction = "The merge is undone and the wave stops: make the thread writable, then run the \
+                              unassembled tasks again.";
             return (verif, Err(Refus::new(Code::FilInjoignable, preuve, correction)));
         }
         let reference = format!("refs/heads/{}", self.branche);
         if let Err(vu) = faire(geste(&self.depot, &["update-ref", &reference, &sha, &self.tete])) {
-            return (verif, Err(rate(format!("la fusion de {id} est notée, mais {vu}"))));
+            return (verif, Err(rate(format!("the merge of {id} is noted, but {vu}"))));
         }
         (verif, Ok(sha))
     }
@@ -412,7 +408,7 @@ impl Assemblage<'_> {
         let Err(vu) = reset.and_then(|_| faire(geste(&self.worktree, &["clean", "-q", "-fd"]))) else {
             return Ok(());
         };
-        let preuve = format!("le worktree de la vague ne revient pas à sa tête {}, {pourquoi} : {vu}", self.tete);
+        let preuve = format!("the wave's worktree does not return to its head {}, {pourquoi}: {vu}", self.tete);
         self.fermeture = Some(preuve.clone());
         Err(Refus::new(Code::AssemblageFerme, preuve, FERME))
     }
@@ -482,8 +478,8 @@ fn claude_gele(bac: &Path, depart: &str, id: &str, gel: &str) -> Result<(), Refu
     Err(Refus::new(
         Code::ClaudeTouche,
         format!(
-            "le gel de la tâche {id} porterait, sous un dossier .claude, des chemins que la fusion ferait entrer dans \
-             la branche de la vague : {}",
+            "the freeze of task {id} would carry, under a .claude folder, paths that the merge would bring into the \
+             wave branch: {}",
             citer(&vus)
         ),
         CLAUDE_GELE,
@@ -546,8 +542,7 @@ fn hors_des_fichiers(changes: Vec<String>, id: &str, fichiers: &[String], correc
     if hors.is_empty() {
         return Ok(());
     }
-    let preuve =
-        format!("la main de la tâche {id} a changé, hors de ses fichiers ({}) : {}", citer(fichiers), citer(&hors));
+    let preuve = format!("the hand of task {id} changed, outside its files ({}): {}", citer(fichiers), citer(&hors));
     Err(Refus::new(Code::HorsFichiers, preuve, correction))
 }
 
@@ -609,25 +604,26 @@ pub(crate) fn seul_change(bac: &Path, depart: &str, fichier: &str, aussi: &[&str
     match fs::symlink_metadata(bac.join(fichier)) {
         Ok(lu) if lu.is_file() => {}
         Ok(lu) => {
-            let quoi = if lu.file_type().is_symlink() { "un lien symbolique" } else { "un dossier" };
-            return Err(touche(format!("{fichier}, à la racine du bac, est {quoi}, et non un fichier ordinaire")));
+            let quoi = if lu.file_type().is_symlink() { "a symbolic link" } else { "a folder" };
+            return Err(touche(format!("{fichier}, at the root of the sandbox, is {quoi}, and not an ordinary file")));
         }
-        Err(e) => return Err(touche(format!("{fichier} n'est pas à la racine du bac : {e}"))),
+        Err(e) => return Err(touche(format!("{fichier} is not at the root of the sandbox: {e}"))),
     }
-    let ignore = geste(bac, &["check-ignore", "-q", "--", fichier]).output().map_err(|e| {
-        rate(format!("lancement impossible de git check-ignore -q -- {fichier} dans {} : {e}", bac.display()))
-    })?;
+    let ignore = geste(bac, &["check-ignore", "-q", "--", fichier])
+        .output()
+        .map_err(|e| rate(format!("cannot launch git check-ignore -q -- {fichier} in {}: {e}", bac.display())))?;
     match ignore.status.code() {
         Some(1) => {}
         Some(0) => {
-            let preuve =
-                format!("le dépôt visé ignore {fichier} (git check-ignore), qui n'est donc pas un travail du bac");
+            let preuve = format!(
+                "the target repository ignores {fichier} (git check-ignore), which is therefore not the sandbox's work"
+            );
             return Err(touche(preuve));
         }
         _ => {
             let dit = String::from_utf8_lossy(&ignore.stderr);
             let vu = format!(
-                "git check-ignore -q -- {fichier} dans {} a échoué ({}) : {}",
+                "git check-ignore -q -- {fichier} in {} failed ({}): {}",
                 bac.display(),
                 ignore.status,
                 dit.trim()
@@ -638,7 +634,7 @@ pub(crate) fn seul_change(bac: &Path, depart: &str, fichier: &str, aussi: &[&str
     let tete = faire(geste(bac, &["rev-parse", "HEAD"])).map_err(rate)?;
     if tete.trim() != depart {
         return Err(touche(format!(
-            "la main a commité dans son bac : sa tête est {}, et son départ {depart}",
+            "the hand committed in its sandbox: its head is {}, and its start {depart}",
             tete.trim()
         )));
     }
@@ -657,7 +653,7 @@ pub(crate) fn seul_change(bac: &Path, depart: &str, fichier: &str, aussi: &[&str
     }
     hors.sort();
     hors.dedup();
-    Err(touche(format!("la main a changé dans son bac, en plus de {fichier} : {}", citer(&hors))))
+    Err(touche(format!("the hand changed in its sandbox, besides {fichier}: {}", citer(&hors))))
 }
 
 /// Ces chemins entre guillemets, `CITES_MAX` au plus, puis le nombre des autres. Chacun s'écrit comme un texte de Rust,
@@ -665,7 +661,7 @@ pub(crate) fn seul_change(bac: &Path, depart: &str, fichier: &str, aussi: &[&str
 fn citer(chemins: &[String]) -> String {
     let cites = chemins.iter().take(CITES_MAX).map(|chemin| format!("{chemin:?}")).collect::<Vec<_>>().join(", ");
     match chemins.len().checked_sub(CITES_MAX) {
-        Some(reste) if reste > 0 => format!("{cites}, et {reste} de plus"),
+        Some(reste) if reste > 0 => format!("{cites}, and {reste} more"),
         _ => cites,
     }
 }

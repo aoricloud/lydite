@@ -75,8 +75,8 @@ const GRAMMAIRE: &str = concat!(
 const PLAFOND: usize = 3000;
 
 /// La correction d'un découpage pris dont la note ne s'écrit pas (7012).
-const NON_NOTE: &str = "Le découpage n'est pas au fil : aucune vague ne part, et le bac du découpeur demeure, avec son \
-                        plan. Rends le fil inscriptible, puis relance.";
+const NON_NOTE: &str = "The split is not in the thread: no wave starts, and the splitter's sandbox stays, with its \
+                        plan. Make the thread writable, then run again.";
 
 /// Ce que rend un découpage : la main du découpeur, `main-<d>-1`, et son issue.
 pub(crate) struct Decoupage {
@@ -188,14 +188,16 @@ fn decouper_de(
     let liens = Liens { juge: Some(&juge), ..Liens::default() };
     // Le découpeur part à l'effort `effort_decoupeur`, à ses deux tentatives : la vague joue ce profil-ci.
     let menee = lancer_avec(depot, dossier, &profil.pour_le_decoupeur(), &plan, bail, base, liens)?;
-    let (main, issue) = menee.issues.into_iter().next().unwrap_or_else(|| {
-        (format!("main-{}-1", menee.id), Err("la vague du découpeur n'a rendu aucune issue".into()))
-    });
+    let (main, issue) = menee
+        .issues
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| (format!("main-{}-1", menee.id), Err("the splitter's wave returned no outcome".into())));
     let lu = lu.into_inner().unwrap_or_else(PoisonError::into_inner);
     let (mut plan, octets) = match (issue, lu) {
         (Ok(_), Some(lu)) => lu,
         (Ok(_), None) => {
-            return Ok(Decoupage { main, issue: Err("le juge du découpeur n'a gardé aucun plan".into()) });
+            return Ok(Decoupage { main, issue: Err("the splitter's judge kept no plan".into()) });
         }
         (Err(dehors), _) => return Ok(Decoupage { main, issue: Err(dehors) }),
     };
@@ -215,7 +217,7 @@ fn decouper_de(
             issue: Err(refus_en_clair(code.numero(), code.regle(), &erreur.to_string(), NON_NOTE)),
         });
     }
-    retirer_le_bac(depot, dossier, "le bac du découpeur", &main, base, &[PLAN]);
+    retirer_le_bac(depot, dossier, "the splitter's sandbox", &main, base, &[PLAN]);
     Ok(Decoupage { main, issue: Ok(Decoupe { vague: menee.id, plan, texte }) })
 }
 
@@ -299,7 +301,7 @@ fn juger(bac: &Path, depart: &str, demande: &Demande<'_>) -> Result<(Plan, Vec<u
     let borne = TAILLE_MAX as u64 + 1;
     fs::File::open(&chemin)
         .and_then(|ouvert| ouvert.take(borne).read_to_end(&mut octets))
-        .map_err(|e| nommee(e, format!("lecture de {}", chemin.display())))?;
+        .map_err(|e| nommee(e, format!("reading {}", chemin.display())))?;
     let (plan, _) = Plan::lire_en(&octets, Mode::Decoupe(Some(demande)))?;
     Ok((plan, octets))
 }
@@ -311,30 +313,28 @@ fn chemins_de(depot: &Path, base: &str) -> Result<Vec<String>, Refus> {
         Refus::new(
             Code::EntreeSortie,
             vu,
-            "Vérifie que git se lance dans le dépôt visé et y lit la base, puis relance.",
+            "Check that git runs in the target repository and reads the base there, then run again.",
         )
     })?;
     Ok(sortie.split('\0').filter(|chemin| !chemin.is_empty()).map(String::from).collect())
 }
 
-/// Retire le bac du découpeur, `qui` étant « le bac du découpeur » (ou du relecteur, `relecture.rs`), et sa branche,
-/// une fois son travail au fil : les `fichiers` que Kraken lui a fait écrire (ici [`PLAN`]) s'effacent, ceux qui
-/// manquent ne comptant pas, puis `bac::retirer`, sans forcer, ôte le worktree, son dossier temporaire et la branche
-/// `lydite/<main>` si elle est encore sur la base. Un retrait raté s'écrit sur stderr, et le reste du bac demeure : git
-/// refuse de retirer un worktree qui garde un fichier non suivi qu'il n'ignore pas.
+/// Retire le bac du découpeur, `qui` étant « the splitter's sandbox » (ou celui du relecteur, `relecture.rs`), et sa
+/// branche, une fois son travail au fil : les `fichiers` que Kraken lui a fait écrire (ici [`PLAN`]) s'effacent,
+/// ceux qui manquent ne comptant pas, puis `bac::retirer`, sans forcer, ôte le worktree, son dossier temporaire et la
+/// branche `lydite/<main>` si elle est encore sur la base. Un retrait raté s'écrit sur stderr, et le reste du bac
+/// demeure : git refuse de retirer un worktree qui garde un fichier non suivi qu'il n'ignore pas.
 pub(crate) fn retirer_le_bac(depot: &Path, dossier: &Path, qui: &str, main: &str, base: &str, fichiers: &[&str]) {
     let bac = dossier.join("bacs").join(main);
     let branche = format!("lydite/{main}");
     let efface = |fichier: &&str| match fs::remove_file(bac.join(fichier)) {
-        Err(e) if e.kind() != io::ErrorKind::NotFound => {
-            Err(format!("effacement de {} : {e}", bac.join(fichier).display()))
-        }
+        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(format!("removing {}: {e}", bac.join(fichier).display())),
         _ => Ok(()),
     };
     let retrait =
         fichiers.iter().try_for_each(efface).and_then(|()| retirer(depot, &bac, Some((&branche, base)), faire));
     if let Err(vu) = retrait {
-        eprintln!("{qui} ne se retire pas, et demeure : {vu}");
+        eprintln!("{qui} is not removed, and stays: {vu}");
     }
 }
 

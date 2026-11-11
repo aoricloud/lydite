@@ -11,7 +11,7 @@
 //! Une coupure de l'API (`Echec::Coupure`) n'est pas un échec de la main : la tâche repart une fois, après [`PAUSE`],
 //! sans que cette tentative compte comme une relance (la relance d'une main rouge lui reste). La pause se passe dans
 //! le fil d'exécution de la main qui repart, pas dans la vague, et le bail de cette tentative la couvre. Une seconde
-//! coupure de la même tâche la classe, la cause dite (« coupure de l'API (<statut>) »). Le fil la note après la fin de
+//! coupure de la même tâche la classe, la cause dite (« API outage (<statut>) »). Le fil la note après la fin de
 //! la tentative coupée (`main.coupure`).
 //!
 //! Au plus [`MAINS_A_LA_FOIS`] mains tournent ensemble, copies de `--n` comprises : les tâches prêtes qui restent
@@ -120,9 +120,9 @@ const MARGE: Duration = Duration::from_secs(60);
 const PAUSE: Duration = Duration::from_secs(60);
 
 /// La correction du refus 7012, qui arrête la vague.
-const ARRET: &str = "La vague s'arrête : plus aucune note, ni départ, ni fusion, et ses mains en cours finissent. \
-                     Rends le fil inscriptible, ou lisibles les réglages que la preuve nomme, puis relance dans une \
-                     vague neuve les tâches qui ne sont pas assemblées.";
+const ARRET: &str = "The wave stops: no more notes, starts or merges, and its running hands finish. Make the thread \
+                     writable, or the settings that the proof names readable, then run again in a fresh wave the \
+                     tasks that are not assembled.";
 
 /// La durée du bail de chaque main de la vague : le délai de la main, celui de sa preuve, et une minute de marge. Une
 /// tentative conclut donc avant son échéance, qui ne tombe que sur une main qui n'a rien rendu.
@@ -136,7 +136,7 @@ pub(crate) fn base_du_depot(depot: &Path) -> Result<String, Refus> {
     if !depot.is_dir() {
         return Err(Refus::new(
             Code::DepotIntrouvable,
-            format!("{} n'est pas un dossier qui existe", depot.display()),
+            format!("{} is not a folder that exists", depot.display()),
             "Run Lydite from the target repository, or give it with --depot <path>.",
         ));
     }
@@ -186,7 +186,7 @@ pub(crate) fn lancer_avec(
     if let Err(erreur) = notees {
         let mut refus = Refus::from(erreur);
         if let Some(Err(echec)) = assemblage.map(Assemblage::retirer) {
-            refus.preuve = format!("{}\npuis {echec}", refus.preuve);
+            refus.preuve = format!("{}\nthen {echec}", refus.preuve);
         }
         return Err(refus);
     }
@@ -232,9 +232,9 @@ fn efforts_permis(profil: &Profil, plan: &Plan) -> Result<(), Refus> {
         let Some(effort) = tache.effort.as_deref().filter(|effort| !profil.permet_l_effort(effort)) else { continue };
         return Err(Refus::new(
             Code::EffortNonPermis,
-            format!("la tâche {} demande l'effort {effort}, que `efforts_permis` du profil ne permet pas", tache.id),
-            "Choisis dans le plan, sur la ligne `effort`, un effort que le profil permet, ou élargis `efforts_permis` \
-             dans le profil puis accepte-le de nouveau : lydite accepter <profil>.",
+            format!("task {} asks for effort {effort}, which the profile's `efforts_permis` does not allow", tache.id),
+            "Choose, in the plan, on the `effort` line, an effort that the profile allows, or widen `efforts_permis` \
+             in the profile and accept it again: lydite accept <profile>.",
         ));
     }
     Ok(())
@@ -754,15 +754,15 @@ impl<'a> Vague<'a> {
             // continue pour ses autres tâches.
             Err(Echec::Plafond(erreur)) => {
                 let preuve = format!(
-                    "{} ({}) a atteint son plafond de dépense, {} dollars : {}",
+                    "{} ({}) reached its spending ceiling, {} dollars: {}",
                     self.main(k),
                     self.plan.taches[k - 1].id,
                     self.profil.plafond(),
                     erreur.lines().next().unwrap_or_default()
                 );
-                let correction = "La tâche est refusée sans relance, car la main a atteint son plafond de dépense : \
-                                  relève `plafond` dans le profil, accepte-le (`lydite accepter`), puis relance la \
-                                  tâche dans une vague neuve, ou laisse-la.";
+                let correction = "The task is refused without a retry, because the hand reached its spending ceiling: \
+                                  raise `plafond` in the profile, accept it (`lydite accept`), then run the task \
+                                  again in a fresh wave, or leave it.";
                 self.refuser(k, Refus::new(Code::PlafondAtteint, preuve, correction), None);
             }
             // La première coupure de la tâche repart, après une pause, sans compter comme une relance, avec l'erreur
@@ -774,7 +774,7 @@ impl<'a> Vague<'a> {
             }
             Err(Echec::Coupure(statut, _)) => {
                 let classee = Evenement::Verdict { vague, main: k, verdict: Verdict::Classee, foi: Foi::Constate };
-                let cause = format!("coupure de l'API ({statut})");
+                let cause = format!("API outage ({statut})");
                 let issue = if self.noter(&classee) { cause } else { self.hors_du_fil(&cause) };
                 self.taches[k - 1] = Etat::Finie(Err(issue));
             }
@@ -845,9 +845,8 @@ impl<'a> Vague<'a> {
                 self.plan.taches[k - 1].id,
                 erreur.lines().next().unwrap_or_default()
             );
-            let correction = "La tâche est refusée sans relance, car l'arbre de sa main peut tourner encore : relève \
-                              le délai de la main dans son profil, ou donne-lui une tâche plus petite, dans une vague \
-                              neuve.";
+            let correction = "The task is refused without a retry, because its hand's tree may still be running: \
+                              raise the hand's timeout in its profile, or give it a smaller task, in a fresh wave.";
             self.refuser(k, Refus::new(Code::MainTuee, preuve, correction), None);
         } else {
             self.depart(s, envoi, k, Some(erreur), false);
@@ -894,12 +893,12 @@ impl<'a> Vague<'a> {
     fn expirer(&mut self, k: usize, tentative: usize) {
         let Etat::Partie { echeance, .. } = &self.taches[k - 1] else { return };
         let preuve = format!(
-            "{} ({}) n'a rien rendu avant {echeance}, l'échéance du bail de sa tentative {tentative}",
+            "{} ({}) returned nothing before {echeance}, the deadline of the lease of its attempt {tentative}",
             self.main(k),
             self.plan.taches[k - 1].id
         );
-        let correction = "La tâche est refusée sans relance, car sa main peut tourner encore : relance-la dans une \
-                          vague neuve, avec une tâche plus petite si la main était trop lente.";
+        let correction = "The task is refused without a retry, because its hand may still be running: run it again \
+                          in a fresh wave, with a smaller task if the hand was too slow.";
         self.refuser(k, Refus::new(Code::MainExpiree, preuve, correction), None);
     }
 
@@ -912,12 +911,12 @@ impl<'a> Vague<'a> {
             perdues = ids().filter(|id| !self.assemblee(id)).collect();
         }
         let preuve = format!(
-            "{} ({}) ne part pas, et n'a pas de bac : elle dépend de {}, que la vague n'assemblera pas",
+            "{} ({}) does not start, and has no sandbox: it depends on {}, which the wave will not assemble",
             self.main(k),
             tache.id,
             perdues.join(", ")
         );
-        let correction = "Relance-la dans une vague neuve, une fois assemblées les tâches dont elle dépend.";
+        let correction = "Run it again in a fresh wave, once the tasks it depends on are assembled.";
         self.refuser(k, Refus::new(Code::Sautee, preuve, correction), None);
     }
 
@@ -1002,12 +1001,12 @@ impl<'a> Vague<'a> {
             && profil.prix(&declaration.modele).is_none()
         {
             let preuve = format!(
-                "le profil nomme le fournisseur {}, sans `prix` pour le modèle {} de la main, sous un quota posé",
+                "the profile names the provider {}, with no `prix` for the hand's model {}, under a set quota",
                 declaration.fournisseur.unwrap_or_default(),
                 declaration.modele
             );
-            let correction = "Ajoute à la ligne `prix` du profil ce modèle et ses prix, puis accepte le profil \
-                              (lydite accepter <profil>) ; ou retire le fichier du quota.";
+            let correction = "Add this model and its prices to the profile's `prix` line, then accept the profile \
+                              (lydite accept <profile>); or remove the quota file.";
             return Err(Refus::new(Code::Quota, preuve, correction));
         }
         let jour = &instant(maintenant())[..10];
@@ -1016,12 +1015,12 @@ impl<'a> Vague<'a> {
             let dollars =
                 |micro_dollars: u64| format!("{}.{:06}", micro_dollars / 1_000_000, micro_dollars % 1_000_000);
             let preuve = format!(
-                "la dépense estimée du {jour} (UTC), {} $, atteint le quota du jour, {} $",
+                "the estimated spend of {jour} (UTC), {} $, reaches the day's quota, {} $",
                 dollars(depense),
                 dollars(quota)
             );
-            let correction = "Aucune main ne part avant demain (UTC) : les mains parties finissent. Relève le quota \
-                              dans profils/quota, ou retire le fichier, si l'humain décide de dépenser davantage.";
+            let correction = "No hand starts before tomorrow (UTC): the running hands finish. Raise the quota in \
+                              profils/quota, or remove the file, if the human decides to spend more.";
             return Err(Refus::new(Code::Quota, preuve, correction));
         }
         Ok(())
