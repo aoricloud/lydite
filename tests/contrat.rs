@@ -179,7 +179,7 @@ fn sans_commande_le_refus_enseigne() {
 fn une_commande_inconnue_est_refusee() {
     // Un mot hors de la liste fermée, quel qu'il soit, un drapeau, une casse fausse ou le mot vide compris : le refus
     // 1005, dont la preuve nomme le mot et dont la correction donne l'usage.
-    for mot in ["bonjour", "--help", "ETAT", "lancer2", ""] {
+    for mot in ["bonjour", "--bonjour", "ETAT", "lancer2", ""] {
         let refus = lire_refus(kraken().arg(mot));
         assert_eq!(refus.code, "lydite : 1005 contrat.commande_inconnue", "{mot:?}");
         assert_regle(&refus);

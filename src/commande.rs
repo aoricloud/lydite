@@ -72,6 +72,7 @@ fn executer() -> Result<ExitCode, Refus> {
         Commande::LireLecons { dossier } => return lecons_cmd(&dossier),
         Commande::Version => return version_cmd(),
         Commande::Skill => return skill_cmd(),
+        Commande::Aide => return aide_cmd(),
     };
     let (gh, personnel) = (github::programme_gh(), env::home_dir());
     let lieu = Lieu {
@@ -183,6 +184,15 @@ fn skill_cmd() -> Result<ExitCode, Refus> {
     use std::io::Write;
     let mut sortie = std::io::stdout().lock();
     sortie.write_all(SKILL.as_bytes()).and_then(|()| sortie.flush())?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `lydite --help` : écrit sur stdout l'usage, une forme par ligne. Elle ne lit ni profil, ni dossier de Lydite, ni
+/// dépôt, et n'écrit rien d'autre.
+fn aide_cmd() -> Result<ExitCode, Refus> {
+    use std::io::Write;
+    let mut sortie = std::io::stdout().lock();
+    sortie.write_all(ligne::aide().as_bytes()).and_then(|()| sortie.flush())?;
     Ok(ExitCode::SUCCESS)
 }
 
