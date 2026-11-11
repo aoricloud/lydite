@@ -68,25 +68,25 @@ pub(crate) struct Lecon {
 
 /// Le refus de la ligne `ligne` (à partir de 1).
 fn refus(ligne: usize, quoi: impl std::fmt::Display, correction: &str) -> Refus {
-    Refus::new(Code::LeconMalFormee, format!("ligne {ligne} : {quoi}"), correction)
+    Refus::new(Code::LeconMalFormee, format!("line {ligne}: {quoi}"), correction)
 }
 
-const CORRECTION_ENTETE: &str = "Écris l'en-tête `---`, `name: <nom du dossier>`, `description: <la règle, sur une \
-                                 ligne>`, `---`, sans autre clé : la forme est au README.";
-const CORRECTION_SECTIONS: &str = "Écris chaque section une fois, avec du texte, dans l'ordre : `## What happened`, \
-                                   `## Why`, `## How it is checked`, `## Pitfall`, `## Files`, `## Falls when`.";
-const CORRECTION_CHEMIN: &str = "Sous `## Files`, écris une ligne `- <chemin>` par fichier visé, relatif à la racine \
-                                 du dépôt et écrit avec `/` ; sans chemin, laisse la section sans ligne.";
+const CORRECTION_ENTETE: &str = "Write the header `---`, `name: <folder name>`, `description: <the rule, on one \
+                                 line>`, `---`, with no other key: the form is in the README.";
+const CORRECTION_SECTIONS: &str = "Write each section once, with text, in order: `## What happened`, `## Why`, \
+                                   `## How it is checked`, `## Pitfall`, `## Files`, `## Falls when`.";
+const CORRECTION_CHEMIN: &str = "Under `## Files`, write one `- <path>` line per targeted file, relative to the \
+                                 repository root and written with `/`; with no path, leave the section without lines.";
 
 /// Lit la leçon du dossier `dossier` (son nom, pas son chemin) dont voici les octets.
 pub(crate) fn lire(dossier: &str, octets: &[u8]) -> Result<Lecon, Refus> {
     if octets.len() > TAILLE_MAX {
-        let preuve = format!("la leçon pèse {} octets, plus de {TAILLE_MAX}", octets.len());
-        return Err(refus(1, preuve, "Raccourcis la leçon sous 4096 octets : garde la règle et ce qui la prouve."));
+        let preuve = format!("the lesson weighs {} bytes, more than {TAILLE_MAX}", octets.len());
+        return Err(refus(1, preuve, "Shorten the lesson under 4096 bytes: keep the rule and what proves it."));
     }
     let texte = str::from_utf8(octets).map_err(|e| {
         let ligne = 1 + octets[..e.valid_up_to()].iter().filter(|&&octet| octet == b'\n').count();
-        refus(ligne, "la leçon n'est pas de l'UTF-8", "Réécris la leçon en UTF-8.")
+        refus(ligne, "the lesson is not UTF-8", "Rewrite the lesson in UTF-8.")
     })?;
     let mut lignes: Vec<&str> = texte.split('\n').map(|ligne| ligne.strip_suffix('\r').unwrap_or(ligne)).collect();
     if lignes.last() == Some(&"") {
@@ -95,31 +95,31 @@ pub(crate) fn lire(dossier: &str, octets: &[u8]) -> Result<Lecon, Refus> {
     let ligne = |rang: usize| lignes.get(rang).copied().unwrap_or("");
 
     if ligne(0) != "---" {
-        return Err(refus(1, "la leçon commence par une ligne `---`", CORRECTION_ENTETE));
+        return Err(refus(1, "the lesson starts with a `---` line", CORRECTION_ENTETE));
     }
     let Some(nom) = ligne(1).strip_prefix("name: ") else {
-        return Err(refus(2, "la deuxième ligne est `name: <nom>`", CORRECTION_ENTETE));
+        return Err(refus(2, "the second line is `name: <name>`", CORRECTION_ENTETE));
     };
     let bon_nom = (1..=64).contains(&nom.len())
         && nom.bytes().all(|octet| octet.is_ascii_lowercase() || octet.is_ascii_digit() || octet == b'-');
     if !bon_nom {
-        let preuve = format!("le nom {nom:?} n'est pas fait de 1 à 64 caractères parmi `a-z`, chiffres et `-`");
+        let preuve = format!("the name {nom:?} is not made of 1 to 64 characters among `a-z`, digits and `-`");
         return Err(refus(2, preuve, CORRECTION_ENTETE));
     }
     if nom != dossier {
-        let preuve = format!("le nom {nom:?} n'est pas celui du dossier de la leçon, {dossier:?}");
-        return Err(refus(2, preuve, "Mets dans `name` le nom du dossier de la leçon, ou renomme le dossier."));
+        let preuve = format!("the name {nom:?} is not that of the lesson's folder, {dossier:?}");
+        return Err(refus(2, preuve, "Put the lesson's folder name in `name`, or rename the folder."));
     }
     let Some(regle) = ligne(2).strip_prefix("description: ") else {
-        return Err(refus(3, "la troisième ligne est `description: <règle>`", CORRECTION_ENTETE));
+        return Err(refus(3, "the third line is `description: <rule>`", CORRECTION_ENTETE));
     };
     let longueur = regle.chars().count();
     if regle.trim().is_empty() || longueur > 200 || regle.chars().any(char::is_control) {
-        let preuve = format!("la règle fait {longueur} caractères : de 1 à 200, sur une ligne, non blanche");
+        let preuve = format!("the rule is {longueur} characters: from 1 to 200, on one line, not blank");
         return Err(refus(3, preuve, CORRECTION_ENTETE));
     }
     if ligne(3) != "---" {
-        let preuve = "l'en-tête ne tient que `name` et `description`, chacun sur une ligne, puis `---`";
+        let preuve = "the header holds only `name` and `description`, each on one line, then `---`";
         return Err(refus(4, preuve, CORRECTION_ENTETE));
     }
 
@@ -137,15 +137,15 @@ pub(crate) fn lire(dossier: &str, octets: &[u8]) -> Result<Lecon, Refus> {
                     courante = Some((numero, false));
                 }
                 Some(place) if place < lues => {
-                    let preuve = format!("`## {titre}` est en double ou hors d'ordre");
+                    let preuve = format!("`## {titre}` is duplicated or out of order");
                     return Err(refus(numero, preuve, CORRECTION_SECTIONS));
                 }
                 Some(_) => {
-                    let preuve = format!("il manque `## {}` avant `## {titre}`", SECTIONS[lues]);
+                    let preuve = format!("`## {}` is missing before `## {titre}`", SECTIONS[lues]);
                     return Err(refus(numero, preuve, CORRECTION_SECTIONS));
                 }
                 None => {
-                    let preuve = format!("`## {titre}` n'est pas une section de la leçon");
+                    let preuve = format!("`## {titre}` is not a section of the lesson");
                     return Err(refus(numero, preuve, CORRECTION_SECTIONS));
                 }
             }
@@ -155,23 +155,23 @@ pub(crate) fn lire(dossier: &str, octets: &[u8]) -> Result<Lecon, Refus> {
             continue;
         }
         let Some((_, porte)) = courante.as_mut() else {
-            return Err(refus(numero, "du texte avant la première section", CORRECTION_SECTIONS));
+            return Err(refus(numero, "text before the first section", CORRECTION_SECTIONS));
         };
         *porte = true;
         if lues - 1 == FICHIERS {
             let chemin = texte.strip_prefix("- ").filter(|chemin| *chemin == chemin.trim());
             let Some(chemin) = chemin else {
-                return Err(refus(numero, "sous `## Files`, une ligne est `- <chemin>`", CORRECTION_CHEMIN));
+                return Err(refus(numero, "under `## Files`, a line is `- <path>`", CORRECTION_CHEMIN));
             };
             if let Some(raison) = plan::hors_forme(chemin) {
-                return Err(refus(numero, format!("le chemin {chemin:?} {raison}"), CORRECTION_CHEMIN));
+                return Err(refus(numero, format!("the path {chemin:?} {raison}"), CORRECTION_CHEMIN));
             }
             fichiers.push(chemin.to_string());
         }
     }
     fermer(courante, lues)?;
     if lues < SECTIONS.len() {
-        let preuve = format!("il manque `## {}`", SECTIONS[lues]);
+        let preuve = format!("`## {}` is missing", SECTIONS[lues]);
         return Err(refus(lignes.len().max(1), preuve, CORRECTION_SECTIONS));
     }
     let texte = texte.replace("\r\n", "\n");
@@ -229,7 +229,7 @@ pub(crate) fn texte_liste(lecons: &[Lecon]) -> String {
 fn fermer(courante: Option<(usize, bool)>, lues: usize) -> Result<(), Refus> {
     match courante {
         Some((numero, false)) if lues - 1 != FICHIERS => {
-            let preuve = format!("`## {}` est vide", SECTIONS[lues - 1]);
+            let preuve = format!("`## {}` is empty", SECTIONS[lues - 1]);
             Err(refus(numero, preuve, CORRECTION_SECTIONS))
         }
         _ => Ok(()),

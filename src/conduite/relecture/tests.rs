@@ -320,8 +320,8 @@ fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
     // La forme 1 se lit, mais le juge du relecteur exige la forme 2 : 7015, à la première ligne ; la forme 2 sans
     // l'un de ses blocs est refusée de même.
     for (nom, brut, bout) in [
-        ("forme-1", "remarques 1\n", "ligne 1 « remarques 1 » : le relecteur écrit la forme 2"),
-        ("sans-non-rejoue", "remarques 2\n\nrejoue\n    a\n", "le fichier n'a pas de bloc `non rejoue`"),
+        ("forme-1", "remarques 1\n", "line 1 « remarques 1 » : the reviewer writes form 2"),
+        ("sans-non-rejoue", "remarques 2\n\nrejoue\n    a\n", "the file has no block `non rejoue`"),
     ] {
         assert!(lire_remarques(b"remarques 1\n").is_ok());
         let (bac_f, depart) = bac_neuf(&depot, &kraken, nom);
@@ -330,7 +330,7 @@ fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
         assert_eq!(refus.code, Code::RemarquesIllisibles, "{refus}");
         assert!(refus.preuve.contains(bout), "{refus}");
         if nom == "forme-1" {
-            assert!(refus.correction.contains("Le chiffre de la première ligne est la forme du fichier"), "{refus}");
+            assert!(refus.correction.contains("The number on the first line is the form of the file"), "{refus}");
         }
     }
     // Un fichier `remarques 0` : le chiffre est la forme, pas un nombre de remarques.
@@ -338,7 +338,7 @@ fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
     ecrire(&bac_z, REMARQUES, "remarques 0\n");
     let refus = juge(&bac_z, &depart).unwrap_err();
     assert_eq!(refus.code, Code::RemarquesIllisibles, "{refus}");
-    assert!(refus.correction.contains("jamais un nombre de remarques"), "{refus}");
+    assert!(refus.correction.contains("never a number of remarks"), "{refus}");
     // Un fichier que le dépôt ignore : 7014, bien qu'il soit seul et se lise.
     commiter(&depot, &[(".gitignore", "ignore/\nREMARQUES.lydite\n")]);
     let (bac_e, depart) = bac_neuf(&depot, &kraken, "ignore");
@@ -1080,7 +1080,7 @@ fn un_fichier_illisible_deux_fois_est_7015_puis_7016_et_rien_ne_se_pousse() {
     assert_eq!(fins.iter().map(|(couleur, _)| *couleur).collect::<Vec<_>>(), [Couleur::Rouge, Couleur::Rouge]);
     let regle = Code::RemarquesIllisibles.regle();
     for (_, texte) in &fins {
-        assert!(texte.starts_with(&format!("7015 vague.remarques_illisibles : {regle}\nligne 1 « ")), "{texte}");
+        assert!(texte.starts_with(&format!("7015 vague.remarques_illisibles : {regle}\nline 1 « ")), "{texte}");
     }
     let seconde = essai.garde("consigne-relecteur-2.txt").unwrap();
     assert!(

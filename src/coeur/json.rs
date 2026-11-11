@@ -96,11 +96,11 @@ pub(crate) fn chaine(texte: &str) -> String {
 pub(crate) fn lire(ligne: &str) -> Result<BTreeMap<String, Option<Valeur>>, String> {
     let mut lecteur = Lecteur { texte: ligne, pos: 0, redites: 1 };
     lecteur.blancs();
-    lecteur.passer(b'{', "un objet `{`")?;
+    lecteur.passer(b'{', "an object `{`")?;
     let objet = lecteur.objet(1)?;
     lecteur.blancs();
     if lecteur.pos < ligne.len() {
-        return Err(lecteur.refus("la fin de la ligne après `}`"));
+        return Err(lecteur.refus("the end of the line after `}`"));
     }
     Ok(objet.into_iter().map(|(cle, valeur)| (cle, plate(valeur))).collect())
 }
@@ -114,7 +114,7 @@ pub(crate) fn document(ligne: &str) -> Result<Json, String> {
     let document = lecteur.valeur(0)?;
     lecteur.blancs();
     if lecteur.pos < ligne.len() {
-        return Err(lecteur.refus("la fin du document"));
+        return Err(lecteur.refus("the end of the document"));
     }
     Ok(document)
 }
@@ -173,9 +173,9 @@ impl Lecteur<'_> {
     fn refus(&self, attendu: &str) -> String {
         let vu = match self.texte.get(self.pos..).and_then(|reste| reste.chars().next()) {
             Some(c) => format!("{c:?}"),
-            None => "la fin de la ligne".into(),
+            None => "the end of the line".into(),
         };
-        format!("au caractère {} : attendu {attendu}, vu {vu}", self.rang(self.pos))
+        format!("at character {}: expected {attendu}, saw {vu}", self.rang(self.pos))
     }
 
     /// Ce qui suit un ouvrant déjà passé, jusqu'à `fermant` : des éléments que `element` lit, séparés par des virgules.
@@ -195,7 +195,7 @@ impl Lecteur<'_> {
                     self.pos += 1;
                     return Ok(());
                 }
-                _ => return Err(self.refus(&format!("`,` ou `{}`", char::from(fermant)))),
+                _ => return Err(self.refus(&format!("`,` or `{}`", char::from(fermant)))),
             }
         }
     }
@@ -207,7 +207,7 @@ impl Lecteur<'_> {
         self.suite(b'}', |l| {
             let (cle, valeur) = l.membre(niveau)?;
             if niveau <= l.redites && objet.contains_key(&cle) {
-                return Err(format!("clé redite : {cle:?}"));
+                return Err(format!("repeated key: {cle:?}"));
             }
             objet.insert(cle, valeur);
             Ok(())
@@ -217,7 +217,7 @@ impl Lecteur<'_> {
 
     /// `"clé" : valeur`, `niveau` étant celui de l'objet qui la porte.
     fn membre(&mut self, niveau: usize) -> Result<(String, Json), String> {
-        self.passer(b'"', "une clé (une chaîne)")?;
+        self.passer(b'"', "a key (a string)")?;
         let cle = self.lire_chaine()?;
         self.blancs();
         self.passer(b':', "`:`")?;
@@ -233,7 +233,7 @@ impl Lecteur<'_> {
                 Ok(Json::Texte(self.lire_chaine()?))
             }
             Some(b'{' | b'[') if niveau >= PROFONDEUR => {
-                Err(format!("plus de {PROFONDEUR} niveaux d'imbrication, au caractère {}", self.rang(self.pos)))
+                Err(format!("more than {PROFONDEUR} levels of nesting, at character {}", self.rang(self.pos)))
             }
             Some(b'{') => {
                 self.pos += 1;
@@ -252,7 +252,7 @@ impl Lecteur<'_> {
             Some(b't') => self.litteral("true", Json::Booleen(true)),
             Some(b'f') => self.litteral("false", Json::Booleen(false)),
             Some(b'n') => self.litteral("null", Json::Nul),
-            _ => Err(self.refus("une valeur")),
+            _ => Err(self.refus("a value")),
         }
     }
 
@@ -273,7 +273,7 @@ impl Lecteur<'_> {
         match self.octet() {
             Some(b'0') => self.pos += 1,
             Some(b'1'..=b'9') => self.chiffres()?,
-            _ => return Err(self.refus("un chiffre")),
+            _ => return Err(self.refus("a digit")),
         }
         if self.octet() == Some(b'.') {
             self.pos += 1;
@@ -294,7 +294,7 @@ impl Lecteur<'_> {
         while self.octet().is_some_and(|b| b.is_ascii_digit()) {
             self.pos += 1;
         }
-        if self.pos == debut { Err(self.refus("un chiffre")) } else { Ok(()) }
+        if self.pos == debut { Err(self.refus("a digit")) } else { Ok(()) }
     }
 
     /// Le texte d'une chaîne dont le guillemet ouvrant est passé, guillemet fermant compris.
@@ -317,11 +317,9 @@ impl Lecteur<'_> {
                 }
                 Some(controle) => {
                     let (vu, rang) = (char::from(controle), self.rang(self.pos));
-                    return Err(format!(
-                        "contrôle brut {vu:?} dans une chaîne (à écrire \\u00xx), au caractère {rang}"
-                    ));
+                    return Err(format!("raw control {vu:?} in a string (to write as \\u00xx), at character {rang}"));
                 }
-                None => return Err(self.refus("`\"` fermant")),
+                None => return Err(self.refus("a closing `\"`")),
             }
         }
     }
@@ -341,7 +339,7 @@ impl Lecteur<'_> {
                 self.pos += 1;
                 return self.unicode();
             }
-            _ => return Err(self.refus(r#"un échappement (`\` puis `"`, `\`, `/`, `b`, `f`, `n`, `r`, `t` ou `u`)"#)),
+            _ => return Err(self.refus(r#"an escape (`\` then `"`, `\`, `/`, `b`, `f`, `n`, `r`, `t` or `u`)"#)),
         };
         self.pos += 1;
         Ok(c)
@@ -352,7 +350,7 @@ impl Lecteur<'_> {
     fn unicode(&mut self) -> Result<char, String> {
         let debut = self.pos - 2;
         let haut = self.hex4()?;
-        let seul = |lecteur: &Self| format!("substitut seul \\u{haut:04x}, au caractère {}", lecteur.rang(debut));
+        let seul = |lecteur: &Self| format!("lone surrogate \\u{haut:04x}, at character {}", lecteur.rang(debut));
         let mut code = haut;
         if (0xD800..0xDC00).contains(&haut) {
             // 0 : pas de `\u` derrière, donc pas de moitié basse.
@@ -376,7 +374,7 @@ impl Lecteur<'_> {
         let mut code = 0;
         for _ in 0..4 {
             let Some(chiffre) = self.octet().and_then(|b| char::from(b).to_digit(16)) else {
-                return Err(self.refus("un chiffre hexadécimal"));
+                return Err(self.refus("a hexadecimal digit"));
             };
             code = code * 16 + chiffre;
             self.pos += 1;

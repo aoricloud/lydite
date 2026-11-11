@@ -726,7 +726,7 @@ fn une_sequence_rompue_est_dite() {
             "seq 4 après le seq 2",
             "seq 4 après le seq 4",
             "seq 2 en tête de sa séance, où 1 est attendu",
-            "attendu un objet `{`, vu 'i'",
+            "at character 1: expected an object `{`, saw 'i'",
             "seq 4 après le seq 2",
             &format!("seq {max} après le seq 1"),
             &format!("seq {max} après le seq {max}"),
@@ -3309,9 +3309,9 @@ fn un_substitut_seul_ou_65_niveaux_sont_illisibles_quel_que_soit_v() {
         assert_eq!(seqs(&notes), [1, 2], "v {v}");
         assert_eq!(codes(&ecarts), (2..=6).map(|ligne| (ligne, 1001)).collect::<Vec<_>>(), "v {v}");
         for (ligne, refus) in &ecarts[..4] {
-            assert!(refus.preuve.contains("substitut seul"), "v {v}, ligne {ligne} : {refus}");
+            assert!(refus.preuve.contains("lone surrogate"), "v {v}, ligne {ligne} : {refus}");
         }
-        assert!(ecarts[4].1.preuve.contains("plus de 64 niveaux d'imbrication"), "v {v} : {}", ecarts[4].1);
+        assert!(ecarts[4].1.preuve.contains("more than 64 levels of nesting"), "v {v} : {}", ecarts[4].1);
     }
     // Lues jusqu'au bout, les mêmes lignes en règle (une paire de substituts entière, 64 niveaux) sont d'une autre
     // version à `v` 3, qui arrête la lecture (1002), et seulement mal formées à `v` 2 (1009), faute de `type`.
