@@ -1,6 +1,8 @@
 use super::*;
 use crate::coeur::fil::Verdict;
 use crate::coeur::profil::Profil;
+use crate::conduite::lancer::Issues;
+use crate::conduite::tentative::Pris;
 use crate::essais::forge::{Lieu, PR, TETE, lieu, pr_vue, rendre_ci, run, statuts_du_commit, sur, tour_de_ci, vue_pr};
 use crate::essais::{ecrire, lancer_sur, pour_sh, script};
 use crate::essais::{git, main_de_vague, main_qui_echoue, main_qui_ecrit_la_ci, racine};
@@ -1295,7 +1297,7 @@ fn la_relance_est_un_plan_d_une_tache_ci_dont_l_objectif_porte_le_contexte() {
         "preuve : exit 3",
         "    Ecrire b",
     ]);
-    let relance = plan_de_relance(&plan, 12, "test (windows) : FAILURE\ntest b ... FAILED\n");
+    let relance = plan_de_relance(&plan, &assemblees(&plan), 12, "test (windows) : FAILURE\ntest b ... FAILED\n");
     // Une vague qui rend verte la CI de la PR, de la preuve de la vague relancée, et sa seule tâche, sans dépendance
     // ni preuve à elle.
     assert_eq!(relance.objectif, "Make the CI of PR 12 green");
@@ -1305,7 +1307,61 @@ fn la_relance_est_un_plan_d_une_tache_ci_dont_l_objectif_porte_le_contexte() {
     assert_eq!(tache.objectif, format!("{CORRIGER}\ntest (windows) : FAILURE\ntest b ... FAILED"));
     assert!(tache.objectif.starts_with("Corrige au plus petit") && tache.objectif.contains("sans toucher à .github/"));
     // Sans contexte, l'objectif est sa première ligne seule.
-    assert_eq!(plan_de_relance(&plan, 3, "").taches[0].objectif, CORRIGER);
+    assert_eq!(plan_de_relance(&plan, &assemblees(&plan), 3, "").taches[0].objectif, CORRIGER);
+}
+
+/// Les issues d'une vague dont chaque tâche de `plan` est assemblée.
+fn assemblees(plan: &Plan) -> Issues {
+    plan.taches.iter().map(|tache| (tache.id.clone(), Ok(Pris { sortie: "fait".into(), prouve: true }))).collect()
+}
+
+#[test]
+fn la_tache_ci_prend_l_union_des_exacts_des_taches_assemblees() {
+    // Trois tâches, avec et sans `fichiers`, chacune avec ses `exacts` ; un doublon entre a et b, un autre entre b
+    // et c.
+    let plan = plan(&[
+        "plan 1",
+        "objectif : Ecrire a, b et c",
+        "preuve : exit 0",
+        "tache a",
+        "fichiers : a.txt",
+        "exact : a.txt : alpha",
+        "exact : a.txt : commun",
+        "    Ecrire a",
+        "tache b",
+        "exact : a.txt : commun",
+        "exact : b.txt : beta",
+        "exact : c.txt : gamma",
+        "    Ecrire b",
+        "tache c",
+        "fichiers : c.txt d.txt",
+        "exact : c.txt : gamma",
+        "exact : d.txt : dehors",
+        "    Ecrire c",
+    ]);
+    let paire = |fichier: &str, texte: &str| (fichier.to_string(), texte.to_string());
+    // Tout est assemblé : l'union des trois, dans leur ordre, sans doublon, même quand b n'a pas de `fichiers`.
+    let relance = plan_de_relance(&plan, &assemblees(&plan), 12, "");
+    let attendus = vec![
+        paire("a.txt", "alpha"),
+        paire("a.txt", "commun"),
+        paire("b.txt", "beta"),
+        paire("c.txt", "gamma"),
+        paire("d.txt", "dehors"),
+    ];
+    assert_eq!(relance.taches[0].exacts, attendus);
+    assert_eq!(relance.taches[0].fichiers, None);
+    // c est refusée : son texte `dehors`, qu'elle n'a pas posé, n'est pas exigé ; `gamma` reste, b l'a posé aussi.
+    let mut issues = assemblees(&plan);
+    issues[2].1 = Err("refusée (6022)".into());
+    let relance = plan_de_relance(&plan, &issues, 12, "");
+    let [ci] = &relance.taches[..] else { panic!("{relance:?}") };
+    assert_eq!(ci.exacts, attendus[..4].to_vec());
+    assert!(!ci.exacts.contains(&paire("d.txt", "dehors")), "{:?}", ci.exacts);
+    // Une tâche mise de côté seule : rien d'elle n'est exigé.
+    issues[0].1 = Err("set aside".into());
+    issues[1].1 = Err("impossible".into());
+    assert!(plan_de_relance(&plan, &issues, 12, "").taches[0].exacts.is_empty());
 }
 
 #[test]
@@ -1323,7 +1379,7 @@ fn la_tache_ci_prend_l_union_des_fichiers_quand_chaque_tache_en_a() {
         "    Ecrire b",
     ]);
     let unis = ["src/", "a.txt", "b.txt"].map(String::from).to_vec();
-    assert_eq!(plan_de_relance(&bornees, 12, "").taches[0].fichiers, Some(unis));
+    assert_eq!(plan_de_relance(&bornees, &assemblees(&bornees), 12, "").taches[0].fichiers, Some(unis));
     // Une tâche sans fichiers, que rien ne bornait : la tâche ci n'en a aucun.
     let libre = plan(&[
         "plan 1",
@@ -1335,7 +1391,7 @@ fn la_tache_ci_prend_l_union_des_fichiers_quand_chaque_tache_en_a() {
         "tache b",
         "    Ecrire b",
     ]);
-    assert_eq!(plan_de_relance(&libre, 12, "").taches[0].fichiers, None);
+    assert_eq!(plan_de_relance(&libre, &assemblees(&libre), 12, "").taches[0].fichiers, None);
 }
 
 #[test]
