@@ -355,9 +355,21 @@ class Verrou(AvecOutils):
         def clef(**champs):
             return self.outils().verrou(tool_name=lancer, args=self.demande(**champs))["rule_key"]
 
-        self.assertEqual(clef(), clef(issue=16, objectif=None))
+        self.assertEqual(clef(), clef())
         self.assertNotEqual(clef(), clef(preuve="true"))
         self.assertNotEqual(clef(), clef(profil="autre"))
+        self.assertNotEqual(clef(), clef(issue=16))
+        self.assertNotEqual(clef(), clef(issue=None, objectif="un objectif"))
+        self.assertNotEqual(clef(issue=None, objectif="un objectif"), clef(issue=None, objectif="un autre"))
+        self.assertNotEqual(clef(), clef(pr="autre-branche"))
+
+    def test_un_meme_plan_vers_une_autre_branche_cible_a_une_autre_cle(self):
+        lancer = sous_module("nom").LANCER
+        un = self.outils().verrou(tool_name=lancer, args=self.demande_de_plan())["rule_key"]
+        meme = self.outils().verrou(tool_name=lancer, args=self.demande_de_plan())["rule_key"]
+        autre = self.outils().verrou(tool_name=lancer, args=self.demande_de_plan(pr="autre-branche"))["rule_key"]
+        self.assertEqual(un, meme)
+        self.assertNotEqual(un, autre)
 
     def test_une_demande_qui_sera_refusee_ne_derange_pas_l_humain(self):
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande(preuve=""))

@@ -188,8 +188,8 @@ hermes config set tools.tool_search.enabled off
 - **Approvals.** A `pre_tool_call` hook sends every `lydite_lancer` call to Hermes' human approval: at most ten rows,
   the plugin's message holding in nine, with the exact repository, work, proof, profile and target branch. A plan is
   shown by its file name, its size, its number of tasks, its proof line and the SHA-256 of its bytes, not its text.
-  A request that would be refused anyway is answered without asking. "Always" only covers the same repository, profile
-  and proof (or the same plan bytes). Nothing here disables a guard or reads the YOLO mode; in an unattended run
+  A request that would be refused anyway is answered without asking. "Always" only covers the same repository, profile,
+  issue, objective, target branch and proof (or the same plan bytes). Nothing here disables a guard or reads the YOLO mode; in an unattended run
   Hermes' gate fails closed.
 - **Files.** Reads nothing outside its own data folder except its own `skills/driving-lydite/SKILL.md` (when it
   registers the skill), what the Lydite binary reports, the `plan` file named in a `lydite_lancer` call (to

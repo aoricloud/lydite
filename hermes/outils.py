@@ -580,9 +580,13 @@ class Outils:
         if demande["plan"]:
             self._plans_montres[(demande["depot"], demande["profil"], demande["plan"])] = empreinte
         message = self._message_de_l_approbation(demande, empreinte)
-        # L'accord « toujours » ne vaut que pour ce dépôt, ce profil et cette preuve (ou ce plan) exactement.
+        # L'accord « toujours » ne vaut que pour ce dépôt, ce profil, cette issue, cet objectif, cette branche cible et
+        # cette preuve (ou ce plan) exactement. Six champs séparés par `\0`, chacun à une place fixe (un champ absent
+        # est une chaîne vide) : deux demandes différentes ne donnent jamais le même texte haché.
         corps = demande["plan_octets"].decode("utf-8") if demande["plan"] else demande["preuve"]
-        cle = _empreinte("\0".join([demande["depot"], demande["profil"], corps]).encode("utf-8"))
+        issue = "" if demande["issue"] is None else str(demande["issue"])
+        champs = [demande["depot"], demande["profil"], issue, demande["objectif"] or "", demande["pr"], corps]
+        cle = _empreinte("\0".join(champs).encode("utf-8"))
         return {"action": "approve", "message": message, "rule_key": f"{LANCER}:{cle[:16]}"}
 
     # --- lancer ---------------------------------------------------------------------------------------------------
