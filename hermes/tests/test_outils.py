@@ -1507,6 +1507,9 @@ class Findings(AvecFindings):
         for mot in ("impossible (déclarée) : not proved", "the text Lydite writes", "data", nom.PLAN, nom.LANCER):
             self.assertIn(mot, schema["description"])
         self.assertNotIn("impossible (declared)", schema["description"])
+        self.assertIn("the worker's word that no test could show it", schema["description"])
+        self.assertIn("which Lydite does not verify", schema["description"])
+        self.assertNotIn("was shown by no test", schema["description"])
 
 
 @unittest.skipUnless(LINUX, "file modes and links are held as the tool expects only on Linux")

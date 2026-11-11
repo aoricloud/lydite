@@ -78,8 +78,8 @@ The workers are **Claude Code sessions that Lydite starts itself**, on the model
 5. Each plan is launched by `lydite_lancer`, one at a time, and the human approves each launch.
 6. Lydite opens the pull request and its receipt, as for any launch.
 
-A finding that comes back **not proved** was shown by no test: nothing was changed, and the worker says so instead of
-fixing blind. What is proved today: Lydite replays the final green itself. The red of the test before the fix is what
+A finding that comes back **not proved** is the worker's word that no test could show it: nothing was changed, and the
+worker says so instead of fixing blind. Lydite does not verify that word, so it is for the human to judge. What is proved today: Lydite replays the final green itself. The red of the test before the fix is what
 the worker declares and what the reviewer reads; Lydite does not replay it. A finding under `.github/` (or `.git/`,
 `.claude/`) goes back to the human: Lydite does not publish changes there.
 
