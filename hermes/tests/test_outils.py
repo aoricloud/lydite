@@ -645,6 +645,17 @@ class Lancement(AvecOutils):
         self.assertNotIn("OPENAI_API_KEY", env)
         self.assertNotIn("HERMES_YOLO_MODE", env)
 
+    def test_les_programmes_du_mur_natif_arrivent_tels_quels(self):
+        self.environ["LYDITE_BWRAP"] = "/srv/bin/bwrap"
+        self.environ["LYDITE_RESEAU"] = "/srv/bin/lydite-reseau"
+        self.environ["LYDITE_HORS_LISTE"] = "/srv/bin/autre"
+        self.faux_lydite("sleep 30")
+        self.lancer()
+        lignes = self.lu("env").splitlines()
+        self.assertIn("LYDITE_BWRAP=/srv/bin/bwrap", lignes)
+        self.assertIn("LYDITE_RESEAU=/srv/bin/lydite-reseau", lignes)
+        self.assertNotIn("LYDITE_HORS_LISTE", self.lu("env"))
+
     def test_la_cle_du_fournisseur_va_au_processus_et_nulle_part_ailleurs(self):
         self.faux_lydite("echo debut; sleep 30")
         outils = self.outils(cle_nom="CLE_DEEPSEEK")
