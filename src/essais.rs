@@ -843,8 +843,10 @@ fn appels_notes(fichier: &Path) -> Vec<Vec<String>> {
 /// son socket (`dossiers.txt`) ; il écrit `pret` dans `ordre.txt` et `ready` sur sa sortie, puis lit son entrée
 /// jusqu'à sa fermeture, et écrit alors `entree-fermee` dans `ordre.txt`. Si `mort` est dans son dossier, il écrit
 /// `boom` sur ses erreurs et sort en 3 sans rien dire d'autre ; si `muet` y est, il ne dit pas `ready`, et dort sans
-/// rien lire de son entrée. Appelé en `relais`, il note ses arguments (`relais.txt`, même forme), écrit `relais` dans
-/// `ordre.txt`, et joue ce qui suit son premier `--`, sans écouter rien. Rend son chemin. Unix seulement.
+/// rien lire de son entrée ; si `fichier` y est, il remplace le dossier de son socket par un fichier avant de dire
+/// `ready` : ce dossier ne se retire plus, et l'arrêt du filtre le dit. Appelé en `relais`, il note ses arguments
+/// (`relais.txt`, même forme), écrit `relais` dans `ordre.txt`, et joue ce qui suit son premier `--`, sans écouter
+/// rien. Rend son chemin. Unix seulement.
 #[cfg(unix)]
 pub(crate) fn faux_reseau(dir: &Path) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
@@ -866,6 +868,7 @@ pub(crate) fn faux_reseau(dir: &Path) -> PathBuf {
         r#"    if [ -d "$dossier" ]; then ls -ld "$dossier" | cut -c1-10; else echo absent; fi >> "$ici/dossiers.txt""#,
         r#"    if [ -f "$ici/mort" ]; then echo boom >&2; exit 3; fi"#,
         r#"    if [ -f "$ici/muet" ]; then sleep 1000 & echo $! >> "$ici/pids.txt"; wait; exit 0; fi"#,
+        r#"    if [ -f "$ici/fichier" ]; then rm -rf "$dossier"; : > "$dossier"; fi"#,
         r#"    echo pret >> "$ici/ordre.txt""#,
         "    echo ready",
         "    cat > /dev/null",
