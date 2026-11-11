@@ -902,6 +902,14 @@ impl Profil {
         Ok(self.mur_exige(worktree, temporaire)?.map(|(_, _, listes)| listes))
     }
 
+    /// Le dossier de Lydite que `borner` a posé sur une main Claude, tel qu'il est écrit dans `denyRead` : là où le mur
+    /// natif range le journal de son filtre réseau. `None` pour une main brute et pour un profil que `borner` n'a pas
+    /// borné.
+    pub(crate) fn dossier_de_lydite(&self) -> Option<&Path> {
+        let Sorte::Claude(claude) = &self.sorte else { return None };
+        claude.bornes.as_ref().map(|bornes| Path::new(&bornes.dossier))
+    }
+
     /// Ce que le mur exigé du profil tient pour `worktree` et `temporaire` : la main Claude, ses bornes, et ses listes.
     /// `None` sous un mur demandé et pour une main brute.
     fn mur_exige(&self, worktree: &Path, temporaire: &Path) -> Result<Option<(&Claude, &Bornes, ListesDuMur)>, String> {
@@ -1171,7 +1179,7 @@ pub(crate) struct ListesDuMur {
     pub(crate) ecrits: Vec<String>,
     /// `denyWrite` : le git commun.
     pub(crate) refuses: Vec<String>,
-    /// `allowedDomains`, qui ne sont pas des chemins : un mur qui ne relaie rien les lit pour refuser.
+    /// `allowedDomains`, qui ne sont pas des chemins : le mur natif les donne à son filtre réseau.
     pub(crate) domaines: Vec<String>,
 }
 
