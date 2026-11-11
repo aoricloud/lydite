@@ -1,0 +1,16 @@
+[package]
+name = "lydite-reseau"
+version = "0.1.0"
+edition = "2024"
+description = "Filtre réseau et relais du mur natif de Lydite."
+license = "MIT"
+
+[lib]
+name = "lydite_reseau"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lydite-reseau"
+path = "src/main.rs"
+
+[dependencies]
