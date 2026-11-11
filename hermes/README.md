@@ -117,16 +117,21 @@ Copy this `hermes/` folder to `~/.hermes/plugins/lydite`; once the plugin is in 
 hermes plugins enable lydite
 hermes config set plugins.entries.lydite.settings.binaire /srv/lydite/bin/lydite
 hermes config set plugins.entries.lydite.settings.profil  my-profile
-# only if the profile names a provider key (its `cle` line); the value goes to Hermes' own .env:
+# only if the profile names a provider key (its `cle` line); the key itself goes to Hermes' own .env (see the paragraph below):
 hermes config set plugins.entries.lydite.settings.cle_nom MY_PROVIDER_KEY
 ```
 
-Set the provider key without typing it as an argument: a key typed on the command line stays in the shell history
-and shows in the process list. Open Hermes' `.env` file in an editor and add the line
-`LYDITE_CLE_FOURNISSEUR=<the provider key>`:
+If the profile names a provider key (its `cle` line), set that key without typing it as an argument: a key typed on
+the command line stays in the shell history and shows in the process list. Open Hermes' `.env` file in an editor and
+add the line `LYDITE_CLE_FOURNISSEUR=<the provider key>`. Hermes only sets the `.env` file to mode 0600 when it
+writes the file itself, and a file created by your editor gets the umask's permissions, often readable by the other
+accounts on the machine; so create the file, set it to 600, then open it (the editor keeps the mode of a file that
+already exists):
 
 ```bash
-"${EDITOR:-nano}" "$(hermes config env-path)"
+f="$(hermes config env-path)"
+touch "$f" && chmod 600 "$f"
+"${EDITOR:-nano}" "$f"
 ```
 
 If a secrets manager is already connected to Hermes, use `hermes secrets` instead.
