@@ -143,7 +143,7 @@ fn un_profil_se_lit_d_un_fichier() {
     assert_eq!((lu.nom.as_str(), lu.fichier.as_deref()), ("correcteur", Some(chemin.as_path())));
     assert_eq!(lu.empreinte, hex(&sha256(&fs::read(&chemin).unwrap())), "l'empreinte des octets du fichier");
     assert_eq!(lu.programme, programme.display().to_string());
-    assert_eq!((lu.modele.as_str(), lu.relance.as_str(), lu.exige), ("opus", "claude-sonnet-5-5", true));
+    assert_eq!((lu.modele.as_str(), lu.relance.as_str(), lu.mur), ("opus", "claude-sonnet-5-5", Mur::Exige));
     assert_eq!(lu.outils, ["SendMessage", "mcp__docs"]);
     assert_eq!(lu.mcp.as_deref(), Some(r#"{"mcpServers":{"docs":{"command":"docs-mcp","args":["a=b"]}}}"#));
     assert_eq!(lu.reseau, ["docs.exemple.test", "paquets.exemple.test"]);
@@ -177,11 +177,46 @@ fn lu_programme(texte: &str, kraken_claude: Option<&str>) -> String {
 fn un_profil_sans_ligne_mur_exige_le_mur_et_demande_ne_vaut_que_ecrit() {
     // `lire` direct : `lu` ajouterait `mur = demande`.
     let sans = lire("essai", "sorte = claude\n", None, None).unwrap();
-    assert!(claude(&sans).exige && sans.exige());
+    assert!(claude(&sans).mur == Mur::Exige && sans.exige());
+    assert_eq!(sans.mur_du_rejeu(), MurDuRejeu::Srt, "sans ligne `mur`, srt rejoue la preuve");
     let demande = lire("essai", "sorte = claude\nmur = demande\n", None, None).unwrap();
-    assert!(!claude(&demande).exige && !demande.exige());
+    assert!(claude(&demande).mur == Mur::Demande && !demande.exige());
+    assert_eq!(demande.mur_du_rejeu(), MurDuRejeu::Aucun);
     let exige = lire("essai", "sorte = claude\nmur = exige\n", None, None).unwrap();
     assert!(exige.exige());
+    assert_eq!(exige.mur_du_rejeu(), MurDuRejeu::Srt);
+}
+
+#[test]
+fn mur_natif_se_lit_exige_le_mur_et_se_rejoue_dans_le_mur_natif() {
+    let natif = lire("essai", "sorte = claude\nmur = natif\n", None, None).unwrap();
+    assert_eq!(claude(&natif).mur, Mur::Natif);
+    assert!(natif.exige(), "natif répond oui à « exigé ? »");
+    assert_eq!(natif.mur_du_rejeu(), MurDuRejeu::Natif);
+    // Une main brute n'a pas de mur.
+    assert_eq!(Profil::faux(vec!["x".into()], DELAI_PREUVE).mur_du_rejeu(), MurDuRejeu::Aucun);
+    // Les blancs autour de la valeur sont ôtés, comme pour toute clé ; la casse compte.
+    assert_eq!(claude(&lire("essai", "sorte = claude\nmur =   natif  \n", None, None).unwrap()).mur, Mur::Natif);
+    let refus = lire("essai", "sorte = claude\nmur = Natif\n", None, None).err().expect("Natif");
+    assert_eq!(refus.code, Code::ProfilLigneRefusee);
+}
+
+#[test]
+fn l_empreinte_d_un_profil_change_avec_la_valeur_de_mur() {
+    let empreinte = |mur: &str| {
+        claude(&lire("essai", &format!("sorte = claude\nmur = {mur}\n"), None, None).unwrap()).empreinte.clone()
+    };
+    let (exige, demande, natif) = (empreinte("exige"), empreinte("demande"), empreinte("natif"));
+    assert!(exige != demande && exige != natif && demande != natif, "{exige} {demande} {natif}");
+    // Elle est celle des octets du texte.
+    assert_eq!(natif, hex(&sha256("sorte = claude\nmur = natif\n".as_bytes())));
+}
+
+#[test]
+fn le_refus_d_un_mur_inconnu_nomme_les_trois_valeurs() {
+    let refus = lire("essai", "sorte = claude\nmur = fort\n", None, None).err().expect("fort");
+    assert_eq!(refus.code, Code::ProfilLigneRefusee);
+    assert!(refus.preuve.contains("le mur est exige, demande ou natif"), "{refus}");
 }
 
 #[test]
@@ -197,7 +232,8 @@ fn sans_fichier_claude_est_le_profil_integre() {
         "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = exige\ndelai_main = 3600\ndelai_preuve = 300\n"
     );
     assert_eq!(integre.empreinte, hex(&sha256(INTEGRE.as_bytes())));
-    assert_eq!((integre.modele.as_str(), integre.relance.as_str(), integre.exige), ("sonnet", "sonnet", true));
+    assert_eq!((integre.modele.as_str(), integre.relance.as_str(), integre.mur), ("sonnet", "sonnet", Mur::Exige));
+    assert_eq!(profil.mur_du_rejeu(), MurDuRejeu::Srt, "le profil intégré se rejoue par srt");
     assert!(integre.outils.is_empty() && integre.mcp.is_none() && integre.reseau.is_empty());
     assert!(integre.lecture.is_empty());
     assert_eq!((profil.delai_main(), profil.delai_preuve()), (Duration::from_secs(3600), Duration::from_secs(300)));
@@ -347,8 +383,8 @@ fn un_profil_faux_est_refuse_avec_sa_ligne() {
         (r#"mcp = {"mcpServers":[]}"#, "une configuration MCP"),
         (r#"mcp = {"mcpServers":[{"docs":{}}]}"#, "une configuration MCP"),
         (r#"mcp = {"mcpServers":{"docs":{"command":"a"},"docs":{"command":"b"}}}"#, "sans clé redite"),
-        ("mur = fort", "le mur est exige ou demande"),
-        ("mur = Exige", "le mur est exige ou demande"),
+        ("mur = fort", "le mur est exige, demande ou natif"),
+        ("mur = Exige", "le mur est exige, demande ou natif"),
     ];
     let lecture_ailleurs = format!("lecture = {ailleurs}");
     let cas = cas.into_iter().chain([(lecture_ailleurs.as_str(), "sans .. ni joker")]);
@@ -1129,7 +1165,7 @@ fn l_argv_parle_en_stream_json() {
     );
     assert!(!argv.iter().any(|arg| arg == "--tools" || arg == "--mcp-config"), "{argv:?}");
     // La déclaration : le profil, son empreinte, le modèle, le mur demandé, sans mcp.
-    assert_eq!((declaration.profil.as_str(), declaration.mur, declaration.mcp), ("essai", false, None));
+    assert_eq!((declaration.profil.as_str(), declaration.mur, declaration.mcp), ("essai", Mur::Demande, None));
     assert_eq!(declaration.empreinte, hex(&sha256(avec_mur_demande("sorte = claude\n").as_bytes())));
     // Le programme du profil en tête.
     let programme = absolu("outils").join("claude").display().to_string();
@@ -1253,14 +1289,14 @@ fn les_reglages_disent_le_mur_du_profil() {
     let declaration = declaration.unwrap();
     assert_eq!(declaration.reglages, attendu);
     assert_eq!(argv[argv.len() - 3..], [attendu.as_str(), "--max-budget-usd", "20"]);
-    assert!(declaration.mur, "le mur exigé");
+    assert_eq!(declaration.mur, Mur::Exige, "le mur exigé");
     // Le même profil, le mur demandé : seul failIfUnavailable change.
     let mut demande = lu(&texte.replace("mur = exige", "mur = demande")).unwrap();
     demande.borner(Path::new(dossier), Path::new(git_commun), Some(&config), None, Some(&personnel)).unwrap();
     let declaration = demande.demande(Path::new(bac), None, false).declaration.unwrap();
     let attendu = attendu.replace(r#""failIfUnavailable":true"#, r#""failIfUnavailable":false"#);
     assert_eq!(declaration.reglages, attendu);
-    assert!(!declaration.mur, "le mur demandé, non exigé");
+    assert_eq!(declaration.mur, Mur::Demande, "le mur demandé, non exigé");
     // Le JSON se relit : un objet, et ses quatre clés.
     let objet = json::lire(&attendu).unwrap();
     assert_eq!(objet.keys().collect::<Vec<_>>(), ["autoMemoryEnabled", "disableAllHooks", "permissions", "sandbox"]);
@@ -2196,4 +2232,71 @@ fn toute_main_ferme_la_cle_du_fournisseur_et_le_jeton_herite_aux_commandes() {
             assert!(!reglages.contains(LEURRE), "{reglages}");
         }
     }
+}
+
+#[test]
+fn les_reglages_de_la_main_sont_les_memes_sous_exige_et_sous_natif() {
+    // Les commandes d'une main Claude Code restent sous le bac à sable de Claude Code : `failIfUnavailable` vrai, rien
+    // d'exclu, à l'octet près, avec ou sans preuve prêtée, à chaque tentative.
+    let corps = "reseau = exemple.test\nlecture = ~/.cargo\n";
+    let (exige, natif) = (
+        borne(&format!("sorte = claude\nmur = exige\n{corps}")),
+        borne(&format!("sorte = claude\nmur = natif\n{corps}")),
+    );
+    let verifier = Some("cargo test && findstr /x bonjour bonjour.txt");
+    for (verifier, relance) in [(None, false), (verifier, false), (verifier, true)] {
+        let (de_exige, de_natif) =
+            (exige.demande(&absolu("bac"), verifier, relance), natif.demande(&absolu("bac"), verifier, relance));
+        let (declare_exige, declare_natif) = (de_exige.declaration.unwrap(), de_natif.declaration.unwrap());
+        assert_eq!(declare_natif.reglages, declare_exige.reglages, "{verifier:?} {relance}");
+        assert!(declare_natif.reglages.contains(r#""failIfUnavailable":true"#), "{}", declare_natif.reglages);
+        assert!(!declare_natif.reglages.contains("excludedCommands"), "{}", declare_natif.reglages);
+        assert_eq!(de_natif.argv[..de_natif.argv.len() - 3], de_exige.argv[..de_exige.argv.len() - 3]);
+        // Seul le mot que le fil écrit diffère.
+        assert_eq!((declare_exige.mur, declare_natif.mur), (Mur::Exige, Mur::Natif));
+    }
+    let declaration = natif.demande(&absolu("bac"), None, false).declaration.unwrap();
+    let Evenement::Lancement { mur, .. } = declaration.lancement_selon("v", 1, 1, String::new()) else {
+        panic!("un lancement")
+    };
+    assert_eq!(mur, Mur::Natif);
+}
+
+#[test]
+fn sous_natif_le_rejeu_ne_rend_pas_de_reglages_de_srt_mais_les_listes_du_mur_sont_celles_de_exige() {
+    let corps = "reseau = exemple.test\nlecture = ~/.cargo\n";
+    let (exige, natif) = (
+        borne(&format!("sorte = claude\nmur = exige\n{corps}")),
+        borne(&format!("sorte = claude\nmur = natif\n{corps}")),
+    );
+    let worktree = absolu("k").join("bacs").join("main-1");
+    let temporaire = crate::branchements::bac::temporaire_de(&worktree).unwrap();
+    assert!(exige.rejeu(&worktree, &temporaire).unwrap().is_some(), "srt rejoue sous exige");
+    assert!(natif.rejeu(&worktree, &temporaire).unwrap().is_none(), "pas de réglages de srt sous natif");
+    let listes = natif.listes_du_mur(&worktree, &temporaire).unwrap().expect("le mur natif lit ces listes");
+    assert_eq!(Some(listes), exige.listes_du_mur(&worktree, &temporaire).unwrap());
+    // Un mur natif que `borner` n'a pas borné reste une erreur, comme sous srt.
+    let non_borne = lu("sorte = claude\nmur = natif\n").unwrap();
+    assert!(non_borne.rejeu(&worktree, &temporaire).unwrap_err().contains("pas borné"));
+    assert!(non_borne.listes_du_mur(&worktree, &temporaire).unwrap_err().contains("pas borné"));
+}
+
+#[test]
+fn lydite_profil_dit_le_mur_natif_et_sa_preuve() {
+    let dit = |texte: &str| lire("essai", texte, None, None).unwrap().rangees();
+    let natif = dit("sorte = claude\nmur = natif\n");
+    for rangee in [
+        "wall: required: the hand's commands run in Claude Code's sandbox",
+        "proof: replayed by Lydite's native wall (bubblewrap), inside the wall",
+    ] {
+        assert!(natif.contains(&rangee.to_string()), "{rangee} : {natif:?}");
+    }
+    // Sous exige, rien ne change : srt rejoue la preuve.
+    let exige = dit("sorte = claude\nmur = exige\n");
+    assert!(exige.contains(&"proof: replayed by srt, inside the wall".to_string()), "{exige:?}");
+    assert!(
+        exige.contains(&"wall: required: the hand's commands run in Claude Code's sandbox".to_string()),
+        "{exige:?}"
+    );
+    assert!(!exige.iter().any(|rangee| rangee.contains("native")), "{exige:?}");
 }

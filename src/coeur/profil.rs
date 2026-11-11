@@ -54,10 +54,13 @@
 //!     `[A-Za-z0-9_-]`), ce dernier avec `mcp` seulement ;
 //!   - `mcp` : une configuration MCP, un objet JSON sur la ligne, sans clé redite, qui porte l'objet `mcpServers`,
 //!     dont les clés nomment les serveurs : passé tel quel à `--mcp-config` ;
-//!   - `mur`, le bac à sable de Claude Code : `exige` (par défaut, Windows compris) ou `demande`.
+//!   - `mur`, le bac à sable de Claude Code : `exige` (par défaut, Windows compris), `demande` ou `natif`.
 //!     Sous un mur demandé, les commandes de la main peuvent tourner hors du bac à sable de Claude Code, y voient la
 //!     clé du fournisseur, et la preuve se rejoue hors du mur ; `demande` ne vaut que si un profil l'écrit. Le profil
-//!     intégré écrit `mur = exige` ;
+//!     intégré écrit `mur = exige`. Sous `exige`, la preuve se rejoue dans srt. `natif` exige le mur de même, et la
+//!     preuve se rejoue dans le mur que Lydite tient lui-même, bubblewrap et `lydite-reseau`, au lieu de srt : Linux
+//!     seul, il demande bubblewrap et `lydite-reseau`. Les commandes d'une main Claude Code restent sous le bac à
+//!     sable de Claude Code, et ses réglages sont les mêmes à l'octet sous `exige` et sous `natif` ;
 //!   - `reseau` : les domaines que la main joint, en `[A-Za-z0-9.-]`, sans joker ni port ;
 //!   - `lecture` : ce que les commandes de la main lisent hors du bac, des chemins absolus ou en `~/…`, sans `..` ni
 //!     joker (`* ? [ ] { }`), qui ne recouvrent ni le dossier de Kraken ni un dossier de connexion de Claude
@@ -321,8 +324,8 @@ struct Claude {
     fournisseur: Option<FournisseurDuProfil>,
     /// Les prix déclarés (`prix`) : le modèle, puis ses [`Prix`]. Vide sans `api`.
     prix: Vec<(String, Prix)>,
-    /// Le mur exigé (`failIfUnavailable`), et non seulement demandé.
-    exige: bool,
+    /// Le mur du profil (`mur`) : demandé, exigé et rejoué par srt, ou exigé et rejoué par le mur natif.
+    mur: Mur,
     /// Les sortants et les `mcp__<serveur>` déclarés, dans l'ordre du fichier.
     outils: Vec<String>,
     mcp: Option<String>,
@@ -334,6 +337,17 @@ struct Claude {
     bornes: Option<Bornes>,
     /// Le programme qui rejoue la preuve sous un mur exigé : `srt`, ou ce que pose [`Profil::avec_srt`].
     srt: OsString,
+}
+
+/// Le mur qui rejoue la preuve d'un profil ([`Profil::mur_du_rejeu`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MurDuRejeu {
+    /// Un mur demandé, ou une main brute : la preuve se rejoue hors du mur.
+    Aucun,
+    /// Un mur exigé par `mur = exige` : srt rejoue la preuve.
+    Srt,
+    /// Un mur exigé par `mur = natif` : le mur natif de Lydite (bubblewrap et `lydite-reseau`) rejoue la preuve.
+    Natif,
 }
 
 /// Le fournisseur tel que la main le reçoit ([`Profil::fournisseur`]) : trois champs nommés, que rien ne permet
@@ -415,8 +429,9 @@ pub(crate) struct Declaration {
     /// L'effort de la tentative, `None` sans clé : `effort` à la première tentative, `effort_relance` ensuite (ou
     /// celui du rôle du découpeur et du relecteur).
     pub(crate) effort: Option<String>,
-    /// Vrai si le profil exige le mur, faux s'il le demande seulement.
-    pub(crate) mur: bool,
+    /// Ce que le profil demande du mur : l'exiger (srt rejoue la preuve), le demander seulement, ou l'exiger et
+    /// rejouer la preuve dans le mur natif.
+    pub(crate) mur: Mur,
     /// Le JSON exact de `--settings`.
     pub(crate) reglages: String,
     /// Les noms des serveurs du `mcpServers` de `--mcp-config`, triés : ceux que le constat attend à l'ouverture.
@@ -445,7 +460,7 @@ impl Declaration {
             empreinte: self.empreinte.clone(),
             modele: self.modele.clone(),
             effort: self.effort.clone(),
-            mur: if self.mur { Mur::Exige } else { Mur::Demande },
+            mur: self.mur,
             reglages: self.reglages.clone(),
             reglages_depot,
         }
@@ -485,14 +500,19 @@ impl Profil {
     pub(crate) fn rangees(&self) -> Vec<String> {
         let Sorte::Claude(claude) = &self.sorte else { return vec!["raw hand: no profile to read".into()] };
         let source = claude.fichier.as_ref().map_or_else(|| "built-in".to_string(), |f| f.display().to_string());
-        let (mur, preuve) = if claude.exige {
-            ("required: the hand's commands run in Claude Code's sandbox", "replayed by srt, inside the wall")
-        } else {
-            (
+        let (mur, preuve) = match claude.mur {
+            Mur::Exige => {
+                ("required: the hand's commands run in Claude Code's sandbox", "replayed by srt, inside the wall")
+            }
+            Mur::Natif => (
+                "required: the hand's commands run in Claude Code's sandbox",
+                "replayed by Lydite's native wall (bubblewrap), inside the wall",
+            ),
+            Mur::Demande => (
                 "requested: the hand's commands may run outside the sandbox, and see the provider's key if there is \
                  one",
                 "replayed outside the wall",
-            )
+            ),
         };
         vec![
             format!("profile: {} ({source})", claude.nom),
@@ -850,9 +870,23 @@ impl Profil {
         matches!(self.sorte, Sorte::Claude(_)) && verifier.and_then(pret).is_some()
     }
 
-    /// Le profil exige le mur : ses preuves se rejouent par srt ([`Profil::rejeu`]). Une main brute ne l'exige pas.
+    /// Le profil exige le mur, que sa preuve se rejoue par srt ([`Profil::rejeu`]) ou par le mur natif (`mur = natif`).
+    /// Une main brute ne l'exige pas.
     pub(crate) fn exige(&self) -> bool {
-        matches!(&self.sorte, Sorte::Claude(claude) if claude.exige)
+        self.mur_du_rejeu() != MurDuRejeu::Aucun
+    }
+
+    /// Le mur qui rejoue la preuve du profil : aucun sous un mur demandé et pour une main brute, srt sous `mur =
+    /// exige`, le mur natif de Lydite sous `mur = natif`.
+    pub(crate) fn mur_du_rejeu(&self) -> MurDuRejeu {
+        match &self.sorte {
+            Sorte::Claude(claude) => match claude.mur {
+                Mur::Exige => MurDuRejeu::Srt,
+                Mur::Demande => MurDuRejeu::Aucun,
+                Mur::Natif => MurDuRejeu::Natif,
+            },
+            Sorte::Brute(_) => MurDuRejeu::Aucun,
+        }
     }
 
     /// Le programme qui rejoue la preuve sous un mur exigé, `srt` sinon : `preparer` y pose `LYDITE_SRT`, et un test
@@ -878,10 +912,14 @@ impl Profil {
     /// comme la règle `Edit(<git commun en règle>/**)` de la main le ferme à son bac à sable. Fait constaté : Claude
     /// Code y met ses sockets de pont (`<dossier temporaire>/claude-http-<16 hex>.sock`) et donne à ses commandes
     /// `<dossier temporaire>/claude-<uid>` en `TMPDIR`. `None` sous un mur demandé et pour une main brute : la preuve
-    /// se rejoue par la coquille. Un mur exigé que `borner` n'a pas borné est une erreur : la preuve ne se rejoue
-    /// pas.
+    /// se rejoue par la coquille, et `None` aussi sous `mur = natif` : le mur natif ne lit pas de réglages de srt, il
+    /// lit les règles de [`Profil::listes_du_mur`]. Un mur exigé, de srt ou natif, que `borner` n'a pas borné est une
+    /// erreur : la preuve ne se rejoue pas.
     pub(crate) fn rejeu(&self, worktree: &Path, temporaire: &Path) -> Result<Option<Srt>, String> {
         let Some((claude, bornes, listes)) = self.mur_exige(worktree, temporaire)? else { return Ok(None) };
+        if claude.mur == Mur::Natif {
+            return Ok(None);
+        }
         let reglages = format!(
             concat!(
                 r#"{{"filesystem":{{"denyRead":{fermes},"allowRead":{lus},"allowWrite":{ecrits},"#,
@@ -922,7 +960,7 @@ impl Profil {
     /// `None` sous un mur demandé et pour une main brute.
     fn mur_exige(&self, worktree: &Path, temporaire: &Path) -> Result<Option<(&Claude, &Bornes, ListesDuMur)>, String> {
         let Sorte::Claude(claude) = &self.sorte else { return Ok(None) };
-        if !claude.exige {
+        if claude.mur == Mur::Demande {
             return Ok(None);
         }
         let Some(bornes) = &claude.bornes else {
@@ -1055,7 +1093,7 @@ impl Profil {
         // raccourci : sous un mur demandé et actif, la preuve prêtée tourne hors du mur pendant le travail de la main,
         // ce que personne n'a joué sous Linux ; monter (la laisser dans le bac à sable quand il est actif) si une vraie
         // main Linux sous le mur le montre utile
-        let exclues = if claude.exige || pretes.is_empty() {
+        let exclues = if claude.mur != Mur::Demande || pretes.is_empty() {
             String::new()
         } else {
             format!(r#""excludedCommands":{},"#, tableau(pretes.iter().copied().map(String::from)))
@@ -1069,7 +1107,7 @@ impl Profil {
                 r#"{{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}}]}}}},"#,
                 r#""permissions":{{"allow":{allow},"deny":{deny}}},"disableAllHooks":true,"autoMemoryEnabled":false}}"#,
             ),
-            mur = claude.exige,
+            mur = claude.mur != Mur::Demande,
             exclues = exclues,
             fermes = tableau(fermes),
             lus = tableau(lus),
@@ -1114,7 +1152,7 @@ impl Profil {
             empreinte: claude.empreinte.clone(),
             modele: modele.clone(),
             effort: effort.clone(),
-            mur: claude.exige,
+            mur: claude.mur,
             reglages,
             mcp: claude.mcp.as_deref().and_then(serveurs),
             fournisseur: claude.fournisseur.as_ref().map(|fournisseur| fournisseur.hote.clone()),
@@ -1224,7 +1262,7 @@ pub(crate) fn lire(
         efforts_permis: None,
         fournisseur: None,
         prix: Vec::new(),
-        exige: true,
+        mur: Mur::Exige,
         outils: Vec::new(),
         mcp: None,
         reseau: Vec::new(),
@@ -1343,8 +1381,10 @@ pub(crate) fn lire(
                      mcpServers",
                 );
             }
-            "mur" if valeur == "exige" || valeur == "demande" => claude.exige = valeur == "exige",
-            "mur" => return refus("le mur est exige ou demande"),
+            "mur" if valeur == "exige" => claude.mur = Mur::Exige,
+            "mur" if valeur == "demande" => claude.mur = Mur::Demande,
+            "mur" if valeur == "natif" => claude.mur = Mur::Natif,
+            "mur" => return refus("le mur est exige, demande ou natif"),
             "reseau" if elements.iter().all(domaine) => claude.reseau = liste(),
             "reseau" => return refus("un domaine s'écrit en [A-Za-z0-9.-], sans joker ni port"),
             "lecture" if elements.iter().all(|chemin| lecture_permise(chemin)) => {

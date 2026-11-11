@@ -1146,6 +1146,35 @@ fn lydite_profil_dit_un_mur_demande_et_refuse_comme_lancer() {
 }
 
 #[test]
+fn lydite_profil_dit_un_mur_natif_et_sa_preuve() {
+    let essai = Essai::nouveau("profil-natif");
+    let (_, empreinte) = essai.profil_accepte("veille", "mur = natif\n");
+    let fichier = essai.dossier.join("profils").join("veille.profil");
+    let attendu = [
+        format!("profile: veille ({})", fichier.display()),
+        format!("fingerprint: {empreinte}"),
+        "model: haiku; retry: sonnet".to_string(),
+        "effort: Claude Code's default; retry: Claude Code's default; splitter: Claude Code's default; reviewer: \
+         Claude Code's default"
+            .to_string(),
+        "allowed efforts: any".to_string(),
+        "wall: required: the hand's commands run in Claude Code's sandbox".to_string(),
+        "proof: replayed by Lydite's native wall (bubblewrap), inside the wall".to_string(),
+        "ceiling per hand: $20".to_string(),
+        "hand timeout: 120 s".to_string(),
+        "proof timeout: 60 s".to_string(),
+    ];
+    assert_eq!(rangees_du_profil(&essai, "veille"), attendu);
+    // Une autre valeur que les trois est refusée, avec les trois nommées.
+    let faute = essai.profil("fautif", "mur = fort\n");
+    assert!(faute.contains("mur = fort"), "{faute}");
+    let refus = lire_refus(essai.kraken().args(["profil", "fautif"]));
+    assert_eq!(refus.code, "lydite : 6009 lancer.profil_ligne_refusee");
+    assert!(refus.preuve.contains("le mur est exige, demande ou natif"), "{refus:?}");
+    essai.nettoyer();
+}
+
+#[test]
 fn un_profil_non_accepte_ne_part_pas_puis_part_une_fois_accepte() {
     let essai = Essai::nouveau("accepte");
     essai.repondre_juste(&PRET);
