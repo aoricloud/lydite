@@ -17,7 +17,7 @@ command that show the problem. A short reproduction helps more than a long expla
 ## What is in scope
 
 - A worker that gets out of its wall: reads or writes outside what its profile lends, reaches a network address its
-  profile does not allow, or runs a command outside the sandbox when the wall is required (`mur = exige`).
+  profile does not allow, or runs a command outside the sandbox when the wall is required (`mur = exige` or `natif`).
 - A key or a token that reaches somewhere it should not: a worker's commands, the proof, a log, the thread, a pull
   request, or the Hermes plugin's answers.
 - A proof, a review or a merge check that can be made to say green when it is not, or to name a commit that was not
@@ -27,8 +27,8 @@ command that show the problem. A short reproduction helps more than a long expla
 
 ## What is not
 
-- Known limits, written in the README: on Windows the wall does not hold (`mur = demande` only, knowingly); outside a
-  required wall, the workers' commands see the provider key.
+- Known limits written in the README, among them: on Windows the wall does not hold (`mur = demande` only,
+  knowingly); outside a required wall, the workers' commands see the provider key.
 - What a profile lends on purpose: a human accepts each profile, and the worker may use what it lends.
 - Problems in Claude Code, `srt`, Hermes or GitHub themselves: please report those to their own projects.
 
