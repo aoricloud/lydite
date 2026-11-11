@@ -38,7 +38,7 @@ platforms: [linux]
 known_issues:
   - "Linux only: Lydite's sandbox wall holds there."
   - "Needs the lydite binary (attested release of github.com/aoricloud/lydite), Claude Code, gh and srt installed, and a Lydite profile accepted by a human."
-  - "Some names are still French: three tool names (lydite_lancer, lydite_etat, lydite_lecons), the plugin settings (binaire, profil, cle_nom, cle) and a few lines Lydite writes, such as impossible (déclarée). Lydite's commands have English words, and its usage and status lines are in English; pull request receipts are in English."
+  - "Some names are still French: three tool names (lydite_lancer, lydite_etat, lydite_lecons), the plugin settings (binaire, profil, cle_nom, cle) and a few lines Lydite writes, such as impossible (déclarée). From Lydite 0.4, Lydite's commands have English words, and its usage and status lines are in English; pull request receipts are in English."
 capabilities:
   provides_tools: [lydite_lancer, lydite_etat, lydite_lecons, lydite_plan, lydite_findings]
   provides_hooks: [pre_tool_call]

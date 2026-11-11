@@ -362,6 +362,8 @@ class Verrou(AvecOutils):
         self.assertNotEqual(clef(), clef(issue=None, objectif="un objectif"))
         self.assertNotEqual(clef(issue=None, objectif="un objectif"), clef(issue=None, objectif="un autre"))
         self.assertNotEqual(clef(), clef(pr="autre-branche"))
+        self.assertNotEqual(clef(), clef(observer=True))
+        self.assertEqual(clef(observer=True), clef(observer=True))
 
     def test_un_meme_plan_vers_une_autre_branche_cible_a_une_autre_cle(self):
         lancer = sous_module("nom").LANCER
@@ -412,8 +414,8 @@ class Verrou(AvecOutils):
         """Chaque champ de la demande, avec chaque caractère caché : `(champ nommé par le refus, arguments)`."""
         caches = ("\x1b", "\N{RIGHT-TO-LEFT OVERRIDE}", "\N{ZERO WIDTH SPACE}", "\x00", "\t")
         cas = []
-        for cache in caches:
-            plan = self.dossier / "plan-cache.txt"
+        for rang, cache in enumerate(caches):
+            plan = self.dossier / f"plan-cache-{rang}.txt"
             texte = f"plan 1\nobjectif : o\npreuve : cargo{cache}test\n\ntache a\n    faire.\n"
             plan.write_text(texte, encoding="utf-8")
             cas += [
@@ -424,6 +426,19 @@ class Verrou(AvecOutils):
                 ("proof", self.demande(issue=None, preuve=None, plan=str(plan))),
             ]
         return cas
+
+    def test_un_caractere_aux_bords_de_la_preuve_d_un_plan_bloque_le_verrou(self):
+        """U+001C à U+001F sont ôtés par le `strip()` de Python, pas par le `trim()` de Lydite : la preuve que Lydite
+        jouerait les porte encore."""
+        for ecrite in ("cargo test\x1c", "cargo test\x1f", "\x1fcargo test"):
+            with self.subTest(preuve=ecrite):
+                texte = f"plan 1\nobjectif : o\npreuve :{ecrite}\n\ntache a\n    faire.\n"
+                args = self.demande_de_plan(texte)
+                decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+                self.assertEqual(decision["action"], "block")
+                erreur = json.loads(decision["message"])["error"]
+                self.assertIn("`proof`", erreur)
+                self.assertIn("without control or formatting characters", erreur)
 
     def test_un_caractere_cache_dans_un_champ_bloque_le_verrou_sans_deranger_l_humain(self):
         for champ, args in self.cas_caches():
