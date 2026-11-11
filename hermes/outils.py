@@ -102,6 +102,30 @@ SORTIES = {
     2: "refused: Lydite started nothing; the log says why and what to do",
 }
 
+# Les arguments des outils portent un nom anglais ; l'ancien nom français reste accepté. Nom anglais -> nom interne.
+ALIAS = {
+    "repo": "depot",
+    "objective": "objectif",
+    "proof": "preuve",
+    "profile": "profil",
+    "observe": "observer",
+    "name": "nom",
+}
+
+
+def _noms_internes(args: dict) -> dict:
+    """Une copie des arguments aux noms internes. Un argument est donné quand sa clé est là et que sa valeur n'est pas
+    None ; donné sous ses deux noms, c'est un refus."""
+    rendu = dict(args)
+    for anglais, interne in ALIAS.items():
+        if args.get(anglais) is not None and args.get(interne) is not None:
+            raise Refus(f"give `{anglais}` only: `{interne}` is its old name")
+        if args.get(anglais) is not None:
+            rendu[interne] = args[anglais]
+        rendu.pop(anglais, None)
+    return rendu
+
+
 # Les lancements encore enfants de ce processus (pour les compter vivants ou morts sans zombie).
 _PROCESSUS: dict[int, subprocess.Popen] = {}
 
@@ -213,16 +237,17 @@ class Outils:
         """Le dépôt d'une demande : un chemin absolu, un dossier existant, un dépôt git, et son texte de refus."""
         depot = args.get("depot")
         if not isinstance(depot, str) or not depot.strip():
-            raise Refus("`depot` is required: the absolute path of the git checkout to work on")
+            raise Refus("`repo` is required: the absolute path of the git checkout to work on")
         chemin = Path(depot.strip()).expanduser()
         if not chemin.is_absolute():
-            raise Refus(f"`depot` must be an absolute path, not {depot!r}")
+            raise Refus(f"`repo` must be an absolute path, not {depot!r}")
         if not chemin.is_dir() or not (chemin / ".git").exists():
-            raise Refus(f"`depot` {str(chemin)!r} is not a git checkout on this machine")
+            raise Refus(f"`repo` {str(chemin)!r} is not a git checkout on this machine")
         return str(chemin)
 
     def _demande(self, args: dict) -> dict:
         """Lit et vérifie les paramètres de `lancer` ; chaque refus dit ce qu'il faut corriger."""
+        args = _noms_internes(args)
         depot = self._depot(args)
 
         issue, objectif, plan = args.get("issue"), args.get("objectif"), args.get("plan")
@@ -233,7 +258,7 @@ class Outils:
         plan_donne = isinstance(plan, str) and bool(plan.strip())
         if issue_donnee + objectif_donne + plan_donne != 1:
             raise Refus(
-                "give exactly one of `issue` (an open issue number), `objectif` (a one-line objective) or `plan` "
+                "give exactly one of `issue` (an open issue number), `objective` (a one-line objective) or `plan` "
                 "(the absolute path of a plan file)"
             )
         if issue_donnee and (isinstance(issue, bool) or not isinstance(issue, int) or issue < 1):
@@ -241,29 +266,29 @@ class Outils:
         if objectif_donne:
             objectif = objectif.strip()
             if "\n" in objectif or "\r" in objectif or objectif.startswith("-"):
-                raise Refus("`objectif` must be one line and must not start with '-'")
+                raise Refus("`objective` must be one line and must not start with '-'")
             if len(objectif) > LIMITE_DE_L_OBJECTIF:
-                raise Refus(f"`objectif` is {len(objectif)} characters; keep it under {LIMITE_DE_L_OBJECTIF}")
+                raise Refus(f"`objective` is {len(objectif)} characters; keep it under {LIMITE_DE_L_OBJECTIF}")
 
         preuve = args.get("preuve")
         plan_octets = None
         if plan_donne:
             # Un plan porte sa propre ligne `preuve :` ; Lydite ne prend ni `--verifier` ni `--observer` avec lui.
             if isinstance(preuve, str) and preuve.strip():
-                raise Refus("a `plan` carries its own `preuve :` line: do not give `preuve` with it")
+                raise Refus("a `plan` carries its own `preuve :` line: do not give `proof` with it")
             if args.get("observer") is True:
-                raise Refus("`observer` goes with `issue` or `objectif`, not with `plan`")
+                raise Refus("`observe` goes with `issue` or `objective`, not with `plan`")
             plan, plan_octets = self._lire_le_plan(plan)
             preuve = ""
         elif not isinstance(preuve, str) or not preuve.strip():
-            raise Refus("`preuve` is required: the command that proves the work done (Lydite replays it itself)")
+            raise Refus("`proof` is required: the command that proves the work done (Lydite replays it itself)")
         elif len(preuve.strip()) > LIMITE_DE_LA_PREUVE:
-            raise Refus(f"`preuve` is over {LIMITE_DE_LA_PREUVE} characters: put it in a script and run that")
+            raise Refus(f"`proof` is over {LIMITE_DE_LA_PREUVE} characters: put it in a script and run that")
 
         profil = args.get("profil")
         profil = profil.strip() if isinstance(profil, str) and profil.strip() else self._reglage("profil", "claude")
         if not _PROFIL.fullmatch(profil):
-            raise Refus(f"`profil` {profil!r} is not a profile name (letters, digits, '_', '-'; no '-' first)")
+            raise Refus(f"`profile` {profil!r} is not a profile name (letters, digits, '_', '-'; no '-' first)")
 
         pr = args.get("pr")
         pr = pr.strip() if isinstance(pr, str) and pr.strip() else "main"
@@ -648,6 +673,7 @@ class Outils:
 
     def _lecons(self, args: dict) -> dict:
         try:
+            args = _noms_internes(args)
             depot = self._depot(args)
         except Refus as refus:
             return {"error": str(refus)}
@@ -674,7 +700,7 @@ class Outils:
 
         nom = args.get("nom")
         if nom is not None and (not isinstance(nom, str) or not _NOM_DE_LECON.fullmatch(nom)):
-            return {"error": f"`nom` {nom!r} is not a lesson name (lowercase letters, digits and '-', 1 to 64)"}
+            return {"error": f"`name` {nom!r} is not a lesson name (lowercase letters, digits and '-', 1 to 64)"}
 
         dossier = self._dossier_des_lecons(depot)
         lecons = self._lire_les_lecons(dossier) if dossier is not None else []
