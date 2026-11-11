@@ -20,7 +20,7 @@ use crate::essais::{depot, git};
 use std::env;
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::Child;
@@ -36,10 +36,11 @@ with urllib.request.urlopen(demande, timeout=20) as reponse:
     if reponse.status == 200:
         print(sys.argv[3], flush=True)"#;
 
-/// Une connexion directe, sans le proxy du mur : `argv` = marque de départ, marque de réussite.
+/// Une connexion directe, sans le proxy du mur, à une adresse IPv4 et non à un nom (aucune résolution ne peut la
+/// faire échouer) : `argv` = marque de départ, marque de réussite, adresse IPv4.
 const SORTIE: &str = r#"import socket, sys
 print(sys.argv[1], flush=True)
-socket.create_connection(("example.com", 80), timeout=10)
+socket.create_connection((sys.argv[3], 80), timeout=10)
 print(sys.argv[2], flush=True)"#;
 
 /// Une résolution de nom faite par le bac lui-même : `argv` = marque de départ, marque de réussite.
@@ -209,8 +210,9 @@ enum Temoin {
     },
     /// Des `sleep <durée>` que le mur lance : aucun ne reste après.
     Restes(Vec<String>),
-    /// La machine joint `example.com` en direct : sans cela, un bac qui n'y arrive pas ne prouve rien.
-    Sortie,
+    /// La machine joint en direct cette adresse IPv4 d'`example.com`, celle que la commande tente : sans cela, un bac
+    /// qui n'y arrive pas ne prouve rien.
+    Sortie(String),
 }
 
 impl Temoin {
@@ -229,12 +231,10 @@ impl Temoin {
                 let locale = adresses.iter().any(|adresse| adresse.ip().is_loopback());
                 assert!(locale, "localtest.me ne résout pas vers la machine ({adresses:?}) : R6 ne prouverait rien");
             }
-            Temoin::Sortie => {
-                let adresses = ("example.com", 80).to_socket_addrs();
-                let mut adresses = adresses.unwrap_or_else(|e| panic!("example.com ne se résout pas : {e}"));
-                let adresse = adresses.next().expect("example.com n'a pas d'adresse");
-                let joint = TcpStream::connect_timeout(&adresse, Duration::from_secs(10));
-                assert!(joint.is_ok(), "la machine ne joint pas example.com : R3 ne prouverait rien ({joint:?})");
+            Temoin::Sortie(ip) => {
+                let ip = ip.parse::<Ipv4Addr>().unwrap_or_else(|e| panic!("{ip} n'est pas une adresse IPv4 : {e}"));
+                let joint = TcpStream::connect_timeout(&SocketAddr::new(ip.into(), 80), Duration::from_secs(10));
+                assert!(joint.is_ok(), "la machine ne joint pas {ip} : R3 ne prouverait rien ({joint:?})");
             }
             Temoin::Dehors { duree, .. } => {
                 let la = !dormeurs(duree).is_empty();
@@ -270,7 +270,7 @@ impl Temoin {
                 let restes: Vec<u32> = durees.iter().flat_map(|duree| dormeurs(duree)).collect();
                 assert!(fini, "des processus de la preuve tuée restent : {restes:?}");
             }
-            Temoin::Aucun | Temoin::Sortie => {}
+            Temoin::Aucun | Temoin::Sortie(_) => {}
         }
     }
 }
@@ -673,9 +673,10 @@ fn tentative_refusee(d: &Decor, code: &str, extra: &str, temoin: Temoin) -> Cas 
     Cas::new(d, corps, Fin::Rouge).voit(&tente).ne_voit_pas(&fait).avec_temoin(temoin)
 }
 
-/// R3 : sans le proxy du mur, rien ne sort.
+/// R3 : sans le proxy du mur, rien ne sort : pas même une connexion TCP à l'adresse IPv4 d'`example.com`.
 fn r3(d: &Decor) -> Cas {
-    tentative_refusee(d, SORTIE, "", Temoin::Sortie)
+    let ip = d.ip.clone().unwrap_or_else(|| "0.0.0.0".into());
+    tentative_refusee(d, SORTIE, &ip, Temoin::Sortie(ip.clone()))
 }
 
 /// R4 : une adresse IP écrite en clair est refusée, même celle d'un domaine permis.
