@@ -517,7 +517,7 @@ fn kraken_remarques_sort_en_2_sur_un_refus_de_quatre_lignes_sans_panique() {
         let lignes: Vec<&str> = erreur.lines().collect();
         assert_eq!(lignes.len(), 4, "{nom} : {erreur}");
         assert!(lignes[0].starts_with(&format!("lydite : {code}")), "{nom} : {erreur}");
-        for (ligne, debut) in lignes[1..].iter().zip(["  règle : ", "  preuve : ", "  correction : "]) {
+        for (ligne, debut) in lignes[1..].iter().zip(["  rule: ", "  seen: ", "  fix: "]) {
             assert!(ligne.starts_with(debut) && ligne.len() > debut.len(), "{nom} : {erreur}");
         }
         let _ = fs::remove_dir_all(&dir);
@@ -529,7 +529,7 @@ fn kraken_remarques_sort_en_2_sur_un_refus_de_quatre_lignes_sans_panique() {
         let erreur = String::from_utf8_lossy(&sortie.stderr);
         assert_eq!(sortie.status.code(), Some(2), "{}", dit(&sortie));
         assert!(erreur.starts_with("lydite : 6006 lancer.entree_sortie\n"), "{erreur}");
-        assert!(erreur.contains(&format!("lecture des remarques {}", chemin.display())), "{erreur}");
+        assert!(erreur.contains(&format!("reading the remarks {}", chemin.display())), "{erreur}");
     }
     let _ = fs::remove_dir_all(&dir);
 }
@@ -538,8 +538,8 @@ fn kraken_remarques_sort_en_2_sur_un_refus_de_quatre_lignes_sans_panique() {
 fn kraken_remarques_veut_un_fichier_et_un_seul() {
     let (dir, fichier) = remarques_sur_disque("remarques-ligne", b"remarques 1\n");
     let cas: Vec<(Vec<&std::ffi::OsStr>, &str)> = vec![
-        (vec![], "`remarques` : il manque le fichier des remarques"),
-        (vec!["--decoupe".as_ref(), fichier.as_os_str()], "« --decoupe » est un drapeau"),
+        (vec![], "`remarques`: the remarks file is missing"),
+        (vec!["--decoupe".as_ref(), fichier.as_os_str()], "« --decoupe » is a flag"),
         (vec![fichier.as_os_str(), "autre".as_ref()], "« autre » follows it"),
     ];
     for (args, vu) in cas {
@@ -679,7 +679,7 @@ fn un_effort_de_tache_hors_des_efforts_permis_du_profil_est_refuse_en_6033_avant
     assert_eq!(sortie.status.code(), Some(2), "{}", dit(&sortie));
     let erreur = String::from_utf8_lossy(&sortie.stderr).into_owned();
     assert!(erreur.contains("lydite : 6033 lancer.effort_non_permis"), "{erreur}");
-    assert!(erreur.contains("Un plan ne demande qu'un effort que le profil permet (`efforts_permis`)."), "{erreur}");
+    assert!(erreur.contains("A plan asks only for an effort that the profile allows (`efforts_permis`)."), "{erreur}");
     assert!(erreur.contains("la tâche a demande l'effort max"), "la preuve nomme la tâche et l'effort : {erreur}");
     assert!(!erreur.contains("la tâche b"), "{erreur}");
     assert!(erreur.contains("élargis `efforts_permis`") && erreur.contains("lydite accepter"), "{erreur}");

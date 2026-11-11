@@ -55,7 +55,7 @@ fn lire_refus(commande: &mut Command) -> Refus {
     assert!(sortie.stdout.is_empty(), "{commande:?} écrit sur stdout : {}", String::from_utf8_lossy(&sortie.stdout));
     let lignes: Vec<&str> = erreur.lines().collect();
     assert_eq!(lignes.len(), 4, "{commande:?} : {erreur}");
-    let etiquettes = ["  règle : ", "  preuve : ", "  correction : "];
+    let etiquettes = ["  rule: ", "  seen: ", "  fix: "];
     for (ligne, debut) in lignes[1..].iter().zip(etiquettes) {
         assert!(ligne.starts_with(debut) && ligne.len() > debut.len(), "{commande:?} : {erreur}");
     }
@@ -171,7 +171,7 @@ fn sans_commande_le_refus_enseigne() {
     let refus = lire_refus(&mut kraken());
     assert_eq!(refus.code, "lydite : 1006 contrat.commande_mal_formee");
     assert_regle(&refus);
-    assert!(refus.preuve.contains("aucune commande"), "la preuve dit ce qui a été vu : {refus:?}");
+    assert!(refus.preuve.contains("no command"), "la preuve dit ce qui a été vu : {refus:?}");
     assert_usage(&refus);
 }
 
@@ -293,10 +293,10 @@ fn un_drapeau_a_la_place_du_profil_ou_de_l_objectif_est_refuse() {
     // partirait.
     let (depot, dossier) = (depot_commite("drapeau-depot"), neuf("drapeau-lydite"));
     let cas: [(&[&str], &str); 4] = [
-        (&["lancer", "claude", "--verifier", "x"], "il manque l'objectif"),
-        (&["lancer", "claude", "--n", "3"], "il manque l'objectif"),
-        (&["lancer", "--n", "3", "obj"], "il manque le profil et l'objectif"),
-        (&["lancer", "--depot", "d", "--n", "3"], "il manque le profil et l'objectif"),
+        (&["lancer", "claude", "--verifier", "x"], "the objective is missing"),
+        (&["lancer", "claude", "--n", "3"], "the objective is missing"),
+        (&["lancer", "--n", "3", "obj"], "the profile and the objective are missing"),
+        (&["lancer", "--depot", "d", "--n", "3"], "the profile and the objective are missing"),
     ];
     for (mots, manque) in cas {
         let refus = lire_refus(kraken_dans(&dossier, &depot).args(mots));
@@ -321,7 +321,7 @@ fn une_preuve_blanche_est_refusee_avant_tout_dossier() {
             lire_refus(kraken_dans(&dossier, &depot).args(["lancer", "claude", "objectif", "--verifier", blanche]));
         assert_eq!(refus.code, "lydite : 6014 lancer.preuve_vide", "{blanche:?}");
         assert_regle(&refus);
-        assert!(refus.preuve.contains("--verifier") && refus.preuve.contains("blanche"), "{refus:?}");
+        assert!(refus.preuve.contains("--verifier") && refus.preuve.contains("blank"), "{refus:?}");
         assert!(refus.correction.contains("--verifier"), "{refus:?}");
     }
     assert_eq!(noms(&dossier), Vec::<String>::new(), "aucun dossier, aucun bac, aucun fil");

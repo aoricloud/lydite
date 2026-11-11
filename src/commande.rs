@@ -101,9 +101,9 @@ fn lire_plan(fichier: &Path, mode: plan::Mode<'_>) -> Result<(Plan, Vec<plan::At
     let borne = plan::TAILLE_MAX as u64 + 1;
     let lu = std::fs::File::open(fichier).and_then(|ouvert| ouvert.take(borne).read_to_end(&mut octets));
     lu.map_err(|e| {
-        let preuve = format!("lecture du plan {} : {e}", fichier.display());
-        let correction = "Donne à --plan, ou à lydite plan, le chemin d'un fichier que Lydite peut lire (un chemin \
-                          relatif part du dossier courant), puis relance.";
+        let preuve = format!("reading the plan {}: {e}", fichier.display());
+        let correction = "Give --plan, or lydite plan, the path of a file that Lydite can read (a relative path \
+                          starts from the current folder), then run again.";
         Refus::new(Code::EntreeSortie, preuve, correction)
     })?;
     Plan::lire_en(&octets, mode)
@@ -123,9 +123,9 @@ fn plan_cmd(fichier: &Path, decoupe: bool) -> Result<ExitCode, Refus> {
 /// (`remarques::lire_fichier`, puis la forme 2 que le juge exige), et ne fait rien d'autre : rien sur stdout.
 fn remarques_cmd(fichier: &Path) -> Result<ExitCode, Refus> {
     let octets = relecture::lire_borne(fichier).map_err(|e| {
-        let preuve = format!("lecture des remarques {} : {e}", fichier.display());
-        let correction = "Donne à lydite remarques le chemin d'un fichier que Lydite peut lire (un chemin relatif \
-                          part du dossier courant), puis relance.";
+        let preuve = format!("reading the remarks {}: {e}", fichier.display());
+        let correction = "Give lydite remarques the path of a file that Lydite can read (a relative path starts \
+                          from the current folder), then run again.";
         Refus::new(Code::EntreeSortie, preuve, correction)
     })?;
     remarques::lire_fichier(&octets)?.exiger_la_forme_2().map(|_| ExitCode::SUCCESS)
@@ -137,9 +137,9 @@ fn remarques_cmd(fichier: &Path) -> Result<ExitCode, Refus> {
 fn lecons_cmd(depot: &Path) -> Result<ExitCode, Refus> {
     use std::io::Read;
     let illisible = |chemin: &Path, e: std::io::Error| {
-        let preuve = format!("lecture des leçons {} : {e}", chemin.display());
-        let correction = "Donne à lydite lecons le dossier d'un dépôt dont `.agents/skills` se lit (un chemin relatif \
-                          part du dossier courant), puis relance.";
+        let preuve = format!("reading the lessons {}: {e}", chemin.display());
+        let correction = "Give lydite lecons the folder of a repository whose `.agents/skills` can be read (a \
+                          relative path starts from the current folder), then run again.";
         Refus::new(Code::EntreeSortie, preuve, correction)
     };
     let skills = depot.join(".agents").join("skills");

@@ -164,15 +164,56 @@ fn chaque_code_a_sa_regle() {
     }
 }
 
+/// L'en-tête de `docs/refusals.md` : ce qui précède la table.
+const ENTETE_DE_LA_PAGE: &str = "# Lydite refusals
+
+A refusal that stops Lydite before any wave exits with code 2, on four lines: `lydite : <code> <name>`, then `rule:`, \
+`seen:` and `fix:`. The same codes name the refusals of a wave, which `lydite etat` shows. A code and its name never \
+change; a rule may be reworded. The codes come in four blocks of a thousand:
+
+- 1000, `contrat`: the command line and the thread.
+- 6000, `lancer`: everything before a wave opens (the command line, the profile, the repository, Lydite's folder and \
+the plan).
+- 7000, `vague`: the hands and the assembly, then the files of each hand, the splitter, the reviewer and the \
+correction that follows its review.
+- 8000, `forge`: the pull request and the CI, before and after the wave.
+
+| Code | Name | Rule |
+|---|---|---|
+";
+
+/// Le texte de `docs/refusals.md`, tiré de `Code::TOUS` : l'en-tête, puis une rangée par code, dans l'ordre.
+fn page_des_refus() -> String {
+    let mut page = ENTETE_DE_LA_PAGE.to_string();
+    for code in Code::TOUS {
+        let regle = code.regle().replace('|', "\\|");
+        page.push_str(&format!("| {} | `{}` | {regle} |\n", code.numero(), code.nom()));
+    }
+    page
+}
+
+#[test]
+fn la_page_des_refus_suit_les_codes() {
+    let chemin = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs").join("refusals.md");
+    let attendu = page_des_refus();
+    // Un retour chariot que git aurait posé sous Windows ne change pas la page.
+    let ecrite = fs::read_to_string(&chemin).unwrap_or_default().replace("\r\n", "\n");
+    assert!(
+        ecrite == attendu,
+        "{} ne suit pas Code::TOUS ; voici le texte attendu en entier, à recopier :\n{attendu}",
+        chemin.display()
+    );
+}
+
 #[test]
 fn le_refus_s_affiche_en_quatre_lignes() {
     let regle = Code::ProfilInconnu.regle();
     let refus = Refus::new(Code::ProfilInconnu, "profil « x »", "Nomme un profil que Lydite connaît.");
     let attendu = [
         "lydite : 6001 lancer.profil_inconnu".to_string(),
-        format!("  règle : {regle}"),
-        "  preuve : profil « x »".to_string(),
-        "  correction : Nomme un profil que Lydite connaît.".to_string(),
+        format!("  rule: {regle}"),
+        "  seen: profil « x »".to_string(),
+        "  fix: Nomme un profil que Lydite connaît.".to_string(),
     ];
     assert_eq!(refus.to_string(), attendu.join("\n"));
     // La sortie de git tient sur plusieurs lignes : elle se met bout à bout, et le refus reste à quatre lignes.
@@ -180,8 +221,8 @@ fn le_refus_s_affiche_en_quatre_lignes() {
     let refus = Refus::new(Code::BacImpossible, git, "Retire l'ancien bac.\nPuis relance.");
     let texte = refus.to_string();
     assert_eq!(texte.lines().count(), 4, "{texte}");
-    assert!(texte.contains("\n  preuve : fatal: la branche existe déjà ; hint: la renommer\n"), "{texte}");
-    assert!(texte.ends_with("\n  correction : Retire l'ancien bac. ; Puis relance."), "{texte}");
+    assert!(texte.contains("\n  seen: fatal: la branche existe déjà ; hint: la renommer\n"), "{texte}");
+    assert!(texte.ends_with("\n  fix: Retire l'ancien bac. ; Puis relance."), "{texte}");
 }
 
 #[test]
@@ -224,8 +265,8 @@ fn nommee_garde_son_kind_et_nomme_ce_qu_elle_visait() {
 fn un_refus_affiche_n_a_aucun_caractere_de_controle() {
     let refus = Refus::new(Code::Conflit, "a\u{1b}[31m\tb\u{202e}\nc", "d\u{7}\r\ne");
     let affiche = refus.to_string();
-    assert!(affiche.contains("  preuve : a\\u{1b}[31m\\tb\\u{202e} ; c\n"), "{affiche:?}");
-    assert!(affiche.ends_with("  correction : d\\u{7} ; e"), "{affiche:?}");
+    assert!(affiche.contains("  seen: a\\u{1b}[31m\\tb\\u{202e} ; c\n"), "{affiche:?}");
+    assert!(affiche.ends_with("  fix: d\\u{7} ; e"), "{affiche:?}");
     assert!(!affiche.chars().any(|c| c.is_control() && c != '\n'), "{affiche:?}");
     // Le refus garde ses champs bruts.
     assert!(refus.preuve.contains('\u{1b}'));

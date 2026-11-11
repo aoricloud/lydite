@@ -36,7 +36,7 @@ fn kraken_remarques_lit_le_fichier_et_sort_en_0_ou_2() {
     for chemin in [dossier.join("absent.lydite"), dossier.clone()] {
         let refus = remarques_cmd(&chemin).unwrap_err();
         assert_eq!(refus.code, Code::EntreeSortie, "{refus}");
-        assert!(refus.preuve.starts_with(&format!("lecture des remarques {} : ", chemin.display())), "{refus}");
+        assert!(refus.preuve.starts_with(&format!("reading the remarks {}: ", chemin.display())), "{refus}");
     }
     let _ = fs::remove_dir_all(&dossier);
 }

@@ -62,13 +62,13 @@ fn options_lues() {
     // « --verifier » n'est jamais lancé.
     let manque = |mots: &[&str]| options(&args(mots)).unwrap_err();
     for (mots, dit) in [
-        (&["lancer", "claude", "--verifier", "x"][..], "`lancer` : il manque l'objectif"),
-        (&["lancer", "claude", "--n", "3"], "`lancer` : il manque l'objectif"),
-        (&["lancer", "claude", "--depot", "d", "--n", "3"], "`lancer` : il manque l'objectif"),
-        (&["lancer", "--n", "3", "obj"], "`lancer` : il manque le profil et l'objectif"),
-        (&["lancer", "--verifier", "x", "--n", "3"], "`lancer` : il manque le profil et l'objectif"),
-        (&["lancer", "--depot", "--n"], "`lancer` : il manque le profil et l'objectif"),
-        (&["lancer", "--n", "--n"], "`lancer` : il manque le profil et l'objectif"),
+        (&["lancer", "claude", "--verifier", "x"][..], "`lancer`: the objective is missing"),
+        (&["lancer", "claude", "--n", "3"], "`lancer`: the objective is missing"),
+        (&["lancer", "claude", "--depot", "d", "--n", "3"], "`lancer`: the objective is missing"),
+        (&["lancer", "--n", "3", "obj"], "`lancer`: the profile and the objective are missing"),
+        (&["lancer", "--verifier", "x", "--n", "3"], "`lancer`: the profile and the objective are missing"),
+        (&["lancer", "--depot", "--n"], "`lancer`: the profile and the objective are missing"),
+        (&["lancer", "--n", "--n"], "`lancer`: the profile and the objective are missing"),
     ] {
         let refus = manque(mots);
         assert_eq!((refus.code, refus.preuve.as_str()), (mal_formee, dit), "{mots:?}");
@@ -81,7 +81,7 @@ fn options_lues() {
     for (blanc, vu) in [("", r#""""#), (" ", r#"" ""#), ("\t \r\n", r#""\t \r\n""#)] {
         let refus = options(&args(&["lancer", "claude", "obj", "--verifier", blanc])).unwrap_err();
         assert_eq!(refus.code, Code::PreuveVide, "{blanc:?}");
-        assert_eq!(refus.preuve, format!("--verifier vaut {vu}, une commande blanche"));
+        assert_eq!(refus.preuve, format!("--verifier is {vu}, a blank command"));
         assert!(refus.correction.contains("--verifier"), "{refus}");
         assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
     }
@@ -100,9 +100,9 @@ fn options_accepter() {
     assert_eq!(options(&args(&["accepter", "../x"])), Ok(Commande::Accepter("../x".into())));
     let mal_formee = Code::CommandeMalFormee;
     for (mots, dit) in [
-        (&["accepter"][..], "`accepter` : il manque le profil"),
-        (&["accepter", "a", "b"], "`accepter` ne prend que le nom du profil, et « b » le suit"),
-        (&["accepter", "a", "--n", "1"], "et « --n » le suit"),
+        (&["accepter"][..], "`accepter`: the profile is missing"),
+        (&["accepter", "a", "b"], "`accepter` takes only the profile name, and « b » follows it"),
+        (&["accepter", "a", "--n", "1"], "and « --n » follows it"),
     ] {
         let refus = options(&args(mots)).unwrap_err();
         assert_eq!(refus.code, mal_formee, "{mots:?}");
@@ -112,7 +112,7 @@ fn options_accepter() {
     // Un nom qui n'est pas de l'UTF-8 est une ligne mal formée, sans panique.
     let refus = options(&ligne("accepter ?")).unwrap_err();
     assert_eq!(refus.code, mal_formee);
-    assert!(refus.preuve.contains("le profil doit être un texte UTF-8"), "{refus}");
+    assert!(refus.preuve.contains("the profile must be UTF-8 text"), "{refus}");
     // La commande est dans l'usage, que la correction du refus 1005 donne.
     assert!(USAGE.contains("lydite accepter <profile>"), "{USAGE}");
     let inconnue = options(&args(&["Accepter", "veille"])).unwrap_err();
@@ -124,8 +124,8 @@ fn options_accepter() {
 fn options_profil() {
     assert_eq!(options(&args(&["profil", "veille"])), Ok(Commande::Profil("veille".into())));
     for (mots, dit) in [
-        (&["profil"][..], "`profil` : il manque le profil"),
-        (&["profil", "a", "b"], "`profil` ne prend que le nom du profil, et « b » le suit"),
+        (&["profil"][..], "`profil`: the profile is missing"),
+        (&["profil", "a", "b"], "`profil` takes only the profile name, and « b » follows it"),
     ] {
         let refus = options(&args(mots)).unwrap_err();
         assert_eq!(refus.code, Code::CommandeMalFormee, "{mots:?}");
@@ -147,11 +147,11 @@ fn options_plan_seul() {
     // Chaque faute : 1006, dont la preuve dit ce qui a été vu, et la correction donne l'usage. Un drapeau n'est pas
     // un fichier, et rien ne suit le fichier, pas même `--decoupe`.
     for (mots, vu) in [
-        ("plan", "`plan` : il manque le fichier du plan"),
-        ("plan --decoupe", "`plan` : il manque le fichier du plan"),
-        ("plan --n 1", "« --n » est un drapeau"),
-        ("plan --decoupe --decoupe p", "« --decoupe » est un drapeau"),
-        ("plan --plan p", "« --plan » est un drapeau"),
+        ("plan", "`plan`: the plan file is missing"),
+        ("plan --decoupe", "`plan`: the plan file is missing"),
+        ("plan --n 1", "« --n » is a flag"),
+        ("plan --decoupe --decoupe p", "« --decoupe » is a flag"),
+        ("plan --plan p", "« --plan » is a flag"),
         ("plan p q", "`plan` takes only `[--decoupe] <file>`, and « q » follows it"),
         ("plan p --decoupe", "and « --decoupe » follows it"),
         ("plan --decoupe p ?", "follows it"),
@@ -177,10 +177,10 @@ fn options_remarques_seul() {
     // Chaque faute : 1006, dont la preuve dit ce qui a été vu, et la correction donne l'usage. Un drapeau n'est pas
     // un fichier, et rien ne suit le fichier.
     for (mots, vu) in [
-        ("remarques", "`remarques` : il manque le fichier des remarques"),
-        ("remarques --n 1", "« --n » est un drapeau"),
-        ("remarques --decoupe p", "« --decoupe » est un drapeau"),
-        ("remarques -", "« - » est un drapeau"),
+        ("remarques", "`remarques`: the remarks file is missing"),
+        ("remarques --n 1", "« --n » is a flag"),
+        ("remarques --decoupe p", "« --decoupe » is a flag"),
+        ("remarques -", "« - » is a flag"),
         ("remarques p q", "`remarques` takes only `<file>`, and « q » follows it"),
         ("remarques p --decoupe", "and « --decoupe » follows it"),
         ("remarques p ?", "follows it"),
@@ -203,9 +203,9 @@ fn options_lecons_seul() {
     let complete = [args(&["lecons"]), vec![mauvais.clone()]].concat();
     assert_eq!(options(&complete), Ok(Commande::LireLecons { dossier: PathBuf::from(mauvais) }));
     for (mots, vu) in [
-        ("lecons", "`lecons` : il manque le dossier du dépôt"),
-        ("lecons --n 1", "« --n » est un drapeau"),
-        ("lecons -", "« - » est un drapeau"),
+        ("lecons", "`lecons`: the repository folder is missing"),
+        ("lecons --n 1", "« --n » is a flag"),
+        ("lecons -", "« - » is a flag"),
         ("lecons p q", "`lecons` takes only `<folder>`, and « q » follows it"),
     ] {
         let refus = options(&ligne(mots)).unwrap_err();
@@ -223,7 +223,7 @@ fn options_attendre_seul() {
     for mots in [&["attendre", "x"][..], &["attendre", "--n", "1"], &["attendre", "x", "y"]] {
         let refus = options(&args(mots)).unwrap_err();
         assert_eq!(refus.code, Code::CommandeMalFormee, "{mots:?}");
-        assert!(refus.preuve.contains(&format!("« {} » le suit", mots[1])), "{refus}");
+        assert!(refus.preuve.contains(&format!("« {} » follows it", mots[1])), "{refus}");
     }
     assert!(USAGE.contains("lydite attendre"), "{USAGE}");
 }
@@ -280,31 +280,31 @@ fn options_plan_refuse_ce_qui_ne_va_pas_avec_lui() {
         ("lancer claude objectif --plan p", "« objectif »"),
         ("lancer claude --plan p objectif", "« objectif »"),
         ("lancer claude --plan p --x 1", "« --x »"),
-        ("lancer claude --plan p --plan q", "redit : --plan"),
-        ("lancer claude --plan p --depot d --depot e", "redit : --depot"),
-        ("lancer claude --plan p --depot d --plan", "redit : --plan"),
-        ("lancer claude --plan", "sans valeur : --plan"),
-        ("lancer claude --plan p --depot", "sans valeur : --depot"),
+        ("lancer claude --plan p --plan q", "repeated: --plan"),
+        ("lancer claude --plan p --depot d --depot e", "repeated: --depot"),
+        ("lancer claude --plan p --depot d --plan", "repeated: --plan"),
+        ("lancer claude --plan", "without a value: --plan"),
+        ("lancer claude --plan p --depot", "without a value: --depot"),
         // Une valeur n'est jamais l'un des deux drapeaux : l'oublier se dit, au lieu de manger le suivant.
-        ("lancer claude --plan --depot d", "sans valeur : --plan"),
-        ("lancer claude --depot --plan p", "sans valeur : --depot"),
-        ("lancer claude --depot d --plan", "sans valeur : --plan"),
+        ("lancer claude --plan --depot d", "without a value: --plan"),
+        ("lancer claude --depot --plan p", "without a value: --depot"),
+        ("lancer claude --depot d --plan", "without a value: --plan"),
         // Le profil est le premier mot, et n'est pas un drapeau.
         ("lancer --plan p", "« --plan »"),
         ("lancer --depot d --plan p", "« --depot »"),
         ("lancer --n 3 --plan p", "« --n »"),
-        ("lancer ? --plan p", "le profil"),
+        ("lancer ? --plan p", "the profile"),
         ("lancer --pr main --plan p", "« --pr »"),
         // `--pr` veut une branche : une valeur qui commence par `-` n'en est pas une (git la lirait comme une
         // option), un drapeau n'est pas une valeur, et il se donne une fois.
         ("lancer claude --plan p --pr -x", "« -x »"),
         ("lancer claude --plan p --pr --force", "« --force »"),
         ("lancer claude --pr - --plan p", "« - »"),
-        ("lancer claude --plan p --pr a --pr b", "redit : --pr"),
-        ("lancer claude --plan p --pr", "sans valeur : --pr"),
-        ("lancer claude --pr --plan p", "sans valeur : --pr"),
-        ("lancer claude --plan p --pr --depot d", "sans valeur : --pr"),
-        ("lancer claude --plan p --pr ?", "la branche de --pr"),
+        ("lancer claude --plan p --pr a --pr b", "repeated: --pr"),
+        ("lancer claude --plan p --pr", "without a value: --pr"),
+        ("lancer claude --pr --plan p", "without a value: --pr"),
+        ("lancer claude --plan p --pr --depot d", "without a value: --pr"),
+        ("lancer claude --plan p --pr ?", "the branch of --pr"),
     ];
     for (mots, vu) in cas {
         let refus = options(&ligne(mots)).unwrap_err();
@@ -320,9 +320,9 @@ fn options_plan_refuse_ce_qui_ne_va_pas_avec_lui() {
     // `--plan` manque : `options` ne passe à `options_plan` que si le mot paraît, mais la lecture ne s'y fie pas.
     let refus = options_plan(&args(&["claude", "--depot", "d"])).unwrap_err();
     assert_eq!(refus.code, Code::CommandeMalFormee);
-    assert!(refus.preuve.contains("--plan <fichier>"), "{refus}");
+    assert!(refus.preuve.contains("--plan <file>"), "{refus}");
     let refus = options_plan(&[]).unwrap_err();
-    assert!(refus.preuve.contains("il manque le profil"), "{refus}");
+    assert!(refus.preuve.contains("the profile is missing"), "{refus}");
 }
 
 #[test]
@@ -344,7 +344,7 @@ fn un_pr_sans_plan_ni_decouper_est_refuse() {
     for mots in cas {
         let refus = options(&ligne(mots)).unwrap_err();
         assert_eq!(refus.code, Code::CommandeMalFormee, "{mots}");
-        assert_eq!(refus.preuve, "`lancer` : --pr ne va qu'avec --plan <fichier> ou --decouper", "{mots}");
+        assert_eq!(refus.preuve, "`lancer`: --pr goes only with --plan <file> or --decouper", "{mots}");
         assert!(refus.correction.contains(USAGE), "la correction donne l'usage : {refus}");
         assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
     }
@@ -434,30 +434,30 @@ fn options_issue_lues() {
 fn options_issue_refuse_ce_qui_ne_va_pas_avec_lui() {
     let cas = [
         // Sans `--decouper`.
-        ("lancer claude --issue 3", "--issue ne va qu'avec --decouper"),
-        ("lancer claude --issue 3 --verifier x", "--issue ne va qu'avec --decouper"),
-        ("lancer claude --issue 3 --verifier x --pr main", "--pr ne va qu'avec"),
+        ("lancer claude --issue 3", "--issue goes only with --decouper"),
+        ("lancer claude --issue 3 --verifier x", "--issue goes only with --decouper"),
+        ("lancer claude --issue 3 --verifier x --pr main", "--pr goes only with"),
         // Avec un objectif, avant ou après.
-        ("lancer claude obj --issue 3 --decouper --verifier x", "--issue remplace l'objectif"),
-        ("lancer claude --issue 3 obj --decouper --verifier x", "drapeau inconnu : « obj »"),
+        ("lancer claude obj --issue 3 --decouper --verifier x", "--issue replaces the objective"),
+        ("lancer claude --issue 3 obj --decouper --verifier x", "unknown flag: « obj »"),
         // Un numéro nul, négatif, non entier, ou absent.
-        ("lancer claude --issue 0 --decouper --verifier x", "un entier positif, pas « 0 »"),
-        ("lancer claude --issue -3 --decouper --verifier x", "un entier positif, pas « -3 »"),
-        ("lancer claude --issue 3.5 --decouper --verifier x", "un entier positif, pas « 3.5 »"),
-        ("lancer claude --issue douze --decouper --verifier x", "un entier positif, pas « douze »"),
-        ("lancer claude --issue 18446744073709551616 --decouper --verifier x", "un entier positif"),
-        ("lancer claude --issue ? --decouper --verifier x", "un entier positif"),
-        ("lancer claude --decouper --verifier x --issue", "drapeau sans valeur : --issue"),
-        ("lancer claude --issue 3 --issue 4 --decouper --verifier x", "drapeau redit : --issue"),
+        ("lancer claude --issue 0 --decouper --verifier x", "a positive integer, not « 0 »"),
+        ("lancer claude --issue -3 --decouper --verifier x", "a positive integer, not « -3 »"),
+        ("lancer claude --issue 3.5 --decouper --verifier x", "a positive integer, not « 3.5 »"),
+        ("lancer claude --issue douze --decouper --verifier x", "a positive integer, not « douze »"),
+        ("lancer claude --issue 18446744073709551616 --decouper --verifier x", "a positive integer"),
+        ("lancer claude --issue ? --decouper --verifier x", "a positive integer"),
+        ("lancer claude --decouper --verifier x --issue", "flag without a value: --issue"),
+        ("lancer claude --issue 3 --issue 4 --decouper --verifier x", "flag repeated: --issue"),
         // Il exclut `--n` et `--plan`, et demande `--verifier` comme `--decouper`.
-        ("lancer claude --issue 3 --decouper --verifier x --n 1", "--decouper exclut --n"),
-        ("lancer claude --issue 3 --plan p", "n'en est pas un"),
-        ("lancer claude --issue 3 --decouper --plan p", "--decouper exclut --plan"),
-        ("lancer claude --issue 3 --decouper", "--decouper demande --verifier"),
+        ("lancer claude --issue 3 --decouper --verifier x --n 1", "--decouper excludes --n"),
+        ("lancer claude --issue 3 --plan p", "is not one of them"),
+        ("lancer claude --issue 3 --decouper --plan p", "--decouper excludes --plan"),
+        ("lancer claude --issue 3 --decouper", "--decouper requires --verifier"),
         // Pas de profil.
-        ("lancer --issue 3 --decouper --verifier x", "il manque le profil"),
+        ("lancer --issue 3 --decouper --verifier x", "the profile is missing"),
         // Le `--issue` que `--verifier` prend pour valeur n'en est pas un : il manque l'objectif.
-        ("lancer claude --verifier --issue --decouper", "il manque l'objectif"),
+        ("lancer claude --verifier --issue --decouper", "the objective, or `--issue <n>`, is missing"),
     ];
     for (mots, vu) in cas {
         let refus = options(&ligne(mots)).unwrap_err();
@@ -472,38 +472,38 @@ fn options_decouper_refuse_ce_qui_ne_va_pas_avec_lui() {
     // Chaque faute de la ligne : le refus 1006, le mot que la preuve montre de ce qui a été vu, l'usage en correction.
     let cas = [
         // `--decouper` demande `--verifier`, la preuve de la vague, que seul l'humain donne.
-        ("lancer claude obj --decouper", "--decouper demande --verifier"),
-        ("lancer claude obj --decouper --depot d", "--decouper demande --verifier"),
-        ("lancer claude obj --decouper --observer", "--decouper demande --verifier"),
+        ("lancer claude obj --decouper", "--decouper requires --verifier"),
+        ("lancer claude obj --decouper --depot d", "--decouper requires --verifier"),
+        ("lancer claude obj --decouper --observer", "--decouper requires --verifier"),
         // Il exclut `--n`, même à 1, et `--plan`, où qu'ils paraissent.
-        ("lancer claude obj --decouper --verifier x --n 3", "--decouper exclut --n"),
-        ("lancer claude obj --n 1 --verifier x --decouper", "--decouper exclut --n"),
-        ("lancer claude obj --n 3 --decouper", "--decouper exclut --n"),
-        ("lancer claude --plan p --decouper", "--decouper exclut --plan"),
-        ("lancer claude obj --decouper --verifier x --plan p", "--decouper exclut --plan"),
-        ("lancer claude --decouper --plan p --depot d --pr main", "--decouper exclut --plan"),
+        ("lancer claude obj --decouper --verifier x --n 3", "--decouper excludes --n"),
+        ("lancer claude obj --n 1 --verifier x --decouper", "--decouper excludes --n"),
+        ("lancer claude obj --n 3 --decouper", "--decouper excludes --n"),
+        ("lancer claude --plan p --decouper", "--decouper excludes --plan"),
+        ("lancer claude obj --decouper --verifier x --plan p", "--decouper excludes --plan"),
+        ("lancer claude --decouper --plan p --depot d --pr main", "--decouper excludes --plan"),
         // `--observer` ne va qu'avec lui.
-        ("lancer claude obj --observer", "--observer ne va qu'avec --decouper"),
-        ("lancer claude obj --verifier x --observer", "--observer ne va qu'avec --decouper"),
-        ("lancer claude obj --observer --n 2", "--observer ne va qu'avec --decouper"),
+        ("lancer claude obj --observer", "--observer goes only with --decouper"),
+        ("lancer claude obj --verifier x --observer", "--observer goes only with --decouper"),
+        ("lancer claude obj --observer --n 2", "--observer goes only with --decouper"),
         // Un drapeau sans valeur ne se dit qu'une fois.
-        ("lancer claude obj --decouper --decouper --verifier x", "drapeau redit : --decouper"),
-        ("lancer claude obj --decouper --verifier x --observer --observer", "drapeau redit : --observer"),
+        ("lancer claude obj --decouper --decouper --verifier x", "flag repeated: --decouper"),
+        ("lancer claude obj --decouper --verifier x --observer --observer", "flag repeated: --observer"),
         // Un drapeau à la place du profil ou de l'objectif : il manque l'un ou l'autre.
-        ("lancer claude --decouper --verifier x", "`lancer` : il manque l'objectif"),
-        ("lancer claude --observer --decouper --verifier x", "`lancer` : il manque l'objectif"),
-        ("lancer claude --pr main --decouper --verifier x", "`lancer` : il manque l'objectif"),
-        ("lancer --decouper obj --verifier x", "`lancer` : il manque le profil et l'objectif"),
-        ("lancer --observer --decouper", "`lancer` : il manque le profil et l'objectif"),
+        ("lancer claude --decouper --verifier x", "`lancer`: the objective is missing"),
+        ("lancer claude --observer --decouper --verifier x", "`lancer`: the objective is missing"),
+        ("lancer claude --pr main --decouper --verifier x", "`lancer`: the objective is missing"),
+        ("lancer --decouper obj --verifier x", "`lancer`: the profile and the objective are missing"),
+        ("lancer --observer --decouper", "`lancer`: the profile and the objective are missing"),
         // `--pr` veut le nom d'une branche, comme avec `--plan`.
-        ("lancer claude obj --decouper --verifier x --pr", "sans valeur : --pr"),
+        ("lancer claude obj --decouper --verifier x --pr", "without a value: --pr"),
         ("lancer claude obj --decouper --verifier x --pr -x", "« -x »"),
-        ("lancer claude obj --decouper --verifier x --pr a --pr b", "redit : --pr"),
-        ("lancer claude obj --decouper --verifier x --pr ?", "la branche de --pr"),
+        ("lancer claude obj --decouper --verifier x --pr a --pr b", "repeated: --pr"),
+        ("lancer claude obj --decouper --verifier x --pr ?", "the branch of --pr"),
         // Un drapeau inconnu l'est avec `--decouper` aussi.
-        ("lancer claude obj --decouper --verifier x --x 1", "drapeau inconnu : « --x »"),
+        ("lancer claude obj --decouper --verifier x --x 1", "unknown flag: « --x »"),
         // Le `--decouper` que `--verifier` prend pour valeur n'en est pas un : `--pr` n'a plus où aller.
-        ("lancer claude obj --verifier --decouper --pr main", "--pr ne va qu'avec --plan <fichier> ou --decouper"),
+        ("lancer claude obj --verifier --decouper --pr main", "--pr goes only with --plan <file> or --decouper"),
     ];
     for (mots, vu) in cas {
         let refus = options(&ligne(mots)).unwrap_err();
@@ -521,7 +521,7 @@ fn options_decouper_refuse_ce_qui_ne_va_pas_avec_lui() {
     let refus = options(&args(&["lancer", "claude", "obj", "--decouper", "--verifier", " ", "--n", "2"])).unwrap_err();
     assert_eq!(refus.code, Code::PreuveVide);
     let refus = options(&args(&["lancer", "claude", "obj", "--x", "--decouper"])).unwrap_err();
-    assert!(refus.preuve.contains("drapeau inconnu : « --x »"), "{refus}");
+    assert!(refus.preuve.contains("unknown flag: « --x »"), "{refus}");
     // Un objectif sur plusieurs lignes : l'en-tête du plan n'en tient qu'une, `--decouper` lu avant ou après
     // `--verifier`.
     for (objectif, vu) in [("a\nb", r#""a\nb""#), ("a\r\nb", r#""a\r\nb""#), ("a\rb", r#""a\rb""#)] {
@@ -530,7 +530,7 @@ fn options_decouper_refuse_ce_qui_ne_va_pas_avec_lui() {
         for mots in [avant, apres] {
             let refus = options(&args(&mots)).unwrap_err();
             assert_eq!(refus.code, Code::CommandeMalFormee, "{mots:?}");
-            assert!(refus.preuve.contains("d'une ligne"), "{refus}");
+            assert!(refus.preuve.contains("one-line"), "{refus}");
             assert!(refus.preuve.contains(vu), "la preuve dit ce qui a été vu ({vu}) : {refus}");
             assert!(refus.correction.contains(USAGE), "la correction donne l'usage : {refus}");
             assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
@@ -632,23 +632,23 @@ fn chaque_refus_de_la_ligne_de_commande_enseigne() {
     // Chaque faute de la ligne : son code, et le mot que la preuve montre de ce qui a été vu.
     let (inconnue, mal_formee) = (Code::CommandeInconnue, Code::CommandeMalFormee);
     let cas = [
-        ("", mal_formee, "aucune commande"),
+        ("", mal_formee, "no command"),
         ("bonjour", inconnue, "bonjour"),
         ("etat x", mal_formee, "x"),
-        ("lancer", mal_formee, "le profil et l'objectif"),
-        ("lancer claude", mal_formee, "l'objectif"),
-        ("lancer ? obj", mal_formee, "le profil"),
+        ("lancer", mal_formee, "the profile and the objective"),
+        ("lancer claude", mal_formee, "the objective"),
+        ("lancer ? obj", mal_formee, "the profile"),
         ("lancer claude obj --x 1", mal_formee, "--x"),
-        ("lancer claude obj --n 1 --n 2", mal_formee, "redit : --n"),
-        ("lancer claude obj --n", mal_formee, "sans valeur : --n"),
+        ("lancer claude obj --n 1 --n 2", mal_formee, "repeated: --n"),
+        ("lancer claude obj --n", mal_formee, "without a value: --n"),
         ("lancer claude obj --n 0", mal_formee, "« 0 »"),
         ("lancer claude obj --n deux", mal_formee, "« deux »"),
-        ("lancer claude obj --verifier", mal_formee, "sans valeur : --verifier"),
-        ("lancer claude obj --depot", mal_formee, "sans valeur : --depot"),
-        ("lancer claude --verifier x", mal_formee, "il manque l'objectif"),
-        ("lancer --n 3 obj", mal_formee, "il manque le profil et l'objectif"),
-        ("accepter", mal_formee, "il manque le profil"),
-        ("accepter claude veille", mal_formee, "« veille » le suit"),
+        ("lancer claude obj --verifier", mal_formee, "without a value: --verifier"),
+        ("lancer claude obj --depot", mal_formee, "without a value: --depot"),
+        ("lancer claude --verifier x", mal_formee, "the objective is missing"),
+        ("lancer --n 3 obj", mal_formee, "the profile and the objective are missing"),
+        ("accepter", mal_formee, "the profile is missing"),
+        ("accepter claude veille", mal_formee, "« veille » follows it"),
     ];
     for (mots, code, vu) in cas {
         let refus = options(&ligne(mots)).unwrap_err();
@@ -669,7 +669,7 @@ fn n_va_de_1_a_la_borne_du_lecteur() {
     for hors in [BORNE + 1, usize::MAX] {
         let refus = ligne(hors).unwrap_err();
         assert_eq!(refus.code, Code::CommandeMalFormee);
-        assert!(refus.preuve.contains(&format!("de 1 à 10000, pas « {hors} »")), "{refus}");
+        assert!(refus.preuve.contains(&format!("from 1 to 10000, not « {hors} »")), "{refus}");
     }
     // La vague de BORNE mains s'écrit, se relit sans écart, et se dit en une ligne par main, entre son objectif et ses
     // deux lignes de reçu (le coût, l'effort).
