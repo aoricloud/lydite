@@ -390,7 +390,7 @@ Every command exits 2 when it refuses: the refusal says its code, its rule, what
 | Command | What it does | Exits |
 |---|---|---|
 | `lydite launch` | runs a wave (see [Try it](#try-it)) | 0 if every task was taken, its proof replayed green and, with `--pr`, the CI green; 1 otherwise |
-| `lydite status` | says the last wave, read from the thread | 0 if it was carried through and green, or there is none; 1 if it is running, red or ended without its closing seal; 2 if the thread cannot be read or a seal is broken |
+| `lydite status` | says the last wave, read from the thread | 0 if it was carried through and green, or there is none; 1 if it is running or red; it does not check the closing seal (a killed launch can read green): `lydite wait` does; 2 if the thread cannot be read or a seal is broken |
 | `lydite wait` | waits for a running launch, then says the last wave | see [Waiting for a wave](#waiting-for-a-wave) |
 | `lydite doctor [<profile>]` | checks this machine, and the wall when a profile is named | 0 if ready, 1 if something is missing |
 | `lydite plan [--split] <file>` | reads a plan as `launch` would, and runs nothing | 0 |
