@@ -569,6 +569,7 @@ fn lire_journal(journal: &Path) -> String {
 /// Joue la commande dans le bac sous `mur` ([`jouer_la_commande`]), après avoir lancé le filtre réseau que `mur`
 /// demande, et l'arrête après, quelle que soit l'issue : succès, échec, délai dépassé. Rend l'issue de la commande et
 /// l'échec de l'arrêt du filtre, s'il y en a un ; Err si rien n'a pu partir, le filtre n'ayant pas dit `ready` compris.
+/// Quand c'est la commande qui n'a pas pu partir, l'échec de l'arrêt du filtre s'ajoute à son erreur, sur sa ligne.
 fn executer(
     programme: &OsStr,
     commande: &str,
@@ -586,7 +587,12 @@ fn executer(
     };
     let issue = jouer_la_commande(programme, commande, bac, delai, journal, cle, mur);
     let arret = filtre.as_mut().and_then(|filtre| filtre.arreter().err());
-    Ok((issue?, arret))
+    match (issue, arret) {
+        (Ok(issue), arret) => Ok((issue, arret)),
+        (Err(erreur), None) => Err(erreur),
+        // Comme `rejouer_avec` pour une commande qui a tourné : l'échec de l'arrêt s'ajoute à l'erreur.
+        (Err(erreur), Some(echec)) => Err(format!("{erreur}\n{echec}")),
+    }
 }
 
 /// Joue la commande dans le bac sous `mur`, sa sortie dans `journal`, sans les variables que [`retire_de_la_preuve`]
