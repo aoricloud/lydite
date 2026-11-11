@@ -14,8 +14,8 @@ repo: https://github.com/aoricloud/lydite
 sha: <sha>
 subdir: hermes
 description: >-
-  Hand a GitHub issue and the command that proves it done to Lydite from the chat. Sandboxed Claude Code workers do
-  the job, Lydite replays your proof itself, and a pull request comes back with a receipt (cost, workers, retries,
+  Hand a GitHub issue and the command that proves it done to Lydite from the chat. Claude Code workers do the
+  job (under a required wall, `exige` or `natif`, their commands run in Claude Code's sandbox), Lydite replays your proof itself, and a pull request comes back with a receipt (cost, workers, retries,
   the commit that was reviewed and replayed, and what was not replayed). Also hands Hermes the lessons Lydite keeps
   for a repository, read-only, and has Lydite check a plan file before a launch. It also turns a hermes-security
   findings export into one Lydite plan per finding you choose: prove it by a failing test, then fix it. Disclosure:
@@ -26,11 +26,11 @@ description: >-
   under a profile accepted with `mur = demande`, a worker's commands may run outside the sandbox and see the provider
   key if there is one, and the proof is replayed on the host, outside the wall; a required wall (`exige`, the
   default, or `natif`) is required for `--issue` and for a plan written from a report. The approval request shows
-  the repository, the work, the exact proof command (for a plan: its name, its number of tasks, its header proof and
+  the repository, the work, the exact proof command (for a plan: its name, its number of tasks, its header proof, cut if long, and
   its SHA-256), then the profile and the target branch; a value with a control or formatting character, and a plan
   whose task carries its own proof, are refused before any request; "always" covers that exact request only
   (repository, profile, issue or objective, target branch, dry run or launch, proof or plan bytes). The child
-  environment is a closed list, plus the provider key if you set one. For a report's plan, the wall check
+  environment is a closed list (no Hermes key, no YOLO setting), plus the provider key if you set one. For a report's plan, the wall check
   (`lydite profil`) before the request is read-only and needs no approval. Reads the plan file, the lesson files and
   the findings report you name, and writes the plans of the findings you choose under the plugin's data folder; no
   telemetry.
@@ -76,8 +76,8 @@ capabilities:
 ## Disclosures (for the PR description)
 
 - **What it is.** A launcher: five tools that run the already-installed `lydite` binary, read its state, check a plan
-  file, read a repository's lessons and write plans from a findings report. The coding workers are Claude Code sessions that Lydite starts itself behind
-  its sandbox wall, on the model of a Lydite profile a human accepted. They are not Hermes agents.
+  file, read a repository's lessons and write plans from a findings report. The coding workers are Claude Code sessions that Lydite starts itself, behind
+  its sandbox wall when the wall is required (`exige`, the default, or `natif`; see "A requested wall" below), on the model of a Lydite profile a human accepted. They are not Hermes agents.
 - **Shell commands.** None through a shell. One external program (`lydite`) is started with an argument list:
   `lydite lancer ...` (detached, long-running), `lydite etat` (read-only), `lydite lecons <folder>` (read-only) and
   `lydite plan <file>` (read-only) and `lydite profil <name>` (read-only). Lydite itself runs `git`, `gh` and the
@@ -110,7 +110,7 @@ capabilities:
 - **Telemetry.** None.
 - **Platforms.** Linux only; the tools hide themselves elsewhere.
 - **Honest limit.** A worker runs with `--permission-mode acceptEdits --permission-prompts none` inside Lydite's
-  wall, so what it may do is what the accepted profile lends it and the wall allows, not what a per-command prompt
+  wall when the wall is required (`exige`, the default, or `natif`; see "A requested wall" above), so what it may do is what the accepted profile lends it and the wall allows, not what a per-command prompt
   would ask. The launch itself is approved by the human in Hermes before anything starts.
 
 ## What a reviewer can run
