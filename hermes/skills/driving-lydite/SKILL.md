@@ -2,7 +2,7 @@
 name: driving-lydite
 description: Hand a coding job to Lydite and report what it recorded. Use when the user asks to give Lydite an issue, an objective or a plan file, or asks where a Lydite wave stands. Lydite runs isolated Claude Code workers, replays the user's proof command itself and opens a pull request.
 license: MIT
-compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat, lydite_lecons and lydite_plan; anywhere else the same steps are the commands lydite launch, lydite status, lydite lessons and lydite plan.
+compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat, lydite_lecons, lydite_plan and lydite_findings; anywhere else the same steps are the commands lydite launch, lydite status, lydite lessons and lydite plan. lydite_findings has no equivalent command outside Hermes.
 ---
 
 # Driving Lydite
@@ -108,6 +108,14 @@ a repository and prints nothing when all are right. Accepting a profile, and mer
 Before a first launch, run `lydite doctor`: it launches nothing and says what is missing on this machine. To wait for a
 running wave, run `lydite wait`: it returns when the launch has finished and says the last wave like `lydite status`.
 
-The exit codes are the same for `launch`, `status` and `wait`: 0 if the wave is carried through and green, 1 if it is
-red, not finished or finished without its closing seal, 2 if Lydite refused (nothing started) or the record cannot be
-read.
+The exit codes, command by command:
+
+- `lydite launch`: 0 if every task was taken, its proof replayed green and, with `--pr`, the CI green; 1 otherwise; 2
+  if Lydite refused and nothing started.
+- `lydite status`: 0 if the last wave was carried through and green, or there is none; 1 if it is running or red; 2 if
+  the thread cannot be read or a seal is broken. It does not check that the wave was sealed (a killed launch can read
+  green): `lydite wait` does.
+- `lydite wait`: the codes of `lydite status`, with a 1 more for a last wave that carries no seal at all (a launch
+  killed before its first seal). It exits 2 if the thread cannot be read or a seal is broken; if the folder was held
+  and then freed with no new note (a launch refused before it opened its wave); or if, after 60 seconds, there is no
+  new note and no launch holds the folder: there is nothing to wait for.
