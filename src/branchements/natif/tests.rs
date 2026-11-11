@@ -401,11 +401,17 @@ fn plus_de_filtre(d: &Decor, filtre: &[String]) {
     // sur le mauvais chemin.
     assert_eq!(notes_du_faux_reseau(d, "dossiers.txt").len(), 1, "le dossier existait au lancement du filtre");
     assert!(!dossier.exists(), "le dossier du socket reste : {}", dossier.display());
+    assert!(!notes_du_faux_reseau(d, "pids.txt").is_empty(), "le faux note son pid");
+    rien_ne_reste_du_filtre(d);
+}
+
+/// Aucun dossier de socket ne reste à côté du temporaire du bac, et chaque pid que le faux a noté est mort : ne dépend
+/// pas de l'avancée du faux, qui a pu noter tous ses pids, ou aucun.
+#[cfg(unix)]
+fn rien_ne_reste_du_filtre(d: &Decor) {
     let reste: Vec<String> = Decor::contenu(&d.dir).into_iter().filter(|nom| nom.ends_with(".net")).collect();
     assert!(reste.is_empty(), "{reste:?}");
-    let pids = notes_du_faux_reseau(d, "pids.txt");
-    assert!(!pids.is_empty(), "le faux note son pid");
-    for pid in pids {
+    for pid in notes_du_faux_reseau(d, "pids.txt") {
         assert!(crate::essais::meurt(pid.parse().unwrap()), "le processus {pid} du filtre vit encore");
     }
 }
@@ -508,23 +514,81 @@ fn apres_un_delai_depasse_le_filtre_est_arrete_et_son_dossier_retire() {
 fn un_filtre_qui_ne_dit_jamais_ready_est_refuse_a_l_echeance_sans_rien_laisser() {
     let d = decor_court();
     let faux = d.faux();
-    // Le sujet du test est l'échéance : 2 s, bien plus que ce que le faux met à partir, pour qu'il ait écrit ses notes.
-    let reglage = Reglage { pret: Duration::from_secs(2), arret: Duration::from_millis(500), ..reglage_du_faux(&d) };
+    let reglage = Reglage { pret: Duration::from_secs(1), arret: Duration::from_millis(500), ..reglage_du_faux(&d) };
     fs::write(d.dir.join("reseau").join("muet"), "").unwrap();
     let profil = d.profil("reseau = exemple.test\n");
     let (verif, rejeu) = d.rejouer_avec(&faux, &profil, "echo MARQUE-NATIF", &reglage);
     let erreur = rejeu.unwrap_err();
     let debut = "vérification « echo MARQUE-NATIF » impossible : the network filter ";
-    assert!(erreur.starts_with(debut) && erreur.ends_with(" did not say ready within 2 s"), "{erreur}");
+    assert!(erreur.starts_with(debut) && erreur.ends_with(" did not say ready within 1 s"), "{erreur}");
     assert_eq!(verif, None);
-    // Le filtre est parti (le faux a noté son appel), mais le bac non ; et du filtre, qui n'écoutait pas et ne lit pas
-    // son entrée, comme du dossier de son socket, il ne reste rien : l'arbre entier est tué.
-    let filtre = filtre_lance(&d);
+    // Seul ce qui ne dépend pas de l'avancée du faux (il a pu écrire toutes ses notes, ou aucune) : le bac n'est pas
+    // parti, le dossier du socket est retiré, et chaque processus que le faux a noté est mort, l'arbre entier tué. Le
+    // délai lui-même se montre sur un canal préparé : `attendre_pret_rend_muet_a_l_echeance_et_mort_a_la_fermeture`.
     assert!(crate::essais::appels_du_faux_bwrap(&d.dir).is_empty(), "rien ne part");
-    assert_eq!(notes_du_faux_reseau(&d, "pids.txt").len(), 2, "le filtre et son enfant");
-    plus_de_filtre(&d, &filtre);
+    rien_ne_reste_du_filtre(&d);
     assert!(Decor::contenu(&d.temporaire).is_empty(), "le fichier du filtre d'appels système est retiré");
     assert!(!d.dir.join("journal.tmp").exists());
+    let _ = fs::remove_dir_all(&d.dir);
+}
+
+#[test]
+fn attendre_pret_rend_muet_a_l_echeance_et_mort_a_la_fermeture() {
+    let (envoi, lignes) = mpsc::channel::<String>();
+    // L'envoi reste vivant : une ligne qui n'est pas `ready` ne compte pas, puis l'échéance tombe.
+    envoi.send("autre chose".into()).unwrap();
+    assert!(matches!(attendre_pret(&lignes, Duration::from_millis(50)), Err(Silence::Muet)));
+    // La ligne `ready` arrive : le filtre est prêt.
+    envoi.send(PRET.into()).unwrap();
+    assert!(attendre_pret(&lignes, ATTENTE).is_ok());
+    // L'envoi lâché : la sortie du filtre s'est fermée, c'est qu'il est mort, sans attendre l'échéance.
+    drop(envoi);
+    assert!(matches!(attendre_pret(&lignes, ATTENTE), Err(Silence::Mort)));
+}
+
+#[cfg(unix)]
+#[test]
+fn une_commande_qui_ne_part_pas_et_un_filtre_qui_ne_s_arrete_pas_sont_dits_tous_les_deux() {
+    let d = decor_court();
+    let reglage = reglage_du_faux(&d);
+    // Le faux remplace le dossier de son socket par un fichier : il ne se retire pas, et l'arrêt du filtre échoue.
+    fs::write(d.dir.join("reseau").join("fichier"), "").unwrap();
+    let absent = d.dir.join("pas-de-bwrap");
+    let profil = d.profil("reseau = exemple.test\n");
+    let (verif, rejeu) = d.rejouer_avec(absent.as_os_str(), &profil, "true", &reglage);
+    let erreur = rejeu.unwrap_err();
+    assert_eq!(verif, None, "elle n'a pas pu partir");
+    // La commande d'abord, sur sa ligne ; puis l'échec de l'arrêt, sur la sienne, qui nomme le dossier.
+    let (commande, arret) = erreur.split_once('\n').unwrap_or((&erreur, ""));
+    assert!(commande.starts_with("vérification « true » impossible : "), "{erreur}");
+    assert!(!commande.contains("network filter"), "{erreur}");
+    let dossier = Path::new(&filtre_lance(&d)[2]).parent().unwrap().to_path_buf();
+    let attendu = format!("cannot remove the network filter folder {}: ", dossier.display());
+    assert!(arret.starts_with(&attendu), "{erreur}");
+    // Le dossier est bien devenu un fichier, que l'arrêt n'a pas pu retirer : l'échec est réel, pas dit pour rien.
+    assert!(dossier.is_file(), "{}", dossier.display());
+    // Le filtre, lui, est arrêté : son entrée est fermée, il est sorti.
+    for pid in notes_du_faux_reseau(&d, "pids.txt") {
+        assert!(crate::essais::meurt(pid.parse().unwrap()), "le processus {pid} du filtre vit encore");
+    }
+    assert!(Decor::contenu(&d.temporaire).is_empty());
+    assert!(!d.dir.join("journal.tmp").exists());
+    let _ = fs::remove_dir_all(&d.dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn une_commande_qui_ne_part_pas_sans_echec_d_arret_ne_dit_que_son_erreur() {
+    // Le pendant : le même faux, sans le fichier, s'arrête bien ; l'erreur est celle de la commande, seule.
+    let d = decor_court();
+    let reglage = reglage_du_faux(&d);
+    let absent = d.dir.join("pas-de-bwrap");
+    let profil = d.profil("reseau = exemple.test\n");
+    let (verif, rejeu) = d.rejouer_avec(absent.as_os_str(), &profil, "true", &reglage);
+    let erreur = rejeu.unwrap_err();
+    assert_eq!(verif, None);
+    assert!(erreur.starts_with("vérification « true » impossible : ") && !erreur.contains('\n'), "{erreur}");
+    plus_de_filtre(&d, &filtre_lance(&d));
     let _ = fs::remove_dir_all(&d.dir);
 }
 
