@@ -92,6 +92,8 @@ What it does not do for you: a green proof is worth what your proof is worth. Ly
 model, a test of the base that lost lines and an assertion or a tolerance that was removed or changed ("Points to
 justify" in the pull request). It does not judge whether your tests are good.
 
+[docs/refusals.md](docs/refusals.md) lists every refusal code with its rule.
+
 ## How a wave goes
 
 1. You give an objective (or an issue) and **the command that proves the work done**.

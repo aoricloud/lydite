@@ -103,194 +103,200 @@ macro_rules! codes {
 codes! {
     // --- 1000 : contrat ---
     JsonIllisible = 1001, "contrat.json_illisible",
-        "Une ligne du fil est un objet JSON en UTF-8 (RFC 8259).";
+        "A line of the thread is a JSON object in UTF-8 (RFC 8259).";
     VersionDifferente = 1002, "contrat.version_differente",
-        "Un lecteur lit `v` avant tout le reste, et ne lit que la version du fil qu'il connaît.";
+        "A reader reads `v` before anything else, and reads only the thread version it knows.";
     CommandeInconnue = 1005, "contrat.commande_inconnue",
-        "La commande est un mot de la liste fermée de Lydite, que donne l'usage.";
+        "The command is a word from Lydite's closed list, which the usage gives.";
     CommandeMalFormee = 1006, "contrat.commande_mal_formee",
-        "La ligne de commande nomme une commande et lui donne les arguments de son usage, chaque drapeau une \
-         fois, avec sa valeur s'il en prend une.";
+        "The command line names a command and gives it the arguments of its usage, each flag once, with its \
+         value if it takes one.";
     EvenementMalForme = 1009, "contrat.evenement_mal_forme",
-        "Une ligne v2 porte son enveloppe entière et des valeurs plates ; un type connu porte tous ses \
-         champs, chacun dans son domaine, et aucun autre.";
+        "A v2 line carries its whole envelope and flat values; a known type carries all its fields, each in \
+         its domain, and no other.";
     SequenceRompue = 1010, "contrat.sequence_rompue",
-        "Dans une séance, `seq` va 1, 2, 3… dans l'ordre du fil, sans trou ni redite.";
+        "Within a session, `seq` runs 1, 2, 3… in thread order, with no gap and no repeat.";
     // --- 6000 : lancer ---
     ProfilInconnu = 6001, "lancer.profil_inconnu",
-        "Un profil se nomme parmi les profils que Lydite connaît.";
+        "A profile is named among the profiles Lydite knows.";
     DepotIntrouvable = 6002, "lancer.depot_introuvable",
-        "Le dépôt visé est un dossier qui existe.";
+        "The target repository is a folder that exists.";
     BacImpossible = 6003, "lancer.bac_impossible",
-        "Le dépôt visé est un dépôt git qui a un commit, d'où partent les bacs ; sans lui, aucune vague ne s'ouvre.";
+        "The target repository is a git repository with a commit, from which the task worktrees start; without \
+         it, no wave opens.";
     DossierRelatif = 6004, "lancer.dossier_relatif",
-        "`LYDITE_DOSSIER`, s'il est posé, est un chemin absolu.";
+        "`LYDITE_DOSSIER`, if set, is an absolute path.";
     DossierIntrouvable = 6005, "lancer.dossier_introuvable",
-        "Sans `LYDITE_DOSSIER`, le dossier de Lydite se tire de `USERPROFILE` sous Windows, de \
-         `XDG_STATE_HOME` ou de `HOME` ailleurs, chacun absolu.";
+        "Without `LYDITE_DOSSIER`, Lydite's folder is taken from `USERPROFILE` on Windows, from \
+         `XDG_STATE_HOME` or `HOME` elsewhere, each absolute.";
     EntreeSortie = 6006, "lancer.entree_sortie",
-        "Une lecture ou une écriture de Lydite réussit, ou son refus nomme son chemin ou son programme.";
+        "A read or a write by Lydite succeeds, or its refusal names its path or its program.";
     ProfilNomRefuse = 6007, "lancer.profil_nom_refuse",
-        "Un nom de profil est fait de lettres ASCII, de chiffres, de `_` et de `-`.";
+        "A profile name is made of ASCII letters, digits, `_` and `-`.";
     ProfilIllisible = 6008, "lancer.profil_illisible",
-        "Un fichier de profil se lit, en UTF-8 (BOM et retour chariot tolérés) ; sinon son refus nomme son chemin.";
+        "A profile file is read as UTF-8 (BOM and carriage return tolerated); otherwise its refusal names its \
+         path.";
     ProfilLigneRefusee = 6009, "lancer.profil_ligne_refusee",
-        "Chaque ligne du profil est `clé = valeur` d'une clé connue, sa valeur dans son domaine, chaque clé \
-         une fois ; aucun budget.";
+        "Each line of the profile is `key = value` for a known key, its value in its domain, each key once; no \
+         budget.";
     ProfilIncomplet = 6010, "lancer.profil_incomplet",
-        "Un profil dit sa sorte.";
+        "A profile says its kind.";
     ProfilNonAccepte = 6011, "lancer.profil_non_accepte",
-        "Un profil en fichier n'est lancé qu'une fois son empreinte acceptée.";
+        "A profile in a file is launched only once its fingerprint is accepted.";
     ProfilChange = 6012, "lancer.profil_change",
-        "Le profil lancé a l'empreinte acceptée ; une empreinte neuve se réaccepte par `lydite accepter`.";
+        "The launched profile has the accepted fingerprint; a new fingerprint is accepted again by `lydite \
+         accepter`.";
     ProfilSansFichier = 6013, "lancer.profil_sans_fichier",
-        "Seul un profil en fichier s'accepte ; le profil intégré n'a pas d'empreinte à garder.";
+        "Only a profile in a file is accepted; the built-in profile has no fingerprint to keep.";
     PreuveVide = 6014, "lancer.preuve_vide",
-        "`--verifier`, s'il est donné, porte une commande qui n'est pas blanche.";
+        "`--verifier`, if given, carries a command that is not blank.";
     DossierSousLeDepot = 6015, "lancer.dossier_sous_le_depot",
-        "Le dossier de Lydite est hors du dépôt visé.";
+        "Lydite's folder is outside the target repository.";
     PlanVersion = 6016, "lancer.plan_version",
-        "Un plan commence par sa version, `plan 1`, que Lydite lit avant tout le reste.";
+        "A plan starts with its version, `plan 1`, which Lydite reads before anything else.";
     PlanEncodage = 6017, "lancer.plan_encodage",
-        "Un plan est un texte UTF-8, un BOM de tête toléré ; un plan en UTF-16 se réécrit en UTF-8.";
+        "A plan is UTF-8 text, a leading BOM tolerated; a plan in UTF-16 is rewritten in UTF-8.";
     PlanLigne = 6018, "lancer.plan_ligne",
-        "En colonne 0, une ligne de plan est vide, `tache <id>` dans la limite de 10 000 tâches, ou une clé \
-         connue (`depend`, `preuve`, `modele`, `relance`, `fichiers`, `critique` sous une tâche), une seule \
-         fois et à sa place, avant les lignes indentées ; une ligne indentée suit une tâche.";
+        "In column 0, a plan line is empty, `tache <id>` within the limit of 10,000 tasks, or a known key \
+         (`depend`, `preuve`, `modele`, `relance`, `fichiers`, `critique` under a task), once only and in its \
+         place, before the indented lines; an indented line follows a task.";
     PlanIdentifiant = 6019, "lancer.plan_identifiant",
-        "L'id d'une tâche est un mot de lettres et de chiffres ASCII, de `-` et de `_`, unique dans le plan.";
+        "A task id is a word of ASCII letters and digits, `-` and `_`, unique in the plan.";
     PlanDependance = 6020, "lancer.plan_dependance",
-        "Une tâche ne dépend que d'autres tâches du plan, sans cycle.";
+        "A task depends only on other tasks of the plan, without a cycle.";
     PlanBlanc = 6021, "lancer.plan_blanc",
-        "Un plan a un objectif, une preuve et au moins une tâche ; chaque tâche a un objectif, et une \
-         `preuve`, un `modele`, une `relance` ou une `critique` écrits ne sont pas blancs (seul `depend` \
-         peut l'être).";
+        "A plan has an objective, a proof and at least one task; each task has an objective, and a written \
+         `preuve`, `modele`, `relance` or `critique` is not blank (only `depend` may be).";
     BaseRouge = 6022, "lancer.base_rouge",
-        "La preuve de la vague passe sur la base avant toute main, pour qu'un vert d'assemblage ne se doive \
-         qu'aux tâches.";
+        "The wave's proof passes on the base before any hand, so that a green assembly is owed only to the \
+         tasks.";
     DossierCheminRefuse = 6023, "lancer.dossier_chemin_refuse",
-        "Un chemin que Lydite écrit dans une règle de permission, son dossier ou un dossier de connexion de \
-         Claude, est absolu et s'écrit tel quel : sous Windows il commence par une lettre de lecteur, et ses \
-         noms ne portent ni parenthèse, ni `*`, `?`, `[`, `]`, `{`, `}`, ni guillemet, ni barre inverse.";
+        "A path that Lydite writes into a permission rule, its folder or a Claude connection folder, is \
+         absolute and is written as is: on Windows it starts with a drive letter, and its names carry no \
+         parenthesis, no `*`, `?`, `[`, `]`, `{`, `}`, no quote and no backslash.";
     PlanChemin = 6024, "lancer.plan_chemin",
-        "Un chemin de `fichiers` est relatif à la racine du dépôt, écrit avec `/`, sans `..`, hors de `.git/` \
-         et de `.claude/` ; dans un plan découpé, il porte la casse que git lui connaît dans la base.";
+        "A `fichiers` path is relative to the repository root, written with `/`, without `..`, outside `.git/` \
+         and `.claude/`; in a split plan, it has the case that git knows for it in the base.";
     PlanBorne = 6025, "lancer.plan_borne",
-        "Un plan pèse 1 Mo au plus ; un plan découpé a 12 tâches au plus, et chacune a `fichiers` et \
-         `modele`, sans `preuve` à elle (toutes jouent celle de la vague) ; une ligne `fichiers` a 100 \
-         chemins au plus.";
+        "A plan weighs 1 MB at most; a split plan has 12 tasks at most, and each has `fichiers` and `modele`, \
+         with no `preuve` of its own (all play the wave's); a `fichiers` line has 100 paths at most.";
     PlanEntete = 6026, "lancer.plan_entete",
-        "Un plan découpé porte l'en-tête que Lydite a demandé : l'objectif et la preuve de l'humain, tels quels.";
+        "A split plan carries the header that Lydite asked for: the human's objective and proof, as they are.";
     Fournisseur = 6027, "lancer.fournisseur",
-        "Un profil qui nomme un fournisseur donne `api`, une URL en https, et `cle`, le nom d'une variable \
-         d'environnement posée et non vide, jamais la clé elle-même.";
+        "A profile that names a provider gives `api`, an https URL, and `cle`, the name of an environment \
+         variable that is set and not empty, never the key itself.";
     MurRefuse = 6028, "lancer.mur_refuse",
-        "Sous un mur exigé, srt joue `true` sous des réglages de rejeu avant toute main et avant l'épreuve de \
-         la base ; sinon rien n'est lancé.";
+        "Under a required wall, srt plays `true` under replay settings before any hand and before the base \
+         check; otherwise nothing is launched.";
     IssueSansMur = 6029, "lancer.issue_sans_mur",
         "`--issue` only runs under a profile whose wall is required, because the text of an issue comes from \
          someone else: `mur = exige` in the profile, then `lydite accepter <profile>`, or an objective typed by \
          hand.";
     Quota = 6030, "lancer.quota",
-        "Sous un quota du jour posé (`profils/quota`, en dollars), une main ne part pas quand la dépense estimée \
-         du jour UTC l'atteint, quand le fichier ne se lit pas, ni quand son profil à `api` n'a pas de `prix` \
-         pour son modèle ; dépenser au-delà revient à l'humain.";
+        "Under a daily quota that is set (`profils/quota`, in dollars), a hand does not start when the estimated \
+         spend of the UTC day reaches it, when the file cannot be read, or when its profile with `api` has no \
+         `prix` for its model; spending beyond it is for the human.";
     LeconMalFormee = 6031, "lancer.lecon_mal_formee",
-        "Une leçon est un `.agents/skills/<nom>/SKILL.md` de 4096 octets au plus, en UTF-8 : une en-tête `name` (le \
-         dossier) et `description` (une ligne), puis `## What happened`, `## Why`, `## How it is checked`, \
-         `## Pitfall`, `## Files` (des lignes `- <chemin>`) et `## Falls when`, chacune une fois, dans l'ordre, avec \
-         du texte.";
+        "A lesson is a `.agents/skills/<name>/SKILL.md` of 4096 bytes at most, in UTF-8: a header `name` (the \
+         folder) and `description` (one line), then `## What happened`, `## Why`, `## How it is checked`, \
+         `## Pitfall`, `## Files` (lines `- <path>`) and `## Falls when`, each once, in order, with text.";
     DossierPris = 6032, "lancer.dossier_pris",
-        "Un lancement tient le dossier de Lydite pour lui seul jusqu'à la fin de son processus : un second \
-         lancement sur le même dossier est refusé, car ils écriraient le même fil et liraient le même quota.";
+        "A launch holds Lydite's folder for itself until its process ends: a second launch on the same folder \
+         is refused, because they would write the same thread and read the same quota.";
     EffortNonPermis = 6033, "lancer.effort_non_permis",
-        "Un plan ne demande qu'un effort que le profil permet (`efforts_permis`).";
+        "A plan asks only for an effort that the profile allows (`efforts_permis`).";
     // --- 7000 : vague ---
     VagueBacImpossible = 7001, "vague.bac_impossible",
-        "Chaque tâche a son bac, que git pose juste avant sa main ; une tâche sans bac est refusée, et les \
-         autres continuent.";
+        "Each task has its own worktree, which git creates just before its hand; a task without a worktree is \
+         refused, and the others go on.";
     MainActive = 7002, "vague.main_active",
-        "Une tâche n'a jamais deux mains actives : une main ne part que sur une tâche sans bail ouvert ni expiré.";
+        "A task never has two active hands: a hand starts only on a task with no lease, open or expired.";
     ResultatPerime = 7003, "vague.resultat_perime",
-        "Un résultat n'est pris que s'il porte la tentative du bail ouvert de sa tâche ; tout autre est périmé.";
+        "A result is taken only if it carries the attempt of its task's open lease; any other is stale.";
     MainExpiree = 7004, "vague.main_expiree",
-        "Une main qui n'a rien rendu à l'échéance de son bail expire, et sa tâche est refusée sans relance.";
+        "A hand that has returned nothing when its lease runs out expires, and its task is refused without a \
+         retry.";
     MainTuee = 7005, "vague.main_tuee",
-        "Une main que Lydite a tuée à son délai n'est pas relancée, et sa tâche est refusée : sa mise à mort \
-         ne prouve pas que tout son arbre est mort.";
+        "A hand that Lydite killed at its deadline is not retried, and its task is refused: killing it does \
+         not prove that its whole tree is dead.";
     ClaudeTouche = 7006, "vague.claude_touche",
-        "Une main ne touche à aucun dossier `.claude/` de son bac, à toute profondeur, sauf l'état que Claude \
-         Code y tient lui-même hors de git ; Lydite le vérifie avant toute relance dans ce bac, et au gel, dans \
-         ce qu'il commite comme dans l'histoire qu'il apporte. Une butée du mur, fichier ordinaire vide en \
-         lecture seule posé par le bac à sable, n'est pas une écriture de la main.";
+        "A hand touches no `.claude/` folder of its worktree, at any depth, except the state that Claude Code \
+         keeps there itself outside git; Lydite checks it before any retry in that worktree, and at the \
+         freeze, in what it commits as in the history it brings. A wall stop, an empty read-only ordinary file \
+         laid by the sandbox, is not a write by the hand.";
     Conflit = 7007, "vague.conflit",
-        "Une prise s'assemble sans conflit sur la tête de la vague ; en conflit, elle est refusée sans relance.";
+        "A hand's work merges onto the wave's head without conflict; in conflict, it is refused without a \
+         retry.";
     PreuveRouge = 7008, "vague.preuve_rouge",
-        "Après chaque fusion, la preuve de la vague passe sur la tête ; rouge, la fusion est défaite et la \
-         tâche refusée sans relance.";
+        "After each merge, the wave's proof passes on the head; red, the merge is undone and the task refused \
+         without a retry.";
     GitImpossible = 7009, "vague.git_impossible",
-        "Les gestes git de la vague réussissent ; un autre échec de git refuse la tâche sans faire avancer la \
-         branche de la vague.";
+        "The wave's git steps succeed; any other git failure refuses the task without advancing the wave's \
+         branch.";
     AssemblageFerme = 7010, "vague.assemblage_ferme",
-        "Le worktree de la vague revient à sa tête après chaque échec ; s'il ne le peut, l'assemblage se \
-         ferme et plus rien ne s'y fusionne.";
+        "The wave's worktree returns to its head after each failure; if it cannot, the assembly closes and \
+         nothing is merged into it any more.";
     Sautee = 7011, "vague.sautee",
-        "Une tâche ne part que si toutes ses dépendances sont assemblées ; sinon, elle est sautée, sans bac.";
+        "A task starts only if all its dependencies are assembled; otherwise it is skipped, without a \
+         worktree.";
     FilInjoignable = 7012, "vague.fil_injoignable",
-        "Tout geste de la vague est noté au fil avant d'agir ; une note ratée arrête les départs et les fusions.";
+        "Every step of the wave is noted in the thread before it acts; a failed note stops the starts and the \
+         merges.";
     HorsFichiers = 7013, "vague.hors_fichiers",
-        "Une main ne change que les chemins des `fichiers` de sa tâche ; un autre chemin rougit sa tentative.";
+        "A hand changes only the paths of its task's `fichiers`; any other path turns its attempt red.";
     BacTouche = 7014, "vague.bac_touche",
-        "Le découpeur et le relecteur n'écrivent que leur fichier, ordinaire et que le dépôt n'ignore pas, à \
-         la racine de leur bac ; rien d'autre n'y change.";
+        "The splitter and the reviewer write only their own file, an ordinary one that the repository does not \
+         ignore, at the root of their worktree; nothing else changes there.";
     RemarquesIllisibles = 7015, "vague.remarques_illisibles",
-        "Le fichier du relecteur suit le format `remarques 2` ; sinon sa tentative est rouge.";
+        "The reviewer's file follows the `remarques 2` format; otherwise its attempt is red.";
     RelectureManquee = 7016, "vague.relecture_manquee",
-        "Le travail d'une tâche critique ne se pousse qu'une fois relu ; une relecture classée, et rien ne se pousse.";
+        "The work of a critical task is pushed only once reviewed; a review that is set aside, and nothing is \
+         pushed.";
     BloquantesRestantes = 7017, "vague.bloquantes_restantes",
-        "Des remarques bloquantes valent une seule correction ; non assemblée, rien ne se pousse.";
+        "Blocking remarks are worth a single correction; not assembled, nothing is pushed.";
     CheminProtege = 7018, "vague.chemin_protege",
         "A hand changes no path that its profile protects (proteges), neither by an edit nor by a command.";
     PlafondAtteint = 7019, "vague.plafond_atteint",
-        "Une main qui atteint son plafond de dépense est arrêtée et pas relancée ; sa tâche est refusée, et la \
-         suite revient à l'humain.";
+        "A hand that reaches its spending cap is stopped and not retried; its task is refused, and what \
+         follows is for the human.";
     BloquanteHorsDePortee = 7020, "vague.bloquante_hors_de_portee",
         "A blocking remark targets a file that the correction cannot touch; the wave stops before any correction \
          and nothing is pushed.";
     // --- 8000 : forge ---
     DistantIllisible = 8001, "forge.distant_illisible",
-        "Avec `--pr`, le dépôt visé a un distant `origin` dont l'URL nomme un hôte, un propriétaire et un dépôt.";
+        "With `--pr`, the target repository has a remote `origin` whose URL names a host, an owner and a \
+         repository.";
     BaseInconnue = 8002, "forge.base_inconnue",
-        "La base que nomme `--pr` est une branche du distant, que Lydite va chercher avant la vague.";
+        "The base that `--pr` names is a branch of the remote, which Lydite fetches before the wave.";
     GhInjoignable = 8003, "forge.gh_injoignable",
-        "`gh` se lance et se dit connecté à l'hôte du distant avant la vague.";
+        "`gh` starts and says it is logged in to the remote's host before the wave.";
     RienAPousser = 8004, "forge.rien_a_pousser",
-        "La branche de la vague a au moins un commit de plus que sa base ; sinon rien ne se pousse.";
+        "The wave's branch has at least one more commit than its base; otherwise nothing is pushed.";
     PublicationRefusee = 8005, "forge.publication_refusee",
-        "Lydite ne publie ni un changement de `.github/`, ni un chemin du poste, ni un commit qu'il n'a pas \
-         fait, ni un mot du fichier `garde` de l'utilisateur ; publier ceux-là revient à l'humain.";
+        "Lydite publishes no change under `.github/`, no path of the workstation, no commit it did not make, \
+         and no word of the user's `garde` file; publishing those is for the human.";
     PousseeRefusee = 8006, "forge.poussee_refusee",
-        "La vague se pousse sans forcer, dans son délai ; sinon rien ne s'ouvre.";
+        "The wave is pushed without force, within its deadline; otherwise nothing is opened.";
     PrImpossible = 8007, "forge.pr_impossible",
-        "Une fois la branche poussée, `gh` ouvre la PR contre la base et la relit sur le sha poussé ; sinon \
-         la branche reste poussée, sans PR.";
+        "Once the branch is pushed, `gh` opens the PR against the base and reads it back on the pushed sha; \
+         otherwise the branch stays pushed, with no PR.";
     CiMuette = 8008, "forge.ci_muette",
-        "La CI de la PR rend son verdict dans son délai ; une PR sans CI n'est jamais prise.";
+        "The PR's CI gives its verdict within its deadline; a PR without CI is never taken.";
     AReintegrer = 8009, "forge.a_reintegrer",
-        "Lydite ne relance une CI rouge que sur une PR sans conflit dont la base n'a pas bougé ; sinon la \
-         base est à réintégrer.";
+        "Lydite retries a red CI only on a PR without conflict whose base has not moved; otherwise the base is \
+         to be merged back in.";
     PrChangee = 8010, "forge.pr_changee",
-        "Pendant que Lydite attend sa CI, la PR porte le sha poussé, n'est pas fermée, et n'est pas fusionnée sur \
-         une CI rouge ; sinon il s'arrête.";
+        "While Lydite waits for its CI, the PR carries the pushed sha, is not closed, and is not merged on a \
+         red CI; otherwise it stops.";
     CiRouge = 8011, "forge.ci_rouge",
-        "Une CI rouge vaut une seule relance, l'erreur en contexte ; rouge encore, ou la relance pas \
-         assemblée, la PR reste ouverte et rouge.";
+        "A red CI is worth a single retry, with the error in context; red again, or the retry not assembled, \
+         the PR stays open and red.";
     IssueIllisible = 8012, "forge.issue_illisible",
-        "L'issue que nomme `--issue` se lit par `gh`, existe sur le distant `origin` et est ouverte ; sinon \
-         rien n'est lancé.";
+        "The issue that `--issue` names is read by `gh`, exists on the remote `origin` and is open; otherwise \
+         nothing is launched.";
     IssueTropLongue = 8013, "forge.issue_trop_longue",
-        "Le titre et le corps de l'issue sont de l'UTF-8 et pèsent ensemble 64 Kio au plus (65 536 octets) ; \
-         sinon rien n'est lancé.";
+        "The issue's title and body are UTF-8 and weigh 64 KiB at most together (65,536 bytes); otherwise \
+         nothing is launched.";
 }
 
 impl fmt::Display for Code {
@@ -330,7 +336,7 @@ impl fmt::Display for Refus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (code, regle) = (self.code, self.code.regle());
         let (preuve, correction) = (sur_une_ligne(&self.preuve), sur_une_ligne(&self.correction));
-        write!(f, "lydite : {code}\n  règle : {regle}\n  preuve : {preuve}\n  correction : {correction}")
+        write!(f, "lydite : {code}\n  rule: {regle}\n  seen: {preuve}\n  fix: {correction}")
     }
 }
 
