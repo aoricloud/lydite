@@ -357,7 +357,7 @@ fn un_bac_qui_touche_claude_n_est_pas_fige() {
     let (verif, issue) = assemblage.fusionner(&bac, &base, "t", None, 1, |_, _| panic!("rien ne se note"));
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
-    assert!(refus.preuve.ends_with(" : .claude/settings.json"), "{refus}");
+    assert!(refus.preuve.ends_with(": .claude/settings.json"), "{refus}");
     // Ni figé (aucun commit, rien d'ajouté), ni assemblé : la branche à sa tête.
     assert_eq!(git(&bac, &["rev-parse", "HEAD"]), base);
     assert_eq!(git(&bac, &["diff", "--cached", "--name-only"]), "");
@@ -380,7 +380,7 @@ fn un_claude_commite_puis_ote_n_est_ni_fige_ni_fusionne() {
     let (verif, issue) = assemblage.fusionner(&bac, &base, "t", None, 1, |_, _| panic!("rien ne se note"));
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
-    assert!(refus.preuve.ends_with(" : .claude/settings.json"), "{refus}");
+    assert!(refus.preuve.ends_with(": .claude/settings.json"), "{refus}");
     // Ni figé (le bac n'a que le commit de la main, et l'effacement n'est pas ajouté), ni assemblé : la branche à sa
     // tête.
     assert_eq!(git(&bac, &["rev-list", "--count", &format!("{base}..HEAD")]), "1");
@@ -792,7 +792,7 @@ fn git_qui_ne_dit_pas_ce_que_la_main_a_change_est_le_refus_7009() {
     // couvert par défaut.
     let refus = fichiers_tenus(&racine.join("absent"), &base, "t", &chemins(&["src/"])).unwrap_err();
     assert_eq!(refus.code, Code::GitImpossible);
-    assert!(refus.preuve.starts_with("lancement impossible de git status "), "{refus}");
+    assert!(refus.preuve.starts_with("cannot start git status "), "{refus}");
     let refus = fichiers_tenus(&bac, &"0".repeat(40), "t", &chemins(&["src/"])).unwrap_err();
     assert_eq!(refus.code, Code::GitImpossible);
     assert!(refus.preuve.starts_with("git diff --name-only -z --no-renames 0000"), "{refus}");

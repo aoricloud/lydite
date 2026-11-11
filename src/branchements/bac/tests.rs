@@ -125,7 +125,7 @@ fn touche(depot: &Path, kraken: &Path, fait: impl FnOnce(&Path), vus: &[&str]) {
     fait(&bac);
     let refus = sans_claude(&bac, &depart).unwrap_err();
     assert_eq!(refus.code, Code::ClaudeTouche, "{vus:?} : {refus}");
-    let preuve = format!("la main a touché un dossier .claude dans son bac {} : {}", bac.display(), vus.join(", "));
+    let preuve = format!("the hand touched a .claude folder in its sandbox {}: {}", bac.display(), vus.join(", "));
     assert_eq!(refus.preuve, preuve);
     assert!(!refus.correction.trim().is_empty());
 }
@@ -172,7 +172,7 @@ fn sans_claude_voit_suivi_non_suivi_ignore_commite_efface_et_autre_casse() {
     // Git qui ne part pas (un bac absent) ou qui refuse (un départ inconnu) : le refus 7009, jamais un bac propre.
     let absent = sans_claude(&neuf("claude-absent"), &depart).unwrap_err();
     assert_eq!(absent.code, Code::GitImpossible);
-    assert!(absent.preuve.starts_with("lancement impossible de git diff --name-only "), "{absent}");
+    assert!(absent.preuve.starts_with("cannot start git diff --name-only "), "{absent}");
     let inconnu = sans_claude(&bac, &"0".repeat(40)).unwrap_err();
     assert_eq!(inconnu.code, Code::GitImpossible);
     assert!(inconnu.preuve.starts_with("git diff --name-only 0000"), "{inconnu}");
@@ -621,7 +621,7 @@ fn un_bac_qui_ne_se_pose_pas_est_refuse_en_7001() {
     let refus = bac(&nu, &kraken, "main-1", "HEAD").unwrap_err();
     assert_eq!(refus.code, Code::VagueBacImpossible);
     assert!(refus.preuve.starts_with("git worktree add"), "la preuve nomme la commande de git : {refus}");
-    assert!(refus.preuve.contains(&format!("dans {} a échoué", nu.display())), "et son dossier : {refus}");
+    assert!(refus.preuve.contains(&format!("in {} failed", nu.display())), "et son dossier : {refus}");
     assert!(refus.correction.contains("lydite/main-1"), "la correction nomme la branche : {refus}");
     let _ = fs::remove_dir_all(&nu);
 }

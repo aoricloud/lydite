@@ -54,7 +54,7 @@ pub(crate) fn tuer_arbre(pid: u32) -> Result<(), EchecDeMiseAMort> {
         taskkill.args(["/T", "/F", "/PID", &pid.to_string()]);
         (taskkill, format!("taskkill /T /F /PID {pid}"))
     } else {
-        let proc = fs::read_dir("/proc").map_err(|e| EchecDeMiseAMort::NonParti(format!("/proc illisible : {e}")))?;
+        let proc = fs::read_dir("/proc").map_err(|e| EchecDeMiseAMort::NonParti(format!("/proc unreadable: {e}")))?;
         let liens: Vec<(u32, u32)> = proc
             .filter_map(|entree| fs::read_to_string(entree.ok()?.path().join("stat")).ok())
             .filter_map(|stat| parent(&stat))
@@ -65,12 +65,12 @@ pub(crate) fn tuer_arbre(pid: u32) -> Result<(), EchecDeMiseAMort> {
         kill.arg("-KILL").args(&pids);
         (kill, format!("kill -KILL {}", pids.join(" ")))
     };
-    let sortie = tueur.output().map_err(|e| EchecDeMiseAMort::NonParti(format!("{nom} impossible : {e}")))?;
+    let sortie = tueur.output().map_err(|e| EchecDeMiseAMort::NonParti(format!("cannot start {nom}: {e}")))?;
     if sortie.status.success() {
         return Ok(());
     }
     let (erreur, texte) = (String::from_utf8_lossy(&sortie.stderr), String::from_utf8_lossy(&sortie.stdout));
-    Err(EchecDeMiseAMort::CodeNonNul(format!("{nom} ({}) : {}{}", sortie.status, erreur.trim(), texte.trim())))
+    Err(EchecDeMiseAMort::CodeNonNul(format!("{nom} ({}): {}{}", sortie.status, erreur.trim(), texte.trim())))
 }
 
 /// L'échec de [`tuer_arbre`] : l'outil n'a pas pu partir, ou il a tourné et rendu un code non nul. Le texte le dit.
@@ -112,13 +112,13 @@ pub(crate) fn tuer_les_restes(bac: &Path) -> Result<(), String> {
     {
         use std::os::unix::fs::MetadataExt;
         let bac = fs::canonicalize(bac).or_else(|_| path::absolute(bac));
-        let bac = bac.map_err(|e| format!("bac illisible : {e}"))?;
+        let bac = bac.map_err(|e| format!("sandbox unreadable: {e}"))?;
         // La racine du système n'est le bac de personne : tout processus y serait « dans le bac ».
         if bac.file_name().is_none() {
             return Ok(());
         }
-        let proc = fs::read_dir("/proc").map_err(|e| format!("/proc illisible : {e}"))?;
-        let compte = fs::metadata("/proc/self").map_err(|e| format!("/proc/self illisible : {e}"))?.uid();
+        let proc = fs::read_dir("/proc").map_err(|e| format!("/proc unreadable: {e}"))?;
+        let compte = fs::metadata("/proc/self").map_err(|e| format!("/proc/self unreadable: {e}"))?.uid();
         let moi = std::process::id();
         let pids: Vec<u32> = proc
             .filter_map(|entree| {
@@ -137,14 +137,14 @@ pub(crate) fn tuer_les_restes(bac: &Path) -> Result<(), String> {
             .arg("-KILL")
             .args(&noms)
             .output()
-            .map_err(|e| format!("kill -KILL {} impossible : {e}", noms.join(" ")))?;
+            .map_err(|e| format!("cannot start kill -KILL {}: {e}", noms.join(" ")))?;
         // Un processus mort entre le relevé et le coup n'est pas un échec ; un qui vit encore en est un.
         let vivants: Vec<&String> = noms.iter().filter(|pid| vivant(pid)).collect();
         if sortie.status.success() || vivants.is_empty() {
             return Ok(());
         }
         let (erreur, texte) = (String::from_utf8_lossy(&sortie.stderr), String::from_utf8_lossy(&sortie.stdout));
-        Err(format!("kill -KILL {} ({}) : {}{}", noms.join(" "), sortie.status, erreur.trim(), texte.trim()))
+        Err(format!("kill -KILL {} ({}): {}{}", noms.join(" "), sortie.status, erreur.trim(), texte.trim()))
     }
     #[cfg(not(target_os = "linux"))]
     {
