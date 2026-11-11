@@ -130,10 +130,10 @@ your own account or provider key: even looking at a plan runs one hand.
 gh release download --repo aoricloud/lydite --pattern 'lydite-*-linux-x86_64.tar.gz*'
 gh attestation verify lydite-*-linux-x86_64.tar.gz --repo aoricloud/lydite    # or: sha256sum -c lydite-*.tar.gz.sha256
 tar -xzf lydite-*-linux-x86_64.tar.gz
-mkdir -p ~/.local/bin && install -m 755 lydite-*-linux-x86_64/lydite ~/.local/bin/lydite
+mkdir -p ~/.local/bin && install -m 755 lydite-*-linux-x86_64/lydite lydite-*-linux-x86_64/lydite-reseau ~/.local/bin/
 ```
 
-Or build it: `cargo build --release` (the toolchain is pinned by `rust-toolchain.toml`).
+Or build it: `cargo build --release`, and `cargo build --release --manifest-path reseau/Cargo.toml` for `lydite-reseau`, which only the native wall needs (the toolchain is pinned by `rust-toolchain.toml`).
 
 **Check your setup.** Run `lydite doctor`: it launches no hand, writes nothing, and says for `git`, `gh`, Claude Code,
 `srt` and the state folder whether they are in order. Then, from your repository once the profile is accepted, run
@@ -191,7 +191,7 @@ provider (`api`) it may never trigger.
 | Word | Meaning |
 |---|---|
 | `sorte`, `modele`, `relance` | profile: kind of hand, its model, the model of the retry |
-| `mur = exige` / `demande` | the wall is required / only requested |
+| `mur = exige` / `demande` / `natif` | the wall is required (srt replays your proof) / only requested / required, and Lydite's native wall replays your proof (see "Native wall") |
 | `lecture`, `reseau` | paths the hands' commands may read, domains they may reach |
 | `plafond` | the most one hand may spend, in dollars |
 
@@ -342,6 +342,14 @@ The optional `mesure` key is made for a measurement bench only, never for a real
 lydite accept <name>          # shows the profile and accepts its fingerprint; a changed profile must be accepted again
 lydite profile <name>         # read-only: loads the profile as `launch` does and says its source, fingerprint, models, efforts, wall (required or requested), where the proof is replayed, the per-hand ceiling and the two timeouts
 ```
+
+### Native wall (optional)
+
+By default, the wall check before a wave and the replay of your proof go through srt. With `mur = natif`, Lydite runs bubblewrap itself and filters the network with `lydite-reseau`, instead of srt, for both: the wall is required exactly as with `mur = exige`, and srt is neither looked for nor run.
+
+To turn it on, write `mur = natif` in the profile, then accept it again (`lydite accept <name>`). It needs Linux, bubblewrap (`bwrap`, or the program `LYDITE_BWRAP` names), and `lydite-reseau` next to `lydite` or named by `LYDITE_RESEAU`; unprivileged user namespaces must be open on the system. Neither Node nor srt is needed to replay your proof. `lydite doctor <name>` then checks bubblewrap and `lydite-reseau` instead of srt. A wall that does not hold is refused with 6028 before any hand, and the refusal says what is missing: bubblewrap, `lydite-reseau`, or the user namespaces the system closes. `mur = exige` goes back to srt.
+
+Its limit: it covers the wall check and the replay of your proof only. The commands of a Claude Code hand still run under Claude Code's own sandbox, as with `mur = exige`. srt stays the default.
 
 ### Plans
 

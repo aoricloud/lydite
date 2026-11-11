@@ -508,6 +508,26 @@ fn kraken_etat_dit_le_mur() {
     assert_eq!(etat_de_t(&assemblee), "assembled · wall active (observed)");
 }
 
+#[test]
+fn kraken_etat_dit_le_mur_natif_declare() {
+    // Un profil `mur = natif` : le lancement le déclare, et la ligne le dit comme ses deux voisines, sans rien changer
+    // à celle d'un mur exigé par srt.
+    let natif = etat(&[ouverture(V2, 2, "Écrire bonjour.txt"), debut(V2, 1, 1), lancement(V2, 1, 1, fil::Mur::Natif)]);
+    assert_eq!(mot_du_mur(natif[0].mains.get(&1)), " · wall required, native (declared)");
+    let exige = etat(&[ouverture(V2, 2, "Écrire bonjour.txt"), debut(V2, 1, 1), lancement(V2, 1, 1, fil::Mur::Exige)]);
+    assert_eq!(mot_du_mur(exige[0].mains.get(&1)), " · wall required (declared)");
+    let ligne = format!("main-{V2}-1 : running, attempt 1 · wall required, native (declared)");
+    assert!(rendu(&natif, MAINTENANT).contains(&ligne), "{ligne}");
+    // Un constat qui dit le mur actif l'emporte sur le mot déclaré, natif comme les autres.
+    let constate = etat(&[
+        ouverture(V2, 2, "Écrire bonjour.txt"),
+        debut(V2, 1, 1),
+        lancement(V2, 1, 1, fil::Mur::Natif),
+        constat(V2, 1, 1, Some(true)),
+    ]);
+    assert_eq!(mot_du_mur(constate[0].mains.get(&1)), " · wall active (observed)");
+}
+
 /// Le sha de la tête que la forge pousse dans ces tests, et l'adresse de la PR 12 qu'elle ouvre.
 const TETE: &str = "c3a91e07d5f2486b0a7e3d915c28b4f60e1d7a39";
 const URL_DE_LA_PR: &str = "https://github.com/exemple/depot/pull/12";

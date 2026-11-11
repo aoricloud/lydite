@@ -50,10 +50,6 @@
 //!
 //! Le programme se lit dans `LYDITE_RESEAU`, sinon `lydite-reseau` à côté de l'exécutable de Lydite.
 
-#![cfg_attr(not(all(test, target_os = "linux")), expect(dead_code))]
-// raccourci : rien dans le profil ne mène encore ici, seule la grille (des tests, sous Linux) appelle ce rejeu ;
-// l'appelant qui choisit le mur natif à la place de srt le prendra, et rustc dira alors cette attente inutile
-
 use std::cell::RefCell;
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -116,6 +112,64 @@ pub(crate) fn programme() -> OsString {
 /// Le programme qu'une valeur de `LYDITE_BWRAP` désigne : une valeur absente ou vide laisse `bwrap`.
 fn programme_selon(valeur: Option<OsString>) -> OsString {
     valeur.filter(|valeur| !valeur.is_empty()).unwrap_or_else(|| "bwrap".into())
+}
+
+/// Le programme `bwrap` part-il ? Il se lance en `--version`, hors de tout mur, sans rien créer : seul compte qu'il
+/// parte, son code de sortie n'est pas jugé. Le texte de l'erreur dit pourquoi il ne part pas. Un `bwrap` qui ne se
+/// termine pas avant l'échéance est tué : il est parti.
+pub(crate) fn bwrap_part(programme: &OsStr) -> Result<(), String> {
+    let mut enfant = Command::new(programme)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    if !matches!(attendre(&mut enfant, echeance(ATTENTE_DU_FILTRE)), Ok(Some(_))) {
+        let _ = tuer_et_attendre(&mut enfant);
+    }
+    Ok(())
+}
+
+/// Ce qui manque au mur natif quand il ne joue pas `true`, d'après l'erreur de son rejeu ([`manque`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Manque {
+    /// `lydite-reseau`, le filtre du réseau : introuvable, ou il ne se lance pas.
+    Reseau,
+    /// Le chemin du socket du filtre est trop long pour un socket Unix : le dossier d'état de Lydite est trop long.
+    SocketLong,
+    /// `lydite-reseau` part, mais meurt ou se tait avant de dire `ready` : ce qu'il a dit se lit dans l'erreur.
+    FiltreMort,
+    /// Les espaces d'utilisateur (ou les montages) que le système ferme : `bwrap` part, mais ne monte pas son mur.
+    Espaces,
+    /// Une autre cause : l'erreur du rejeu la dit.
+    Autre,
+}
+
+/// Ce que l'erreur d'un rejeu raté dit qui manque au mur natif.
+///
+/// Le diagnostic se fait d'abord sur ce que le mur écrit lui-même, `vérification « <commande> » impossible : <erreur
+/// du mur>`, jamais sur la sortie de la commande, qui peut porter n'importe quel mot : le chemin d'un socket trop
+/// long, un filtre qui meurt (ou se tait) avant `ready`, `lydite-reseau` introuvable ou qui ne part pas. Les espaces
+/// d'utilisateur, eux, se lisent dans ce que `bwrap` écrit quand le système les ferme (`namespace`, `uid map`, `not
+/// permitted`), sa sortie après le statut rouge, et seulement si le mur n'a rien dit de lui-même. Une erreur qui ne
+/// commence pas par `impossible :` (`rouge`, `temps dépassé`, ou queue d'une sortie longue) est toute sortie.
+pub(crate) fn manque(erreur: &str) -> Manque {
+    let du_mur = erreur.lines().next().is_some_and(|ligne| ligne.contains("» impossible : "));
+    let (mur, sortie) = if du_mur { (erreur, "") } else { ("", erreur) };
+    let (mur, sortie) = (mur.to_lowercase(), sortie.to_lowercase());
+    let dit = |texte: &str, mots: &[&str]| mots.iter().any(|mot| texte.contains(mot));
+    if dit(&mur, &["network filter socket path"]) {
+        Manque::SocketLong
+    } else if dit(&mur, &["exited before it said", "did not say ready"]) {
+        Manque::FiltreMort
+    } else if dit(&mur, &["needs lydite-reseau", "lydite_reseau is not set", "cannot start the network filter"]) {
+        Manque::Reseau
+    } else if dit(&sortie, &["namespace", "uid map", "gid map", "not permitted"]) {
+        Manque::Espaces
+    } else {
+        Manque::Autre
+    }
 }
 
 /// Le dossier personnel, où se déplie `~` : `HOME`. Absent ou vide, ou pas absolu, il ne se déplie pas, et le mur ne

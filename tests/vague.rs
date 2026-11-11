@@ -681,3 +681,269 @@ fn une_main_qui_reecrit_le_git_de_son_bac_ne_detourne_aucun_geste_de_la_vague() 
     assert_eq!(git(&autre, &["status", "--porcelain"]), "");
     let _ = fs::remove_dir_all(&racine);
 }
+
+// Les essais du mur natif (`mur = natif`) : un faux bwrap, un faux `lydite-reseau` et un faux srt qui note ses appels,
+// que le profil ne doit jamais lancer. Unix seulement : le mur natif est bubblewrap. Leurs chemins sont courts : le
+// socket du filtre réseau vit sous le dossier de Kraken, et un chemin de socket Unix tient 107 octets au plus.
+
+/// Une racine neuve au nom court, sous le dossier temporaire du système : `n<pid><suffixe>`.
+#[cfg(unix)]
+fn racine_courte(suffixe: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("n{}{suffixe}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Écrit un faux programme dans `dir` et le lance une fois (`--version`), jusqu'à ce que son `exec` parte : un autre
+/// test qui lance un processus au même instant tient un moment le descripteur d'écriture du script, et son `exec` rend
+/// alors « Text file busy ». Le délai est un garde-fou, non une attente. Chaque faux sort en 0 sur `--version`.
+#[cfg(unix)]
+fn faux_programme(dir: &Path, nom: &str, lignes: &[String]) -> PathBuf {
+    let chemin = dir.join(nom);
+    script(&chemin, lignes);
+    let debut = Instant::now();
+    loop {
+        let lancement = Command::new(&chemin).arg("--version").stdin(Stdio::null()).output();
+        match lancement {
+            Err(e)
+                if e.kind() == std::io::ErrorKind::ExecutableFileBusy && debut.elapsed() < Duration::from_secs(30) =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            autre => break assert!(autre.is_ok(), "{} ne part pas", chemin.display()),
+        }
+    }
+    chemin
+}
+
+/// Les trois faux du mur natif, sous `<racine>/faux`, et leurs notes (`bwrap.log`, `reseau.log`, `srt.log`, une ligne
+/// par appel, ses arguments). Le faux bwrap joue ce qui suit son premier `--`, sans mur ; s'il reçoit `echec`, il dit
+/// ce texte sur ses erreurs et rend 1 à tout appel autre que `--version`. Le faux `lydite-reseau` dit `ready` en
+/// `filtre` puis lit son entrée jusqu'à sa fermeture, et joue ce qui suit son premier `--` en `relais`. Le faux srt
+/// saute `--settings <fichier>` et joue la commande. Aucun ne note `--version`, avec lequel le test et Lydite les
+/// sondent.
+#[cfg(unix)]
+struct FauxNatif {
+    bwrap: PathBuf,
+    reseau: PathBuf,
+    srt: PathBuf,
+    notes: PathBuf,
+}
+
+#[cfg(unix)]
+impl FauxNatif {
+    fn nouveau(racine: &Path, echec: Option<&str>) -> FauxNatif {
+        let dir = racine.join("faux");
+        fs::create_dir_all(&dir).unwrap();
+        let notes = dir.join("notes");
+        fs::create_dir_all(&notes).unwrap();
+        // Le début de chaque faux : il sort en 0 sur `--version`, puis note son appel.
+        let debut = |nom: &str| {
+            [
+                "#!/bin/sh".to_string(),
+                r#"[ "$1" = --version ] && exit 0"#.to_string(),
+                format!(r#"echo "$*" >> '{}'"#, notes.join(nom).display()),
+            ]
+        };
+        // Jouer ce qui suit le premier `--`.
+        let suite = [
+            r#"while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done"#.to_string(),
+            "[ $# -gt 0 ] && shift".to_string(),
+            r#"exec "$@""#.to_string(),
+        ];
+        let mut bwrap = debut("bwrap.log").to_vec();
+        if let Some(dit) = echec {
+            bwrap.push(format!("echo '{dit}' >&2; exit 1"));
+        }
+        bwrap.extend(suite.clone());
+        let mut reseau = debut("reseau.log").to_vec();
+        reseau.extend([
+            r#"case "$1" in"#.to_string(),
+            "  filtre) echo ready; cat > /dev/null ;;".to_string(),
+            format!("  relais) {}; {}; {} ;;", suite[0], suite[1], suite[2]),
+            "esac".to_string(),
+        ]);
+        let mut srt = debut("srt.log").to_vec();
+        srt.extend(["shift 2".to_string(), r#"exec "$@""#.to_string()]);
+        FauxNatif {
+            bwrap: faux_programme(&dir, "bwrap", &bwrap),
+            reseau: faux_programme(&dir, "lydite-reseau", &reseau),
+            srt: faux_programme(&dir, "srt", &srt),
+            notes,
+        }
+    }
+
+    /// Les lignes que ce faux a notées, vides s'il n'a jamais été appelé.
+    fn appels(&self, nom: &str) -> Vec<String> {
+        fs::read_to_string(self.notes.join(nom)).unwrap_or_default().lines().map(String::from).collect()
+    }
+}
+
+/// Le profil `essai` du mur natif, qui permet `exemple.test` et nomme `programme`, écrit dans `dossier`, puis la
+/// commande `lydite <args>` qui le prend avec ces faux, dans la racine : le dossier de Kraken est `dossier`,
+/// `LYDITE_CLAUDE` vise un programme absent, et `LYDITE_BWRAP`, `LYDITE_RESEAU` et `LYDITE_SRT` visent les faux. Le
+/// profil n'est pas accepté.
+#[cfg(unix)]
+fn kraken_natif(
+    racine: &Path,
+    dossier: &Path,
+    faux: &FauxNatif,
+    programme: &Path,
+) -> impl Fn(&[&str]) -> Command + use<> {
+    fs::create_dir_all(dossier.join("profils")).unwrap();
+    let profil = format!(
+        "sorte = claude\nprogramme = {}\nmodele = haiku\nrelance = haiku\nmur = natif\nreseau = exemple.test\n\
+         delai_main = 120\ndelai_preuve = 60\n",
+        programme.display()
+    );
+    fs::write(dossier.join("profils").join("essai.profil"), profil).unwrap();
+    let (racine, dossier) = (racine.to_path_buf(), dossier.to_path_buf());
+    let (bwrap, reseau, srt) = (faux.bwrap.clone(), faux.reseau.clone(), faux.srt.clone());
+    move |args: &[&str]| {
+        let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
+        commande
+            .args(args)
+            .current_dir(&racine)
+            .env("LYDITE_DOSSIER", &dossier)
+            .env("LYDITE_CLAUDE", racine.join("claude-absent"))
+            .env("LYDITE_BWRAP", &bwrap)
+            .env("LYDITE_RESEAU", &reseau)
+            .env("LYDITE_SRT", &srt);
+        avec_leurres(&mut commande, &racine);
+        commande
+    }
+}
+
+/// Tout ce que `dossier` tient, chemins relatifs, dossiers comme fichiers, à tous les niveaux.
+#[cfg(unix)]
+fn arbre(dossier: &Path) -> std::collections::BTreeSet<String> {
+    fn parcourir(racine: &Path, dir: &Path, vus: &mut std::collections::BTreeSet<String>) {
+        for entree in fs::read_dir(dir).unwrap() {
+            let chemin = entree.unwrap().path();
+            vus.insert(chemin.strip_prefix(racine).unwrap().display().to_string());
+            if chemin.is_dir() {
+                parcourir(racine, &chemin, vus);
+            }
+        }
+    }
+    let mut vus = std::collections::BTreeSet::new();
+    parcourir(dossier, dossier, &mut vus);
+    vus
+}
+
+#[cfg(unix)]
+#[test]
+fn une_vague_sous_un_mur_natif_rejoue_la_preuve_par_le_mur_natif_et_ne_lance_jamais_srt() {
+    let racine = racine_courte("a");
+    let depot = depot(&racine);
+    let (dossier, main) = (racine.join("l"), racine.join("main"));
+    fs::create_dir_all(&main).unwrap();
+    let faux = FauxNatif::nouveau(&racine, None);
+    // La fausse claude : elle répond aux contrôles, lit sa consigne, écrit a.txt, puis finit vert.
+    let (controle_jsonl, fin_jsonl) = (main.join("controle.jsonl"), main.join("fin.jsonl"));
+    let lignes = [
+        "#!/bin/sh".to_string(),
+        // La règle des leçons nomme le bac de la main : `@BAC@` y est remplacé par sa règle.
+        format!(r#"sed "s|@BAC@|/$(pwd)|g" '{}'"#, controle_jsonl.display()),
+        "cat > /dev/null".to_string(),
+        "echo a > a.txt".to_string(),
+        format!("cat '{}'", fin_jsonl.display()),
+    ];
+    let fausse = main.join("fausse-claude.sh");
+    script(&fausse, &lignes);
+    let preuve = "exit 0";
+    // Le profil permet `exemple.test` : la main le déclare, et le filtre du mur natif le laisse passer.
+    let web = r#"{"behavior":"allow","source":"flagSettings","rule":"WebFetch(domain:exemple.test)"}"#;
+    let reponses = controle(&racine, &dossier, &depot, preuve)
+        .replace(r#""allowedDomains":[]"#, r#""allowedDomains":["exemple.test"]"#)
+        .replace(r#""rule":"ExitPlanMode"}"#, &format!(r#""rule":"ExitPlanMode"}},{web}"#));
+    fs::write(&controle_jsonl, reponses).unwrap();
+    fs::write(&fin_jsonl, format!("{OUVERTURE}\n{RESULTAT}\n")).unwrap();
+    let kraken = kraken_natif(&racine, &dossier, &faux, &fausse);
+    let accepte = kraken(&["accepter", "essai"]).output().unwrap();
+    assert_eq!(accepte.status.code(), Some(0), "{}", String::from_utf8_lossy(&accepte.stderr));
+
+    let chemin =
+        plan(&racine, "plan.txt", &["plan 1", "objectif : o", "preuve : exit 0", "", "tache a", "    Écrire a.txt"]);
+    let sortie = kraken(&["lancer", "essai", "--plan"]).arg(&chemin).arg("--depot").arg(&depot).output().unwrap();
+    let erreur = String::from_utf8_lossy(&sortie.stderr);
+    assert_eq!(sortie.status.code(), Some(0), "la tâche est assemblée : {erreur}");
+    let Some(branche) = erreur.lines().last().and_then(|ligne| ligne.strip_prefix("branche de la vague : ")) else {
+        panic!("{erreur}")
+    };
+    assert_eq!(git(&depot, &["ls-tree", "-r", "--name-only", branche]), "a.txt", "{erreur}");
+
+    // srt n'a jamais été appelé, ni pour l'épreuve du mur ni pour une preuve : son faux note tout appel, et il note
+    // bien le sien quand on l'appelle.
+    assert_eq!(faux.appels("srt.log"), Vec::<String>::new(), "srt n'est lancé ni pour un mur ni pour une preuve");
+    let essai = Command::new(&faux.srt).args(["--settings", "x", "true"]).status().unwrap();
+    assert!(essai.success());
+    assert_eq!(faux.appels("srt.log"), ["--settings x true"], "le faux srt note ses appels");
+    // L'épreuve du mur, `true`, puis la preuve rejouée trois fois, `exit 0` (sur la base de la vague, dans le bac de la
+    // tâche, sur l'assemblage), sont jouées dans le mur natif : chaque rejeu est un `bwrap` extérieur et le second, qui
+    // pose le verrou (`--seccomp 9`) et joue la commande.
+    let bwrap = faux.appels("bwrap.log");
+    let jouees = |commande: &str| {
+        let fin = format!("--seccomp 9 -- sh -c {commande}");
+        bwrap.iter().filter(|ligne| ligne.ends_with(&fin)).count()
+    };
+    assert_eq!(jouees("true"), 1, "l'épreuve du mur : {bwrap:?}");
+    assert_eq!(jouees("exit 0"), 3, "les trois rejeux de la preuve : {bwrap:?}");
+    // Les `bwrap` extérieurs disent où chaque rejeu monte son bac : l'épreuve, deux fois la vague, une fois la tâche.
+    let exterieurs: Vec<&String> = bwrap.iter().filter(|ligne| ligne.starts_with("--new-session")).collect();
+    let dans = |bac: &str| exterieurs.iter().filter(|ligne| ligne.contains(&format!("/bacs/{bac}"))).count();
+    assert_eq!((exterieurs.len(), dans("mur-"), dans("vague-"), dans("main-")), (4, 1, 2, 1), "{exterieurs:?}");
+    // Chaque rejeu sort par le filtre du réseau : un `filtre` et un `relais` pour chacun, quatre rejeux en tout.
+    let reseau = faux.appels("reseau.log");
+    let fois = |mot: &str| reseau.iter().filter(|ligne| ligne.starts_with(mot)).count();
+    assert_eq!((fois("filtre"), fois("relais")), (4, 4), "{reseau:?}");
+    // Rien du filtre ne reste dans le dossier de Kraken : ni dossier de socket, ni fichier du filtre d'appels système.
+    let restes: Vec<String> =
+        arbre(&dossier).into_iter().filter(|chemin| chemin.ends_with(".net") || chemin.ends_with(".bpf")).collect();
+    assert!(restes.is_empty(), "{restes:?}");
+    assert!(arbre(&dossier).iter().any(|chemin| chemin.starts_with("bacs/main-")), "le bac de la tâche est là");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[cfg(unix)]
+#[test]
+fn un_mur_natif_qui_ne_tient_pas_refuse_en_6028_avant_toute_main_et_ne_laisse_rien_dans_le_dossier_de_lydite() {
+    let racine = racine_courte("b");
+    let depot = depot(&racine);
+    let dossier = racine.join("l");
+    // Le `bwrap` part, et dit ce qu'il dit quand le système ferme les espaces d'utilisateur : il ne joue rien.
+    let dit = "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged \
+               user namespaces";
+    let faux = FauxNatif::nouveau(&racine, Some(dit));
+    let kraken = kraken_natif(&racine, &dossier, &faux, &racine.join("claude-absent"));
+    let accepte = kraken(&["accepter", "essai"]).output().unwrap();
+    assert_eq!(accepte.status.code(), Some(0), "{}", String::from_utf8_lossy(&accepte.stderr));
+    // Ce que le dossier de Kraken tient une fois le profil accepté, avant tout lancement.
+    let avant = arbre(&dossier);
+    assert!(avant.iter().any(|chemin| chemin.starts_with("profils/")), "le même regard voit le profil : {avant:?}");
+    let chemin =
+        plan(&racine, "plan.txt", &["plan 1", "objectif : o", "preuve : exit 0", "", "tache a", "    Écrire a.txt"]);
+    let sortie = kraken(&["lancer", "essai", "--plan"]).arg(&chemin).arg("--depot").arg(&depot).output().unwrap();
+    let refus = lire_refus(&sortie);
+    assert_eq!(refus.code, "lydite : 6028 lancer.mur_refuse");
+    assert!(refus.preuve.starts_with("the native wall (`mur = natif`) needs the user namespaces"), "{}", refus.preuve);
+    assert!(refus.preuve.contains(dit), "la preuve dit ce que bwrap a dit : {}", refus.preuve);
+    let correction = &refus.correction;
+    assert!(correction.contains("`mur = exige`") && correction.contains("through srt"), "{correction}");
+    // Le mur a été essayé (le `true` de l'épreuve est parti sous le faux, qui n'a joué que le `bwrap` extérieur et son
+    // mur), le filtre du réseau a été lancé puis arrêté, et srt n'a pas pris la place du mur.
+    let bwrap = faux.appels("bwrap.log");
+    assert_eq!(bwrap.len(), 1, "{bwrap:?}");
+    assert!(bwrap[0].starts_with("--new-session") && bwrap[0].ends_with(" true"), "{bwrap:?}");
+    assert_eq!(faux.appels("reseau.log").iter().filter(|ligne| ligne.starts_with("filtre")).count(), 1);
+    assert_eq!(faux.appels("srt.log"), Vec::<String>::new(), "srt n'est pas lancé à la place");
+    // Rien n'est resté dans le dossier de Kraken que le dossier `bacs/` vide de l'épreuve, ni dans le dépôt visé.
+    let apres = arbre(&dossier);
+    let nouveaux: Vec<&String> = apres.difference(&avant).collect();
+    assert_eq!(nouveaux, ["bacs"], "ni fil, ni bac, ni journal, ni filtre : {apres:?}");
+    assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "", "ni branche");
+    assert_eq!(git(&depot, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "ni worktree");
+    assert_eq!(git(&depot, &["status", "--porcelain"]), "");
+    let _ = fs::remove_dir_all(&racine);
+}
