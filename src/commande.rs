@@ -189,7 +189,7 @@ fn skill_cmd() -> Result<ExitCode, Refus> {
 /// l'humain ce qu'il vient d'accepter : le texte du profil et son empreinte.
 fn accepter_cmd(nom: &str) -> Result<ExitCode, Refus> {
     let (texte, empreinte) = dossier::accepter(nom, &dossier::dossier()?)?;
-    println!("{}\nempreinte : {empreinte}", texte.trim_end());
+    println!("{}\nfingerprint: {empreinte}", texte.trim_end());
     Ok(ExitCode::SUCCESS)
 }
 

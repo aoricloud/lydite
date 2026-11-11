@@ -622,7 +622,7 @@ impl Essai {
         let sortie = self.accepter(nom);
         assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
         let affiche = String::from_utf8_lossy(&sortie.stdout).into_owned();
-        let empreinte = affiche.trim_end().rsplit_once("\nempreinte : ").expect("l'empreinte est dite").1.to_string();
+        let empreinte = affiche.trim_end().rsplit_once("\nfingerprint: ").expect("l'empreinte est dite").1.to_string();
         (texte, empreinte)
     }
 
@@ -1154,7 +1154,7 @@ fn un_profil_non_accepte_ne_part_pas_puis_part_une_fois_accepte() {
     assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
     assert!(sortie.stderr.is_empty(), "{}", dit(&sortie));
     let affiche = String::from_utf8_lossy(&sortie.stdout).into_owned();
-    let (corps, empreinte) = affiche.trim_end().rsplit_once("\nempreinte : ").expect("l'empreinte est dite");
+    let (corps, empreinte) = affiche.trim_end().rsplit_once("\nfingerprint: ").expect("l'empreinte est dite");
     assert_eq!(corps, texte.trim_end(), "le texte du profil est dit");
     assert!(empreinte.len() == 64 && empreinte.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f')), "{empreinte}");
     let garde = essai.dossier.join("profils").join("veille.empreinte");
@@ -1179,7 +1179,7 @@ fn un_profil_non_accepte_ne_part_pas_puis_part_une_fois_accepte() {
     assert_eq!(essai.fil(), fil, "le fil n'a pas bougé");
     // Réaccepté, il repart avec l'empreinte qu'il vient de dire. La fausse claude recommence à sa première tentative.
     let sortie = essai.accepter("veille");
-    assert!(String::from_utf8_lossy(&sortie.stdout).trim_end().ends_with(&format!("empreinte : {lue}")));
+    assert!(String::from_utf8_lossy(&sortie.stdout).trim_end().ends_with(&format!("fingerprint: {lue}")));
     fs::remove_file(essai.main.join("marque")).unwrap();
     assert_eq!(essai.lancer_et_verifier("veille").status.code(), Some(0));
     assert_eq!(essai.argv_recus().len(), 4, "deux tentatives de plus");

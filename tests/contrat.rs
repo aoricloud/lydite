@@ -410,7 +410,7 @@ fn accepter_garde_l_empreinte_que_lancer_exige_et_note_au_fil() {
     assert_eq!(sortie.status.code(), Some(0), "{sortie:?}");
     assert!(sortie.stderr.is_empty(), "{sortie:?}");
     let dit = String::from_utf8_lossy(&sortie.stdout);
-    assert_eq!(dit, format!("{}\nempreinte : {empreinte}\n", texte.trim_end()));
+    assert_eq!(dit, format!("{}\nfingerprint: {empreinte}\n", texte.trim_end()));
     assert_eq!(fs::read_to_string(&garde).unwrap(), empreinte);
     // Accepté, le profil est lancé : ses deux mains échouent à partir (le programme n'existe pas), et la vague le dit.
     let sortie = lancer();
