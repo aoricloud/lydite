@@ -24,10 +24,10 @@ fn une_seconde_main_sur_une_tache_active_est_refusee() {
     assert_eq!(baux.ouvrir(1, t0, DUREE), Ok(1));
     // Avant le message de sa tentative 1, la tâche 1 ne prend pas de seconde main : ni tout de suite, ni plus tard,
     // ni son échéance passée, tant que la vague n'a pas expiré son bail.
-    let ouvert = "main 1 : le bail de sa tentative 1 est ouvert, pour 3960 s";
+    let ouvert = "hand 1: the lease of its attempt 1 is open, for 3960 s";
     for plus_tard in [Duration::ZERO, Duration::from_secs(5), DUREE * 2] {
         let refus = refus_de(baux.ouvrir(1, t0 + plus_tard, Duration::from_secs(1)), Code::MainActive, ouvert);
-        assert!(refus.correction.contains("sa tentative 1"), "la correction nomme la tentative attendue : {refus}");
+        assert!(refus.correction.contains("its attempt 1"), "la correction nomme la tentative attendue : {refus}");
     }
     // Une autre tâche a son bail à elle.
     assert_eq!(baux.ouvrir(2, t0, DUREE), Ok(1));
@@ -45,12 +45,12 @@ fn une_main_expiree_ne_se_rouvre_pas() {
     // Sa main peut tourner encore : la tâche ne repart jamais, à l'échéance comme bien après, pour toute durée.
     for (plus_tard, duree) in [(DUREE, DUREE), (DUREE * 10, Duration::from_secs(1))] {
         let ouverte = baux.ouvrir(1, t0 + plus_tard, duree);
-        let refus = refus_de(ouverte, Code::MainActive, "main 1 : le bail de sa tentative 1 a expiré");
-        assert!(refus.preuve.ends_with("sa main peut tourner encore"), "{refus}");
+        let refus = refus_de(ouverte, Code::MainActive, "hand 1: the lease of its attempt 1 expired");
+        assert!(refus.preuve.ends_with("its hand may still be running"), "{refus}");
     }
     // Rien ne l'a rouverte : aucune tentative 2 n'a de bail, et le sien ne se ferme pas deux fois.
     let perime = Code::ResultatPerime;
-    refus_de(baux.conclure(1, 2), perime, "main 1, tentative 2 : le bail de sa tentative 1 a expiré");
+    refus_de(baux.conclure(1, 2), perime, "hand 1, attempt 2: the lease of its attempt 1 expired");
     assert!(baux.expirer(t0 + DUREE * 20).is_empty());
 }
 
@@ -61,20 +61,20 @@ fn un_resultat_perime_est_refuse() {
     // Après l'expiration : le message de la main arrive trop tard.
     assert_eq!(baux.ouvrir(1, t0, DUREE), Ok(1));
     assert_eq!(baux.expirer(t0 + DUREE), [(1, 1)]);
-    refus_de(baux.conclure(1, 1), perime, "main 1, tentative 1 : le bail de sa tentative 1 a expiré");
+    refus_de(baux.conclure(1, 1), perime, "hand 1, attempt 1: the lease of its attempt 1 expired");
     // Conclu deux fois : le second message est périmé.
     assert_eq!(baux.ouvrir(2, t0, DUREE), Ok(1));
     assert_eq!(baux.conclure(2, 1), Ok(()));
-    refus_de(baux.conclure(2, 1), perime, "main 2, tentative 1 : le bail de sa tentative 1 est conclu");
+    refus_de(baux.conclure(2, 1), perime, "hand 2, attempt 1: the lease of its attempt 1 is concluded");
     // Une autre tentative que celle du bail ouvert : périmée, et le bail reste ouvert pour la sienne.
     assert_eq!(baux.ouvrir(3, t0, DUREE), Ok(1));
     for autre in [0, 2, usize::MAX] {
-        let debut = format!("main 3, tentative {autre} : le bail de sa tentative 1 est ouvert");
+        let debut = format!("hand 3, attempt {autre}: the lease of its attempt 1 is open");
         refus_de(baux.conclure(3, autre), perime, &debut);
     }
     assert_eq!(baux.conclure(3, 1), Ok(()));
     // Une main inconnue : aucun bail ne l'attend.
-    let refus = refus_de(baux.conclure(4, 1), perime, "main 4, tentative 1 : aucun bail");
+    let refus = refus_de(baux.conclure(4, 1), perime, "hand 4, attempt 1: no lease");
     assert!(refus.correction.contains("main.perimee"), "un résultat périmé se note sans être pris : {refus}");
 }
 
@@ -106,7 +106,7 @@ fn la_relance_ouvre_une_generation_neuve() {
     assert_eq!(baux.ouvrir(1, relance, DUREE), Ok(2));
     // Le résultat de la tentative 1, redit, est périmé ; l'échéance de la 1 ne tombe pas sur la 2.
     let perime = Code::ResultatPerime;
-    refus_de(baux.conclure(1, 1), perime, "main 1, tentative 1 : le bail de sa tentative 2 est ouvert");
+    refus_de(baux.conclure(1, 1), perime, "hand 1, attempt 1: the lease of its attempt 2 is open");
     assert!(baux.expirer(t0 + DUREE).is_empty());
     assert!(baux.expirer(relance + DUREE - NANO).is_empty());
     assert_eq!(baux.expirer(relance + DUREE), [(1, 2)]);
@@ -137,5 +137,5 @@ fn chaque_bail_a_sa_duree() {
     // Une durée qu'aucun instant n'atteint ne déborde pas : son bail n'échoit jamais, et sa preuve se dit.
     assert_eq!(baux.ouvrir(4, t0, Duration::MAX), Ok(1));
     assert!(baux.expirer(t0 + longue * 1000).is_empty());
-    refus_de(baux.ouvrir(4, t0, courte), Code::MainActive, "main 4 : le bail de sa tentative 1 est ouvert, pour ");
+    refus_de(baux.ouvrir(4, t0, courte), Code::MainActive, "hand 4: the lease of its attempt 1 is open, for ");
 }

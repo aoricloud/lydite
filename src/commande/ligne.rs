@@ -1,4 +1,5 @@
-//! La lecture de la ligne de commande : `Commande`, `Options`, l'usage et les drapeaux.
+//! La lecture de la ligne de commande : `Commande`, `Options`, l'usage et les drapeaux. Chaque mot a un double
+//! anglais, lu exactement comme lui ; le mot français reste lu, et tout ce que Lydite écrit d'ici nomme le mot anglais.
 
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
@@ -7,39 +8,75 @@ use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::fil::NOMBRE_MAX;
 use crate::conduite::mener::Options;
 
-/// L'usage, que la correction d'un refus de la ligne de commande donne.
+/// L'usage, que la correction d'un refus de la ligne de commande donne. Il ne montre que les mots anglais : chacun a
+/// un double français, encore lu, que `ALIAS_COMMANDES` et `ALIAS_DRAPEAUX` disent.
 const USAGE: &str = concat!(
-    "lydite lancer <profile> \"<objective>\" [--n N] [--verifier \"<command>\"] [--depot <path>]",
-    " or lydite lancer <profile> --plan <file> [--depot <path>] [--pr <branch>]",
-    " or lydite lancer <profile> \"<objective>\" --decouper --verifier \"<proof>\" [--observer] [--depot <path>]",
+    "lydite launch <profile> \"<objective>\" [--n N] [--verify \"<command>\"] [--repo <path>]",
+    " or lydite launch <profile> --plan <file> [--repo <path>] [--pr <branch>]",
+    " or lydite launch <profile> \"<objective>\" --split --verify \"<proof>\" [--dry-run] [--repo <path>]",
     " [--pr <branch>]",
-    " or lydite lancer <profile> --issue <n> --decouper --verifier \"<proof>\" [--observer] [--depot <path>]",
+    " or lydite launch <profile> --issue <n> --split --verify \"<proof>\" [--dry-run] [--repo <path>]",
     " [--pr <branch>]",
-    " or lydite plan [--decoupe] <file>",
-    " or lydite remarques <file>",
-    " or lydite lecons <folder>",
-    " or lydite accepter <profile>",
-    " or lydite profil <profile>",
+    " or lydite plan [--split] <file>",
+    " or lydite remarks <file>",
+    " or lydite lessons <folder>",
+    " or lydite accept <profile>",
+    " or lydite profile <profile>",
     " or lydite doctor [<profile>]",
-    " or lydite etat",
-    " or lydite attendre",
+    " or lydite status",
+    " or lydite wait",
     " or lydite --version",
+    " or lydite skill",
 );
 
-/// Les drapeaux de `lancer` qui prennent une valeur, chacun une fois : `--pr` et `--issue` n'y vont qu'avec
-/// `--decouper`.
-const DRAPEAUX: [&str; 5] = ["--n", "--verifier", "--depot", "--pr", "--issue"];
+/// Le double français de chaque commande, qui a son mot anglais : `(français, anglais)`.
+const ALIAS_COMMANDES: [(&str, &str); 7] = [
+    ("lancer", "launch"),
+    ("etat", "status"),
+    ("attendre", "wait"),
+    ("accepter", "accept"),
+    ("profil", "profile"),
+    ("remarques", "remarks"),
+    ("lecons", "lessons"),
+];
 
-/// Les drapeaux de `lancer` qui ne prennent pas de valeur, chacun une fois : `--observer` n'y va qu'avec `--decouper`.
-const DRAPEAUX_SANS_VALEUR: [&str; 2] = ["--decouper", "--observer"];
+/// Le double français de chaque drapeau de `launch`, qui a son mot anglais : `(français, anglais)`.
+const ALIAS_DRAPEAUX: [(&str, &str); 4] =
+    [("--verifier", "--verify"), ("--depot", "--repo"), ("--decouper", "--split"), ("--observer", "--dry-run")];
 
-/// Les drapeaux de `lancer --plan`, chacun une fois avec sa valeur : les seuls qui vont avec lui.
-const DRAPEAUX_PLAN: [&str; 3] = ["--plan", "--depot", "--pr"];
+/// Les drapeaux de `launch` qui prennent une valeur, chacun une fois : `--pr` et `--issue` n'y vont qu'avec
+/// `--split`. Ce sont les mots anglais, que `anglais` rend de leur double français.
+const DRAPEAUX: [&str; 5] = ["--n", "--verify", "--repo", "--pr", "--issue"];
+
+/// Les drapeaux de `launch` qui ne prennent pas de valeur, chacun une fois : `--dry-run` n'y va qu'avec `--split`.
+const DRAPEAUX_SANS_VALEUR: [&str; 2] = ["--split", "--dry-run"];
+
+/// Les drapeaux de `launch --plan`, chacun une fois avec sa valeur : les seuls qui vont avec lui.
+const DRAPEAUX_PLAN: [&str; 3] = ["--plan", "--repo", "--pr"];
+
+/// Le mot anglais d'un mot que l'humain a écrit : lui-même s'il est déjà anglais, ou n'a pas de double.
+fn anglais<'a>(mot: &'a str, alias: &[(&str, &'static str)]) -> &'a str {
+    alias.iter().find(|(francais, _)| *francais == mot).map_or(mot, |(_, anglais)| *anglais)
+}
+
+/// Le texte d'un drapeau redit : le mot anglais, et les deux mots vus quand l'humain a mêlé les deux langues.
+fn drapeau_redit(nom: &str, avant: &str, vu: &str) -> String {
+    if avant == vu {
+        format!("flag repeated: {nom}")
+    } else {
+        format!("flag repeated: {nom}, seen as « {avant} » and « {vu} »")
+    }
+}
+
+/// Le mot anglais d'un drapeau de `launch` : son double français s'il en a un.
+fn drapeau_anglais(arg: &OsStr) -> Option<&str> {
+    arg.to_str().map(|mot| anglais(mot, &ALIAS_DRAPEAUX))
+}
 
 /// Ce que la ligne de commande demande.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Commande {
-    /// `lancer` : la vague d'un objectif, ou de ses copies.
+    /// `launch` : la vague d'un objectif, ou de ses copies.
     Lancer(Options),
     /// La vague d'un plan. Les deux chemins gardent leur `OsString` ; `pr` est la branche du distant que `--pr` nomme,
     /// base de la PR de la vague.
@@ -65,45 +102,48 @@ pub(crate) enum Commande {
     /// Les leçons `.agents/skills/*/SKILL.md` du dépôt de ce dossier, lues sans rien lancer. Le chemin garde son
     /// `OsString`.
     LireLecons { dossier: PathBuf },
+    /// `lydite skill` : écrit la skill de pilotage que ce binaire porte, sans rien lire ni écrire d'autre.
+    Skill,
 }
 
-/// Lit ce qui suit `lecons` : `<dossier>`, rien d'autre. Le dossier garde son `OsString`, et n'est pas un drapeau.
+/// Lit ce qui suit `lessons` : `<dossier>`, rien d'autre. Le dossier garde son `OsString`, et n'est pas un drapeau.
 fn options_lire_lecons(args: &[OsString]) -> Result<Commande, Refus> {
     let mal_formee = |preuve: String| refus_de_ligne(Code::CommandeMalFormee, preuve);
     let [dossier, suite @ ..] = args else {
-        return Err(mal_formee("`lecons`: the repository folder is missing".into()));
+        return Err(mal_formee("`lessons`: the repository folder is missing".into()));
     };
     if dossier.to_str().is_some_and(|nom| nom.starts_with('-')) {
-        return Err(mal_formee(format!("`lecons` wants a repository folder, and {} is a flag", mot(dossier))));
+        return Err(mal_formee(format!("`lessons` wants a repository folder, and {} is a flag", mot(dossier))));
     }
     if let Some(autre) = suite.first() {
-        return Err(mal_formee(format!("`lecons` takes only `<folder>`, and {} follows it", mot(autre))));
+        return Err(mal_formee(format!("`lessons` takes only `<folder>`, and {} follows it", mot(autre))));
     }
     Ok(Commande::LireLecons { dossier: PathBuf::from(dossier) })
 }
 
-/// Lit ce qui suit `remarques` : `<fichier>`, rien d'autre. Le fichier garde son `OsString`, et n'est pas un drapeau :
+/// Lit ce qui suit `remarks` : `<fichier>`, rien d'autre. Le fichier garde son `OsString`, et n'est pas un drapeau :
 /// un mot en `-` à sa place est le refus 1006, comme un mot de plus.
 fn options_lire_remarques(args: &[OsString]) -> Result<Commande, Refus> {
     let mal_formee = |preuve: String| refus_de_ligne(Code::CommandeMalFormee, preuve);
     let [fichier, suite @ ..] = args else {
-        return Err(mal_formee("`remarques`: the remarks file is missing".into()));
+        return Err(mal_formee("`remarks`: the remarks file is missing".into()));
     };
     if fichier.to_str().is_some_and(|nom| nom.starts_with('-')) {
-        return Err(mal_formee(format!("`remarques` wants the reviewer's file, and {} is a flag", mot(fichier))));
+        return Err(mal_formee(format!("`remarks` wants the reviewer's file, and {} is a flag", mot(fichier))));
     }
     if let Some(autre) = suite.first() {
-        return Err(mal_formee(format!("`remarques` takes only `<file>`, and {} follows it", mot(autre))));
+        return Err(mal_formee(format!("`remarks` takes only `<file>`, and {} follows it", mot(autre))));
     }
     Ok(Commande::LireRemarques { fichier: PathBuf::from(fichier) })
 }
 
-/// Lit ce qui suit `plan` : `[--decoupe] <fichier>`, rien d'autre. Le fichier garde son `OsString`, et n'est pas un
-/// drapeau : un mot en `-` à sa place est le refus 1006, comme un mot de plus, car l'usage n'a pas d'autre drapeau.
+/// Lit ce qui suit `plan` : `[--split] <fichier>`, rien d'autre, `--decoupe` étant le double français de `--split`.
+/// Le fichier garde son `OsString`, et n'est pas un drapeau : un mot en `-` à sa place est le refus 1006, comme un mot
+/// de plus, car l'usage n'a pas d'autre drapeau.
 fn options_lire_plan(args: &[OsString]) -> Result<Commande, Refus> {
     let mal_formee = |preuve: String| refus_de_ligne(Code::CommandeMalFormee, preuve);
     let (decoupe, reste) = match args {
-        [drapeau, reste @ ..] if drapeau == "--decoupe" => (true, reste),
+        [drapeau, reste @ ..] if drapeau == "--split" || drapeau == "--decoupe" => (true, reste),
         _ => (false, args),
     };
     let [fichier, suite @ ..] = reste else {
@@ -113,44 +153,49 @@ fn options_lire_plan(args: &[OsString]) -> Result<Commande, Refus> {
         return Err(mal_formee(format!("`plan` wants a plan file, and {} is a flag", mot(fichier))));
     }
     if let Some(autre) = suite.first() {
-        return Err(mal_formee(format!("`plan` takes only `[--decoupe] <file>`, and {} follows it", mot(autre))));
+        return Err(mal_formee(format!("`plan` takes only `[--split] <file>`, and {} follows it", mot(autre))));
     }
     Ok(Commande::LirePlan { fichier: PathBuf::from(fichier), decoupe })
 }
 
-/// Lit la ligne de commande : `lancer` et ses drapeaux, `lancer --plan`, `accepter`, `etat`, `plan` ou `remarques`.
-/// `--pr` sans `--plan` ni `--decouper` est refusé (1006), et `--decouper` et `--plan` s'excluent. Une ligne sans
-/// commande, ou de forme fausse, est refusée en 1006 ; un premier mot qui n'est pas une commande, non UTF-8 compris,
-/// en 1005.
+/// Lit la ligne de commande : `launch` et ses drapeaux, `launch --plan`, `accept`, `status`, `plan` ou `remarks`,
+/// chacun lu aussi par son double français. `--pr` sans `--plan` ni `--split` est refusé (1006), et `--split` et
+/// `--plan` s'excluent. Une ligne sans commande, ou de forme fausse, est refusée en 1006 ; un premier mot qui n'est
+/// pas une commande, non UTF-8 compris, en 1005.
 pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
     let Some((commande, reste)) = args.split_first() else {
         return Err(refus_de_ligne(Code::CommandeMalFormee, "no command"));
     };
-    match (commande.to_str(), reste) {
-        (Some("etat"), []) => Ok(Commande::Etat),
+    match (commande.to_str().map(|mot| anglais(mot, &ALIAS_COMMANDES)), reste) {
+        (Some("status"), []) => Ok(Commande::Etat),
         (Some("--version"), []) | (Some("-V"), []) => Ok(Commande::Version),
-        (Some("etat"), [autre, ..]) => {
-            let preuve = format!("`etat` takes no argument, and {} follows it", mot(autre));
+        (Some("status"), [autre, ..]) => {
+            let preuve = format!("`status` takes no argument, and {} follows it", mot(autre));
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
         }
-        (Some("attendre"), []) => Ok(Commande::Attendre),
-        (Some("attendre"), [autre, ..]) => {
-            let preuve = format!("`attendre` takes no argument, and {} follows it", mot(autre));
+        (Some("wait"), []) => Ok(Commande::Attendre),
+        (Some("wait"), [autre, ..]) => {
+            let preuve = format!("`wait` takes no argument, and {} follows it", mot(autre));
+            Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
+        }
+        (Some("skill"), []) => Ok(Commande::Skill),
+        (Some("skill"), [autre, ..]) => {
+            let preuve = format!("`skill` takes no argument, and {} follows it", mot(autre));
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
         }
         (Some("plan"), reste) => options_lire_plan(reste),
-        (Some("remarques"), reste) => options_lire_remarques(reste),
-        (Some("lecons"), reste) => options_lire_lecons(reste),
-        (Some("accepter"), [nom]) => Ok(Commande::Accepter(texte(nom, "the profile")?)),
-        (Some("accepter"), []) => Err(refus_de_ligne(Code::CommandeMalFormee, "`accepter`: the profile is missing")),
-        (Some("accepter"), [_, autre, ..]) => {
-            let preuve = format!("`accepter` takes only the profile name, and {} follows it", mot(autre));
+        (Some("remarks"), reste) => options_lire_remarques(reste),
+        (Some("lessons"), reste) => options_lire_lecons(reste),
+        (Some("accept"), [nom]) => Ok(Commande::Accepter(texte(nom, "the profile")?)),
+        (Some("accept"), []) => Err(refus_de_ligne(Code::CommandeMalFormee, "`accept`: the profile is missing")),
+        (Some("accept"), [_, autre, ..]) => {
+            let preuve = format!("`accept` takes only the profile name, and {} follows it", mot(autre));
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
         }
-        (Some("profil"), [nom]) => Ok(Commande::Profil(texte(nom, "the profile")?)),
-        (Some("profil"), []) => Err(refus_de_ligne(Code::CommandeMalFormee, "`profil`: the profile is missing")),
-        (Some("profil"), [_, autre, ..]) => {
-            let preuve = format!("`profil` takes only the profile name, and {} follows it", mot(autre));
+        (Some("profile"), [nom]) => Ok(Commande::Profil(texte(nom, "the profile")?)),
+        (Some("profile"), []) => Err(refus_de_ligne(Code::CommandeMalFormee, "`profile`: the profile is missing")),
+        (Some("profile"), [_, autre, ..]) => {
+            let preuve = format!("`profile` takes only the profile name, and {} follows it", mot(autre));
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
         }
         (Some("doctor"), []) => Ok(Commande::Doctor(None)),
@@ -163,64 +208,63 @@ pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
             let preuve = format!("`doctor` takes only a profile name, and {} follows it", mot(autre));
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
         }
-        (Some("lancer"), reste) if contient(reste, "--plan") && contient(reste, "--decouper") => {
-            let preuve = "`lancer`: --decouper excludes --plan: the plan the wave plays is the one the split writes";
+        (Some("launch"), reste) if contient(reste, "--plan") && contient(reste, "--split") => {
+            let preuve = "`launch`: --split excludes --plan: the plan the wave plays is the one the split writes";
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
         }
-        (Some("lancer"), reste) if contient(reste, "--plan") => options_plan(reste),
-        (Some("lancer"), reste) if contient(reste, "--pr") && !contient(reste, "--decouper") => {
-            Err(pr_hors_de_sa_place())
-        }
-        (Some("lancer"), reste) => options_lancer(reste),
+        (Some("launch"), reste) if contient(reste, "--plan") => options_plan(reste),
+        (Some("launch"), reste) if contient(reste, "--pr") && !contient(reste, "--split") => Err(pr_hors_de_sa_place()),
+        (Some("launch"), reste) => options_lancer(reste),
         _ => Err(refus_de_ligne(Code::CommandeInconnue, format!("{} is not a command", mot(commande)))),
     }
 }
 
-/// Lit ce qui suit `lancer` quand `--plan` y paraît : le profil, premier mot et pas un drapeau, puis
-/// `--plan <fichier>`, `--depot <chemin>` et `--pr <branche>`, chacun une fois avec sa valeur, dans l'ordre
+/// Lit ce qui suit `launch` quand `--plan` y paraît : le profil, premier mot et pas un drapeau, puis
+/// `--plan <fichier>`, `--repo <chemin>` et `--pr <branche>`, chacun une fois avec sa valeur, dans l'ordre
 /// qu'on veut. Un chemin garde son `OsString`, et une valeur n'est jamais l'un des trois drapeaux. La branche de
-/// `--pr` ne commence pas par `-` : git la prendrait pour une option. Tout autre mot (`--n`, `--verifier`, un
+/// `--pr` ne commence pas par `-` : git la prendrait pour une option. Tout autre mot (`--n`, `--verify`, un
 /// objectif) est le refus 1006, qui le nomme : un drapeau ignoré en silence ferait croire à n copies, ou à une
 /// autre preuve.
 fn options_plan(args: &[OsString]) -> Result<Commande, Refus> {
     let mal_formee = |preuve: String| refus_de_ligne(Code::CommandeMalFormee, preuve);
     let [profil, reste @ ..] = args else {
-        return Err(mal_formee("`lancer`: the profile is missing".into()));
+        return Err(mal_formee("`launch`: the profile is missing".into()));
     };
     if profil.to_str().is_some_and(|nom| nom.starts_with('-')) {
-        return Err(mal_formee(format!("`lancer`: the first word is the profile, and {} is a flag", mot(profil))));
+        return Err(mal_formee(format!("`launch`: the first word is the profile, and {} is a flag", mot(profil))));
     }
     let profil = texte(profil, "the profile")?;
-    let drapeau = |arg: &OsStr| DRAPEAUX_PLAN.into_iter().find(|nom| arg == *nom);
+    let drapeau = |arg: &OsStr| {
+        let anglais = drapeau_anglais(arg)?;
+        DRAPEAUX_PLAN.into_iter().find(|nom| *nom == anglais)
+    };
     let (mut plan, mut depot, mut pr) = (None, None, None);
+    // Les drapeaux vus : le mot anglais, et le mot que l'humain a écrit.
+    let mut vus: Vec<(&str, &str)> = Vec::new();
     let mut reste = reste.iter();
     while let Some(vu) = reste.next() {
-        let Some(nom) = drapeau(vu) else {
+        let (Some(nom), Some(tape)) = (drapeau(vu), vu.to_str()) else {
             let preuve = format!(
-                "with --plan, only --plan, --depot and --pr go after the profile, and {} is not one of them",
+                "with --plan, only --plan, --repo and --pr go after the profile, and {} is not one of them",
                 mot(vu)
             );
             return Err(mal_formee(preuve));
         };
-        let redit = match nom {
-            "--plan" => plan.is_some(),
-            "--depot" => depot.is_some(),
-            _ => pr.is_some(),
-        };
-        if redit {
-            return Err(mal_formee(format!("flag repeated: {nom}")));
+        if let Some((_, avant)) = vus.iter().find(|(deja, _)| *deja == nom) {
+            return Err(mal_formee(drapeau_redit(nom, avant, tape)));
         }
+        vus.push((nom, tape));
         let Some(valeur) = reste.next().filter(|valeur| drapeau(valeur).is_none()) else {
             return Err(mal_formee(format!("flag without a value: {nom}")));
         };
         match nom {
             "--plan" => plan = Some(PathBuf::from(valeur)),
-            "--depot" => depot = Some(PathBuf::from(valeur)),
+            "--repo" => depot = Some(PathBuf::from(valeur)),
             _ => pr = Some(branche_de_pr(valeur)?),
         }
     }
     let Some(plan) = plan else {
-        return Err(mal_formee("`lancer --plan`: `--plan <file>` is missing".into()));
+        return Err(mal_formee("`launch --plan`: `--plan <file>` is missing".into()));
     };
     Ok(Commande::Plan { profil, plan, depot, pr })
 }
@@ -235,18 +279,17 @@ fn branche_de_pr(valeur: &OsStr) -> Result<String, Refus> {
     Ok(branche)
 }
 
-/// Lit ce qui suit `lancer` : le profil, l'objectif, puis les drapeaux, chacun une fois avec sa valeur, sauf
-/// `--decouper` et `--observer`, qui n'en prennent pas. Un drapeau à la place du profil ou de l'objectif est refusé
-/// (1006) : `lancer claude --verifier x` ne lance pas une main sur l'objectif « --verifier ». `--n` va de 1 à
-/// `NOMBRE_MAX`, la borne que le fil lit. `--verifier` refusé blanc (6014) : rejouée, une commande blanche
-/// réussirait toujours et ferait prendre toute main pour prouvée. `--depot` garde son `OsString` : un chemin n'est
-/// pas forcément de l'UTF-8. `--decouper` demande `--verifier` et un objectif d'une ligne, et exclut `--n` ;
-/// `--observer` et `--pr` ne vont qu'avec lui. `--issue <n>`, un entier positif, tient lieu d'objectif : le profil
-/// n'est suivi que des drapeaux, un objectif donné avec lui est refusé, et il ne va qu'avec `--decouper` (1006).
+/// Lit ce qui suit `launch` : le profil, l'objectif, puis les drapeaux, chacun une fois avec sa valeur, sauf
+/// `--split` et `--dry-run`, qui n'en prennent pas. Un drapeau à la place du profil ou de l'objectif est refusé
+/// (1006) : `launch claude --verify x` ne lance pas une main sur l'objectif « --verify ». `--n` va de 1 à
+/// `NOMBRE_MAX`, la borne que le fil lit. `--verify` refusé blanc (6014) : rejouée, une commande blanche
+/// réussirait toujours et ferait prendre toute main pour prouvée. `--repo` garde son `OsString` : un chemin n'est
+/// pas forcément de l'UTF-8. `--split` demande `--verify` et un objectif d'une ligne, et exclut `--n` ;
+/// `--dry-run` et `--pr` ne vont qu'avec lui. `--issue <n>`, un entier positif, tient lieu d'objectif : le profil
+/// n'est suivi que des drapeaux, un objectif donné avec lui est refusé, et il ne va qu'avec `--split` (1006).
 fn options_lancer(args: &[OsString]) -> Result<Commande, Refus> {
-    let manquant = |manque: &str| refus_de_ligne(Code::CommandeMalFormee, format!("`lancer`: {manque}"));
-    let est_drapeau =
-        |arg: &OsStr| arg.to_str().is_some_and(|mot| DRAPEAUX.contains(&mot) || DRAPEAUX_SANS_VALEUR.contains(&mot));
+    let manquant = |manque: &str| refus_de_ligne(Code::CommandeMalFormee, format!("`launch`: {manque}"));
+    let est_drapeau = |arg: &OsStr| drapeau_anglais(arg).is_some_and(drapeau_connu);
     let par_issue = contient(args, "--issue");
     let (profil, objectif, reste) = if par_issue {
         let [profil, reste @ ..] = args else {
@@ -257,7 +300,7 @@ fn options_lancer(args: &[OsString]) -> Result<Commande, Refus> {
         }
         if let Some(objectif) = reste.first().filter(|arg| !est_drapeau(arg)) {
             let preuve = format!(
-                "`lancer`: --issue replaces the objective, which is not given with it, and {} is one",
+                "`launch`: --issue replaces the objective, which is not given with it, and {} is one",
                 mot(objectif)
             );
             return Err(refus_de_ligne(Code::CommandeMalFormee, preuve));
@@ -291,23 +334,26 @@ fn options_lancer(args: &[OsString]) -> Result<Commande, Refus> {
         pr: None,
         issue: None,
     };
-    let mut vus: Vec<&str> = Vec::new();
+    // Les drapeaux vus : le mot anglais, et le mot que l'humain a écrit.
+    let mut vus: Vec<(&str, &str)> = Vec::new();
     let mut reste = reste.iter();
     while let Some(drapeau) = reste.next() {
-        let Some(nom) = drapeau.to_str().filter(|nom| DRAPEAUX.contains(nom) || DRAPEAUX_SANS_VALEUR.contains(nom))
-        else {
+        // Un mot qui n'est pas de l'UTF-8 n'est aucun drapeau : le texte vide n'en est pas un.
+        let tape = drapeau.to_str().unwrap_or_default();
+        let nom = anglais(tape, &ALIAS_DRAPEAUX);
+        if !drapeau_connu(nom) {
             return Err(refus_de_ligne(Code::CommandeMalFormee, format!("unknown flag: {}", mot(drapeau))));
-        };
-        if vus.contains(&nom) {
-            return Err(refus_de_ligne(Code::CommandeMalFormee, format!("flag repeated: {nom}")));
         }
-        vus.push(nom);
+        if let Some((_, avant)) = vus.iter().find(|(deja, _)| *deja == nom) {
+            return Err(refus_de_ligne(Code::CommandeMalFormee, drapeau_redit(nom, avant, tape)));
+        }
+        vus.push((nom, tape));
         match nom {
-            "--decouper" => {
+            "--split" => {
                 o.decouper = true;
                 continue;
             }
-            "--observer" => {
+            "--dry-run" => {
                 o.observer = true;
                 continue;
             }
@@ -324,14 +370,14 @@ fn options_lancer(args: &[OsString]) -> Result<Commande, Refus> {
                     refus_de_ligne(Code::CommandeMalFormee, preuve)
                 })?;
             }
-            "--verifier" => {
-                let commande = texte(valeur, "the command of --verifier")?;
+            "--verify" => {
+                let commande = texte(valeur, "the command of --verify")?;
                 if commande.trim().is_empty() {
                     return Err(Refus::new(
                         Code::PreuveVide,
-                        format!("--verifier is {commande:?}, a blank command"),
-                        "Give --verifier a command that is not blank, the one Lydite replays in each worktree, or \
-                         drop --verifier: the work then rests only on the hand's PREUVE: line, and stays declared.",
+                        format!("--verify is {commande:?}, a blank command"),
+                        "Give --verify a command that is not blank, the one Lydite replays in each worktree, or \
+                         drop --verify: the work then rests only on the hand's PREUVE: line, and stays declared.",
                     ));
                 }
                 o.verifier = Some(commande);
@@ -349,42 +395,46 @@ fn options_lancer(args: &[OsString]) -> Result<Commande, Refus> {
     }
     let mal_formee = |preuve: &str| refus_de_ligne(Code::CommandeMalFormee, preuve);
     if o.observer && !o.decouper {
-        return Err(mal_formee("`lancer`: --observer goes only with --decouper"));
+        return Err(mal_formee("`launch`: --dry-run goes only with --split"));
     }
     if o.pr.is_some() && !o.decouper {
         return Err(pr_hors_de_sa_place());
     }
     if o.issue.is_some() && !o.decouper {
         return Err(mal_formee(
-            "`lancer`: --issue goes only with --decouper: the issue is split into a plan, which the wave plays",
+            "`launch`: --issue goes only with --split: the issue is split into a plan, which the wave plays",
         ));
     }
     if par_issue && o.issue.is_none() {
         return Err(manquant("the objective, or `--issue <n>`, is missing"));
     }
-    if o.decouper && vus.contains(&"--n") {
-        return Err(mal_formee(
-            "`lancer`: --decouper excludes --n: the split plan sets its own tasks, hence its hands",
-        ));
+    if o.decouper && vus.iter().any(|(nom, _)| *nom == "--n") {
+        return Err(mal_formee("`launch`: --split excludes --n: the split plan sets its own tasks, hence its hands"));
     }
     if o.decouper && o.verifier.is_none() {
         return Err(mal_formee(
-            "`lancer`: --decouper requires --verifier \"<proof>\", the wave's proof, which only the human gives",
+            "`launch`: --split requires --verify \"<proof>\", the wave's proof, which only the human gives",
         ));
     }
     // L'en-tête du plan, `objectif : <une ligne>`, n'en tient qu'une.
     if o.decouper && o.objectif.contains(['\n', '\r']) {
-        return Err(mal_formee(&format!("`lancer`: --decouper wants a one-line objective, not {:?}", o.objectif)));
+        return Err(mal_formee(&format!("`launch`: --split wants a one-line objective, not {:?}", o.objectif)));
     }
     Ok(Commande::Lancer(o))
 }
 
-fn pr_hors_de_sa_place() -> Refus {
-    refus_de_ligne(Code::CommandeMalFormee, "`lancer`: --pr goes only with --plan <file> or --decouper")
+/// Si le mot anglais est un drapeau de `launch` que `options_lancer` lit.
+fn drapeau_connu(nom: &str) -> bool {
+    DRAPEAUX.contains(&nom) || DRAPEAUX_SANS_VALEUR.contains(&nom)
 }
 
+fn pr_hors_de_sa_place() -> Refus {
+    refus_de_ligne(Code::CommandeMalFormee, "`launch`: --pr goes only with --plan <file> or --split")
+}
+
+/// Si un des mots paraît, sous son nom anglais ou sous son double français.
 fn contient(args: &[OsString], drapeau: &str) -> bool {
-    args.iter().any(|arg| arg == drapeau)
+    args.iter().any(|arg| drapeau_anglais(arg) == Some(drapeau))
 }
 
 fn refus_de_ligne(code: Code, preuve: impl Into<String>) -> Refus {

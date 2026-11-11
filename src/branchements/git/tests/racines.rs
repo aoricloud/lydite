@@ -19,8 +19,8 @@ fn racines_refuse_un_depot_absent_puis_un_dossier_hors_git() {
     fs::create_dir(&nu).unwrap();
     let refus = racines(&nu).unwrap_err();
     assert_eq!(refus.code, Code::BacImpossible);
-    assert!(refus.preuve.starts_with(&format!("git rev-parse dans {} a échoué (", nu.display())), "{refus}");
-    assert!(refus.preuve.len() > format!("git rev-parse dans {} a échoué () : ", nu.display()).len() + 10, "{refus}");
+    assert!(refus.preuve.starts_with(&format!("git rev-parse in {} failed (", nu.display())), "{refus}");
+    assert!(refus.preuve.len() > format!("git rev-parse in {} failed (): ", nu.display()).len() + 10, "{refus}");
     assert_eq!(fs::read_dir(&nu).unwrap().count(), 0);
     // Un dépôt, vu d'un de ses dossiers : sa tête et son git commun, en chemins absolus.
     let depot = depot(&racine);
@@ -55,7 +55,7 @@ fn le_dossier_de_kraken_sous_le_depot_est_refuse() {
     let detour = racine.join("lydite").join("..").join("ailleurs");
     let refus = hors_du_depot(&tete, &detour).unwrap_err();
     assert_eq!(refus.code, Code::DossierSousLeDepot);
-    assert!(refus.preuve.ends_with("porte « .. »"), "{refus}");
+    assert!(refus.preuve.ends_with("contains \"..\""), "{refus}");
     // Rien n'est créé.
     assert!(!depot.join("lydite").exists() && !depot.join("a").exists() && !racine.join("lydite").exists());
     let _ = fs::remove_dir_all(&racine);

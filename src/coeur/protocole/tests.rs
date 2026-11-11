@@ -540,9 +540,9 @@ fn chaque_ligne_se_range() {
     assert_eq!(lire_ligne(&octets), illisible("UTF-8 invalide après l'octet 10"));
     assert_eq!(
         lire_ligne(&GET_SETTINGS.as_bytes()[..7]),
-        illisible("au caractère 8 : attendu `:`, vu la fin de la ligne")
+        illisible("at character 8: expected `:`, saw the end of the line")
     );
-    assert_eq!(lire_ligne(b""), illisible("au caractère 1 : attendu une valeur, vu la fin de la ligne"));
+    assert_eq!(lire_ligne(b""), illisible("at character 1: expected a value, saw the end of the line"));
 }
 
 #[test]

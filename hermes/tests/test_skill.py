@@ -72,11 +72,13 @@ class Skill(unittest.TestCase):
             nom.ETAT,
             nom.LECONS,
             nom.PLAN,
-            "lydite lancer",
-            "lydite etat",
-            "lydite lecons",
+            "lydite launch",
+            "lydite status",
+            "lydite lessons",
             "lydite plan",
-            "lydite accepter",
+            "lydite accept",
+            "--split",
+            "--verify",
         ):
             self.assertIn(attendu, corps)
 

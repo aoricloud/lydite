@@ -538,7 +538,7 @@ fn kraken_remarques_sort_en_2_sur_un_refus_de_quatre_lignes_sans_panique() {
 fn kraken_remarques_veut_un_fichier_et_un_seul() {
     let (dir, fichier) = remarques_sur_disque("remarques-ligne", b"remarques 1\n");
     let cas: Vec<(Vec<&std::ffi::OsStr>, &str)> = vec![
-        (vec![], "`remarques`: the remarks file is missing"),
+        (vec![], "`remarks`: the remarks file is missing"),
         (vec!["--decoupe".as_ref(), fichier.as_os_str()], "« --decoupe » is a flag"),
         (vec![fichier.as_os_str(), "autre".as_ref()], "« autre » follows it"),
     ];
@@ -547,13 +547,13 @@ fn kraken_remarques_veut_un_fichier_et_un_seul() {
         let erreur = String::from_utf8_lossy(&sortie.stderr);
         assert_eq!(sortie.status.code(), Some(2), "{args:?} : {}", dit(&sortie));
         assert!(erreur.starts_with("lydite : 1006 contrat.commande_mal_formee\n"), "{erreur}");
-        assert!(erreur.contains(vu) && erreur.contains("lydite remarques <file>"), "{erreur}");
+        assert!(erreur.contains(vu) && erreur.contains("lydite remarks <file>"), "{erreur}");
     }
     // Le mot est dans la liste fermée que le refus 1005 donne.
     let sortie = Command::new(env!("CARGO_BIN_EXE_lydite")).arg("Remarques").output().unwrap();
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     assert!(erreur.starts_with("lydite : 1005 contrat.commande_inconnue\n"), "{erreur}");
-    assert!(erreur.contains("lydite remarques <file>"), "{erreur}");
+    assert!(erreur.contains("lydite remarks <file>"), "{erreur}");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -680,9 +680,9 @@ fn un_effort_de_tache_hors_des_efforts_permis_du_profil_est_refuse_en_6033_avant
     let erreur = String::from_utf8_lossy(&sortie.stderr).into_owned();
     assert!(erreur.contains("lydite : 6033 lancer.effort_non_permis"), "{erreur}");
     assert!(erreur.contains("A plan asks only for an effort that the profile allows (`efforts_permis`)."), "{erreur}");
-    assert!(erreur.contains("la tâche a demande l'effort max"), "la preuve nomme la tâche et l'effort : {erreur}");
-    assert!(!erreur.contains("la tâche b"), "{erreur}");
-    assert!(erreur.contains("élargis `efforts_permis`") && erreur.contains("lydite accepter"), "{erreur}");
+    assert!(erreur.contains("task a asks for effort max"), "la preuve nomme la tâche et l'effort : {erreur}");
+    assert!(!erreur.contains("task b asks"), "{erreur}");
+    assert!(erreur.contains("widen `efforts_permis`") && erreur.contains("lydite accept <profile>"), "{erreur}");
     // Rien n'est parti : ni vague ni main au fil, qui n'existe même pas.
     assert!(!essai.dossier.join("fil.jsonl").exists(), "le fil ne doit pas exister");
     // Le même plan avec un effort permis part, et écrit son fil au même endroit : la vérification ci-dessus peut voir
@@ -692,7 +692,7 @@ fn un_effort_de_tache_hors_des_efforts_permis_du_profil_est_refuse_en_6033_avant
     essai.remarques(1, &remarques_justes());
     let sortie = essai.lancer();
     let erreur = String::from_utf8_lossy(&sortie.stderr).into_owned();
-    assert!(!erreur.contains("6033"), "{erreur}");
+    assert!(!erreur.contains("6033 lancer.effort_non_permis"), "{erreur}");
     assert!(essai.dossier.join("fil.jsonl").exists(), "{}", dit(&sortie));
     assert!(lignes_de(&essai.fil(), "main.lancement").len() >= 2, "{}", essai.fil());
     let _ = fs::remove_dir_all(&essai.racine);
@@ -783,7 +783,7 @@ fn un_relecteur_sans_fichier_classe_la_relecture_et_rien_ne_se_pousse() {
     assert_eq!(sortie.status.code(), Some(1), "{}", dit(&sortie));
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     assert!(erreur.contains("lydite : 7016 vague.relecture_manquee\n"), "{erreur}");
-    assert!(erreur.contains("est classée : main-"), "{erreur}");
+    assert!(erreur.contains("is set aside: main-"), "{erreur}");
     assert!(erreur.contains("7014 vague.bac_touche"), "{erreur}");
     assert!(!erreur.contains("relecture prise"), "{erreur}");
     assert_eq!(essai.garde("code-1.txt").trim(), "2");

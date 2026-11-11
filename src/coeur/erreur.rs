@@ -6,7 +6,7 @@
 //!
 //! - 1000 `contrat` : emprunté au contrat v2 de passerelle avec ses numéros, sans PR chez lui, et jamais étendu ici ;
 //! - 6000 `lancer` : tout ce qui précède l'ouverture de la vague, c'est-à-dire la ligne de commande, ce que
-//!   `preparer` lit (profil et fournisseur, dépôt, dossier), `lydite etat` compris, et le plan, écrit à la main ou
+//!   `preparer` lit (profil et fournisseur, dépôt, dossier), `lydite status` compris, et le plan, écrit à la main ou
 //!   découpé, avec sa base éprouvée ;
 //! - 7000 `vague` : les mains et l'assemblage, puis les fichiers de chaque main, le découpeur, le relecteur et la
 //!   correction qui suit sa relecture ;
@@ -145,11 +145,11 @@ codes! {
         "A profile in a file is launched only once its fingerprint is accepted.";
     ProfilChange = 6012, "lancer.profil_change",
         "The launched profile has the accepted fingerprint; a new fingerprint is accepted again by `lydite \
-         accepter`.";
+         accept`.";
     ProfilSansFichier = 6013, "lancer.profil_sans_fichier",
         "Only a profile in a file is accepted; the built-in profile has no fingerprint to keep.";
     PreuveVide = 6014, "lancer.preuve_vide",
-        "`--verifier`, if given, carries a command that is not blank.";
+        "`--verify`, if given, carries a command that is not blank.";
     DossierSousLeDepot = 6015, "lancer.dossier_sous_le_depot",
         "Lydite's folder is outside the target repository.";
     PlanVersion = 6016, "lancer.plan_version",
@@ -190,7 +190,7 @@ codes! {
          check; otherwise nothing is launched.";
     IssueSansMur = 6029, "lancer.issue_sans_mur",
         "`--issue` only runs under a profile whose wall is required, because the text of an issue comes from \
-         someone else: `mur = exige` in the profile, then `lydite accepter <profile>`, or an objective typed by \
+         someone else: `mur = exige` in the profile, then `lydite accept <profile>`, or an objective typed by \
          hand.";
     Quota = 6030, "lancer.quota",
         "Under a daily quota that is set (`profils/quota`, in dollars), a hand does not start when the estimated \

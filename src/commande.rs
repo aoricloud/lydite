@@ -71,6 +71,7 @@ fn executer() -> Result<ExitCode, Refus> {
         Commande::LireRemarques { fichier } => return remarques_cmd(&fichier),
         Commande::LireLecons { dossier } => return lecons_cmd(&dossier),
         Commande::Version => return version_cmd(),
+        Commande::Skill => return skill_cmd(),
     };
     let (gh, personnel) = (github::programme_gh(), env::home_dir());
     let lieu = Lieu {
@@ -125,7 +126,7 @@ fn plan_cmd(fichier: &Path, decoupe: bool) -> Result<ExitCode, Refus> {
 fn remarques_cmd(fichier: &Path) -> Result<ExitCode, Refus> {
     let octets = relecture::lire_borne(fichier).map_err(|e| {
         let preuve = format!("reading the remarks {}: {e}", fichier.display());
-        let correction = "Give lydite remarques the path of a file that Lydite can read (a relative path starts \
+        let correction = "Give lydite remarks the path of a file that Lydite can read (a relative path starts \
                           from the current folder), then run again.";
         Refus::new(Code::EntreeSortie, preuve, correction)
     })?;
@@ -139,7 +140,7 @@ fn lecons_cmd(depot: &Path) -> Result<ExitCode, Refus> {
     use std::io::Read;
     let illisible = |chemin: &Path, e: std::io::Error| {
         let preuve = format!("reading the lessons {}: {e}", chemin.display());
-        let correction = "Give lydite lecons the folder of a repository whose `.agents/skills` can be read (a \
+        let correction = "Give lydite lessons the folder of a repository whose `.agents/skills` can be read (a \
                           relative path starts from the current folder), then run again.";
         Refus::new(Code::EntreeSortie, preuve, correction)
     };
@@ -170,6 +171,18 @@ fn lecons_cmd(depot: &Path) -> Result<ExitCode, Refus> {
             Refus::new(refus.code, format!("{} : {}", fichier.display(), refus.preuve), refus.correction)
         })?;
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// La skill de pilotage, liée au binaire : le fichier du plugin Hermes reste sa seule source, lu à ce chemin.
+const SKILL: &str = include_str!("../hermes/skills/driving-lydite/SKILL.md");
+
+/// `lydite skill` : écrit sur stdout la skill de ce binaire, telle quelle. Elle ne lit ni profil, ni dossier de
+/// Lydite, ni dépôt, et n'écrit rien d'autre : elle marche partout.
+fn skill_cmd() -> Result<ExitCode, Refus> {
+    use std::io::Write;
+    let mut sortie = std::io::stdout().lock();
+    sortie.write_all(SKILL.as_bytes()).and_then(|()| sortie.flush())?;
     Ok(ExitCode::SUCCESS)
 }
 

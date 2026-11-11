@@ -146,7 +146,7 @@ fn la_main_trop_lente_est_tuee_avec_ses_enfants() {
     let erreur = sortie.unwrap_err();
     assert!(matches!(erreur, ErreurMain::Tuee(_)), "tuée à son délai, par son type : {erreur:?}");
     let erreur = erreur.texte();
-    assert!(erreur.starts_with("main : temps dépassé (20 s)"), "{erreur}");
+    assert!(erreur.starts_with("hand: timed out (20 s)"), "{erreur}");
     assert_eq!(constat, None, "une main brute ne rend pas de constat");
     let pid = marque(&bac, Duration::ZERO);
     assert!(meurt(pid), "le petit-enfant {pid} survit à la main tuée");
@@ -186,7 +186,7 @@ fn une_main_sans_programme_est_une_erreur() {
         let erreur = sortie.unwrap_err();
         assert!(matches!(erreur, ErreurMain::Autre(_)), "une main qui ne part pas n'est pas tuée : {erreur:?}");
         let erreur = erreur.texte();
-        assert!(erreur.starts_with("main : aucun programme à lancer"), "{erreur}");
+        assert!(erreur.starts_with("hand: no program to start"), "{erreur}");
         assert_eq!(constat, attendu.map(|_| Constat::default()), "rien ne s'est lu");
     }
     assert!(!temporaire_de(&bac).unwrap().exists(), "rien n'est parti, rien n'est créé");
@@ -225,7 +225,7 @@ fn la_main_a_son_dossier_temporaire_a_cote_de_son_bac() {
     // Un bac absent reste une erreur : la main n'y part pas, et ni lui ni son dossier temporaire ne se créent.
     let absent = dir.join("absent");
     let erreur = jouer(&main, &absent, "consigne", DELAI, None, false, None).1.unwrap_err().texte();
-    assert!(erreur.starts_with("lancement impossible de "), "{erreur}");
+    assert!(erreur.starts_with("cannot start "), "{erreur}");
     assert!(!absent.exists() && !temporaire_de(&absent).unwrap().exists());
     let _ = fs::remove_dir_all(&dir);
 }
@@ -379,9 +379,9 @@ fn une_main_claude_a_l_ouverture_fautive_est_tuee() {
         jouer(&fausse_claude(&dir, &gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
     let ecart = r#"main : réglages non pris : à l'ouverture, permissionMode "default", déclaré "acceptEdits""#;
     // Sous Windows, `taskkill /T` tue d'abord les enfants (ici `ping`) : la racine peut sortir d'elle-même avant son
-    // tour, et le code 255 de taskkill ajoute alors « ; mise à mort : … » à l'erreur, alors que l'arbre est mort.
+    // tour, et le code 255 de taskkill ajoute alors « ; kill: … » à l'erreur, alors que l'arbre est mort.
     let erreur = sortie.unwrap_err().texte();
-    assert!(erreur == ecart || erreur.starts_with(&format!("{ecart} ; mise à mort : ")), "{erreur}");
+    assert!(erreur == ecart || erreur.starts_with(&format!("{ecart}; kill: ")), "{erreur}");
     assert_eq!(
         constat,
         Some(Constat { version: Some("2.1.312".into()), mur_actif: Some(false), ..Constat::default() })
@@ -399,7 +399,7 @@ fn une_main_claude_qui_sort_avant_ses_reponses_le_dit() {
     let (constat, sortie) =
         jouer(&fausse_claude(&dir, &gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
     let statut = if cfg!(windows) { "exit code: 1" } else { "exit status: 1" };
-    let dit = format!("main : sortie avant ses réponses de contrôle ({statut}) : {plainte}");
+    let dit = format!("hand: exit before its control responses ({statut}): {plainte}");
     assert_eq!(sortie, Err(ErreurMain::Autre(dit)));
     assert_eq!(constat, Some(Constat::default()), "rien ne s'est lu");
     let _ = fs::remove_dir_all(&dir);
@@ -415,7 +415,7 @@ fn une_main_claude_muette_est_tuee_a_la_borne() {
     let erreur = sortie.unwrap_err();
     assert!(matches!(erreur, ErreurMain::Tuee(_)), "tuée au délai, par son type : {erreur:?}");
     let erreur = erreur.texte();
-    assert!(erreur.starts_with("main : temps dépassé (1 s)"), "{erreur}");
+    assert!(erreur.starts_with("hand: timed out (1 s)"), "{erreur}");
     assert_eq!(constat, Some(Constat::default()));
     assert!(debut.elapsed() < Duration::from_secs(20), "tuée au délai, pas au bout de son sommeil");
     effacer(&dir);
@@ -515,7 +515,7 @@ fn une_main_qui_sort_en_erreur_rend_son_statut_et_sa_sortie() {
     let (dir, bac) = bac_jetable("erreur");
     let erreur = jouer(&main, &bac, "consigne", DELAI, None, false, None).1.unwrap_err().texte();
     let statut = if cfg!(windows) { "exit code: 3" } else { "exit status: 3" };
-    assert_eq!(erreur.replace("\r\n", "\n"), format!("{statut} ; erreur\nsortie\n"));
+    assert_eq!(erreur.replace("\r\n", "\n"), format!("{statut}; erreur\nsortie\n"));
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -534,7 +534,7 @@ fn un_bac_sans_nom_n_a_pas_de_dossier_temporaire() {
     // pas, et la main ne part pas, brute ou déclarée.
     let racine = env::current_dir().unwrap().ancestors().last().unwrap().to_path_buf();
     let erreur = temporaire(&racine, false).unwrap_err();
-    assert!(erreur.contains("n'a pas de nom") && erreur.contains(&racine.display().to_string()), "{erreur}");
+    assert!(erreur.contains("has no name") && erreur.contains(&racine.display().to_string()), "{erreur}");
     let demande = attendu();
     for attendu in [None, Some(&demande)] {
         let (constat, sortie) = jouer(&rapide(), &racine, "consigne", DELAI, attendu, false, None);
@@ -546,7 +546,7 @@ fn un_bac_sans_nom_n_a_pas_de_dossier_temporaire() {
 #[test]
 fn l_erreur_du_delai_garde_son_debut_malgre_une_longue_erreur() {
     // La main écrit 12 000 caractères sur ses erreurs, puis dort. `queue` coupe la fin de ses erreurs à 4000
-    // caractères, jamais le début de l'erreur : le test y lit « main : temps dépassé », brute ou déclarée. Le délai est
+    // caractères, jamais le début de l'erreur : le test y lit « hand: timed out », brute ou déclarée. Le délai est
     // celui de l'arbre : sous charge, la coquille doit avoir tout écrit avant qu'il tombe, et un délai plus court
     // est réservé à la main muette.
     let (dir, bac) = bac_jetable("delai-long");
@@ -558,7 +558,7 @@ fn l_erreur_du_delai_garde_son_debut_malgre_une_longue_erreur() {
     for attendu in [None, Some(&demande)] {
         let (_, sortie) = jouer(&main, &bac, "consigne", ARBRE, attendu, false, None);
         let erreur = sortie.unwrap_err().texte();
-        assert!(erreur.starts_with("main : temps dépassé (10 s)"), "{}", &erreur[..erreur.len().min(80)]);
+        assert!(erreur.starts_with("hand: timed out (10 s)"), "{}", &erreur[..erreur.len().min(80)]);
         let longueur = erreur.chars().count();
         assert!((4000..=4040).contains(&longueur), "la fin de ses erreurs, coupée à 4000 : {longueur} caractères");
         assert!(erreur.contains(&"x".repeat(200)), "la fin de ses erreurs reste");
@@ -599,7 +599,7 @@ fn une_main_qui_sort_en_erreur_apres_son_resultat_est_rouge() {
     // Un résultat juste, puis le code 3 et une plainte : la main est rouge, et dit son statut et sa plainte.
     let gestes = [Geste::Dire(OUVERTURE), Geste::Dire(RESULTAT), Geste::Plaindre("boum"), Geste::Sortir(3)];
     let (constat, sortie) = jouer(&fidele(&dir, gestes), &bac, "consigne", DELAI, Some(&attendu()), false, None);
-    assert_eq!(sortie, Err(ErreurMain::Autre(format!("main : sortie en erreur ({statut}) : boum"))));
+    assert_eq!(sortie, Err(ErreurMain::Autre(format!("hand: exited with an error ({statut}): boum"))));
     assert_eq!(
         constat,
         Some(Constat {

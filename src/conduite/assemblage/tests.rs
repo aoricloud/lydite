@@ -47,6 +47,17 @@ fn vise_avec_claude_suivi(nom: &str) -> (PathBuf, PathBuf, PathBuf, String) {
     (racine, depot, kraken, base)
 }
 
+/// `chemins_changes` d'un profil sans chemin protégé : les tests qui ne parlent pas des butées d'un chemin protégé
+/// n'ont rien à lui passer. Ce nom masque celui de `super`, que les tests de butées appellent par `super::`.
+fn chemins_changes(bac: &Path, depart: &str) -> Result<Vec<String>, Refus> {
+    super::chemins_changes(bac, depart, &[])
+}
+
+/// `fichiers_tenus` d'un profil sans chemin protégé, comme [`chemins_changes`].
+fn fichiers_tenus(bac: &Path, depart: &str, id: &str, fichiers: &[String]) -> Result<(), Refus> {
+    super::fichiers_tenus(bac, depart, id, fichiers, &[])
+}
+
 /// Ces chemins, en liste de textes.
 fn chemins(chemins: &[&str]) -> Vec<String> {
     chemins.iter().map(|chemin| chemin.to_string()).collect()
@@ -195,7 +206,7 @@ fn un_conflit_laisse_la_vague_a_sa_tete() {
     });
     let refus = issue.unwrap_err();
     assert_eq!(refus.code, Code::Conflit);
-    assert_eq!(refus.preuve, format!("la fusion de b sur la tête {tete} est en conflit : commun.txt"));
+    assert_eq!(refus.preuve, format!("the merge of b on head {tete} is in conflict: commun.txt"));
     assert!(!refus.correction.trim().is_empty());
     assert_eq!((verif, notee), (None, false), "ni preuve rejouée, ni note");
     assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (tete.as_str(), tete.clone()));
@@ -213,7 +224,7 @@ fn une_preuve_rouge_ne_fait_pas_avancer_la_branche() {
         assemblage.fusionner(&bac, &base, "r", None, 1, |_, _| panic!("une preuve rouge ne se note pas"));
     let refus = issue.unwrap_err();
     assert_eq!(refus.code, Code::PreuveRouge);
-    assert!(refus.preuve.starts_with("la preuve de la vague, rejouée après la fusion de r : "), "{refus}");
+    assert!(refus.preuve.starts_with("the wave's proof, replayed after the merge of r: "), "{refus}");
     assert_eq!(verif.as_deref().map(str::trim), Some("rouge vue"), "le verif de la preuve rouge");
     assert!(!refus.correction.trim().is_empty());
     assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
@@ -346,7 +357,7 @@ fn un_bac_qui_touche_claude_n_est_pas_fige() {
     let (verif, issue) = assemblage.fusionner(&bac, &base, "t", None, 1, |_, _| panic!("rien ne se note"));
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
-    assert!(refus.preuve.ends_with(" : .claude/settings.json"), "{refus}");
+    assert!(refus.preuve.ends_with(": .claude/settings.json"), "{refus}");
     // Ni figé (aucun commit, rien d'ajouté), ni assemblé : la branche à sa tête.
     assert_eq!(git(&bac, &["rev-parse", "HEAD"]), base);
     assert_eq!(git(&bac, &["diff", "--cached", "--name-only"]), "");
@@ -369,7 +380,7 @@ fn un_claude_commite_puis_ote_n_est_ni_fige_ni_fusionne() {
     let (verif, issue) = assemblage.fusionner(&bac, &base, "t", None, 1, |_, _| panic!("rien ne se note"));
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
-    assert!(refus.preuve.ends_with(" : .claude/settings.json"), "{refus}");
+    assert!(refus.preuve.ends_with(": .claude/settings.json"), "{refus}");
     // Ni figé (le bac n'a que le commit de la main, et l'effacement n'est pas ajouté), ni assemblé : la branche à sa
     // tête.
     assert_eq!(git(&bac, &["rev-list", "--count", &format!("{base}..HEAD")]), "1");
@@ -402,8 +413,8 @@ fn un_claude_ecrit_apres_sans_claude_est_le_refus_7006_au_gel() {
     );
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
-    assert!(refus.preuve.ends_with(r#" : ".claude/settings.json""#), "{refus}");
-    assert!(refus.correction.contains("la fusion n'a pas eu lieu"), "{refus}");
+    assert!(refus.preuve.ends_with(r#": ".claude/settings.json""#), "{refus}");
+    assert!(refus.correction.contains("the merge did not happen"), "{refus}");
     // Le gel a eu lieu et porte le chemin ; ni fusion, ni note : la branche et le worktree restent à leur tête.
     assert_eq!(git(&avec_fichiers, &["rev-list", "--count", &format!("{base}..HEAD")]), "1");
     assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
@@ -423,7 +434,7 @@ fn un_claude_ecrit_apres_sans_claude_est_le_refus_7006_au_gel() {
     );
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
-    assert!(refus.preuve.ends_with(r#" : ".claude/settings.json""#), "{refus}");
+    assert!(refus.preuve.ends_with(r#": ".claude/settings.json""#), "{refus}");
     assert_eq!(git(&sans_fichiers, &["rev-list", "--count", &format!("{base}..HEAD")]), "1");
     assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
     a_sa_tete(&kraken, &base);
@@ -454,7 +465,7 @@ fn un_claude_commite_puis_ote_apres_sans_claude_est_le_refus_7006_au_gel() {
     );
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
-    assert!(refus.preuve.ends_with(r#" : ".claude/settings.json""#), "{refus}");
+    assert!(refus.preuve.ends_with(r#": ".claude/settings.json""#), "{refus}");
     // Le gel a eu lieu : son arbre ne dit plus rien de `.claude`, mais son histoire le porte.
     assert_eq!(git(&avec_fichiers, &["rev-list", "--count", &format!("{base}..HEAD")]), "2");
     assert_eq!(git(&avec_fichiers, &["diff", "--name-only", &base, "HEAD", "--", ".claude"]), "");
@@ -481,7 +492,7 @@ fn un_claude_commite_puis_ote_apres_sans_claude_est_le_refus_7006_au_gel() {
     );
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::ClaudeTouche, None));
-    assert!(refus.preuve.ends_with(r#" : ".claude/settings.json""#), "{refus}");
+    assert!(refus.preuve.ends_with(r#": ".claude/settings.json""#), "{refus}");
     assert_eq!(git(&sans_fichiers, &["diff", "--name-only", &base, "HEAD", "--", ".claude"]), "");
     assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
     a_sa_tete(&kraken, &base);
@@ -516,7 +527,7 @@ fn une_fusion_non_notee_est_defaite() {
     let (verif, issue) = assemblage.fusionner(&bac, &base, "t", None, 1, |_, _| Err(io::Error::other(fil)));
     let refus = issue.unwrap_err();
     assert_eq!(refus.code, Code::FilInjoignable);
-    assert!(refus.preuve.starts_with("la fusion de t (") && refus.preuve.ends_with(fil), "le fil : {refus}");
+    assert!(refus.preuve.starts_with("the merge of t (") && refus.preuve.ends_with(fil), "le fil : {refus}");
     assert!(!refus.correction.trim().is_empty());
     assert_eq!(verif.as_deref().map(str::trim), Some("vert"), "la preuve a tourné");
     // Défaite : la branche et le worktree de la vague à la base, sans le travail ; l'assemblage reste ouvert.
@@ -542,7 +553,7 @@ fn un_retour_rate_ferme_l_assemblage() {
     });
     let refus = issue.unwrap_err();
     assert_eq!(refus.code, Code::AssemblageFerme);
-    assert!(refus.preuve.starts_with(&format!("le worktree de la vague ne revient pas à sa tête {base}")), "{refus}");
+    assert!(refus.preuve.starts_with(&format!("the wave's worktree does not return to its head {base}")), "{refus}");
     assert!(refus.preuve.contains("7012 vague.fil_injoignable") && refus.preuve.contains("git reset"), "{refus}");
     assert!(refus.preuve.contains(": 128)"), "reset --hard sort en 128 : {refus}");
     assert!(!refus.correction.trim().is_empty());
@@ -551,7 +562,7 @@ fn un_retour_rate_ferme_l_assemblage() {
     let (verif, issue) = assemblage.fusionner(&suivante, &base, "b", None, 2, |_, _| panic!("rien ne se note"));
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::AssemblageFerme, None));
-    assert!(refus.preuve.starts_with("l'assemblage de la vague v est fermé, et b n'y entre pas : "), "{refus}");
+    assert!(refus.preuve.starts_with("the assembly of wave v is closed, and b does not enter it: "), "{refus}");
     assert_eq!(git(&depot, &["rev-parse", "lydite/vague-v"]), base);
     assert_eq!(git(&suivante, &["rev-parse", "HEAD"]), base, "la suivante n'est pas figée");
     let _ = fs::remove_dir_all(&racine);
@@ -563,7 +574,7 @@ fn une_base_rouge_n_ouvre_rien() {
     let rouge = if cfg!(windows) { "echo base rouge& exit 1" } else { "echo base rouge; exit 1" };
     let Err(refus) = ouvrir(&depot, &kraken, &profil(), "v", &base, rouge) else { panic!("une base rouge s'ouvre") };
     assert_eq!(refus.code, Code::BaseRouge);
-    assert!(refus.preuve.starts_with(&format!("la preuve de la vague, jouée sur la base {base} : ")), "{refus}");
+    assert!(refus.preuve.starts_with(&format!("the wave's proof, played on the base {base}: ")), "{refus}");
     assert!(refus.preuve.contains("base rouge"), "la sortie de la preuve : {refus}");
     assert!(!refus.correction.trim().is_empty());
     // Ni worktree, ni branche, ni journal.
@@ -672,9 +683,9 @@ fn un_chemin_hors_des_fichiers_est_le_refus_7013() {
     // faire.
     let refus = fichiers_tenus(&bac, &base, "t", &chemins(&["src/b.txt"])).unwrap_err();
     assert_eq!(refus.code, Code::HorsFichiers);
-    let preuve = r#"la main de la tâche t a changé, hors de ses fichiers ("src/b.txt") : "src/neuf/x.txt""#;
+    let preuve = r#"the hand of task t changed, outside its files ("src/b.txt"): "src/neuf/x.txt""#;
     assert_eq!(refus.preuve, preuve);
-    assert!(refus.correction.contains("Remets chacun de ces chemins") && refus.correction.contains("`fichiers`"));
+    assert!(refus.correction.contains("Put each of these paths back") && refus.correction.contains("`fichiers`"));
     // Un dossier sans `/` final n'est que ce nom, qui ne couvre rien dessous ; un dossier n'en couvre pas un autre
     // dont le nom commence de même ; des `fichiers` vides ne couvrent rien.
     for faux in [&["src"][..], &["src/neuf", "src/b.txt"], &["sr/", "src/n/"], &[]] {
@@ -689,12 +700,12 @@ fn un_chemin_hors_des_fichiers_est_le_refus_7013() {
     for (faux, hors) in autres_casses.into_iter().chain([(&["Src/b.txt", "src/Neuf/"][..], les_deux)]) {
         let refus = fichiers_tenus(&bac, &base, "t", &chemins(faux)).unwrap_err();
         assert_eq!(refus.code, Code::HorsFichiers, "{faux:?}");
-        assert!(refus.preuve.ends_with(&format!(") : {hors}")), "{faux:?} : {refus}");
+        assert!(refus.preuve.ends_with(&format!("): {hors}")), "{faux:?} : {refus}");
     }
     let disque = prise(&depot, &kraken, "casse", &base, &[("Dedans.txt", "1")]);
     assert_eq!(fichiers_tenus(&disque, &base, "t", &chemins(&["Dedans.txt"])), Ok(()));
     let refus = fichiers_tenus(&disque, &base, "t", &chemins(&["dedans.txt"])).unwrap_err();
-    assert_eq!(refus.preuve, r#"la main de la tâche t a changé, hors de ses fichiers ("dedans.txt") : "Dedans.txt""#);
+    assert_eq!(refus.preuve, r#"the hand of task t changed, outside its files ("dedans.txt"): "Dedans.txt""#);
     // Un dossier d'une autre casse est un autre dossier là où le disque distingue la casse. Sous Windows, il retombe
     // sur le dossier qui existe, et git rend `src/x.txt`, sous la casse qu'il connaît : `src/` le couvre.
     let dossier = prise(&depot, &kraken, "dossier", &base, &[("SRC/x.txt", "1")]);
@@ -738,8 +749,8 @@ fn un_chemin_ecrit_apres_la_fin_de_la_tentative_est_refuse_au_gel() {
     let refus = issue.unwrap_err();
     assert_eq!((refus.code, verif), (Code::HorsFichiers, None));
     assert!(refus.preuve.ends_with(r#": "hors.txt""#), "{refus}");
-    assert!(refus.correction.contains("la fusion n'a pas eu lieu"), "{refus}");
-    assert!(refus.correction.contains("restent à leur tête"), "{refus}");
+    assert!(refus.correction.contains("the merge did not happen"), "{refus}");
+    assert!(refus.correction.contains("stay at their head"), "{refus}");
     // Le gel a eu lieu, et porte le chemin de trop.
     assert_eq!(git(&bac, &["rev-list", "--count", &format!("{base}..HEAD")]), "1");
     assert_eq!(
@@ -763,11 +774,11 @@ fn un_refus_7013_cite_vingt_chemins_au_plus() {
     let vingt: Vec<String> = (0..20).map(|i| format!("\"lot/f{i:02}.txt\"")).collect();
     assert_eq!(
         refus.preuve,
-        format!("la main de la tâche t a changé, hors de ses fichiers (\"src/\") : {}, et 5 de plus", vingt.join(", "))
+        format!("the hand of task t changed, outside its files (\"src/\"): {}, and 5 more", vingt.join(", "))
     );
     // Une liste de `fichiers` qui déborde se cite de même, et un chemin avec un caractère de contrôle s'écrit.
     let plus_de_vingt: Vec<String> = (0..21).map(|i| format!("d{i}/")).collect();
-    assert!(citer(&plus_de_vingt).ends_with(r#""d19/", et 1 de plus"#));
+    assert!(citer(&plus_de_vingt).ends_with(r#""d19/", and 1 more"#));
     assert_eq!(citer(&chemins(&["a\nb", "\u{1b}[2J", "é.txt"])), r#""a\nb", "\u{1b}[2J", "é.txt""#);
     assert_eq!(citer(&[]), "");
     let _ = fs::remove_dir_all(&racine);
@@ -781,7 +792,7 @@ fn git_qui_ne_dit_pas_ce_que_la_main_a_change_est_le_refus_7009() {
     // couvert par défaut.
     let refus = fichiers_tenus(&racine.join("absent"), &base, "t", &chemins(&["src/"])).unwrap_err();
     assert_eq!(refus.code, Code::GitImpossible);
-    assert!(refus.preuve.starts_with("lancement impossible de git status "), "{refus}");
+    assert!(refus.preuve.starts_with("cannot start git status "), "{refus}");
     let refus = fichiers_tenus(&bac, &"0".repeat(40), "t", &chemins(&["src/"])).unwrap_err();
     assert_eq!(refus.code, Code::GitImpossible);
     assert!(refus.preuve.starts_with("git diff --name-only -z --no-renames 0000"), "{refus}");
@@ -846,9 +857,116 @@ fn le_gel_refuse_un_fichier_non_vide_ou_inscriptible_sous_claude() {
         );
         let refus = issue.unwrap_err();
         assert_eq!((refus.code, verif), (Code::ClaudeTouche, None), "{nom}");
-        assert!(refus.preuve.ends_with(r#" : ".claude/loop.md""#), "{refus}");
+        assert!(refus.preuve.ends_with(r#": ".claude/loop.md""#), "{refus}");
         let _ = fs::remove_dir_all(&racine);
     }
+}
+
+/// Rend le fichier `chemin` du bac inscriptible ou en lecture seule.
+fn regler_ecriture(bac: &Path, chemin: &str, inscriptible: bool) {
+    let fichier = bac.join(chemin);
+    let mut droits = fs::metadata(&fichier).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    droits.set_readonly(!inscriptible);
+    fs::set_permissions(&fichier, droits).unwrap();
+}
+
+#[test]
+fn une_butee_a_un_chemin_protege_absent_n_est_ni_7013_ni_7018_et_le_gel_ne_la_commite_pas() {
+    let cas = [
+        ("lecons", profil(), ".agents/skills"),
+        ("dossier", profil().avec_proteges(&["vendor/"]), "vendor"),
+        ("fichier", profil().avec_proteges(&["secret.env"]), "secret.env"),
+    ];
+    for (nom, profil, chemin) in cas {
+        let (racine, depot, kraken, base) = vise_avec_fichiers(&format!("butee-protegee-{nom}"));
+        let proteges = profil.proteges();
+        let permis = chemins(&["src/"]);
+        let bac = prise(&depot, &kraken, "t", &base, &[("src/a.txt", "fait\n")]);
+        butee(&bac, chemin);
+        // Git voit la butée, comme un non suivi : sans la tolérance, elle serait un chemin changé.
+        let vu = git(&bac, &["status", "--porcelain", "--untracked-files=all"]);
+        assert!(vu.lines().any(|ligne| ligne == format!("?? {chemin}")), "{nom} : {vu}");
+        let mut avec = vec!["src/a.txt".to_string(), chemin.to_string()];
+        avec.sort();
+        assert_eq!(super::chemins_changes(&bac, &base, &[]).unwrap(), avec, "{nom}");
+        let refus = super::fichiers_tenus(&bac, &base, "t", &permis, &[]).unwrap_err();
+        assert_eq!(refus.code, Code::HorsFichiers, "{nom}");
+        // Avec les chemins protégés du profil : ni 7018, ni 7013, ni chemin changé.
+        assert_eq!(proteges_tenus(&bac, &base, "t", proteges), Ok(()), "{nom}");
+        assert_eq!(super::fichiers_tenus(&bac, &base, "t", &permis, proteges), Ok(()), "{nom}");
+        assert_eq!(super::chemins_changes(&bac, &base, proteges).unwrap(), ["src/a.txt"], "{nom}");
+        // Le gel ne la commite pas : la branche de la vague reçoit le vrai changement, et lui seul.
+        let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+        let sha = assemblage.fusionner(&bac, &base, "t", Some(&permis), 1, |_, _| Ok(())).1.unwrap();
+        assert_eq!(git(&bac, &["diff", "--name-only", &base, "HEAD"]), "src/a.txt", "{nom}");
+        assert!(!fichiers(&depot, &sha).iter().any(|fichier| fichier.starts_with(chemin)), "{nom}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+}
+
+#[test]
+fn un_fichier_non_vide_ou_inscriptible_a_un_chemin_protege_reste_le_refus_7018() {
+    for (nom, contenu, lecture_seule) in [("non-vide", "x", true), ("inscriptible", "", false)] {
+        let (racine, depot, kraken, base) = vise_avec_fichiers(&format!("protege-pas-butee-{nom}"));
+        let profil = profil();
+        let permis = chemins(&["src/"]);
+        let bac = prise(&depot, &kraken, "t", &base, &[("src/a.txt", "fait\n"), (".agents/skills", contenu)]);
+        regler_ecriture(&bac, ".agents/skills", !lecture_seule);
+        // À la fin de la tentative, avant les `fichiers`.
+        let refus = proteges_tenus(&bac, &base, "t", profil.proteges()).unwrap_err();
+        assert_eq!(refus.code, Code::CheminProtege, "{nom}");
+        assert!(refus.preuve.ends_with(r#": ".agents/skills""#), "{nom} : {refus}");
+        // Au gel : la tâche est refusée, rien n'est noté.
+        let assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+        let (verif, issue) = assemblage.assembler(
+            &bac,
+            &base,
+            "t",
+            Some(&permis),
+            1,
+            |_| Ok(()),
+            |_, _| panic!("un chemin protégé ne se note pas"),
+        );
+        let refus = issue.unwrap_err();
+        assert_eq!((refus.code, verif), (Code::CheminProtege, None), "{nom}");
+        assert!(refus.preuve.ends_with(r#": ".agents/skills""#), "{nom} : {refus}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+}
+
+#[test]
+fn un_fichier_vide_en_lecture_seule_a_un_chemin_non_protege_reste_un_chemin_change() {
+    let (racine, depot, kraken, base) = vise_avec_fichiers("butee-non-protegee");
+    let profil = profil();
+    let permis = chemins(&["src/"]);
+    let bac = prise(&depot, &kraken, "t", &base, &[("src/a.txt", "fait\n")]);
+    butee(&bac, ".bashrc");
+    let attendu = [".bashrc", "src/a.txt"];
+    assert_eq!(super::chemins_changes(&bac, &base, profil.proteges()).unwrap(), attendu);
+    // Il n'est pas protégé : pas de 7018 ; mais il n'est pas dans les `fichiers` de la tâche : 7013.
+    assert_eq!(proteges_tenus(&bac, &base, "t", profil.proteges()), Ok(()));
+    let refus = super::fichiers_tenus(&bac, &base, "t", &permis, profil.proteges()).unwrap_err();
+    assert_eq!(refus.code, Code::HorsFichiers);
+    assert!(refus.preuve.ends_with(r#": ".bashrc""#), "{refus}");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn un_chemin_protege_qui_existait_au_depart_et_que_la_main_change_reste_le_refus_7018() {
+    let (racine, depot, kraken, _) = vise("protege-present");
+    ecrire(&depot, "secret.env", "x");
+    git(&depot, &["add", "-A"]);
+    git(&depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "secret"]);
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    let profil = profil().avec_proteges(&["secret.env"]);
+    // La main le vide et lui ôte l'écriture : il a la forme d'une butée, mais il existait au départ.
+    let bac = prise(&depot, &kraken, "t", &base, &[("secret.env", "")]);
+    regler_ecriture(&bac, "secret.env", false);
+    let refus = proteges_tenus(&bac, &base, "t", profil.proteges()).unwrap_err();
+    assert_eq!(refus.code, Code::CheminProtege);
+    assert!(refus.preuve.ends_with(r#": "secret.env""#), "{refus}");
+    let _ = fs::remove_dir_all(&racine);
 }
 
 #[test]

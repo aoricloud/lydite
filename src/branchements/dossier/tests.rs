@@ -36,7 +36,7 @@ fn un_dossier_que_tient_un_autre_est_refuse_en_6032_et_se_prend_des_qu_il_le_lac
     let refus = tenir(&dir).unwrap_err();
     assert_eq!(refus.code, Code::DossierPris);
     assert!(refus.preuve.contains(&dir.display().to_string()), "{refus}");
-    assert!(refus.correction.contains("Attends la fin de l'autre lancement"), "{refus}");
+    assert!(refus.correction.contains("Wait for the other launch to finish"), "{refus}");
     assert!(!dir.join(FICHIER).exists(), "le refus n'écrit pas au fil");
     // Il ne reste rien du refus : l'autre fini (ou tué), le dossier se prend.
     drop(autre);

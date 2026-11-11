@@ -1,7 +1,7 @@
 //! Les tests des outils de processus : l'arbre et sa mise à mort, et l'environnement ôté à une main et à sa preuve.
 use super::*;
 use crate::essais::mains::{arbre, bac_jetable};
-use crate::essais::{ARBRE, marque, meurt};
+use crate::essais::{ATTENTE_DE_LA_MARQUE, marque, meurt};
 use std::process::Stdio;
 
 #[test]
@@ -35,7 +35,7 @@ fn tuer_arbre_tue_les_petits_enfants() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    let pid = marque(&bac, ARBRE);
+    let pid = marque(&bac, ATTENTE_DE_LA_MARQUE);
     assert_eq!(tuer_arbre(enfant.id()), Ok(()));
     assert!(meurt(pid), "le petit-enfant {pid} survit à tuer_arbre");
     assert!(attendre(&mut enfant, Instant::now() + SORTIE).unwrap().is_some(), "l'enfant meurt aussi");
@@ -54,7 +54,7 @@ fn tuer_et_attendre_tue_un_enfant_qui_dort_et_ne_rend_aucun_echec() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    marque(&bac, ARBRE);
+    marque(&bac, ATTENTE_DE_LA_MARQUE);
     assert_eq!(tuer_et_attendre(&mut enfant), Ok(()));
     assert!(enfant.try_wait().unwrap().is_some(), "l'enfant est sorti");
     let _ = fs::remove_dir_all(&dir);

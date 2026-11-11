@@ -1164,7 +1164,7 @@ fn un_dossier_qui_ne_peut_pas_garder_la_consigne_arrete_la_vague_sans_lecon() {
     let menee = lancer_sur(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL, &base).unwrap();
     assert!(menee.arretee);
     let issue = menee.issues[0].1.as_ref().unwrap_err();
-    assert!(issue.contains("écriture de la consigne") && issue.contains("7012"), "{issue}");
+    assert!(issue.contains("writing the instruction") && issue.contains("(7012)"), "{issue}");
     // La fausse main écrit `entree.txt` dans son bac : aucun bac n'en porte, elle n'est pas partie.
     let partie = trouves(&kraken, &|nom| nom == "entree.txt");
     assert!(partie.is_empty() && consignes_notees(&kraken).is_empty(), "{partie:?}");
@@ -1184,7 +1184,7 @@ fn une_ecriture_ratee_de_la_consigne_arrete_la_vague() {
     let menee = lancer_sur(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL, &base).unwrap();
     assert!(menee.arretee);
     let issue = menee.issues[0].1.as_ref().unwrap_err();
-    assert!(issue.contains("écriture de la consigne"), "{issue}");
+    assert!(issue.contains("writing the instruction"), "{issue}");
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -1196,7 +1196,7 @@ fn une_lecon_fausse_au_commit_de_base_refuse_la_vague_avant_toute_main() {
     let profil = Profil::faux(fausse_main(&racine), DELAI);
     let refus = lancer(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL).err().unwrap();
     assert_eq!(refus.code, Code::LeconMalFormee, "{refus}");
-    assert!(refus.preuve.contains(".agents/skills/g/SKILL.md") && refus.preuve.contains("ligne 1"), "{refus}");
+    assert!(refus.preuve.contains(".agents/skills/g/SKILL.md") && refus.preuve.contains("line 1"), "{refus}");
     // Ni fil, ni bac, ni main.
     assert!(!kraken.exists(), "rien n'est créé");
     assert!(!racine.join("entree.txt").exists());
@@ -1360,9 +1360,10 @@ fn l_effort_d_une_tache_se_note_au_lancement_et_hors_des_efforts_permis_refuse_l
     let Err(refus) = lancer(&depot, &kraken, &profil, &plan, BAIL) else { panic!("un refus était attendu") };
     assert_eq!(refus.code, Code::EffortNonPermis, "{refus}");
     assert_eq!(refus.code.numero(), 6033);
-    assert!(refus.preuve.contains("la tâche 2 demande l'effort xhigh"), "{refus}");
-    assert!(!refus.preuve.contains("la tâche 1"), "{refus}");
-    assert!(refus.correction.contains("efforts_permis") && refus.correction.contains("lydite accepter"), "{refus}");
+    assert!(refus.preuve.contains("task 2 asks for effort xhigh"), "{refus}");
+    assert!(!refus.preuve.contains("task 1 "), "{refus}");
+    let nomme = refus.correction.contains("efforts_permis") && refus.correction.contains("lydite accept <profile>");
+    assert!(nomme, "{refus}");
     // Rien n'est parti : le dossier de Kraken n'a pas de fil, que la vague permise écrit plus bas.
     assert!(!kraken.join(crate::branchements::dossier::FICHIER).exists(), "le fil ne doit pas exister");
     // Les deux efforts permis : le plan part. Chaque lancement dit l'effort de sa tâche, à ses deux tentatives, à la
@@ -1421,7 +1422,7 @@ fn une_main_declaree_est_precedee_de_son_lancement_et_suivie_de_son_constat() {
     let plan = Plan::copies("objectif", verifier, 1);
     let (id, issue) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap().1.remove(0);
     let erreur = issue.unwrap_err();
-    assert!(erreur.starts_with("lancement impossible de lydite-claude-introuvable"), "{erreur}");
+    assert!(erreur.starts_with("cannot start lydite-claude-introuvable"), "{erreur}");
     // Dans chaque tentative : le bail et le début, le lancement avant que la main parte, le constat à son retour,
     // puis la fin.
     let notes = notes(&kraken);
@@ -1496,7 +1497,7 @@ fn une_main_dont_le_profil_nomme_un_fournisseur_le_note_apres_son_lancement() {
     let plan = Plan::copies("objectif", Some("git status"), 1);
     let (_, mut issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
     let erreur = issues.remove(0).1.unwrap_err();
-    assert!(erreur.starts_with("lancement impossible de lydite-claude-introuvable"), "{erreur}");
+    assert!(erreur.starts_with("cannot start lydite-claude-introuvable"), "{erreur}");
     // À chaque tentative, le fournisseur déclaré suit le lancement et précède le constat.
     let notes = notes(&kraken);
     let evenements: Vec<Evenement> = notes.iter().map(|note| note.evenement.clone()).collect();
@@ -1873,7 +1874,7 @@ fn une_main_tuee_a_son_delai_n_est_pas_relancee() {
     // a n'est pas relancée : elle est refusée en 7005, dont la preuve dit le temps dépassé, et b est sautée, sans
     // bac.
     let refus = refusee(ids[0], &issues[0].1, 7005);
-    assert!(refus.contains("main : temps dépassé (1 s)"), "la preuve dit le délai de la main : {refus}");
+    assert!(refus.contains("hand: timed out (1 s)"), "la preuve dit le délai de la main : {refus}");
     refusee(ids[1], &issues[1].1, 7011);
     assert!(!kraken.join("bacs").join(ids[1]).exists(), "b n'a pas de bac");
     // Un seul début, donc une seule main : la fin rouge de a dit le temps dépassé, puis son refus a clos la tâche.
@@ -1885,7 +1886,7 @@ fn une_main_tuee_a_son_delai_n_est_pas_relancee() {
     assert_eq!(debuts.count(), 1, "aucune relance : {evenements:?}");
     let fins: Vec<&Evenement> = evenements.iter().filter(|e| matches!(e, Evenement::Fin { .. })).collect();
     let [Evenement::Fin { texte, .. }] = fins.as_slice() else { panic!("une seule fin : {fins:?}") };
-    assert!(texte.starts_with("main : temps dépassé (1 s)"), "{texte}");
+    assert!(texte.starts_with("hand: timed out (1 s)"), "{texte}");
     // Son bac n'est ni figé ni assemblé : la branche de la vague est restée à sa base.
     assert_eq!(git(&kraken.join("bacs").join(ids[0]), &["rev-parse", "HEAD"]), base, "aucun commit dans son bac");
     assert_eq!(git(&depot, &["rev-parse", &branche]), base);
@@ -1906,7 +1907,7 @@ fn une_main_sans_programme_est_classee_sans_faire_tomber_la_vague() {
     assert_eq!(issues.len(), 2);
     for (id, issue) in &issues {
         let erreur = issue.as_ref().unwrap_err();
-        assert!(erreur.starts_with("main : aucun programme à lancer"), "{id} : {erreur}");
+        assert!(erreur.starts_with("hand: no program to start"), "{id} : {erreur}");
     }
     // Chacune est relancée une fois, comme toute fin rouge, puis classée.
     let vagues = etat(&fil(&kraken));
@@ -2109,7 +2110,7 @@ fn deux_independantes_en_conflit() {
         _ => None,
     });
     let Some((preuve, verif)) = note else { panic!("le refus 7007 est au fil : {evenements:?}") };
-    let attendu = format!("la fusion de {} sur la tête {} est en conflit : commun.txt", tache(perdante), fusions[0].1);
+    let attendu = format!("the merge of {} on head {} is in conflict: commun.txt", tache(perdante), fusions[0].1);
     assert_eq!((preuve, verif), (&attendu, &None));
     assert_eq!(histoire_de(&evenements, gagnante), prise_du_premier_coup(tache(gagnante), "fusion"));
     assert_eq!(histoire_de(&evenements, perdante), prise_du_premier_coup(tache(perdante), "refus 7007"));
@@ -2409,7 +2410,7 @@ fn une_competence_imbriquee_fait_refuser_sa_tache() {
     let branche = branche.expect("la branche d'une vague à plan");
     let ids: Vec<&str> = issues.iter().map(|(id, _)| id.as_str()).collect();
     let refus = refusee(ids[0], &issues[0].1, 7006);
-    assert!(refus.contains(" : sous/.claude/skills/k/SKILL.md"), "le refus nomme la compétence : {refus}");
+    assert!(refus.contains(": sous/.claude/skills/k/SKILL.md"), "le refus nomme la compétence : {refus}");
     refusee(ids[1], &issues[1].1, 7011);
     assert!(!kraken.join("bacs").join(ids[1]).exists(), "b n'a pas de bac");
     // a était verte, mais son bac n'est ni figé ni assemblé, et la branche est restée à sa base.
@@ -2677,7 +2678,7 @@ fn une_branche_deplacee_apres_la_note_defait_la_fusion_en_7009() {
     let branche = branche.expect("la branche d'une vague à plan");
     let ids: Vec<&str> = issues.iter().map(|(id, _)| id.as_str()).collect();
     let refus = refusee(ids[0], &issues[0].1, 7009);
-    assert!(refus.contains("est notée, mais"), "le refus dit que la fusion était notée : {refus}");
+    assert!(refus.contains("is noted, but"), "le refus dit que la fusion était notée : {refus}");
     refusee(ids[1], &issues[1].1, 7011);
     // Le fil a la fusion, puis le refus qui la suit : le rejeu prend le dernier, et la tâche n'est pas assemblée.
     let evenements = fil(&kraken);
@@ -2733,8 +2734,8 @@ fn un_retour_rate_ferme_l_assemblage_de_la_vague() {
     // La première prise voit le retour raté, et ferme l'assemblage ; l'autre le trouve fermé. Le test n'en suppose
     // aucune.
     let refus = [refusee(ids[0], &issues[0].1, 7010), refusee(ids[1], &issues[1].1, 7010)];
-    assert!(refus.iter().all(|texte| texte.contains("ne revient pas à sa tête")), "{refus:?}");
-    assert_eq!(refus.iter().filter(|texte| texte.contains("est fermé")).count(), 1, "{refus:?}");
+    assert!(refus.iter().all(|texte| texte.contains("does not return to its head")), "{refus:?}");
+    assert_eq!(refus.iter().filter(|texte| texte.contains("is closed")).count(), 1, "{refus:?}");
     refusee(ids[2], &issues[2].1, 7011);
     // La branche n'a pas bougé, et aucune fusion n'est notée. Le verrou ôté, le worktree est à sa tête, propre.
     let evenements = fil(&kraken);
@@ -2907,8 +2908,8 @@ fn une_main_hors_de_ses_fichiers_est_rouge_se_corrige_a_la_relance_et_passe() {
     let lignes: Vec<&str> = erreur.lines().collect();
     let [code, preuve, correction] = lignes[..] else { panic!("trois lignes : {erreur}") };
     assert_eq!(code, format!("7013 vague.hors_fichiers : {}", Code::HorsFichiers.regle()));
-    assert_eq!(preuve, r#"la main de la tâche a a changé, hors de ses fichiers ("dedans.txt") : "dehors.txt""#);
-    assert!(correction.starts_with("Remets chacun de ces chemins") && correction.contains("`fichiers`"), "{erreur}");
+    assert_eq!(preuve, r#"the hand of task a changed, outside its files ("dedans.txt"): "dehors.txt""#);
+    assert!(correction.starts_with("Put each of these paths back") && correction.contains("`fichiers`"), "{erreur}");
     // La relance part dans le même bac, et reçoit cette erreur en contexte, avec les chemins fautifs et la règle ;
     // la première consigne n'en portait pas.
     assert!(!consigne_de(&racine, 1).contains("Tentative pr"));
@@ -3068,7 +3069,7 @@ fn une_main_qui_ne_se_corrige_pas_est_classee_et_son_bac_reste() {
     // Classée, et non refusée : son erreur est le refus 7013 de sa seconde tentative, avec ses chemins.
     let erreur = issues[0].1.as_ref().unwrap_err();
     assert!(erreur.starts_with(&format!("7013 vague.hors_fichiers : {}\n", Code::HorsFichiers.regle())), "{erreur}");
-    assert!(erreur.contains(r#"hors de ses fichiers ("dedans.txt") : "dehors.txt""#), "{erreur}");
+    assert!(erreur.contains(r#"outside its files ("dedans.txt"): "dehors.txt""#), "{erreur}");
     let evenements = fil(&kraken);
     let attendu = [
         "tâche a",
@@ -3184,7 +3185,7 @@ fn une_casse_autre_que_celle_de_git_ne_couvre_pas_le_travail() {
     let (_, issues) = lancer(&depot, &kraken, &profil, &plan_de_a("Dedans.txt dehors.txt"), BAIL).unwrap();
     let erreur = issues[0].1.as_ref().unwrap_err();
     assert!(erreur.starts_with("7013 vague.hors_fichiers : "), "{erreur}");
-    assert!(erreur.contains(r#"hors de ses fichiers ("Dedans.txt", "dehors.txt") : "dedans.txt""#), "{erreur}");
+    assert!(erreur.contains(r#"outside its files ("Dedans.txt", "dehors.txt"): "dedans.txt""#), "{erreur}");
     // La relance a ôté dehors.txt, mais dedans.txt, écrit sous sa casse, reste hors de `Dedans.txt` : classée.
     assert_eq!(histoire_de(&fil(&kraken), 1).last().map(String::as_str), Some("verdict Classee Constate"));
     let _ = fs::remove_dir_all(&racine);
@@ -3853,7 +3854,7 @@ mod quota {
         let Evenement::Refus { vague, main, code, regle, preuve, .. } = refus else { unreachable!() };
         assert_eq!((vague.as_str(), main, code), (id.rsplit_once('-').unwrap().0.trim_start_matches("main-"), 1, 6030));
         assert_eq!(regle, Code::Quota.regle());
-        assert!(preuve.contains("atteint le quota du jour"), "{preuve}");
+        assert!(preuve.contains("reaches the day's quota"), "{preuve}");
         let _ = fs::remove_dir_all(&racine);
     }
 
@@ -3920,12 +3921,12 @@ mod quota {
         assert_eq!(histoire, ["vague 1", "refus 6030"]);
         // Sans fichier quota, rien ne change : la main part, et ne tient pas faute de programme.
         let (issue, histoire, _) = lancer_a_api("quota-sans-prix-libre", sans_prix, None);
-        assert!(issue.unwrap_err().starts_with("lancement impossible de lydite-claude-introuvable"));
+        assert!(issue.unwrap_err().starts_with("cannot start lydite-claude-introuvable"));
         assert_eq!(&histoire[..2], ["vague 1", "bail 1"]);
         // Avec un prix pour le modèle (`sonnet` par défaut), sous un quota que rien n'atteint : la main part.
         let avec_prix = sans_prix.replace("autre-modele 1 2", "sonnet 3 15");
         let (issue, histoire, _) = lancer_a_api("quota-avec-prix", &avec_prix, Some("100\n"));
-        assert!(issue.unwrap_err().starts_with("lancement impossible de lydite-claude-introuvable"));
+        assert!(issue.unwrap_err().starts_with("cannot start lydite-claude-introuvable"));
         assert_eq!(&histoire[..2], ["vague 1", "bail 1"]);
     }
 
@@ -4090,7 +4091,7 @@ mod coupure {
     #[test]
     fn deux_coupures_classent_la_tache_et_disent_la_cause() {
         let joue = jouer("coupure-coupure", vec![coupee(529), coupee(503)]);
-        assert_eq!(joue.issue.unwrap_err(), "coupure de l'API (503)");
+        assert_eq!(joue.issue.unwrap_err(), "API outage (503)");
         let attendu = [
             "bail 1",
             "début 1",
@@ -4163,7 +4164,7 @@ mod coupure {
         let texte = joue.issue.as_ref().err().unwrap_or_else(|| panic!("refusée : {:?}", joue.issue));
         assert!(texte.starts_with("refusée (7019) : "), "{texte}");
         assert!(texte.contains(DEPENSE), "la preuve dit l'erreur de la main : {texte}");
-        assert!(texte.contains("plafond de dépense, 20 dollars"), "la preuve nomme le plafond : {texte}");
+        assert!(texte.contains("spending ceiling, 20 dollars"), "la preuve nomme le plafond : {texte}");
         assert!(texte.contains("main-") && texte.contains("(1)"), "la preuve nomme la main et sa tâche : {texte}");
         assert_eq!(histoire(&joue.evenements), ["bail 1", "début 1", "fin 1 Rouge Constate", "refus 7019"]);
         // Le texte ne décide pas : une erreur ordinaire qui dit le même texte est relancée.

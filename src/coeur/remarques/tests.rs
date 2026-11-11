@@ -60,98 +60,101 @@ fn chaque_faute_du_fichier_est_le_refus_7015_qui_nomme_sa_ligne() {
     let debut = |reste: &str| format!("remarques 1\n{reste}");
     let cas: Vec<(String, &str)> = vec![
         // La première ligne : `remarques 1`, seule.
-        (String::new(), "ligne 1 «  » : la première ligne d'un fichier de remarques est `remarques 1`"),
-        ("remarques 3\n".into(), "ligne 1 « remarques 3 » : la première ligne"),
-        ("plan 1\n".into(), "ligne 1 « plan 1 » : la première ligne"),
-        ("remarques 1 \n".into(), "ligne 1 « remarques 1  » : la première ligne"),
-        ("\nremarques 1\n".into(), "ligne 1 «  » : la première ligne"),
+        (String::new(), "line 1 «  » : the first line of a remarks file is `remarques 1`"),
+        ("remarques 3\n".into(), "line 1 « remarques 3 » : the first line"),
+        ("plan 1\n".into(), "line 1 « plan 1 » : the first line"),
+        ("remarques 1 \n".into(), "line 1 « remarques 1  » : the first line"),
+        ("\nremarques 1\n".into(), "line 1 «  » : the first line"),
         // Une ligne hors de la forme.
-        (debut("bonjour\n"), "ligne 2 « bonjour » : elle n'est ni vide, ni indentée, ni `remarque <n>`"),
-        (debut("remarques 1\n"), "ligne 2 « remarques 1 » : elle n'est ni vide"),
-        (debut("remarque1\n"), "ligne 2 « remarque1 » : elle n'est ni vide"),
-        (debut("    texte\n"), "ligne 2 «     texte » : cette ligne est indentée, et aucune ligne `remarque <n>`"),
-        (debut("fichier : a\n"), "la clé « fichier » ne suit aucune ligne `remarque <n>`"),
-        (debut("auteur : moi\n"), "la clé « auteur » n'est pas une clé de remarque (fichier, ligne, bloquante)"),
+        (debut("bonjour\n"), "line 2 « bonjour » : it is neither empty, nor indented, nor `remarque <n>`"),
+        (debut("remarques 1\n"), "line 2 « remarques 1 » : it is neither empty"),
+        (debut("remarque1\n"), "line 2 « remarque1 » : it is neither empty"),
+        (debut("    texte\n"), "line 2 «     texte » : this line is indented, and no `remarque <n>` line"),
+        (debut("fichier : a\n"), "the key « fichier » follows no `remarque <n>` line"),
+        (debut("auteur : moi\n"), "the key « auteur » is not a remark key (fichier, ligne, bloquante)"),
         // La numérotation : 1, 2, 3… dans l'ordre.
-        (debut("remarque\n"), "la remarque porte le numéro «  », et la suivante est la 1"),
-        (debut("remarque deux\n"), "la remarque porte le numéro « deux », et la suivante est la 1"),
-        (debut("remarque 2\n"), "la remarque porte le numéro « 2 », et la suivante est la 1"),
-        (debut("remarque 0\n"), "la remarque porte le numéro « 0 »"),
-        (debut("remarque -1\n"), "la remarque porte le numéro « -1 »"),
-        (debut("remarque +1\n"), "la remarque porte le numéro « +1 »"),
-        (debut("remarque 1 2\n"), "la remarque porte le numéro « 1 2 »"),
-        (debut("remarque 99999999999999999999999\n"), "le numéro « 99999999999999999999999 »"),
+        (debut("remarque\n"), "the remark carries the number «  », and the next one is 1"),
+        (debut("remarque deux\n"), "the remark carries the number « deux », and the next one is 1"),
+        (debut("remarque 2\n"), "the remark carries the number « 2 », and the next one is 1"),
+        (debut("remarque 0\n"), "the remark carries the number « 0 »"),
+        (debut("remarque -1\n"), "the remark carries the number « -1 »"),
+        (debut("remarque +1\n"), "the remark carries the number « +1 »"),
+        (debut("remarque 1 2\n"), "the remark carries the number « 1 2 »"),
+        (debut("remarque 99999999999999999999999\n"), "the number « 99999999999999999999999 »"),
         (
             debut("remarque 1\nfichier : a\nbloquante : non\n x\nremarque 3\n"),
-            "ligne 6 « remarque 3 » : la remarque porte le numéro « 3 », et la suivante est la 2",
+            "line 6 « remarque 3 » : the remark carries the number « 3 », and the next one is 2",
         ),
         (
             debut("remarque 1\nfichier : a\nbloquante : non\n x\nremarque 1\n"),
-            "la remarque porte le numéro « 1 », et la suivante est la 2",
+            "the remark carries the number « 1 », and the next one is 2",
         ),
         // L'ordre des clés : fichier, ligne si elle paraît, bloquante, une fois chacune.
-        (debut("remarque 1\nbloquante : oui\n"), "la clé « bloquante » vient avant `fichier`"),
-        (debut("remarque 1\nligne : 1\n"), "la clé « ligne » vient avant `fichier`"),
-        (debut("remarque 1\nfichier : a\nfichier : b\n"), "la clé « fichier » est déjà donnée dans cette remarque"),
-        (debut("remarque 1\nfichier : a\nligne : 1\nligne : 2\n"), "la clé « ligne » est déjà donnée"),
-        (debut("remarque 1\nfichier : a\nbloquante : non\nbloquante : oui\n"), "la clé « bloquante » est déjà donnée"),
+        (debut("remarque 1\nbloquante : oui\n"), "the key « bloquante » comes before `fichier`"),
+        (debut("remarque 1\nligne : 1\n"), "the key « ligne » comes before `fichier`"),
+        (debut("remarque 1\nfichier : a\nfichier : b\n"), "the key « fichier » is already given in this remark"),
+        (debut("remarque 1\nfichier : a\nligne : 1\nligne : 2\n"), "the key « ligne » is already given"),
+        (
+            debut("remarque 1\nfichier : a\nbloquante : non\nbloquante : oui\n"),
+            "the key « bloquante » is already given",
+        ),
         (
             debut("remarque 1\nfichier : a\nbloquante : non\nligne : 1\n"),
-            "la clé « ligne » vient après `bloquante`, la dernière clé",
+            "the key « ligne » comes after `bloquante`, the last key",
         ),
         (
             debut("remarque 1\nfichier : a\nligne : 1\nfichier : b\n"),
-            "la clé « fichier » est déjà donnée dans cette remarque",
+            "the key « fichier » is already given in this remark",
         ),
         (
             debut("remarque 1\nfichier : a\nbloquante : non\n    x\nbloquante : oui\n"),
-            "la clé « bloquante » vient après les lignes indentées",
+            "the key « bloquante » comes after the indented lines",
         ),
         // Ce qui manque à une remarque.
-        (debut("remarque 1\n"), "ligne 2 « remarque 1 » : la remarque n'a pas de ligne `fichier : …`"),
-        (debut("remarque 1\nfichier : a\n"), "ligne 2 « remarque 1 » : la remarque n'a pas de ligne `bloquante : …`"),
+        (debut("remarque 1\n"), "line 2 « remarque 1 » : the remark has no `fichier : …` line"),
+        (debut("remarque 1\nfichier : a\n"), "line 2 « remarque 1 » : the remark has no `bloquante : …` line"),
         (
             debut("remarque 1\nfichier : a\nbloquante : oui\n"),
-            "la remarque n'a pas de texte : son constat et sa correction, en lignes indentées",
+            "the remark has no text: its finding and its fix, as indented lines",
         ),
         (
             debut("remarque 1\nfichier : a\nbloquante : oui\n   \n\t\nremarque 2\n"),
-            "ligne 2 « remarque 1 » : la remarque n'a pas de texte",
+            "line 2 « remarque 1 » : the remark has no text",
         ),
         (
             debut("remarque 1\nfichier : a\n    texte avant bloquante\n"),
-            "le texte d'une remarque vient après ses clés, la dernière étant `bloquante`",
+            "the text of a remark comes after its keys, the last one being `bloquante`",
         ),
         // Les valeurs.
-        (debut("remarque 1\nfichier :\n"), "la clé « fichier » est blanche"),
-        (debut("remarque 1\nfichier : a\nligne :   \n"), "la clé « ligne » est blanche"),
-        (debut("remarque 1\nfichier : a\nbloquante :\n"), "la clé « bloquante » est blanche"),
+        (debut("remarque 1\nfichier :\n"), "the key « fichier » is blank"),
+        (debut("remarque 1\nfichier : a\nligne :   \n"), "the key « ligne » is blank"),
+        (debut("remarque 1\nfichier : a\nbloquante :\n"), "the key « bloquante » is blank"),
         (
             debut("remarque 1\nfichier : a\nligne : 0\n"),
-            "la clé « ligne » vaut « 0 », et sa valeur est un entier positif",
+            "the key « ligne » is set to « 0 », and its value is a positive integer",
         ),
-        (debut("remarque 1\nfichier : a\nligne : -3\n"), "la clé « ligne » vaut « -3 »"),
-        (debut("remarque 1\nfichier : a\nligne : 1.5\n"), "la clé « ligne » vaut « 1.5 »"),
-        (debut("remarque 1\nfichier : a\nligne : douze\n"), "la clé « ligne » vaut « douze »"),
-        (debut("remarque 1\nfichier : a\nligne : ٣\n"), "la clé « ligne » vaut « ٣ »"),
-        (debut("remarque 1\nfichier : a\nligne : 4294967296\n"), "la clé « ligne » vaut « 4294967296 »"),
+        (debut("remarque 1\nfichier : a\nligne : -3\n"), "the key « ligne » is set to « -3 »"),
+        (debut("remarque 1\nfichier : a\nligne : 1.5\n"), "the key « ligne » is set to « 1.5 »"),
+        (debut("remarque 1\nfichier : a\nligne : douze\n"), "the key « ligne » is set to « douze »"),
+        (debut("remarque 1\nfichier : a\nligne : ٣\n"), "the key « ligne » is set to « ٣ »"),
+        (debut("remarque 1\nfichier : a\nligne : 4294967296\n"), "the key « ligne » is set to « 4294967296 »"),
         (
             debut("remarque 1\nfichier : a\nbloquante : Oui\n"),
-            "la clé « bloquante » vaut « Oui », et ses seules valeurs sont `oui` et `non`",
+            "the key « bloquante » is set to « Oui », and its only values are `oui` and `non`",
         ),
-        (debut("remarque 1\nfichier : a\nbloquante : peut-être\n"), "la clé « bloquante » vaut « peut-être »"),
-        (debut("remarque 1\nfichier : a\nbloquante : oui non\n"), "la clé « bloquante » vaut « oui non »"),
+        (debut("remarque 1\nfichier : a\nbloquante : peut-être\n"), "the key « bloquante » is set to « peut-être »"),
+        (debut("remarque 1\nfichier : a\nbloquante : oui non\n"), "the key « bloquante » is set to « oui non »"),
         // Un chemin relatif à la racine du dépôt, écrit comme git l'écrit.
-        (debut("remarque 1\nfichier : C:\\x\\a.rs\n"), "le chemin « C:\\x\\a.rs » s'écrit avec une barre inverse"),
-        (debut("remarque 1\nfichier : src\\a.rs\n"), "s'écrit avec une barre inverse, et git sépare les noms par `/`"),
-        (debut("remarque 1\nfichier : /etc/passwd\n"), "le chemin « /etc/passwd » est absolu"),
-        (debut("remarque 1\nfichier : C:/x\n"), "le chemin « C:/x » est absolu"),
-        (debut("remarque 1\nfichier : ../a\n"), "le chemin « ../a » a un nom vide, `.` ou `..`"),
-        (debut("remarque 1\nfichier : a/../b\n"), "a un nom vide, `.` ou `..`"),
-        (debut("remarque 1\nfichier : a//b\n"), "a un nom vide, `.` ou `..`"),
-        (debut("remarque 1\nfichier : ./a\n"), "a un nom vide, `.` ou `..`"),
-        (debut("remarque 1\nfichier : a\tb\n"), "le chemin « a\\tb » porte un caractère de contrôle"),
-        (debut("remarque 1\nfichier : a\u{1b}[31m\n"), "le chemin « a\\u{1b}[31m » porte un caractère de contrôle"),
+        (debut("remarque 1\nfichier : C:\\x\\a.rs\n"), "the path « C:\\x\\a.rs » is written with a backslash"),
+        (debut("remarque 1\nfichier : src\\a.rs\n"), "is written with a backslash, and git separates names with `/`"),
+        (debut("remarque 1\nfichier : /etc/passwd\n"), "the path « /etc/passwd » is absolute"),
+        (debut("remarque 1\nfichier : C:/x\n"), "the path « C:/x » is absolute"),
+        (debut("remarque 1\nfichier : ../a\n"), "the path « ../a » has an empty name, `.` or `..`"),
+        (debut("remarque 1\nfichier : a/../b\n"), "has an empty name, `.` or `..`"),
+        (debut("remarque 1\nfichier : a//b\n"), "has an empty name, `.` or `..`"),
+        (debut("remarque 1\nfichier : ./a\n"), "has an empty name, `.` or `..`"),
+        (debut("remarque 1\nfichier : a\tb\n"), "the path « a\\tb » carries a control character"),
+        (debut("remarque 1\nfichier : a\u{1b}[31m\n"), "the path « a\\u{1b}[31m » carries a control character"),
     ];
     for (brut, bout) in cas {
         let refus = refuse(&brut);
@@ -195,36 +198,42 @@ fn la_forme_2_se_lit_avec_ses_deux_blocs_et_la_forme_1_se_lit_encore() {
     assert_eq!((un.forme, un.rejoue.is_empty(), un.non_rejoue.is_empty()), (1, true, true));
     let refus = un.exiger_la_forme_2().unwrap_err();
     assert_eq!(refus.code, Code::RemarquesIllisibles);
-    assert!(refus.preuve.contains("ligne 1 « remarques 1 » : le relecteur écrit la forme 2"), "{refus}");
+    assert!(refus.preuve.contains("line 1 « remarques 1 » : the reviewer writes form 2"), "{refus}");
 }
 
 #[test]
 fn un_bloc_manquant_vide_hors_d_ordre_ou_double_est_refuse_en_7015_a_sa_ligne() {
     let remarque_1 = "remarque 1\nfichier : a\nbloquante : non\n    x\n";
     let cas: Vec<(String, &str)> = vec![
-        ("remarques 2\n".into(), "ligne 2 «  » : le fichier n'a pas de bloc `rejoue`"),
-        ("remarques 2\nrejoue\n    a\n".into(), "ligne 4 «  » : le fichier n'a pas de bloc `non rejoue`"),
-        ("remarques 2\nnon rejoue\n    a\n".into(), "ligne 2 « non rejoue » : le bloc `non rejoue` vient après"),
-        ("remarques 2\nrejoue\n    a\nrejoue\n    b\n".into(), "ligne 4 « rejoue » : le bloc `rejoue` est déjà donné"),
+        ("remarques 2\n".into(), "line 2 «  » : the file has no block `rejoue`"),
+        ("remarques 2\nrejoue\n    a\n".into(), "line 4 «  » : the file has no block `non rejoue`"),
+        ("remarques 2\nnon rejoue\n    a\n".into(), "line 2 « non rejoue » : the block `non rejoue` comes after"),
+        (
+            "remarques 2\nrejoue\n    a\nrejoue\n    b\n".into(),
+            "line 4 « rejoue » : the block `rejoue` is already given",
+        ),
         (
             "remarques 2\nrejoue\n    a\nnon rejoue\n    b\nnon rejoue\n    c\n".into(),
-            "ligne 6 « non rejoue » : le bloc `non rejoue` est déjà donné",
+            "line 6 « non rejoue » : the block `non rejoue` is already given",
         ),
-        ("remarques 2\nrejoue\nnon rejoue\n    b\n".into(), "ligne 2 « rejoue » : le bloc `rejoue` n'a pas de ligne"),
-        ("remarques 2\nrejoue\n  \n\nnon rejoue\n    b\n".into(), "ligne 2 « rejoue » : le bloc `rejoue` n'a pas"),
-        ("remarques 2\nrejoue\n    a\nnon rejoue\n".into(), "ligne 4 « non rejoue » : le bloc `non rejoue` n'a pas"),
+        (
+            "remarques 2\nrejoue\nnon rejoue\n    b\n".into(),
+            "line 2 « rejoue » : the block `rejoue` has no indented line",
+        ),
+        ("remarques 2\nrejoue\n  \n\nnon rejoue\n    b\n".into(), "line 2 « rejoue » : the block `rejoue` has no"),
+        ("remarques 2\nrejoue\n    a\nnon rejoue\n".into(), "line 4 « non rejoue » : the block `non rejoue` has no"),
         (
             format!("remarques 2\nrejoue\n    a\nnon rejoue\n    b\n{remarque_1}"),
-            "ligne 6 « remarque 1 » : une remarque vient avant les blocs",
+            "line 6 « remarque 1 » : a remark comes before the blocks",
         ),
         (
             "remarques 2\nrejoue\n    a\nfichier : a\n".into(),
-            "ligne 4 « fichier : a » : la clé « fichier » ne suit aucune ligne `remarque <n>`",
+            "line 4 « fichier : a » : the key « fichier » follows no `remarque <n>` line",
         ),
         // En forme 1, les blocs ne se lisent pas : la ligne du bloc dit pourquoi.
         (
             "remarques 1\nrejoue\n    a\n".into(),
-            "ligne 2 « rejoue » : les blocs `rejoue` et `non rejoue` ne se lisent que sous `remarques 2`",
+            "line 2 « rejoue » : the blocks `rejoue` and `non rejoue` are read only under `remarques 2`",
         ),
     ];
     for (brut, bout) in cas {
@@ -233,17 +242,17 @@ fn un_bloc_manquant_vide_hors_d_ordre_ou_double_est_refuse_en_7015_a_sa_ligne() 
     }
 }
 
-const RAPPEL: &str = "Le chiffre de la première ligne est la forme du fichier, jamais un nombre de remarques";
-const ECRIS_2: &str = "le relecteur écrit `remarques 2` quel que soit le nombre de ses remarques, même aucune";
+const RAPPEL: &str = "The number on the first line is the form of the file, never a number of remarks";
+const ECRIS_2: &str = "the reviewer writes `remarques 2` whatever the number of its remarks, even none";
 
 #[test]
 fn une_premiere_ligne_remarques_et_des_chiffres_autres_que_1_et_2_dit_que_le_chiffre_est_la_forme() {
     for premiere in ["remarques 0", "remarques 3", "remarques 14"] {
         let refus = refuse(format!("{premiere}\n"));
-        assert!(refus.preuve.contains(&format!("ligne 1 « {premiere} » : la première ligne")), "{refus}");
+        assert!(refus.preuve.contains(&format!("line 1 « {premiere} » : the first line")), "{refus}");
         assert!(refus.correction.contains(RAPPEL), "{refus}");
         assert!(refus.correction.contains(ECRIS_2), "{refus}");
-        assert!(refus.correction.contains("Écris `remarques 2` seul en première ligne (ou `remarques 1`)"), "{refus}");
+        assert!(refus.correction.contains("Write `remarques 2` alone on the first line (or `remarques 1`)"), "{refus}");
     }
     // Toute autre première ligne garde son refus d'avant, sans le rappel.
     for premiere in ["remarques deux", "remarques", "remarques ", "remarques 2a", "remarques -1", "Remarques 3"] {
@@ -251,8 +260,8 @@ fn une_premiere_ligne_remarques_et_des_chiffres_autres_que_1_et_2_dit_que_le_chi
         assert!(!refus.correction.contains(RAPPEL), "{premiere:?} : {refus}");
         assert_eq!(
             refus.correction,
-            "Écris `remarques 2` seul en première ligne (ou `remarques 1`) : Lydite ne lit que ces formes, avant \
-             tout le reste.",
+            "Write `remarques 2` alone on the first line (or `remarques 1`): Lydite reads only these forms, before \
+             anything else.",
             "{premiere:?}"
         );
     }
@@ -261,15 +270,15 @@ fn une_premiere_ligne_remarques_et_des_chiffres_autres_que_1_et_2_dit_que_le_chi
 #[test]
 fn des_blocs_sous_remarques_1_sont_refuses_a_leur_ligne_en_disant_que_le_chiffre_est_la_forme() {
     for (brut, ligne) in [
-        ("remarques 1\nrejoue\n    a\n", "ligne 2 « rejoue »"),
-        ("remarques 1\n\nnon rejoue\n    a\n", "ligne 3 « non rejoue »"),
-        ("remarques 1\n\nremarque 1\nfichier : a\nbloquante : non\n    x\nrejoue\n    a\n", "ligne 7 « rejoue »"),
+        ("remarques 1\nrejoue\n    a\n", "line 2 « rejoue »"),
+        ("remarques 1\n\nnon rejoue\n    a\n", "line 3 « non rejoue »"),
+        ("remarques 1\n\nremarque 1\nfichier : a\nbloquante : non\n    x\nrejoue\n    a\n", "line 7 « rejoue »"),
     ] {
         let refus = refuse(brut);
         assert!(refus.preuve.contains(ligne), "{refus}");
-        assert!(refus.preuve.contains("ne se lisent que sous `remarques 2`"), "{refus}");
-        assert!(refus.preuve.contains("la première ligne de ce fichier est `remarques 1`"), "{refus}");
-        assert!(refus.correction.contains("Écris `remarques 2` en première ligne"), "{refus}");
+        assert!(refus.preuve.contains("are read only under `remarques 2`"), "{refus}");
+        assert!(refus.preuve.contains("the first line of this file is `remarques 1`"), "{refus}");
+        assert!(refus.correction.contains("Write `remarques 2` on the first line"), "{refus}");
         assert!(refus.correction.contains(RAPPEL) && refus.correction.contains(ECRIS_2), "{refus}");
     }
     // Un fichier de forme 1 sans bloc et un fichier de forme 2 valide se lisent comme avant.
@@ -285,24 +294,24 @@ fn des_blocs_sous_remarques_1_sont_refuses_a_leur_ligne_en_disant_que_le_chiffre
 #[test]
 fn un_fichier_qui_n_est_pas_de_l_utf_8_est_refuse_en_7015_avec_son_octet() {
     let refus = refuse(b"\xFF\xFEr\x00e\x00");
-    assert!(refus.preuve.contains("commence par les octets FF FE, la marque d'un texte en UTF-16"), "{refus}");
+    assert!(refus.preuve.contains("starts with the bytes FF FE, the mark of a UTF-16 text"), "{refus}");
     assert!(refus.correction.contains("Set-Content -Encoding utf8"), "{refus}");
     assert!(refuse(b"\xFE\xFFr").preuve.contains("FE FF"));
     let refus = refuse(b"remarques 1\n\nremarque 1\nfichier : \xC3(\n");
-    assert!(refus.preuve.contains("l'octet de rang 35 (0xC3), ligne 4, n'est pas de l'UTF-8"), "{refus}");
+    assert!(refus.preuve.contains("the byte at position 35 (0xC3), line 4, is not UTF-8"), "{refus}");
     // Le rang compte le BOM.
     let refus = refuse(b"\xEF\xBB\xBFremarques 1\n\xC3");
-    assert!(refus.preuve.contains("l'octet de rang 16 (0xC3), ligne 2"), "{refus}");
+    assert!(refus.preuve.contains("the byte at position 16 (0xC3), line 2"), "{refus}");
     // Un fichier coupé au milieu d'un caractère.
     let coupe = &"remarques 1\né".as_bytes()[..13];
-    assert!(refuse(coupe).preuve.contains("n'est pas de l'UTF-8"));
+    assert!(refuse(coupe).preuve.contains("is not UTF-8"));
 }
 
 #[test]
 fn un_fichier_de_plus_de_1_mo_ou_de_plus_de_10_000_remarques_est_refuse() {
     // Plus de 1 Mo : refusé sans être lu, que le contenu soit juste ou non.
     let trop = vec![b'a'; TAILLE_MAX + 1];
-    assert_eq!(refuse(&trop).preuve, "le fichier de remarques dépasse 1 Mo : plus de 1000000 octets");
+    assert_eq!(refuse(&trop).preuve, "the remarks file is over 1 MB: more than 1000000 bytes");
     // Pile 1 Mo, il se lit : un texte de remarque long d'un million d'octets moins son en-tête.
     let tete = "remarques 1\n\nremarque 1\nfichier : a\nbloquante : non\n    ";
     let pile = format!("{tete}{}", "x".repeat(TAILLE_MAX - tete.len()));
@@ -319,7 +328,7 @@ fn un_fichier_de_plus_de_1_mo_ou_de_plus_de_10_000_remarques_est_refuse() {
     let lues = lire_remarques(dix_mille.as_bytes()).unwrap();
     assert_eq!((lues.len(), lues[9_999].texte.as_str()), (NOMBRE_MAX, "x"));
     let refus = refuse(n_remarques(NOMBRE_MAX + 1));
-    let trop = "c'est la remarque 10001, et un fichier de remarques en compte 10000 au plus";
+    let trop = "this is remark 10001, and a remarks file has 10000 at most";
     assert!(refus.preuve.contains(trop), "{refus}");
 }
 

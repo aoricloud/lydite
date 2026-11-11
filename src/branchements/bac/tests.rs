@@ -125,7 +125,7 @@ fn touche(depot: &Path, kraken: &Path, fait: impl FnOnce(&Path), vus: &[&str]) {
     fait(&bac);
     let refus = sans_claude(&bac, &depart).unwrap_err();
     assert_eq!(refus.code, Code::ClaudeTouche, "{vus:?} : {refus}");
-    let preuve = format!("la main a touché un dossier .claude dans son bac {} : {}", bac.display(), vus.join(", "));
+    let preuve = format!("the hand touched a .claude folder in its sandbox {}: {}", bac.display(), vus.join(", "));
     assert_eq!(refus.preuve, preuve);
     assert!(!refus.correction.trim().is_empty());
 }
@@ -172,7 +172,7 @@ fn sans_claude_voit_suivi_non_suivi_ignore_commite_efface_et_autre_casse() {
     // Git qui ne part pas (un bac absent) ou qui refuse (un départ inconnu) : le refus 7009, jamais un bac propre.
     let absent = sans_claude(&neuf("claude-absent"), &depart).unwrap_err();
     assert_eq!(absent.code, Code::GitImpossible);
-    assert!(absent.preuve.starts_with("lancement impossible de git diff --name-only "), "{absent}");
+    assert!(absent.preuve.starts_with("cannot start git diff --name-only "), "{absent}");
     let inconnu = sans_claude(&bac, &"0".repeat(40)).unwrap_err();
     assert_eq!(inconnu.code, Code::GitImpossible);
     assert!(inconnu.preuve.starts_with("git diff --name-only 0000"), "{inconnu}");
@@ -293,6 +293,73 @@ fn sans_claude_laisse_passer_les_butees_du_mur() {
     touche(&depot, &kraken, |bac| ecrire(bac, ".claude/loop.md", ""), &[".claude/loop.md"]);
     // Un dossier qui porte un fichier est refusé.
     touche(&depot, &kraken, |bac| ecrire(bac, ".claude/hooks/h.sh", ""), &[".claude/hooks/h.sh"]);
+    let _ = fs::remove_dir_all(&depot);
+    let _ = fs::remove_dir_all(&kraken);
+}
+
+/// Les chemins que le profil protège, dans les essais : les leçons, un dossier et un fichier, absents du dépôt.
+fn proteges() -> Vec<String> {
+    [".agents/skills/", "vendor/", "secret.env"].iter().map(|chemin| chemin.to_string()).collect()
+}
+
+#[test]
+fn les_butees_a_un_chemin_protege_absent_sont_les_fichiers_vides_en_lecture_seule_de_ces_chemins() {
+    let (depot, kraken) = (depot("butees-protegees"), neuf("butees-protegees-lydite"));
+    let (bac, depart) = pose(&depot, &kraken);
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), Vec::<String>::new());
+    // Le dossier protégé s'écrit avec sa barre, et sa butée est le fichier sans elle ; le fichier protégé, tel quel.
+    for chemin in [".agents/skills", "vendor", "secret.env"] {
+        butee(&bac, chemin);
+    }
+    let attendues = [".agents/skills", "secret.env", "vendor"];
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), attendues);
+    // Un chemin que le profil ne protège pas n'en est pas une, ni sans profil.
+    butee(&bac, ".bashrc");
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), attendues);
+    assert_eq!(butees_protegees(&bac, &depart, &[]), Vec::<String>::new());
+    // `butees_du_bac` joint celles de `.claude/` et celles des chemins protégés, sans rien d'autre.
+    butee(&bac, ".claude/loop.md");
+    let toutes = [".agents/skills", ".claude/loop.md", "secret.env", "vendor"];
+    assert_eq!(butees_du_bac(&bac, &depart, &proteges()), toutes);
+    assert_eq!(butees_du_bac(&bac, &depart, &[]), [".claude/loop.md"]);
+    let _ = fs::remove_dir_all(&depot);
+    let _ = fs::remove_dir_all(&kraken);
+}
+
+#[test]
+fn une_butee_a_un_chemin_protege_qui_n_en_est_pas_une_n_en_est_pas_une() {
+    let (depot, kraken) = (depot("pas-butees-protegees"), neuf("pas-butees-protegees-lydite"));
+    let (bac, depart) = pose(&depot, &kraken);
+    // Un octet de plus, ou une écriture permise : le fichier est un travail de la main.
+    butee(&bac, "vendor");
+    regler_ecriture(&bac.join("vendor"), true);
+    fs::write(bac.join("vendor"), "x").unwrap();
+    regler_ecriture(&bac.join("vendor"), false);
+    butee(&bac, "secret.env");
+    regler_ecriture(&bac.join("secret.env"), true);
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), Vec::<String>::new());
+    // Un dossier à ce chemin, qui porte un fichier : la main a écrit dessous.
+    butee(&bac, ".agents/skills/x/SKILL.md");
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), Vec::<String>::new());
+    let _ = fs::remove_dir_all(&depot);
+    let _ = fs::remove_dir_all(&kraken);
+}
+
+#[test]
+fn une_butee_a_un_chemin_protege_qui_existait_au_depart_n_en_est_pas_une() {
+    let (depot, kraken) = (depot("butee-protegee-presente"), neuf("butee-protegee-presente-lydite"));
+    ecrire(&depot, "secret.env", "x");
+    commit(&depot);
+    let (bac, depart) = pose(&depot, &kraken);
+    // La main ôte le fichier de l'index et le remplace par une butée : le chemin n'est pas absent du départ.
+    git(&bac, &["rm", "-q", "--cached", "secret.env"]);
+    fs::remove_file(bac.join("secret.env")).unwrap();
+    butee(&bac, "secret.env");
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), Vec::<String>::new());
+    // Un git qui ne dit pas ce que le départ porte ne prouve aucune absence : aucune butée.
+    butee(&bac, "vendor");
+    assert_eq!(butees_protegees(&bac, &depart, &proteges()), ["vendor"]);
+    assert_eq!(butees_protegees(&bac, &"0".repeat(40), &proteges()), Vec::<String>::new());
     let _ = fs::remove_dir_all(&depot);
     let _ = fs::remove_dir_all(&kraken);
 }
@@ -554,7 +621,7 @@ fn un_bac_qui_ne_se_pose_pas_est_refuse_en_7001() {
     let refus = bac(&nu, &kraken, "main-1", "HEAD").unwrap_err();
     assert_eq!(refus.code, Code::VagueBacImpossible);
     assert!(refus.preuve.starts_with("git worktree add"), "la preuve nomme la commande de git : {refus}");
-    assert!(refus.preuve.contains(&format!("dans {} a échoué", nu.display())), "et son dossier : {refus}");
+    assert!(refus.preuve.contains(&format!("in {} failed", nu.display())), "et son dossier : {refus}");
     assert!(refus.correction.contains("lydite/main-1"), "la correction nomme la branche : {refus}");
     let _ = fs::remove_dir_all(&nu);
 }

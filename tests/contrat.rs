@@ -117,11 +117,11 @@ fn assert_regle(refus: &Refus) {
     assert!(!regle.is_empty() && regle.ends_with('.'), "la règle est une phrase : {refus:?}");
 }
 
-/// La correction d'un refus de la ligne de commande donne l'usage : les trois commandes de la liste fermée, `lancer`
-/// avec ses trois drapeaux.
+/// La correction d'un refus de la ligne de commande donne l'usage, en mots anglais : les trois commandes de la liste
+/// fermée, `launch` avec ses trois drapeaux.
 fn assert_usage(refus: &Refus) {
-    let lancer = r#"lydite lancer <profile> "<objective>" [--n N] [--verifier "<command>"] [--depot <path>]"#;
-    for morceau in [lancer, "lydite accepter <profile>", "lydite profil <profile>", "lydite etat", "lydite attendre"] {
+    let lancer = r#"lydite launch <profile> "<objective>" [--n N] [--verify "<command>"] [--repo <path>]"#;
+    for morceau in [lancer, "lydite accept <profile>", "lydite profile <profile>", "lydite status", "lydite wait"] {
         assert!(refus.correction.contains(morceau), "la correction donne l'usage ({morceau}) : {refus:?}");
     }
 }
@@ -249,7 +249,7 @@ fn un_profil_inconnu_est_refuse_avant_tout_dossier() {
     );
     assert_eq!(refus.code, "lydite : 6001 lancer.profil_inconnu");
     assert_regle(&refus);
-    assert!(refus.preuve.contains("« inconnu »"), "la preuve nomme le profil : {refus:?}");
+    assert!(refus.preuve.contains("\"inconnu\""), "la preuve nomme le profil : {refus:?}");
     assert!(refus.correction.contains("claude"), "la correction nomme les profils connus : {refus:?}");
     // Avant tout dossier : ni bac, ni fil, ni rien d'autre, ni dans le dépôt visé (que son `.git`), ni dans le dossier
     // courant, ni dans le dossier de Kraken.
@@ -321,8 +321,8 @@ fn une_preuve_blanche_est_refusee_avant_tout_dossier() {
             lire_refus(kraken_dans(&dossier, &depot).args(["lancer", "claude", "objectif", "--verifier", blanche]));
         assert_eq!(refus.code, "lydite : 6014 lancer.preuve_vide", "{blanche:?}");
         assert_regle(&refus);
-        assert!(refus.preuve.contains("--verifier") && refus.preuve.contains("blank"), "{refus:?}");
-        assert!(refus.correction.contains("--verifier"), "{refus:?}");
+        assert!(refus.preuve.contains("--verify") && refus.preuve.contains("blank"), "{refus:?}");
+        assert!(refus.correction.contains("--verify"), "{refus:?}");
     }
     assert_eq!(noms(&dossier), Vec::<String>::new(), "aucun dossier, aucun bac, aucun fil");
     assert_eq!(noms(&depot), [".git"]);
@@ -417,7 +417,7 @@ fn accepter_garde_l_empreinte_que_lancer_exige_et_note_au_fil() {
     assert_eq!(sortie.status.code(), Some(1), "{sortie:?}");
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     assert!(erreur.contains("échec classé : main-"), "{erreur}");
-    assert!(erreur.contains("lancement impossible de lydite-claude-introuvable"), "{erreur}");
+    assert!(erreur.contains("cannot start lydite-claude-introuvable"), "{erreur}");
     // Le fil compte les lancements par profil et par empreinte : un par tentative, noté avant la main, avec son modèle.
     // Un constat suit chacun, vide, car rien n'a été lu d'une main qui n'est pas partie.
     let fil = fs::read_to_string(dossier.join("fil.jsonl")).unwrap();
@@ -643,7 +643,7 @@ fn kraken_lecons_sort_en_0_sans_rien_dire_ou_en_2_sur_le_refus_de_la_premiere_fa
     let refus = lire_refus(kraken().arg("lecons").arg(&depot));
     assert_eq!(refus.code, "lydite : 6031 lancer.lecon_mal_formee");
     let fichier = skills.join("fausse").join("SKILL.md");
-    assert!(refus.preuve.starts_with(&format!("{} : ligne 9 : ", fichier.display())), "{}", refus.preuve);
-    assert!(refus.preuve.contains("il manque `## Why`"), "{}", refus.preuve);
+    assert!(refus.preuve.starts_with(&format!("{} : line 9: ", fichier.display())), "{}", refus.preuve);
+    assert!(refus.preuve.contains("`## Why` is missing"), "{}", refus.preuve);
     let _ = fs::remove_dir_all(&depot);
 }

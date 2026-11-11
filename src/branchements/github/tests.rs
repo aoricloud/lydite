@@ -84,12 +84,12 @@ fn un_distant_illisible_est_refuse_en_8001() {
     // Sans origin.
     let refus = distant(&kraken, &depot).unwrap_err();
     assert_eq!(refus.code, Code::DistantIllisible);
-    assert!(refus.preuve.contains("n'a pas de distant origin"), "{refus}");
+    assert!(refus.preuve.contains("has no origin remote"), "{refus}");
     // Un origin local, puis des identifiants, que la preuve ne recopie pas.
     git(&depot, &["remote", "add", "origin", &racine.join("ailleurs.git").to_string_lossy()]);
     let refus = distant(&kraken, &depot).unwrap_err();
     assert_eq!(refus.code, Code::DistantIllisible);
-    assert!(refus.preuve.contains("ne nomme pas un hôte, un propriétaire et un dépôt"), "{refus}");
+    assert!(refus.preuve.contains("does not name a host, an owner and a repository"), "{refus}");
     git(&depot, &["remote", "set-url", "origin", "https://jeton-secret@forge.test/p/d"]);
     let refus = distant(&kraken, &depot).unwrap_err();
     assert_eq!(refus.code, Code::DistantIllisible);
@@ -163,7 +163,7 @@ fn gh_qui_ne_se_dit_pas_connecte_est_refuse_en_8003() {
     let forge = Forge { gh: absent.as_os_str(), ..lieu.forge() };
     let refus = forge.connecte().unwrap_err();
     assert_eq!(refus.code, Code::GhInjoignable);
-    assert!(refus.preuve.starts_with("lancement impossible de "), "{refus}");
+    assert!(refus.preuve.starts_with("cannot start "), "{refus}");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -199,14 +199,14 @@ fn ni_github_ni_chemin_du_poste_ne_se_publie_8005() {
     for chemin in [".github/workflows/ci.yml", ".GitHub/x.yml"] {
         let tete = sur(&lieu.depot, &base, &[(chemin, "x\n")], "ci");
         let preuve = publier(&base, &tete, "t", "c").unwrap_err();
-        assert!(preuve.starts_with(&format!("{chemin} change entre la base")), "{preuve}");
+        assert!(preuve.starts_with(&format!("{chemin} changes between the base")), "{preuve}");
     }
     // Un chemin du poste, écrit avec `/` ou avec `\`, dans une ligne ajoutée.
     let depot = lieu.depot.to_string_lossy();
     for ecrit in [depot.replace('\\', "/"), depot.replace('/', "\\")] {
         let tete = sur(&lieu.depot, &base, &[("notes.txt", &format!("vu dans {ecrit}\n"))], "notes");
         let preuve = publier(&base, &tete, "t", "c").unwrap_err();
-        assert!(preuve.contains("paraît dans les lignes ajoutées de b/notes.txt"), "{preuve}");
+        assert!(preuve.contains("appears in the added lines of b/notes.txt"), "{preuve}");
     }
     // Sans casse sous Windows seulement.
     let tete = sur(&lieu.depot, &base, &[("notes.txt", &format!("vu dans {}\n", depot.to_uppercase()))], "notes");
@@ -215,11 +215,11 @@ fn ni_github_ni_chemin_du_poste_ne_se_publie_8005() {
     let message = format!("notes de {}", lieu.kraken.display());
     let tete = sur(&lieu.depot, &base, &[("b.txt", "b\n")], &message);
     let preuve = publier(&base, &tete, "t", "c").unwrap_err();
-    assert!(preuve.contains("paraît dans les messages des commits poussés"), "{preuve}");
+    assert!(preuve.contains("appears in the messages of the pushed commits"), "{preuve}");
     let preuve = publier(&base, &propre, &format!("voir {}", lieu.racine.display()), "c").unwrap_err();
-    assert!(preuve.contains("paraît dans le titre"), "{preuve}");
+    assert!(preuve.contains("appears in the title"), "{preuve}");
     let preuve = publier(&base, &propre, "t", &format!("voir {}\n", lieu.depot.display())).unwrap_err();
-    assert!(preuve.contains("paraît dans le corps"), "{preuve}");
+    assert!(preuve.contains("appears in the body"), "{preuve}");
     // Un chemin que la base porte déjà, et que la vague retire, n'est pas publié par elle.
     let vieille = sur(&lieu.depot, &base, &[("vieux.txt", &format!("{depot}\n"))], "vieux");
     let tete = sur(&lieu.depot, &vieille, &[("vieux.txt", "propre\n")], "propre");
@@ -246,12 +246,12 @@ fn un_depot_vise_depuis_un_sous_dossier_ne_cache_rien_a_8005() {
     // Un `.github/` à la racine, hors du sous-dossier, que `--name-only` tairait.
     let github = sur(&lieu.depot, &base, &[(".github/ci.yml", "x\n"), ("sous/b.txt", "b\n")], "ci");
     let preuve = refuse("un .github/ hors du sous-dossier est publié", &github);
-    assert!(preuve.starts_with(".github/ci.yml change entre la base"), "{preuve}");
+    assert!(preuve.starts_with(".github/ci.yml changes between the base"), "{preuve}");
     // Un chemin du poste dans une ligne ajoutée hors du sous-dossier, que `git diff -U0` tairait.
     let vu_dans = format!("vu dans {}\n", lieu.depot.display());
     let notes = sur(&lieu.depot, &base, &[("notes.txt", &vu_dans), ("sous/b.txt", "b\n")], "notes");
     let preuve = refuse("un chemin du poste hors du sous-dossier est publié", &notes);
-    assert!(preuve.contains("paraît dans les lignes ajoutées de b/notes.txt"), "{preuve}");
+    assert!(preuve.contains("appears in the added lines of b/notes.txt"), "{preuve}");
     // Ce qui ne change que sous le sous-dossier passe toujours.
     let propre = sur(&lieu.depot, &base, &[("sous/b.txt", "b\n")], "b");
     assert_eq!(forge.publiable(&base, &propre, "b", "t", "c", &chemins), Ok(()));
@@ -277,9 +277,9 @@ fn un_commit_qui_n_est_pas_de_kraken_ne_se_publie_pas_8005() {
     for (auteur, committer) in [(AUTRE, KRAKEN), (KRAKEN, AUTRE), (AUTRE, AUTRE)] {
         let tete = sur_par(&lieu.depot, &base, &[("b.txt", "b\n")], "b", (auteur, committer));
         let preuve = publier(&base, &tete).unwrap_err();
-        let dit = |(nom, adresse): (&str, &str)| format!("« {nom} <{adresse}> »");
-        let porte = format!("auteur {}, committer {}", dit(auteur), dit(committer));
-        assert!(preuve.contains(&tete) && preuve.contains("n'est pas de Lydite"), "{preuve}");
+        let dit = |(nom, adresse): (&str, &str)| format!("\"{nom} <{adresse}>\"");
+        let porte = format!("author {}, committer {}", dit(auteur), dit(committer));
+        assert!(preuve.contains(&tete) && preuve.contains("is not Lydite's"), "{preuve}");
         assert!(preuve.contains(&porte), "la preuve dit {porte} : {preuve}");
     }
     // Un commit étranger sous un commit de Kraken, au milieu de ce qui se publie, compte aussi.
@@ -311,16 +311,16 @@ fn un_mot_de_la_garde_ne_se_publie_pas_8005() {
     };
     // Le mot seul, sans la suite de mots de la ligne, ne la trouve pas : il passe.
     assert_eq!(publier(&propre, "lydite/vague-1", "Écrire a", "Écrire a zébulon\n"), Ok(()));
-    let dit = |ou: &str| format!("la ligne 4 de la garde paraît dans {ou}");
+    let dit = |ou: &str| format!("line 4 of the garde file appears in {ou}");
     // Chaque lieu, en toute casse, et la preuve ne dit pas le mot.
     let notes = sur(&lieu.depot, &base, &[("notes.txt", "chez ZÉBULON DUPRÉ\n")], "notes");
     let message = sur(&lieu.depot, &base, &[("b.txt", "b\n")], "chez zébulon dupré");
     let refuse = [
-        (publier(&notes, "lydite/vague-1", "t", "c"), "les lignes ajoutées de b/notes.txt"),
-        (publier(&message, "b", "t", "c"), "les messages des commits poussés"),
-        (publier(&propre, "b", "Pour zébulon Dupré", "c"), "le titre"),
-        (publier(&propre, "b", "t", "voir ZÉBULON dupré\n"), "le corps"),
-        (publier(&propre, "lydite/zÉbulon dupré", "t", "c"), "le nom de la branche"),
+        (publier(&notes, "lydite/vague-1", "t", "c"), "the added lines of b/notes.txt"),
+        (publier(&message, "b", "t", "c"), "the messages of the pushed commits"),
+        (publier(&propre, "b", "Pour zébulon Dupré", "c"), "the title"),
+        (publier(&propre, "b", "t", "voir ZÉBULON dupré\n"), "the body"),
+        (publier(&propre, "lydite/zÉbulon dupré", "t", "c"), "the name of the branch"),
     ];
     for (preuve, ou) in refuse {
         let preuve = preuve.unwrap_err();
@@ -330,7 +330,7 @@ fn un_mot_de_la_garde_ne_se_publie_pas_8005() {
     // Un fichier dont le nom et une ligne portent le mot : la preuve ne nomme pas le fichier.
     let nomme = sur(&lieu.depot, &base, &[("Zébulon Dupré.md", "chez zébulon dupré\n")], "nomme");
     let preuve = publier(&nomme, "b", "t", "c").unwrap_err();
-    assert_eq!(preuve, dit("le nom d'un fichier changé"));
+    assert_eq!(preuve, dit("the name of a changed file"));
     assert!(!preuve.to_lowercase().contains("zébulon"), "{preuve}");
     // Un fichier qui ne se lit pas est le refus 6006, qui nomme son chemin.
     fs::remove_file(&garde).unwrap();
@@ -370,19 +370,19 @@ fn garde_sur_un_contenu(nom: &str, garde: &str, contenu: &str) -> Result<(), Str
 #[test]
 fn deux_mots_coupes_par_un_prefixe_de_commentaire_ne_se_publient_pas_8005() {
     let res = garde_sur_un_contenu("forge-garde-replie-1", "essai-un essai-deux\n", "// essai-un\n// essai-deux\n");
-    assert_eq!(res.unwrap_err(), "la ligne 1 de la garde paraît dans les lignes ajoutées de b/notes.txt");
+    assert_eq!(res.unwrap_err(), "line 1 of the garde file appears in the added lines of b/notes.txt");
 }
 
 #[test]
 fn deux_mots_separes_par_deux_espaces_ne_se_publient_pas_8005() {
     let res = garde_sur_un_contenu("forge-garde-replie-2", "essai-un essai-deux\n", "essai-un  essai-deux\n");
-    assert_eq!(res.unwrap_err(), "la ligne 1 de la garde paraît dans les lignes ajoutées de b/notes.txt");
+    assert_eq!(res.unwrap_err(), "line 1 of the garde file appears in the added lines of b/notes.txt");
 }
 
 #[test]
 fn la_forme_sur_une_ligne_de_la_garde_reste_refusee_8005() {
     let res = garde_sur_un_contenu("forge-garde-replie-3", "essai-un essai-deux\n", "essai-un essai-deux\n");
-    assert_eq!(res.unwrap_err(), "la ligne 1 de la garde paraît dans les lignes ajoutées de b/notes.txt");
+    assert_eq!(res.unwrap_err(), "line 1 of the garde file appears in the added lines of b/notes.txt");
 }
 
 #[test]
@@ -428,17 +428,14 @@ fn un_contenu_ajoute_puis_retire_ne_se_publie_pas_8005() {
     let git_net = forge.git(&["diff", "--name-only", &base, &tete]);
     assert_eq!(forge.faire(git_net, None).unwrap(), "");
     let preuve = publier(&tete).unwrap_err();
-    assert_eq!(
-        preuve,
-        "la ligne 1 de la garde paraît dans les lignes ajoutées de b/notes.txt dans l'historique poussé"
-    );
+    assert_eq!(preuve, "line 1 of the garde file appears in the added lines of b/notes.txt in the pushed history");
     assert!(!preuve.contains("zébulon"), "{preuve}");
     let tete = ajoute_puis_retire("Zébulon.md", "propre\n");
     let preuve = publier(&tete).unwrap_err();
-    assert_eq!(preuve, "la ligne 1 de la garde paraît dans le nom d'un fichier changé");
+    assert_eq!(preuve, "line 1 of the garde file appears in the name of a changed file");
     let tete = ajoute_puis_retire("chemin.txt", &format!("vu dans {net}\n"));
     let preuve = publier(&tete).unwrap_err();
-    assert!(preuve.contains("paraît dans les lignes ajoutées de b/chemin.txt dans l'historique poussé"), "{preuve}");
+    assert!(preuve.contains("appears in the added lines of b/chemin.txt in the pushed history"), "{preuve}");
     assert!(!preuve.contains("zébulon"), "{preuve}");
     // Une plage propre de plusieurs commits reste publiable.
     let un = sur(&lieu.depot, &base, &[("a.txt", "un\n")], "un");
@@ -463,7 +460,7 @@ fn un_nom_hors_du_sous_dossier_ajoute_puis_retire_ne_fuit_pas_8005() {
     let tete = sur(&lieu.depot, &ajout, &[], "retrait");
     let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
     assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
-    assert_eq!(refus.preuve, "la ligne 1 de la garde paraît dans le nom d'un fichier changé");
+    assert_eq!(refus.preuve, "line 1 of the garde file appears in the name of a changed file");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -482,7 +479,7 @@ fn un_mot_de_la_garde_ne_fuit_pas_par_le_nom_du_fichier_d_un_autre_8005() {
     let preuve = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
     assert_eq!(preuve.code, Code::PublicationRefusee, "{preuve}");
     let preuve = preuve.preuve;
-    assert_eq!(preuve, "la ligne 2 de la garde paraît dans le nom d'un fichier changé");
+    assert_eq!(preuve, "line 2 of the garde file appears in the name of a changed file");
     for mot in ["alpha", "zébulon"] {
         assert!(!preuve.to_lowercase().contains(mot), "{preuve}");
     }
@@ -504,7 +501,7 @@ fn le_refus_de_la_garde_ne_dit_pas_le_chemin_de_la_garde_8005() {
     let propre = sur(&lieu.depot, &base, &[("a.txt", "bonjour\n")], "a");
     let refus = forge.publiable(&base, &propre, "b", &dossier, "c", &chemins).unwrap_err();
     assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
-    assert_eq!(refus.preuve, "la ligne 1 de la garde paraît dans le titre");
+    assert_eq!(refus.preuve, "line 1 of the garde file appears in the title");
     assert!(!refus.preuve.contains(&dossier), "{refus}");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
@@ -523,7 +520,7 @@ fn un_git_qui_echoue_ne_dit_pas_le_chemin_de_la_garde_8005() {
     assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
     assert_eq!(
         refus.preuve,
-        "ce que Lydite publierait ne se lit pas : la ligne 1 de la garde paraît dans l'erreur de git"
+        "what Lydite would publish cannot be read: line 1 of the garde file appears in git's error"
     );
     assert!(!format!("{refus}").contains(&dossier), "{refus}");
     let _ = fs::remove_dir_all(&lieu.racine);
@@ -540,7 +537,7 @@ fn un_bom_en_tete_de_la_garde_n_est_pas_un_mot_de_la_ligne_1() {
     let propre = sur(&lieu.depot, &base, &[("a.txt", "bonjour\n")], "a");
     assert_eq!(forge.publiable(&base, &propre, "b", "t", "c", &chemins), Ok(()));
     let refus = forge.publiable(&base, &propre, "b", "Pour Zébulon", "c", &chemins).unwrap_err();
-    assert_eq!(refus.preuve, "la ligne 1 de la garde paraît dans le titre");
+    assert_eq!(refus.preuve, "line 1 of the garde file appears in the title");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -556,7 +553,7 @@ fn une_ligne_commentee_de_la_garde_ne_garde_pas_son_mot_8005() {
     // Le corps qui porte le mot commenté passe ; celui du mot gardé est refusé, à la ligne 2.
     assert_eq!(forge.publiable(&base, &propre, "b", "t", "voir zébulon", &chemins), Ok(()));
     let refus = forge.publiable(&base, &propre, "b", "t", "voir alpha", &chemins).unwrap_err();
-    assert_eq!(refus.preuve, "la ligne 2 de la garde paraît dans le corps");
+    assert_eq!(refus.preuve, "line 2 of the garde file appears in the body");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -571,7 +568,7 @@ fn deux_mots_de_la_garde_avec_un_nom_de_fichier_ascii_ne_fuient_pas_8005() {
     fs::write(lieu.kraken.join("garde"), "alpha\nBeta\n").unwrap();
     let tete = sur(&lieu.depot, &base, &[("beta.md", "alpha\n")], "notes");
     let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
-    assert_eq!(refus.preuve, "la ligne 2 de la garde paraît dans le nom d'un fichier changé");
+    assert_eq!(refus.preuve, "line 2 of the garde file appears in the name of a changed file");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -585,11 +582,11 @@ fn un_fichier_de_github_dont_le_nom_porte_un_mot_de_la_garde_est_refuse_sans_son
     fs::write(lieu.kraken.join("garde"), "zébulon\n").unwrap();
     let tete = sur(&lieu.depot, &base, &[(".github/Zébulon.yml", "a\n")], "ci");
     let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
-    assert_eq!(refus.preuve, "la ligne 1 de la garde paraît dans le nom d'un fichier changé");
+    assert_eq!(refus.preuve, "line 1 of the garde file appears in the name of a changed file");
     // Sans le mot gardé dans son nom, le refus de `.github/` reste, avec son nom.
     fs::write(lieu.kraken.join("garde"), "autre\n").unwrap();
     let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
-    assert!(refus.preuve.starts_with(".github/Zébulon.yml change entre la base"), "{refus}");
+    assert!(refus.preuve.starts_with(".github/Zébulon.yml changes between the base"), "{refus}");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -605,8 +602,8 @@ fn un_commit_etranger_dont_l_auteur_porte_un_mot_de_la_garde_ne_cite_pas_l_ident
     let tete = sur_par(&lieu.depot, &base, &[("b.txt", "b\n")], "b", (auteur, KRAKEN));
     let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
     assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
-    assert!(refus.preuve.contains(&tete) && refus.preuve.contains("n'est pas de Lydite"), "{refus}");
-    assert!(!refus.preuve.to_lowercase().contains("zébulon") && !refus.preuve.contains("auteur"), "{refus}");
+    assert!(refus.preuve.contains(&tete) && refus.preuve.contains("is not Lydite's"), "{refus}");
+    assert!(!refus.preuve.to_lowercase().contains("zébulon") && !refus.preuve.contains("author"), "{refus}");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -621,7 +618,7 @@ fn les_diffs_de_la_publication_ignorent_la_configuration_des_prefixes_de_l_humai
     git(&lieu.depot, &["config", "diff.noprefix", "true"]);
     let tete = sur(&lieu.depot, &base, &[("notes.txt", "chez zébulon\n")], "notes");
     let refus = forge.publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
-    assert_eq!(refus.preuve, "la ligne 1 de la garde paraît dans les lignes ajoutées de b/notes.txt");
+    assert_eq!(refus.preuve, "line 1 of the garde file appears in the added lines of b/notes.txt");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -681,11 +678,11 @@ fn ouvrir_cree_la_pr_et_la_relit_sur_le_sha_pousse_8007() {
     let refus = ouvrir().unwrap_err();
     assert_eq!(refus.code, Code::PrImpossible);
     assert!(refus.preuve.contains("HTTP 502") && refus.preuve.contains("no pull requests found"), "{refus}");
-    assert!(refus.correction.contains("lydite/vague-v reste poussée"), "{refus}");
+    assert!(refus.correction.contains("lydite/vague-v stays pushed"), "{refus}");
     for (n, relue, vu) in [
-        (5, vue("9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34", "12"), "pas le sha poussé"),
-        (7, vue(TETE, "0"), "pas un numéro positif"),
-        (9, "pas du json".into(), "pas la PR en un objet JSON"),
+        (5, vue("9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34", "12"), "not the pushed sha"),
+        (7, vue(TETE, "0"), "lacks a positive number"),
+        (9, "pas du json".into(), "does not read the PR back as a JSON object"),
     ] {
         lieu.gh.rendre(n, 0, "", "");
         lieu.gh.rendre(n + 1, 0, &relue, "");
@@ -724,11 +721,11 @@ fn une_issue_ouverte_se_lit_et_les_autres_sont_refusees_8012_8013() {
     let pr = vue_issue(12, "OPEN", "t", "c").replace("/issues/12", "/pull/12");
     lieu.gh.rendre(6, 0, &pr, "");
     let refus = [
-        "son état est CLOSED",
+        "its state is CLOSED",
         "Could not resolve",
-        "pas l'issue 12 en un objet JSON (11 octets)",
-        "pas l'issue 12",
-        "celui d'une PR, pas d'une issue",
+        "does not return issue 12 as a JSON object (11 bytes)",
+        "not issue 12",
+        "that of a PR, not of an issue",
     ];
     for vu in refus {
         let refus = lire().unwrap_err();
@@ -742,7 +739,7 @@ fn une_issue_ouverte_se_lit_et_les_autres_sont_refusees_8012_8013() {
     let faux = format!("{secret} {secret}");
     let echoue = vue_issue(12, "OPEN", secret, secret);
     for (k, (code, sortie, vu)) in
-        [(0, sans_url.as_str(), "ces champs en leur type : url"), (0, &faux, "en un objet JSON"), (1, &echoue, "")]
+        [(0, sans_url.as_str(), "these fields with their type: url"), (0, &faux, "as a JSON object"), (1, &echoue, "")]
             .into_iter()
             .enumerate()
     {
@@ -754,7 +751,7 @@ fn une_issue_ouverte_se_lit_et_les_autres_sont_refusees_8012_8013() {
     }
     lieu.gh.rendre(10, 0, r#"{"number":"12","state":"OPEN","title":1,"url":"u"}"#, "");
     let refus = lire().unwrap_err();
-    assert!(refus.preuve.ends_with("ces champs en leur type : number, title, body"), "{refus}");
+    assert!(refus.preuve.ends_with("these fields with their type: number, title, body"), "{refus}");
     // 65 536 octets d'UTF-8 au titre et au corps ensemble sont pris (é en vaut deux), 65 537 refusés.
     let corps = "a".repeat(POIDS_D_UNE_ISSUE - 2);
     lieu.gh.rendre(11, 0, &vue_issue(12, "OPEN", "é", &corps), "");
@@ -762,14 +759,14 @@ fn une_issue_ouverte_se_lit_et_les_autres_sont_refusees_8012_8013() {
     lieu.gh.rendre(12, 0, &vue_issue(12, "OPEN", "é", &format!("{corps}a")), "");
     let refus = lire().unwrap_err();
     assert_eq!(refus.code, Code::IssueTropLongue, "{refus}");
-    assert!(refus.preuve.contains("65537 octets"), "{refus}");
+    assert!(refus.preuve.contains("65537 bytes"), "{refus}");
     // Une sortie plus longue que la borne n'est pas lue en entier : 8013.
     let enorme = vue_issue(12, "OPEN", "t", &"a".repeat(SORTIE_D_UNE_ISSUE as usize));
     assert!(enorme.len() as u64 > SORTIE_D_UNE_ISSUE);
     lieu.gh.rendre(13, 0, &enorme, "");
     let refus = lire().unwrap_err();
     assert_eq!(refus.code, Code::IssueTropLongue, "{refus}");
-    assert!(refus.preuve.contains(&format!("en plus de {SORTIE_D_UNE_ISSUE} octets")), "{refus}");
+    assert!(refus.preuve.contains(&format!("in more than {SORTIE_D_UNE_ISSUE} bytes")), "{refus}");
     // De l'UTF-8 invalide : 8013.
     let mut invalide = br#"{"body":"a"#.to_vec();
     invalide.extend([0xff, 0xfe]);
@@ -803,7 +800,7 @@ fn un_create_rate_dont_la_pr_existe_sur_la_tete_pousse_est_reconcilie_8007() {
     lieu.gh.rendre(4, 0, &pr_vue(autre), "");
     let refus = ouvrir().unwrap_err();
     assert_eq!(refus.code, Code::PrImpossible, "{refus}");
-    assert!(refus.preuve.contains("connexion perdue") && refus.preuve.contains("pas le sha poussé"), "{refus}");
+    assert!(refus.preuve.contains("connexion perdue") && refus.preuve.contains("not the pushed sha"), "{refus}");
     assert_eq!(lieu.gh.appels().len(), 4, "un create et un view par essai");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
@@ -986,7 +983,7 @@ fn cent_checks_ne_donnent_jamais_de_vert_8008() {
         rendre_ci(&lieu.gh, appel, TETE, &runs(n_runs, false), &statuts(n_statuts));
         let refus = lire().unwrap_err();
         assert_eq!(refus.code, Code::CiMuette, "{n_runs} runs, {n_statuts} statuts : {refus}");
-        let dit = format!("la PR a {n_runs} runs et {n_statuts} statuts");
+        let dit = format!("the PR has {n_runs} runs and {n_statuts} statuses");
         assert!(refus.preuve.contains(&dit), "la raison est dite : {refus}");
     }
     // Un échec parmi ceux qu'elle rend reste un échec, une fois plus rien en cours.
@@ -1019,7 +1016,7 @@ fn la_ci_se_lit_jusqu_a_son_verdict_ou_son_refus_8008_8009_8010() {
     rendre_ci(&lieu.gh, 13, TETE, &[], &[]);
     let refus = lire(Duration::ZERO).unwrap_err();
     assert_eq!(refus.code, Code::CiMuette, "{refus}");
-    assert!(refus.preuve.contains("aucun check"), "{refus}");
+    assert!(refus.preuve.contains("no check"), "{refus}");
     let ouverte = vue_pr(TETE, "OPEN", "MERGEABLE");
     lieu.gh.rendre(16, 1, "", "boum");
     lieu.gh.rendre(17, 0, &ouverte, "");
@@ -1027,7 +1024,7 @@ fn la_ci_se_lit_jusqu_a_son_verdict_ou_son_refus_8008_8009_8010() {
     lieu.gh.rendre(19, 0, &ouverte, "");
     lieu.gh.rendre(20, 0, "[]", "");
     lieu.gh.rendre(21, 0, r#"{"message":"Not Found"}"#, "");
-    for vu in ["a échoué", "Resource not accessible", "gh ne rend pas une liste"] {
+    for vu in ["failed (", "Resource not accessible", "gh does not return a list"] {
         let refus = lire(Duration::ZERO).unwrap_err();
         assert_eq!(refus.code, Code::CiMuette, "{refus}");
         assert!(refus.preuve.contains(vu), "{refus}");
@@ -1045,7 +1042,7 @@ fn la_ci_se_lit_jusqu_a_son_verdict_ou_son_refus_8008_8009_8010() {
         let refus = lire(Duration::from_secs(60)).unwrap_err();
         assert_eq!(refus.code, code, "{vue}");
         if n == 23 {
-            assert!(refus.preuve.contains(&format!("est MERGED et porte {autre}")), "{refus}");
+            assert!(refus.preuve.contains(&format!("is MERGED and carries {autre}")), "{refus}");
         }
     }
     assert_eq!(lieu.appels_bien_partis(), 25);
@@ -1074,7 +1071,7 @@ fn une_pr_fusionnee_sur_la_tete_poussee_se_lit_comme_une_ouverte() {
     rendre(4, &[run("test", "completed", "failure")]);
     let refus = lire(None, Duration::from_secs(60)).unwrap_err();
     assert_eq!(refus.code, Code::PrChangee, "{refus}");
-    assert!(refus.preuve.contains("fusionnée") && refus.preuve.contains("rouge"), "{refus}");
+    assert!(refus.preuve.contains("merged") && refus.preuve.contains("red"), "{refus}");
     // En cours : le tour suivant, avec un délai non nul ; sans verdict dans le délai, 8008.
     rendre(7, &[run("test", "in_progress", "")]);
     rendre(10, &[run("test", "completed", "success")]);
@@ -1155,7 +1152,7 @@ fn une_base_qui_a_bouge_est_a_reintegrer_8009() {
     git(&lieu.depot, &["push", "-q", "origin", &format!("{avancee}:refs/heads/main")]);
     let refus = forge.base_a_bouge("main", &tete).unwrap_err();
     assert_eq!(refus.code, Code::AReintegrer);
-    assert!(refus.preuve.contains(&format!("sa tête distante {avancee}")), "{refus}");
+    assert!(refus.preuve.contains(&format!("its remote head {avancee}")), "{refus}");
     // Une base qui ne se relit pas compte comme une base qui a bougé.
     assert_eq!(forge.base_a_bouge("absente", &tete).unwrap_err().code, Code::AReintegrer);
     let _ = fs::remove_dir_all(&lieu.racine);
@@ -1168,7 +1165,7 @@ fn une_commande_qui_depasse_son_delai_meurt_avec_son_arbre() {
     lente.current_dir(&dir);
     let debut = Instant::now();
     let erreur = jouer(lente, &dir.join("lydite"), None, ARBRE).unwrap_err();
-    assert!(erreur.contains(" : temps dépassé (10 s)"), "{erreur}");
+    assert!(erreur.contains(": timed out (10 s)"), "{erreur}");
     let pid = marque(&dir, Duration::ZERO);
     assert!(meurt(pid), "le petit-enfant {pid} survit au délai");
     assert!(debut.elapsed() < Duration::from_secs(28), "tuée à son délai, pas au bout de son sommeil");
@@ -1224,7 +1221,7 @@ fn une_pr_qui_porte_encore_le_sha_d_avant_est_attendue() {
     lieu.gh.rendre(5, 0, &vue_pr(avant, "OPEN", "MERGEABLE"), "");
     let refus = lire(Duration::ZERO).unwrap_err();
     assert_eq!(refus.code, Code::CiMuette, "{refus}");
-    assert!(refus.preuve.contains(&format!("porte encore {avant}")), "{refus}");
+    assert!(refus.preuve.contains(&format!("still carries {avant}")), "{refus}");
     // Un autre sha est un autre qui a poussé, et une PR fermée l'est avec l'ancien sha aussi : 8010, tout de suite.
     let autre = "1111111111111111111111111111111111111111";
     lieu.gh.rendre(6, 0, &vue_pr(autre, "OPEN", "MERGEABLE"), "");

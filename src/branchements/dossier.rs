@@ -21,7 +21,7 @@ use crate::coeur::profil::{self, Profil, empreinte, integre};
 /// s'il existe. Une écriture ratée est le refus 7012 (`correction` dit ce qu'il faut faire).
 pub(crate) fn ecrire_consigne(dossier: &Path, texte: &str, correction: &str) -> Result<PathBuf, Refus> {
     let ratee = |e: io::Error, quoi: &Path| {
-        Refus::new(Code::FilInjoignable, format!("écriture de la consigne {} : {e}", quoi.display()), correction)
+        Refus::new(Code::FilInjoignable, format!("writing the instruction {}: {e}", quoi.display()), correction)
     };
     let consignes = dossier.join("consignes");
     let chemin = consignes.join(format!("{}.txt", empreinte(texte)));
@@ -71,15 +71,14 @@ fn tenir_en(dossier: &Path, reessais: u32, pause: &mut dyn FnMut()) -> Result<()
     if tenus.iter().any(|(tenu, _)| tenu == dossier) {
         return Ok(());
     }
-    fs::create_dir_all(dossier)
-        .map_err(|e| nommee(e, format!("création du dossier de Lydite {}", dossier.display())))?;
+    fs::create_dir_all(dossier).map_err(|e| nommee(e, format!("creating the state folder {}", dossier.display())))?;
     let chemin = dossier.join(VERROU);
     let fichier = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(false)
         .open(&chemin)
-        .map_err(|e| nommee(e, format!("ouverture du verrou {}", chemin.display())))?;
+        .map_err(|e| nommee(e, format!("opening the lock {}", chemin.display())))?;
     let mut restants = reessais;
     loop {
         match fichier.try_lock() {
@@ -94,13 +93,13 @@ fn tenir_en(dossier: &Path, reessais: u32, pause: &mut dyn FnMut()) -> Result<()
             Err(fs::TryLockError::WouldBlock) => {
                 return Err(Refus::new(
                     Code::DossierPris,
-                    format!("un autre lancement tient le dossier {} (verrou {})", dossier.display(), chemin.display()),
-                    "Attends la fin de l'autre lancement, ou prends un autre dossier avec LYDITE_DOSSIER, puis \
-                     relance.",
+                    format!("another launch holds the folder {} (lock {})", dossier.display(), chemin.display()),
+                    "Wait for the other launch to finish, or take another folder with LYDITE_DOSSIER, then run \
+                     again.",
                 ));
             }
             Err(fs::TryLockError::Error(e)) => {
-                return Err(nommee(e, format!("verrou du dossier de Lydite {}", chemin.display())).into());
+                return Err(nommee(e, format!("lock of the state folder {}", chemin.display())).into());
             }
         }
     }
@@ -114,13 +113,13 @@ pub(crate) fn sonder(dossier: &Path) -> Result<bool, Refus> {
     let fichier = match OpenOptions::new().read(true).open(&chemin) {
         Ok(fichier) => fichier,
         Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory) => return Ok(false),
-        Err(e) => return Err(nommee(e, format!("ouverture du verrou {}", chemin.display())).into()),
+        Err(e) => return Err(nommee(e, format!("opening the lock {}", chemin.display())).into()),
     };
     match fichier.try_lock_shared() {
         // `fichier` se ferme en sortant : le système lâche le verrou.
         Ok(()) => Ok(false),
         Err(fs::TryLockError::WouldBlock) => Ok(true),
-        Err(fs::TryLockError::Error(e)) => Err(nommee(e, format!("sonde du verrou {}", chemin.display())).into()),
+        Err(fs::TryLockError::Error(e)) => Err(nommee(e, format!("probing the lock {}", chemin.display())).into()),
     }
 }
 
@@ -157,8 +156,8 @@ fn dossier_selon(
         }
         return Err(Refus::new(
             Code::DossierRelatif,
-            format!("LYDITE_DOSSIER vaut « {} », qui n'est pas un chemin absolu", dossier.display()),
-            "Pose LYDITE_DOSSIER à un chemin absolu, ou retire-la.",
+            format!("LYDITE_DOSSIER is \"{}\", which is not an absolute path", dossier.display()),
+            "Set LYDITE_DOSSIER to an absolute path, or remove it.",
         ));
     }
     let absolu = |valeur: Option<OsString>| valeur.map(PathBuf::from).filter(|chemin| chemin.is_absolute());
@@ -171,14 +170,14 @@ fn dossier_selon(
     };
     dossier.ok_or_else(|| {
         let preuve = if windows {
-            "USERPROFILE n'est pas posée, ou pas en chemin absolu"
+            "USERPROFILE is not set, or not as an absolute path"
         } else {
-            "ni XDG_STATE_HOME ni HOME n'est posée en chemin absolu"
+            "neither XDG_STATE_HOME nor HOME is set as an absolute path"
         };
         Refus::new(
             Code::DossierIntrouvable,
             preuve,
-            "Pose LYDITE_DOSSIER à un chemin absolu : Lydite y range son fil et ses bacs.",
+            "Set LYDITE_DOSSIER to an absolute path: Lydite keeps its thread and its sandboxes there.",
         )
     })
 }
@@ -238,11 +237,11 @@ impl Fil {
         let octets = match fs::read(&chemin) {
             Ok(octets) => octets,
             Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(nommee(e, format!("lecture du fil {}", chemin.display()))),
+            Err(e) => return Err(nommee(e, format!("reading the thread {}", chemin.display()))),
         };
         if octets.is_empty() {
-            let vide = io::Error::new(io::ErrorKind::InvalidInput, "le fil est vide, et rien ne s'y scelle");
-            return Err(nommee(vide, format!("sceau du fil {}", chemin.display())));
+            let vide = io::Error::new(io::ErrorKind::InvalidInput, "the thread is empty, and nothing is sealed in it");
+            return Err(nommee(vide, format!("seal of the thread {}", chemin.display())));
         }
         let sceau = SceauVague::sur(vague, &octets);
         let ligne = ligne_de_sceau(&self.seance, *seq + 1, &self.origine, &sceau);
@@ -253,7 +252,7 @@ impl Fil {
     /// Écrit une ligne, son enveloppe puis son corps, sous le verrou du compteur `seq`, qui n'avance qu'après.
     fn ecrire(&self, seq: &mut u64, ligne: String) -> io::Result<()> {
         let chemin = self.dossier.join(FICHIER);
-        ajouter(&chemin, ligne).map_err(|e| nommee(e, format!("note au fil {}", chemin.display())))?;
+        ajouter(&chemin, ligne).map_err(|e| nommee(e, format!("note to the thread {}", chemin.display())))?;
         *seq += 1;
         Ok(())
     }
@@ -308,7 +307,7 @@ pub(crate) fn lire_avec_sceaux(kraken: &Path) -> Result<FilScelle, Refus> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             return Ok((Lecture::default(), Vec::new(), Vec::new(), None));
         }
-        Err(e) => return Err(nommee(e, format!("lecture du fil {}", chemin.display())).into()),
+        Err(e) => return Err(nommee(e, format!("reading the thread {}", chemin.display())).into()),
     };
     let (lecture, issues, sceaux) = lire_octets(&chemin, &octets)?;
     let rompu = premier_sceau_rompu(&octets, &sceaux).cloned();
@@ -331,8 +330,8 @@ pub(crate) fn lire_quota(kraken: &Path) -> Result<Option<u64>, Refus> {
     let chemin = kraken.join(profil::PROFILS).join("quota");
     let refus = |preuve: String| {
         let correction = format!(
-            "Écris dans {} une ligne : un nombre positif de dollars par jour, deux décimales au plus (12.50) ; ou \
-             retire le fichier pour ne plus borner la dépense.",
+            "Write one line in {}: a positive number of dollars per day, two decimals at most (12.50); or remove \
+             the file to stop bounding the spend.",
             chemin.display()
         );
         Refus::new(Code::Quota, preuve, correction)
@@ -340,16 +339,14 @@ pub(crate) fn lire_quota(kraken: &Path) -> Result<Option<u64>, Refus> {
     let octets = match fs::read(&chemin) {
         Ok(octets) => octets,
         Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory) => return Ok(None),
-        Err(e) => return Err(refus(nommee(e, format!("lecture du quota {}", chemin.display())).to_string())),
+        Err(e) => return Err(refus(nommee(e, format!("reading the quota {}", chemin.display())).to_string())),
     };
     let texte = String::from_utf8(octets).map_err(|e| {
-        refus(format!("{} : UTF-8 invalide après l'octet {}", chemin.display(), e.utf8_error().valid_up_to()))
+        refus(format!("{}: invalid UTF-8 after byte {}", chemin.display(), e.utf8_error().valid_up_to()))
     })?;
     match quota_de(&texte) {
         Some(micro_dollars) => Ok(Some(micro_dollars)),
-        None => {
-            Err(refus(format!("{} : « {} » n'est pas un nombre positif de dollars", chemin.display(), texte.trim())))
-        }
+        None => Err(refus(format!("{}: \"{}\" is not a positive number of dollars", chemin.display(), texte.trim()))),
     }
 }
 
@@ -409,20 +406,17 @@ pub(crate) fn accepter(nom: &str, dossier: &Path) -> Result<(String, String), Re
             Some(_) => Refus::new(
                 Code::ProfilSansFichier,
                 format!(
-                    "le profil « {nom} » n'a pas de fichier, {} est absent : c'est le profil intégré",
+                    "the profile \"{nom}\" has no file, {} is absent: it is the built-in profile",
                     chemin.display()
                 ),
-                format!(
-                    "Lance le profil intégré tel quel ; pour le changer, écris {} puis accepte-le.",
-                    chemin.display()
-                ),
+                format!("Run the built-in profile as it is; to change it, write {} then accept it.", chemin.display()),
             ),
             None => inconnu(nom, &chemin),
         });
     };
     profil::lire(nom, &texte, Some(&chemin), None)?;
     let (garde, empreinte) = (chemin.with_extension("empreinte"), empreinte(&texte));
-    fs::write(&garde, &empreinte).map_err(|e| nommee(e, format!("écriture de l'empreinte {}", garde.display())))?;
+    fs::write(&garde, &empreinte).map_err(|e| nommee(e, format!("writing the fingerprint {}", garde.display())))?;
     Ok((texte, empreinte))
 }
 
@@ -433,7 +427,7 @@ pub(crate) fn lire_empreinte(garde: &Path) -> Result<Option<String>, Refus> {
     match fs::read(garde) {
         Ok(octets) => Ok(Some(String::from_utf8_lossy(&octets).trim().to_string())),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(nommee(e, format!("lecture de l'empreinte {}", garde.display())).into()),
+        Err(e) => Err(nommee(e, format!("reading the fingerprint {}", garde.display())).into()),
     }
 }
 
@@ -451,9 +445,9 @@ fn fichier(nom: &str, dossier: &Path) -> Result<PathBuf, Refus> {
     if nom.is_empty() || !nom.bytes().all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c)) {
         return Err(Refus::new(
             Code::ProfilNomRefuse,
-            format!("profil « {nom} »"),
-            "Nomme le profil en lettres ASCII, chiffres, « _ » et « - » : son fichier est \
-             <dossier de Lydite>/profils/<nom>.profil.",
+            format!("profile \"{nom}\""),
+            "Name the profile with ASCII letters, digits, \"_\" and \"-\": its file is \
+             <state folder>/profils/<name>.profil.",
         ));
     }
     Ok(dossier.join(profil::PROFILS).join(format!("{nom}.profil")))
@@ -463,16 +457,15 @@ fn fichier(nom: &str, dossier: &Path) -> Result<PathBuf, Refus> {
 /// l'UTF-8, sont le refus 6008, qui nomme le chemin ; le message d'une erreur d'E/S y passe tel quel.
 fn lire_fichier(nom: &str, chemin: &Path) -> Result<Option<String>, Refus> {
     let illisible = |preuve: String| {
-        let correction =
-            format!("Rends {} lisible en UTF-8, puis accepte-le : lydite accepter {nom}.", chemin.display());
+        let correction = format!("Make {} readable as UTF-8, then accept it: lydite accept {nom}.", chemin.display());
         Refus::new(Code::ProfilIllisible, preuve, correction)
     };
     match fs::read(chemin) {
         Ok(octets) => String::from_utf8(octets).map(Some).map_err(|e| {
-            illisible(format!("{} : UTF-8 invalide après l'octet {}", chemin.display(), e.utf8_error().valid_up_to()))
+            illisible(format!("{}: invalid UTF-8 after byte {}", chemin.display(), e.utf8_error().valid_up_to()))
         }),
         Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory) => Ok(None),
-        Err(e) => Err(illisible(nommee(e, format!("lecture du profil {}", chemin.display())).to_string())),
+        Err(e) => Err(illisible(nommee(e, format!("reading the profile {}", chemin.display())).to_string())),
     }
 }
 
@@ -480,9 +473,9 @@ fn lire_fichier(nom: &str, chemin: &Path) -> Result<Option<String>, Refus> {
 fn inconnu(nom: &str, chemin: &Path) -> Refus {
     Refus::new(
         Code::ProfilInconnu,
-        format!("profil « {nom} » inconnu : {} est absent, et aucun profil intégré ne porte ce nom", chemin.display()),
+        format!("unknown profile \"{nom}\": {} is absent, and no built-in profile has this name", chemin.display()),
         format!(
-            "Écris {} puis accepte-le (lydite accepter {nom}), ou nomme le profil intégré : claude.",
+            "Write {} then accept it (lydite accept {nom}), or name the built-in profile: claude.",
             chemin.display()
         ),
     )

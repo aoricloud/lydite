@@ -1058,7 +1058,7 @@ fn la_garde_rejouee_sur_la_poussee_d_une_relance_de_ci_refuse_8005() {
     let notes = lieu.forge_du_fil(&vagues[1]);
     assert_eq!(mots(&notes), ["refus 8005"]);
     let Evenement::RefusForge { preuve, .. } = &notes[0] else { panic!("{notes:?}") };
-    assert!(preuve.starts_with("la ligne 2 de la garde paraît dans les lignes ajoutées de b/"), "{preuve}");
+    assert!(preuve.starts_with("line 2 of the garde file appears in the added lines of b/"), "{preuve}");
     assert!(!preuve.contains(&garde.display().to_string()), "{preuve}");
     // Rien de la relance n'est poussé : la branche de la PR reste à la tête de la vague.
     assert_eq!(lieu.distante(&branche), tete);
@@ -1089,8 +1089,8 @@ fn une_ci_rouge_deux_fois_est_8011_et_la_pr_reste_ouverte_et_rouge() {
         panic!("{de_la_relance:?}")
     };
     assert_eq!((*code, regle.as_str()), (8011, Code::CiRouge.regle()));
-    assert!(preuve.contains("rouge encore") && preuve.contains("test (windows) : FAILURE"), "{preuve}");
-    assert!(correction.contains("ne la relance pas deux fois"), "{correction}");
+    assert!(preuve.contains("still red") && preuve.contains("test (windows) : FAILURE"), "{preuve}");
+    assert!(correction.contains("does not retry it twice"), "{correction}");
     // Ce que la relance a poussé reste poussé, la forge range, et il n'y a pas de troisième tour.
     assert_eq!(lieu.distante(&branche), lieu.tete_de(&vagues[1]));
     assert_eq!(fs::read_dir(lieu.kraken.join("bacs")).unwrap().count(), 0, "plus rien sous bacs");
@@ -1120,7 +1120,7 @@ fn une_relance_qui_touche_github_n_est_pas_poussee_8005() {
     let (relance, notes) = (&vagues[1], lieu.forge_du_fil(&vagues[1]));
     assert_eq!(mots(&notes), ["refus 8005"]);
     let Evenement::RefusForge { preuve, .. } = &notes[0] else { panic!("{notes:?}") };
-    assert!(preuve.starts_with(".github/ci.yml change entre la base"), "{preuve}");
+    assert!(preuve.starts_with(".github/ci.yml changes between the base"), "{preuve}");
     assert_eq!((lieu.distante(&branche), git(&lieu.depot, &["rev-parse", &branche])), (tete.clone(), tete));
     assert_eq!(lieu.gh.appels().len(), 8, "la CI de la relance n'est pas lue");
     // La vague relancée se range ; la relance garde son bac avec son travail, son worktree et sa branche.
@@ -1151,7 +1151,7 @@ fn une_base_qui_a_bouge_pendant_la_ci_n_est_pas_relancee_8009() {
     let notes = lieu.forge_du_fil(&menee.id);
     assert_eq!(mots(&notes), ["poussée", "pr 12", "ci Rouge", "refus 8009", "rangement"]);
     let Evenement::RefusForge { preuve, .. } = &notes[3] else { panic!("{notes:?}") };
-    assert!(preuve.contains(&format!("sa tête distante {avancee}")), "{preuve}");
+    assert!(preuve.contains(&format!("its remote head {avancee}")), "{preuve}");
     assert_eq!(lieu.distante(&branche), tete);
     assert_eq!(lieu.gh.appels().len(), 8);
     assert_eq!(fs::read_dir(lieu.kraken.join("bacs")).unwrap().count(), 0, "la vague se range");
@@ -1173,7 +1173,7 @@ fn une_vague_critique_rouge_est_8011_sans_relance() {
     assert_eq!(mots(&notes), ["poussée", "pr 12", "ci Rouge", "refus 8011", "rangement"]);
     let Evenement::RefusForge { code, regle, preuve, correction, .. } = &notes[3] else { panic!("{notes:?}") };
     assert_eq!((*code, regle.as_str(), correction.as_str()), (8011, Code::CiRouge.regle(), ROUGE));
-    assert!(preuve.contains("tâche a est critique") && preuve.contains("test (windows) : FAILURE"), "{preuve}");
+    assert!(preuve.contains("task a is critical") && preuve.contains("test (windows) : FAILURE"), "{preuve}");
     assert_eq!(lieu.distante(&branche), tete);
     assert_eq!(lieu.gh.appels().len(), 8, "rien après la CI rouge et son journal");
     assert_eq!(fs::read_dir(lieu.kraken.join("bacs")).unwrap().count(), 0, "la vague se range");
@@ -1207,7 +1207,7 @@ fn lancer_qui_refuse_la_relance_est_8011_sous_la_vague() {
     assert_eq!(mots(&notes), ["poussée", "pr 12", "ci Rouge", "refus 8011", "rangement"]);
     let Evenement::RefusForge { code, preuve, .. } = &notes[3] else { panic!("{notes:?}") };
     assert_eq!(*code, 8011);
-    assert!(preuve.contains("ne s'ouvre pas, 6022 lancer.base_rouge"), "{preuve}");
+    assert!(preuve.contains("does not open, 6022 lancer.base_rouge"), "{preuve}");
     assert_eq!(fs::read_dir(lieu.kraken.join("bacs")).unwrap().count(), 0, "plus rien sous bacs");
     let branches = git(&lieu.depot, &["for-each-ref", "--format=%(refname)", "refs/heads/lydite"]);
     assert_eq!(branches, format!("refs/heads/lydite/vague-{}", menee.id));
@@ -1243,7 +1243,7 @@ fn une_main_de_relance_de_ci_qui_ne_change_rien_est_refusee_par_le_controle_de_l
     assert_eq!(vagues.len(), 2, "{vagues:?}");
     let notes = lieu.forge_du_fil(&vagues[1]);
     let Some(Evenement::RefusForge { preuve, .. }) = notes.first() else { panic!("{notes:?}") };
-    assert_eq!(preuve, &format!("la vague de relance {} n'a rien changé à la tête poussée {tete}", vagues[1]));
+    assert_eq!(preuve, &format!("the retry wave {} changed nothing in the pushed head {tete}", vagues[1]));
     let departs = fs::read_to_string(&departs).unwrap();
     assert_eq!(departs.lines().count(), 1, "pas de relance de main : {departs}");
     let _ = fs::remove_dir_all(&lieu.racine);
@@ -1264,7 +1264,7 @@ fn une_relance_non_assemblee_est_8011_sous_la_relance() {
     let (relance, notes) = (&vagues[1], lieu.forge_du_fil(&vagues[1]));
     assert_eq!(mots(&notes), ["refus 8011", "rangement"]);
     let Evenement::RefusForge { preuve, .. } = &notes[0] else { panic!("{notes:?}") };
-    assert!(preuve.starts_with(&format!("la vague de relance {relance} n'a pas assemblé sa tâche ci : ")), "{preuve}");
+    assert!(preuve.starts_with(&format!("the retry wave {relance} did not assemble its task ci: ")), "{preuve}");
     assert_eq!(lieu.distante(&branche), tete);
     assert_eq!(lieu.gh.appels().len(), 8, "la CI de la relance n'est pas lue");
     // Le bac de sa tâche reste, qui n'a rien de poussé ; son worktree et sa branche, à la tête poussée, se rangent.
@@ -1426,9 +1426,9 @@ fn ni_github_ni_chemin_du_poste_ni_commit_etranger_ne_part_8005() {
     let etranger =
         plan(&["plan 1", "objectif : Publier un autre", "preuve : exit 0", "tache c", &en_etranger, "    Ecrire c"]);
     let cas = [
-        (github, ".github/ci.yml change entre la base"),
-        (chemin, "paraît dans les lignes ajoutées de b/"),
-        (etranger, "n'est pas de Lydite : auteur « autre <autre@exemple.invalid> », committer « autre <"),
+        (github, ".github/ci.yml changes between the base"),
+        (chemin, "appears in the added lines of b/"),
+        (etranger, "is not Lydite's: author \"autre <autre@exemple.invalid>\", committer \"autre <"),
     ];
     for (plan, vu) in cas {
         let menee = lieu.vague(&proposition, &plan);
@@ -1463,7 +1463,7 @@ fn un_mot_de_la_garde_dans_le_corps_ne_part_pas_8005() {
     let notes = lieu.forge_du_fil(&menee.id);
     assert_eq!(mots(&notes), ["refus 8005"]);
     let Evenement::RefusForge { preuve, .. } = &notes[0] else { panic!("{notes:?}") };
-    assert_eq!(preuve, "la ligne 2 de la garde paraît dans le corps");
+    assert_eq!(preuve, "line 2 of the garde file appears in the body");
     assert!(!preuve.contains(&garde.display().to_string()), "{preuve}");
     // Rien n'est poussé, et aucune PR ne s'ouvre.
     assert_eq!(lieu.poussees(), "");
