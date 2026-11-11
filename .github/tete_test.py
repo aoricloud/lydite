@@ -19,6 +19,7 @@ _SPEC.loader.exec_module(tete)
 TETE, RELUE, AUTRE, CORRIGEE, PLUS_LOIN = "a" * 40, "b" * 40, "c" * 40, "d" * 40, "e" * 40
 ARBRE, AUTRE_ARBRE = "1" * 40, "2" * 40
 BRANCHE = "lydite/vague-1"
+DEPOT = "proprietaire/lydite"
 
 
 def relu(sha):
@@ -35,8 +36,10 @@ def corrige(relue, sha, rejoue=None):
 class FausseApi:
     """Une API d'essai : la PR 1, l'arbre de chaque commit, et les PR fermées dont la base est chaque branche."""
 
-    def __init__(self, corps, arbres, fermees=None, branche=BRANCHE):
-        self.prs = {"1": {"branche": branche, "tete": TETE, "corps": corps}}
+    def __init__(self, corps, arbres, fermees=None, branche=BRANCHE, depot_tete=DEPOT):
+        self.depot = DEPOT
+        pr = {"branche": branche, "depot": depot_tete, "meme": depot_tete == DEPOT, "tete": TETE, "corps": corps}
+        self.prs = {"1": pr}
         self.arbres = arbres
         self.par_base = fermees or {}
 
@@ -50,8 +53,8 @@ class FausseApi:
         return self.par_base.get(branche, [])
 
 
-def fermee(numero, branche, corps, fusionnee=True):
-    return {"numero": numero, "branche": branche, "fusionnee": fusionnee, "corps": corps}
+def fermee(numero, branche, corps, fusionnee=True, meme=True):
+    return {"numero": numero, "branche": branche, "meme": meme, "fusionnee": fusionnee, "corps": corps}
 
 
 class Controle(unittest.TestCase):
@@ -130,6 +133,19 @@ class Controle(unittest.TestCase):
     def test_une_pr_d_une_autre_branche_passe_sans_controle(self):
         message = self.passe(FausseApi("", {}, branche="tete-relue-ci"))
         self.assertIn("Not a Lydite pull request", message)
+
+    def test_une_branche_lydite_venue_d_un_fork_rougit_meme_avec_un_corps_juste(self):
+        for depot in ("quelquun/lydite", ""):
+            with self.subTest(depot=depot):
+                message = self.rougit(FausseApi(relu(TETE), {TETE: ARBRE}, depot_tete=depot))
+                self.assertIn("from a fork is not Lydite's", message)
+
+    def test_une_branche_d_un_fork_sans_le_prefixe_passe_sans_controle(self):
+        self.passe(FausseApi("", {}, branche="usage-en-anglais", depot_tete="quelquun/lydite"))
+
+    def test_une_correction_venue_d_un_fork_ne_compte_pas(self):
+        fermees = {BRANCHE: [fermee(2, "lydite/vague-2", relu(CORRIGEE), meme=False)]}
+        self.rougit(FausseApi(relu(RELUE), {TETE: ARBRE, RELUE: AUTRE_ARBRE, CORRIGEE: ARBRE}, fermees))
 
 
 class Lancement(unittest.TestCase):
