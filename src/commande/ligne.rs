@@ -71,7 +71,7 @@ fn options_lire_lecons(args: &[OsString]) -> Result<Commande, Refus> {
         return Err(mal_formee(format!("`lecons` veut le dossier d'un dépôt, et {} est un drapeau", mot(dossier))));
     }
     if let Some(autre) = suite.first() {
-        return Err(mal_formee(format!("`lecons` ne prend que `<dossier>`, et {} le suit", mot(autre))));
+        return Err(mal_formee(format!("`lecons` takes only `<folder>`, and {} follows it", mot(autre))));
     }
     Ok(Commande::LireLecons { dossier: PathBuf::from(dossier) })
 }
@@ -90,7 +90,7 @@ fn options_lire_remarques(args: &[OsString]) -> Result<Commande, Refus> {
         )));
     }
     if let Some(autre) = suite.first() {
-        return Err(mal_formee(format!("`remarques` ne prend que `<fichier>`, et {} le suit", mot(autre))));
+        return Err(mal_formee(format!("`remarques` takes only `<file>`, and {} follows it", mot(autre))));
     }
     Ok(Commande::LireRemarques { fichier: PathBuf::from(fichier) })
 }
@@ -110,7 +110,7 @@ fn options_lire_plan(args: &[OsString]) -> Result<Commande, Refus> {
         return Err(mal_formee(format!("`plan` veut le fichier d'un plan, et {} est un drapeau", mot(fichier))));
     }
     if let Some(autre) = suite.first() {
-        return Err(mal_formee(format!("`plan` ne prend que `[--decoupe] <fichier>`, et {} le suit", mot(autre))));
+        return Err(mal_formee(format!("`plan` takes only `[--decoupe] <file>`, and {} follows it", mot(autre))));
     }
     Ok(Commande::LirePlan { fichier: PathBuf::from(fichier), decoupe })
 }

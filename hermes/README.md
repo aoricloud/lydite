@@ -48,9 +48,9 @@ what is missing.
 
 | Tool | What it does |
 | --- | --- |
-| `lydite_lancer` | Starts `lydite lancer <profile> --issue <n> --decouper --verifier "<proof>" --depot <repo> --pr main` in the background and returns at once with an id. Also takes `objectif` (instead of `issue`), `plan` (instead of both: a plan file written by hand, with its own models, files and `preuve :` line; see below), `profil`, `pr`, and `observer` (show the plan, build nothing). |
+| `lydite_lancer` | Starts `lydite lancer <profile> --issue <n> --decouper --verifier "<proof>" --depot <repo> --pr main` in the background and returns at once with an id. Also takes `objective` (instead of `issue`), `plan` (instead of both: a plan file written by hand, with its own models, files and `preuve :` line; see below), `profile`, `pr`, and `observe` (show the plan, build nothing). |
 | `lydite_etat` | Returns `lydite etat` (what Lydite itself recorded: tasks, proofs, pull request, CI) and the launches made from this plugin, with the end of a launch's log when given its `id`. |
-| `lydite_lecons` | Returns the lessons of a repository: the written rules Lydite learned there from past mistakes and gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Without `nom`, the list of each lesson's name, rule and files; with `nom`, one lesson in full. It is read-only, and Lydite checks the lessons first. Nothing is approved, because nothing is started or written. |
+| `lydite_lecons` | Returns the lessons of a repository: the written rules Lydite learned there from past mistakes and gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Without `name`, the list of each lesson's name, rule and files; with `name`, one lesson in full. It is read-only, and Lydite checks the lessons first. Nothing is approved, because nothing is started or written. |
 | `lydite_plan` | Runs `lydite plan <file>` on a plan file and returns what Lydite accepts or refuses, and why: the plan's SHA-256, its number of tasks, its proof line and the tasks that will wait for one another because they share a file, or Lydite's refusal (its code, its rule, what was seen, the fix). It starts nothing and costs nothing, so nothing is approved: use it to fix a plan with the human before approving a launch. |
 
 It also ships one skill, `lydite:driving-lydite`, in the open `SKILL.md` format with only its common fields, so
@@ -64,19 +64,17 @@ The workers are **Claude Code sessions that Lydite starts itself**, on the model
 
 ### Names still in French
 
-The tools answer in English, but some names you type are still French. Lydite 0.4.0 will give them English names.
+The tools answer in English, and their arguments have English names. A few names are still French; Lydite 0.4.0
+will give them English names.
 
 | Name | Meaning |
 | --- | --- |
 | `lancer`, `etat`, `lecons` (in the tool names) | launch, state, lessons |
-| `depot` | the repository: an absolute path to a git checkout |
-| `objectif` | a one-line objective, instead of an issue |
-| `preuve` | the proof: the command that shows the work done |
-| `profil` | the Lydite profile |
-| `pr` | the branch the pull request targets |
-| `observer` | show the plan only, build nothing |
-| `nom` | the name of one lesson |
-| `binaire`, `cle_nom`, `cle` (settings) | the binary's path, the name of the provider key's variable, the provider key |
+| `binaire`, `profil`, `cle_nom`, `cle` (settings) | the binary's path, the default Lydite profile, the name of the provider key's variable, the provider key |
+
+The French argument names of 0.3.2 still work as aliases: `depot` (`repo`), `objectif` (`objective`), `preuve`
+(`proof`), `profil` (`profile`), `observer` (`observe`) and `nom` (`name`).
+Giving both names of one argument is refused.
 
 ## Install and use
 

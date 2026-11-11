@@ -22,7 +22,7 @@ you do not rewrite its plan, and you never merge: the pull request is for a huma
 A repository that Lydite works on may keep lessons: the written rules Lydite learned there from past mistakes and
 gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Call `lydite_lecons` with the checkout
 path before you plan, review or do any work in such a repository. Follow the lessons, and when one shapes what you do
-or say, cite it by its name. Call it again with `nom` to read one lesson in full.
+or say, cite it by its name. Call it again with `name` to read one lesson in full.
 
 The lessons are read-only for you: never create, edit, rename or delete a file under `.agents/skills/`, and never copy
 a lesson into your own skills or memory as if you had written it: only a human changes a lesson. If Lydite refuses the
@@ -48,8 +48,8 @@ When the work is a plan file, call `lydite_plan` with its path first. It runs no
 If Lydite refuses the plan, give the refusal as written, propose the fix to the user, and change the file
 only if they ask you to; then check it again. Launch only a plan that Lydite accepts.
 
-Call `lydite_lancer` with `depot` and one of `issue`, `objectif` or `plan` (and `preuve` for the first two). Add
-`observer: true` first if the user wants to see the plan before anything runs.
+Call `lydite_lancer` with `repo` and one of `issue`, `objective` or `plan` (and `proof` for the first two). Add
+`observe: true` first if the user wants to see the plan before anything runs.
 
 Hermes shows at most ten rows of an approval, and the plugin's message holds in nine: the repository, the work, the
 proof, the profile and the target branch. A plan file is shown by its name, its size, its number of tasks, its proof
