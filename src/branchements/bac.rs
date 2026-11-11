@@ -164,20 +164,59 @@ fn est_une_butee(bac: &Path, nom: &str) -> bool {
     if reste.is_empty() || reste.contains('/') {
         return false;
     }
+    est_un_fichier_vide_en_lecture_seule(bac, nom)
+}
+
+/// Le chemin `nom` du bac est un fichier ordinaire (ni lien ni dossier), vide, et sans droit d'écriture.
+fn est_un_fichier_vide_en_lecture_seule(bac: &Path, nom: &str) -> bool {
     fs::symlink_metadata(bac.join(nom))
         .is_ok_and(|meta| meta.file_type().is_file() && meta.len() == 0 && meta.permissions().readonly())
 }
 
+/// Le chemin `chemin` n'est pas dans le commit `depart` du bac, ni fichier ni dossier : `git rev-parse --verify
+/// --quiet <depart>:<chemin>` sort alors avec 1, sans rien dire. Il sort de même avec 1 quand `depart` n'est pas un
+/// commit : `depart` se vérifie d'abord. Tout autre résultat, git qui ne part pas ou qui échoue, n'est pas une absence
+/// prouvée : faux.
+fn absent_du_depart(bac: &Path, depart: &str, chemin: &str) -> bool {
+    let sort = |args: &[&str]| geste(bac, args).output().ok().and_then(|sortie| sortie.status.code());
+    let commit = format!("{depart}^{{commit}}");
+    let objet = format!("{depart}:{chemin}");
+    sort(&["rev-parse", "--verify", "--quiet", &commit]) == Some(0)
+        && sort(&["rev-parse", "--verify", "--quiet", &objet]) == Some(1)
+}
+
+/// Les butées du mur à un chemin protégé absent : le bac à sable de Claude Code pose, pour refuser l'écriture d'un
+/// chemin protégé qui n'existe pas, un fichier ordinaire vide et sans droit d'écriture à ce chemin, dans un dossier
+/// qu'il crée lui aussi. Un chemin de `proteges` (tel qu'écrit, sans sa barre finale pour un dossier) en est une si
+/// c'est un fichier ordinaire vide en lecture seule, et s'il n'est pas dans le commit `depart` du bac. Un fichier ne
+/// porte rien dessous : la main n'y a rien écrit d'autre. En chemins relatifs au bac, triés ; vide si `proteges` l'est.
+pub(crate) fn butees_protegees(bac: &Path, depart: &str, proteges: &[String]) -> Vec<String> {
+    let mut chemins: Vec<String> = proteges
+        .iter()
+        .map(|entree| entree.strip_suffix('/').unwrap_or(entree))
+        .filter(|chemin| !chemin.is_empty() && est_un_fichier_vide_en_lecture_seule(bac, chemin))
+        .filter(|chemin| absent_du_depart(bac, depart, chemin))
+        .map(str::to_string)
+        .collect();
+    chemins.sort();
+    chemins.dedup();
+    chemins
+}
+
 /// Les butées du mur du bac : les entrées directes de `.claude/` à sa racine qui sont des butées ([`est_une_butee`]),
-/// en chemins relatifs au bac. Vide si `.claude/` n'y est pas, ou ne se lit pas.
-pub(crate) fn butees_du_bac(bac: &Path) -> Vec<String> {
-    let Ok(entrees) = fs::read_dir(bac.join(".claude")) else { return Vec::new() };
-    let mut noms: Vec<String> = entrees
+/// puis celles à un chemin protégé absent ([`butees_protegees`]), en chemins relatifs au bac. Vide si `.claude/` n'y
+/// est pas, ou ne se lit pas, et si aucune butée protégée n'y est.
+pub(crate) fn butees_du_bac(bac: &Path, depart: &str, proteges: &[String]) -> Vec<String> {
+    let mut noms: Vec<String> = fs::read_dir(bac.join(".claude"))
+        .into_iter()
+        .flatten()
         .filter_map(|entree| entree.ok()?.file_name().into_string().ok())
         .map(|nom| format!(".claude/{nom}"))
         .filter(|chemin| est_une_butee(bac, chemin))
         .collect();
+    noms.extend(butees_protegees(bac, depart, proteges));
     noms.sort();
+    noms.dedup();
     noms
 }
 
