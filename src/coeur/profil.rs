@@ -377,14 +377,17 @@ struct FournisseurDuProfil {
 }
 
 /// Ce que `borner` pose sur une main Claude : le dossier de Kraken, tel quel et en règle de permission, les dossiers de
-/// connexion de Claude en règle, le dossier de configuration de gh tel quel et en règle, et le git commun du dépôt
-/// visé, tel quel et en règle.
+/// connexion de Claude en règle, le dossier que nomme `CLAUDE_CONFIG_DIR` tel quel, le dossier de configuration de gh
+/// tel quel et en règle, et le git commun du dépôt visé, tel quel et en règle.
 #[derive(Clone)]
 struct Bornes {
     dossier: String,
     regle: String,
     /// Les dossiers de connexion de Claude en règle, sans doublon, dans l'ordre où `borner` les prend.
     connexions: Vec<String>,
+    /// Le dossier que nomme `CLAUDE_CONFIG_DIR`, tel quel, `None` s'il n'est pas posé : il se ferme aux commandes,
+    /// comme celui de gh. Le `.claude` du dossier personnel n'y est pas : `~/` le ferme déjà.
+    config: Option<String>,
     /// Le dossier de configuration de gh, tel quel puis en règle, `None` s'il n'est pas nommé.
     gh: Option<(String, String)>,
     git_commun: String,
@@ -726,6 +729,10 @@ impl Profil {
     /// (`.credentials.json`, dont seule l'existence se regarde, jamais le contenu), un chemin qu'une règle ne sait
     /// pas écrire n'est ni fermé ni refusé ; avec lui, c'est le refus 6023, dont la correction dit de retirer ce
     /// fichier ou de le déplacer. Sans `CLAUDE_CONFIG_DIR`, rien ne change : ce `.claude` se ferme, ou est refusé.
+    /// `CLAUDE_CONFIG_DIR` posé, son dossier, tel quel, se ferme aussi aux commandes de la main (`denyRead`) et du
+    /// rejeu, après le dossier de Kraken et avant celui de gh, car ses règles `Read` et `Edit` ne valent pas pour les
+    /// commandes ; sous le dossier personnel, il se ferme une seconde fois, sans rien changer. Le `.claude` du
+    /// dossier personnel n'y entre pas : `~/` le ferme déjà.
     /// `gh`, le dossier de configuration de gh que `preparer` résout (`GH_CONFIG_DIR`, sinon `$XDG_CONFIG_HOME/gh`),
     /// où l'humain garde son jeton : il se traite comme un dossier de connexion. Il se ferme aux commandes de la main
     /// (`denyRead`) et du rejeu, son fichier de jeton, `hosts.yml`, à ses outils, ou c'est le refus 6023 ; sous le
@@ -801,6 +808,7 @@ impl Profil {
             dossier: dossier.to_string_lossy().into_owned(),
             regle,
             connexions: regles,
+            config: config.map(|config| config.to_string_lossy().into_owned()),
             gh: du_gh,
             git_commun: git_commun.to_string_lossy().into_owned(),
             commun,
@@ -953,7 +961,7 @@ impl Profil {
     ///   ses clés dans cet ordre et ses chaînes écrites par `json::chaine` :
     ///   ```text
     ///   {"sandbox":{"enabled":true,"failIfUnavailable":<mur exigé>,"allowUnsandboxedCommands":false,<exclues>
-    ///   "filesystem":{"denyRead":["~/","<dossier>",<gh>],"allowRead":["<bac>","<git commun>",<lecture>…]},
+    ///   "filesystem":{"denyRead":["~/","<dossier>",<config>,<gh>],"allowRead":["<bac>","<git commun>",<lecture>…]},
     ///   "network":{"allowedDomains":[<reseau>…],"strictAllowlist":true},
     ///   "credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},
     ///   {"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}},
@@ -983,7 +991,10 @@ impl Profil {
     ///   réglages de srt du rejeu, `srt-<lot>.json` (voir [`Profil::rejeu`]) ; de même, pour chaque dossier de
     ///   connexion de Claude que `borner` a posé, `Read(...)` et `Edit(...)` ferment aux outils de la main son fichier
     ///   de connexion, `.credentials.json`, et pour le dossier de configuration de gh, `<gh>`, que `borner` a posé
-    ///   s'il est nommé, son fichier de jeton, `hosts.yml` ; `<gh>` n'est rien sinon.
+    ///   s'il est nommé, son fichier de jeton, `hosts.yml` ; `<gh>` n'est rien sinon. Ces règles ne valent pas pour
+    ///   les commandes : `denyRead` ferme donc, après le dossier de Lydite, le dossier de connexion de Claude que
+    ///   nomme `CLAUDE_CONFIG_DIR`, `<config>`, tel quel, puis `<gh>` ; `<config>` n'est rien sans
+    ///   `CLAUDE_CONFIG_DIR`, car `~/` ferme déjà le `.claude` du dossier personnel.
     ///   Le dernier `Edit(...)` ferme le git commun du dépôt visé, que le bac à sable de Claude Code ouvre d'office en
     ///   écriture à une main posée dans un worktree : il le reprend en `denyWrite`, et les commandes ne l'écrivent pas.
     ///   Sans `autoMemoryEnabled` faux, une main posée dans un worktree prendrait pour mémoire celle du dépôt
@@ -1129,12 +1140,14 @@ impl Claude {
     }
 
     /// Les règles de fichiers et de réseau d'une main posée dans `bac` : ce que ses commandes ne lisent pas (le dossier
-    /// personnel, le dossier de Kraken, puis le dossier de configuration de gh s'il est nommé), ce qu'elles lisent (le
-    /// bac, le git commun, puis `lecture`) et les domaines qu'elles joignent (`reseau`). Le `--settings` de la main et
-    /// les réglages de srt du rejeu les prennent ici.
+    /// personnel, le dossier de Kraken, le dossier de connexion de Claude que nomme `CLAUDE_CONFIG_DIR` puis le
+    /// dossier de configuration de gh, si l'un ou l'autre est nommé), ce qu'elles lisent (le bac, le git commun, puis
+    /// `lecture`) et les domaines qu'elles joignent (`reseau`). Le `--settings` de la main, les réglages de srt du
+    /// rejeu et les listes du mur natif les prennent ici.
     fn regles(&self, bornes: &Bornes, bac: &Path) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let config = bornes.config.iter().cloned();
         let gh = bornes.gh.iter().map(|(gh, _)| gh.clone());
-        let fermes = ["~/".to_string(), bornes.dossier.clone()].into_iter().chain(gh).collect();
+        let fermes = ["~/".to_string(), bornes.dossier.clone()].into_iter().chain(config).chain(gh).collect();
         let lus = [bac.to_string_lossy().into_owned(), bornes.git_commun.clone()].into_iter();
         (fermes, lus.chain(self.lecture.clone()).collect(), self.reseau.clone())
     }
