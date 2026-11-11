@@ -172,7 +172,7 @@ fn l_effort_applique_se_juge_quand_il_est_declare_et_sinon_ne_se_compare_a_rien(
         reponses
     };
     let declare = |effort: &'static str| Attendu { effort: Some(effort), ..attendu(REGLAGES) };
-    let ecart = |texte: &str| Err(format!("main : réglages non pris : get_settings : {texte}"));
+    let ecart = |texte: &str| Err(format!("hand: settings not applied: get_settings : {texte}"));
     // L'effort appliqué est le déclaré : pris, pour chacune des valeurs que Claude Code accepte.
     for effort in ["low", "medium", "high", "xhigh", "max"] {
         let dit = applique(&format!(r#""effort":"{effort}","#));
@@ -180,24 +180,24 @@ fn l_effort_applique_se_juge_quand_il_est_declare_et_sinon_ne_se_compare_a_rien(
     }
     // Un autre, un absent, un mal typé : l'écart, au texte exact, que le déclaré soit plus haut ou plus bas.
     let dit_low = applique(r#""effort":"low","#);
-    assert_eq!(juger_reponses(&declare("high"), &avec(&dit_low)).1, ecart(r#"applied.effort "low", déclaré "high""#));
+    assert_eq!(juger_reponses(&declare("high"), &avec(&dit_low)).1, ecart(r#"applied.effort "low", declared "high""#));
     assert_eq!(
         juger_reponses(&declare("low"), &avec(&applique(r#""effort":"high","#))).1,
-        ecart(r#"applied.effort "high", déclaré "low""#)
+        ecart(r#"applied.effort "high", declared "low""#)
     );
     assert_eq!(
         juger_reponses(&declare("high"), &rangees(&JUSTES)).1,
-        ecart(r#"applied.effort absent, déclaré "high""#)
+        ecart(r#"applied.effort absent, declared "high""#)
     );
     assert_eq!(
         juger_reponses(&declare("high"), &avec(&applique(r#""effort":3,"#))).1,
-        ecart(r#"applied.effort 3, déclaré "high""#)
+        ecart(r#"applied.effort 3, declared "high""#)
     );
     // Avec l'écart du modèle, dans l'ordre : le modèle, puis l'effort, joints par « ; ».
     let deux = dit_low.replace("claude-sonnet-5-5", "claude-opus-5-5");
     assert_eq!(
         juger_reponses(&declare("high"), &avec(&deux)).1,
-        ecart(r#"applied.model "claude-opus-5-5", déclaré "sonnet" ; applied.effort "low", déclaré "high""#)
+        ecart(r#"applied.model "claude-opus-5-5", declared "sonnet" ; applied.effort "low", declared "high""#)
     );
     // Sans effort déclaré, rien ne se compare : ni l'absent, ni celui que Claude Code a pris de lui-même.
     for dit in [GET_SETTINGS.to_string(), dit_low, applique(r#""effort":"max","#)] {
@@ -221,97 +221,97 @@ fn chaque_ecart_des_reponses_est_dit() {
             REGLAGES.to_string(),
             settings(r#""sources""#, erreurs),
             concat!(
-                r#"get_settings : erreur "claude-settings.json" à "disableAllHooks" : "Ex"#,
-                r#"pected boolean, but received string", déclaré sans erreur"#,
+                r#"get_settings : error "claude-settings.json" at "disableAllHooks" : "Ex"#,
+                r#"pected boolean, but received string", declared without error"#,
             ),
         ),
         (
             REGLAGES.to_string(),
             settings(flag, ""),
-            r#"get_settings : sources ["userSettings"], déclaré "flagSettings" parmi elles"#,
+            r#"get_settings : sources ["userSettings"], declared "flagSettings" among them"#,
         ),
         (
             REGLAGES.to_string(),
             settings(r#""disableAllHooks":true"#, r#""disableAllHooks":false"#),
-            "get_settings : effective.disableAllHooks false, déclaré true",
+            "get_settings : effective.disableAllHooks false, declared true",
         ),
         (
             REGLAGES.to_string(),
             settings(r#""autoMemoryEnabled":false,"#, ""),
-            "get_settings : effective.autoMemoryEnabled absent, déclaré false",
+            "get_settings : effective.autoMemoryEnabled absent, declared false",
         ),
         (
             REGLAGES.to_string(),
             settings(r#""failIfUnavailable":false"#, r#""failIfUnavailable":true"#),
-            "get_settings : effective.sandbox.failIfUnavailable true, déclaré false",
+            "get_settings : effective.sandbox.failIfUnavailable true, declared false",
         ),
         (
             REGLAGES.to_string(),
             settings("claude-sonnet-5-5", "claude-opus-5-5"),
-            r#"get_settings : applied.model "claude-opus-5-5", déclaré "sonnet""#,
+            r#"get_settings : applied.model "claude-opus-5-5", declared "sonnet""#,
         ),
         (
             deny("Edit(//c/lydite/fil.jsonl)"),
             LIST_PERMISSION_RULES.to_string(),
-            r#"list_permission_rules : deny "Edit(//c/lydite/fil.jsonl)" déclarée, absente"#,
+            r#"list_permission_rules : deny "Edit(//c/lydite/fil.jsonl)" declared, absent"#,
         ),
         (
             deny("Read(~/.ssh/**)"),
             LIST_PERMISSION_RULES.to_string(),
-            r#"list_permission_rules : deny "Read(~/.ssh/**)" déclarée, vue en "deny" à "userSettings""#,
+            r#"list_permission_rules : deny "Read(~/.ssh/**)" declared, seen as "deny" at "userSettings""#,
         ),
         (
             REGLAGES.to_string(),
             LIST_PERMISSION_RULES.replace(r#""behavior":"allow""#, r#""behavior":"deny""#),
-            r#"list_permission_rules : allow "WebSearch" déclarée, vue en "deny" à "flagSettings""#,
+            r#"list_permission_rules : allow "WebSearch" declared, seen as "deny" at "flagSettings""#,
         ),
         (
             REGLAGES.to_string(),
             GET_HOOKS_LISTING.replace(r#""allDisabled":true"#, r#""allDisabled":false"#),
-            "get_hooks_listing : policy.allDisabled false, déclaré true",
+            "get_hooks_listing : policy.allDisabled false, declared true",
         ),
-        (REGLAGES.to_string(), en_erreur("get_settings"), r#"get_settings : demandée, rendue en "error" : "…""#),
+        (REGLAGES.to_string(), en_erreur("get_settings"), r#"get_settings : requested, returned as "error" : "…""#),
         (
             REGLAGES.to_string(),
             en_erreur("list_permission_rules"),
-            r#"list_permission_rules : demandée, rendue en "error" : "…""#,
+            r#"list_permission_rules : requested, returned as "error" : "…""#,
         ),
         (
             REGLAGES.to_string(),
             en_erreur("get_hooks_listing"),
-            r#"get_hooks_listing : demandée, rendue en "error" : "…""#,
+            r#"get_hooks_listing : requested, returned as "error" : "…""#,
         ),
     ];
     for (reglages, changee, dit) in &cas {
         let (mur_actif, jugement) = juger_reponses(&attendu(reglages), &avec(changee));
-        assert_eq!(jugement, Err(format!("main : réglages non pris : {dit}")), "{changee}");
+        assert_eq!(jugement, Err(format!("hand: settings not applied: {dit}")), "{changee}");
         assert_eq!(mur_actif, Some(false), "le mur se constate même sur un écart : {changee}");
     }
     // Un mur exigé, que Claude Code dit inactif.
     let exige = REGLAGES.replace(r#""failIfUnavailable":false"#, r#""failIfUnavailable":true"#);
     let reponses = avec(&settings(r#""failIfUnavailable":false"#, r#""failIfUnavailable":true"#));
     let inactif =
-        "main : réglages non pris : get_sandbox_dialog : enabled false, déclaré exigé (failIfUnavailable true)";
+        "hand: settings not applied: get_sandbox_dialog : enabled false, declared required (failIfUnavailable true)";
     assert_eq!(juger_reponses(&attendu(&exige), &reponses), (Some(false), Err(inactif.into())));
     // Une réponse qui manque.
     let mut reponses = rangees(&JUSTES);
     reponses.remove("get_hooks_listing");
-    let manque = "main : réglages non pris : get_hooks_listing : demandée, sans réponse";
+    let manque = "hand: settings not applied: get_hooks_listing : requested, no reply";
     assert_eq!(juger_reponses(&attendu(REGLAGES), &reponses), (Some(false), Err(manque.into())));
     // Le `--settings` tombé du 1/11, sans `flagSettings` et avec son erreur, puis une autre demande en écart :
     // chaque écart à la suite du nom de sa demande, tous joints par « ; ».
     let mut reponses = avec(&settings(flag, "").replace(r#""sources""#, erreurs));
     reponses.extend(rangees(&[&GET_HOOKS_LISTING.replace(r#""allDisabled":true"#, r#""allDisabled":false"#)]));
     let tombe = concat!(
-        r#"main : réglages non pris : get_settings : sources ["userSettings"], déclaré "flagSettings" parmi elles"#,
-        r#" ; erreur "claude-settings.json" à "disableAllHooks" : "Expected boolean, but received string", déclaré"#,
-        r#" sans erreur ; get_hooks_listing : policy.allDisabled false, déclaré true"#,
+        r#"hand: settings not applied: get_settings : sources ["userSettings"], declared "flagSettings" among them"#,
+        r#" ; error "claude-settings.json" at "disableAllHooks" : "Expected boolean, but received string", declared"#,
+        r#" without error ; get_hooks_listing : policy.allDisabled false, declared true"#,
     );
     assert_eq!(juger_reponses(&attendu(REGLAGES), &reponses).1, Err(tombe.into()));
     // Un `--settings` que Kraken aurait mal écrit ne se juge pas : la main ne part pas.
     let (mur_actif, jugement) = juger_reponses(&attendu("{"), &rangees(&JUSTES));
     assert_eq!(mur_actif, Some(false));
-    assert!(jugement.unwrap_err().starts_with("main : réglages non pris : --settings déclaré illisible : "));
+    assert!(jugement.unwrap_err().starts_with("hand: settings not applied: declared --settings unreadable : "));
 }
 
 #[test]
@@ -335,14 +335,14 @@ fn les_commandes_exclues_du_bac_a_sable_se_jugent_telles_que_declarees() {
     let (une, deux) = (r#""findstr /x bonjour bonjour.txt"]"#, r#""findstr /x bonjour bonjour.txt","cargo test"]"#);
     let tombee = settings.replace(r#","excludedCommands":["findstr /x bonjour bonjour.txt"]"#, "");
     let cas = [
-        (declare.clone(), settings.replace(une, deux), "[2 éléments], déclaré [1 élément]"),
-        (declare.replace(une, deux), settings.clone(), "[1 élément], déclaré [2 éléments]"),
-        (declare.clone(), tombee, "absent, déclaré [1 élément]"),
-        (REGLAGES.to_string(), settings.clone(), "[1 élément], déclaré absent"),
+        (declare.clone(), settings.replace(une, deux), "[2 items], declared [1 item]"),
+        (declare.replace(une, deux), settings.clone(), "[1 item], declared [2 items]"),
+        (declare.clone(), tombee, "absent, declared [1 item]"),
+        (REGLAGES.to_string(), settings.clone(), "[1 item], declared absent"),
     ];
     for (reglages, changee, dit) in &cas {
         let (mur_actif, jugement) = juger_reponses(&attendu(reglages), &avec(changee));
-        let ecart = format!("main : réglages non pris : get_settings : effective.sandbox.excludedCommands {dit}");
+        let ecart = format!("hand: settings not applied: get_settings : effective.sandbox.excludedCommands {dit}");
         assert_eq!(jugement, Err(ecart), "{reglages}\n{changee}");
         assert_eq!(mur_actif, Some(false), "le mur se constate même sur un écart : {changee}");
     }
@@ -357,18 +357,21 @@ fn l_ouverture_se_juge() {
     let cas = [
         (
             OUVERTURE.replace(r#""permissionMode":"acceptEdits""#, r#""permissionMode":"default""#),
-            r#"permissionMode "default", déclaré "acceptEdits""#,
+            r#"permissionMode "default", declared "acceptEdits""#,
         ),
-        (OUVERTURE.replace(r#""Write"]"#, r#""Write","CronCreate"]"#), r#"tools porte "CronCreate", déclaré en deny"#),
-        (mcp, "mcp_servers [1 élément], déclaré []"),
+        (
+            OUVERTURE.replace(r#""Write"]"#, r#""Write","CronCreate"]"#),
+            r#"tools carries "CronCreate", declared in deny"#,
+        ),
+        (mcp, "mcp_servers [1 item], declared []"),
     ];
     for (ligne, dit) in &cas {
-        let attendu = Err(format!("main : réglages non pris : à l'ouverture, {dit}"));
+        let attendu = Err(format!("hand: settings not applied: at startup, {dit}"));
         assert_eq!(juger_ouverture(&demande, &ouverture(ligne)), (Some("2.1.312".into()), attendu), "{ligne}");
     }
     // Sans `tools` ni version : un écart, et rien de constaté.
     let nue = ouverture(r#"{"type":"system","subtype":"init","mcp_servers":[],"permissionMode":"acceptEdits"}"#);
-    let sans_outils = "main : réglages non pris : à l'ouverture, tools absent, déclaré une liste sans les noms de deny";
+    let sans_outils = "hand: settings not applied: at startup, tools absent, declared a list without the deny names";
     assert_eq!(juger_ouverture(&demande, &nue), (None, Err(sans_outils.into())));
 }
 
@@ -394,34 +397,34 @@ fn les_serveurs_mcp_se_jugent_par_leur_nom() {
     let cas = [
         (
             r#"[{"name":"docs","status":"pending"},{"name":"autre","status":"pending"}]"#,
-            r#"mcp_servers.name "autre", déclaré parmi ["docs", "lore"]"#,
+            r#"mcp_servers.name "autre", declared among ["docs", "lore"]"#,
         ),
         (
             r#"[{"name":"Docs","status":"connected"},{"status":"connected"}]"#,
             concat!(
-                r#"mcp_servers.name "Docs", déclaré parmi ["docs", "lore"] ; "#,
-                r#"mcp_servers.name absent, déclaré parmi ["docs", "lore"]"#,
+                r#"mcp_servers.name "Docs", declared among ["docs", "lore"] ; "#,
+                r#"mcp_servers.name absent, declared among ["docs", "lore"]"#,
             ),
         ),
     ];
     for (serveurs, dit) in cas {
-        let ecart = Err(format!("main : réglages non pris : à l'ouverture, {dit}"));
+        let ecart = Err(format!("hand: settings not applied: at startup, {dit}"));
         assert_eq!(juger_ouverture(&mcp, &avec(serveurs)), (Some("2.1.312".into()), ecart), "{serveurs}");
     }
     // Une ouverture sans la liste des serveurs : un écart aussi.
     let sans_liste = ouverture(&OUVERTURE.replace(r#""mcp_servers":[],"#, ""));
     let ecart = concat!(
-        r#"main : réglages non pris : à l'ouverture, mcp_servers absent, "#,
-        r#"déclaré une liste de serveurs parmi ["docs", "lore"]"#,
+        r#"hand: settings not applied: at startup, mcp_servers absent, "#,
+        r#"declared a list of servers among ["docs", "lore"]"#,
     );
     assert_eq!(juger_ouverture(&mcp, &sans_liste), (Some("2.1.312".into()), Err(ecart.into())));
     // Sans `mcp`, un serveur arrête toujours la main, même en attente, même au nom qu'un autre profil déclare.
     let docs = avec(r#"[{"name":"docs","status":"pending"}]"#);
-    let ecart = "main : réglages non pris : à l'ouverture, mcp_servers [1 élément], déclaré []";
+    let ecart = "hand: settings not applied: at startup, mcp_servers [1 item], declared []";
     assert_eq!(juger_ouverture(&attendu(REGLAGES), &docs), (Some("2.1.312".into()), Err(ecart.into())));
     // Un `mcpServers` vide ne déclare aucun serveur : un serveur arrête la main.
     let aucun = Attendu { mcp: Some(&[]), ..attendu(REGLAGES) };
-    let ecart = r#"main : réglages non pris : à l'ouverture, mcp_servers.name "docs", déclaré parmi []"#;
+    let ecart = r#"hand: settings not applied: at startup, mcp_servers.name "docs", declared among []"#;
     assert_eq!(juger_ouverture(&aucun, &docs), (Some("2.1.312".into()), Err(ecart.into())));
 }
 
@@ -440,7 +443,7 @@ fn un_refus_d_ecriture_n_est_pas_un_outil_ferme_a_l_ouverture() {
     let nu = REGLAGES.replace(r#""deny":["CronCreate"]"#, r#""deny":["Edit"]"#);
     let (version, ecart) = juger_ouverture(&attendu(&nu), &ouverture(OUVERTURE));
     assert_eq!(version.as_deref(), Some("2.1.312"));
-    assert_eq!(ecart, Err(r#"main : réglages non pris : à l'ouverture, tools porte "Edit", déclaré en deny"#.into()));
+    assert_eq!(ecart, Err(r#"hand: settings not applied: at startup, tools carries "Edit", declared in deny"#.into()));
 }
 
 #[test]
@@ -536,8 +539,8 @@ fn chaque_ligne_se_range() {
     // Une ligne illisible est un écart, dit en entier : un octet hors de l'UTF-8, un document coupé, une ligne vide.
     let mut octets = GET_SETTINGS.as_bytes().to_vec();
     octets.insert(10, 0xFF);
-    let illisible = |raison: &str| Err(format!("main : réglages non pris : ligne illisible : {raison}"));
-    assert_eq!(lire_ligne(&octets), illisible("UTF-8 invalide après l'octet 10"));
+    let illisible = |raison: &str| Err(format!("hand: settings not applied: unreadable line : {raison}"));
+    assert_eq!(lire_ligne(&octets), illisible("invalid UTF-8 after byte 10"));
     assert_eq!(
         lire_ligne(&GET_SETTINGS.as_bytes()[..7]),
         illisible("at character 8: expected `:`, saw the end of the line")
@@ -678,7 +681,7 @@ fn les_regles_des_identifiants_se_jugent_telles_que_declarees() {
         let (_, jugement) = juger_reponses(&attendu(&declare), &avec(&effectif));
         let ecart = jugement.unwrap_err();
         assert!(
-            ecart.starts_with("main : réglages non pris : get_settings : effective.sandbox.credentials.envVars "),
+            ecart.starts_with("hand: settings not applied: get_settings : effective.sandbox.credentials.envVars "),
             "{ecart}"
         );
     }
@@ -711,12 +714,12 @@ fn les_regles_des_identifiants_s_additionnent_d_une_source_a_l_autre() {
     for effectif in [Some(format!("[{cle}]")), Some(format!("[{cle},{jeton},{allow}]")), Some("{}".to_string()), None] {
         let ecart = jugement(effectif.as_deref()).unwrap_err();
         assert!(
-            ecart.starts_with("main : réglages non pris : get_settings : effective.sandbox.credentials.envVars "),
+            ecart.starts_with("hand: settings not applied: get_settings : effective.sandbox.credentials.envVars "),
             "{ecart}"
         );
     }
     let ecart = jugement(Some(&format!("[{cle}]"))).unwrap_err();
-    assert!(ecart.ends_with("[1 élément], déclaré [2 éléments]"), "{ecart}");
+    assert!(ecart.ends_with("[1 item], declared [2 items]"), "{ecart}");
 }
 
 /// Le jugement de `get_settings` sur ces réglages déclarés, l'effectif étant `GET_SETTINGS` où `de` devient `en`.
@@ -736,8 +739,8 @@ fn les_listes_qui_ouvrent_le_mur_se_jugent_par_leurs_entrees_effectives() {
     assert_eq!(
         ecart,
         concat!(
-            "main : réglages non pris : get_settings : ",
-            r#"effective.sandbox.filesystem.allowRead : entrée "/srv/autre" hors du déclaré"#,
+            "hand: settings not applied: get_settings : ",
+            r#"effective.sandbox.filesystem.allowRead : entry "/srv/autre" outside the declared"#,
         )
     );
     // Une entrée de moins ferme davantage le mur, et une clé absente de l'effectif vaut une liste vide : pris.
@@ -745,7 +748,7 @@ fn les_listes_qui_ouvrent_le_mur_se_jugent_par_leurs_entrees_effectives() {
     assert_eq!(jugement_du_mur(REGLAGES, &format!(",{lus}"), ""), Ok(()));
     // Une liste qui n'en est pas une n'est pas lue comme vide : un écart.
     let ecart = jugement_du_mur(REGLAGES, lus, r#""allowRead":"tout""#).unwrap_err();
-    assert!(ecart.contains(r#"effective.sandbox.filesystem.allowRead "tout", déclaré une liste"#), "{ecart}");
+    assert!(ecart.contains(r#"effective.sandbox.filesystem.allowRead "tout", declared a list"#), "{ecart}");
     // Les domaines du réseau suivent la même règle.
     let declare = REGLAGES.replace(r#""allowedDomains":[]"#, r#""allowedDomains":["a.test"]"#);
     let domaines = r#""allowedDomains":[]"#;
@@ -754,13 +757,13 @@ fn les_listes_qui_ouvrent_le_mur_se_jugent_par_leurs_entrees_effectives() {
     for effectif in [r#"["a.test","b.test"]"#, r#"["b.test"]"#] {
         let ecart = jugement_du_mur(&declare, domaines, &format!(r#""allowedDomains":{effectif}"#)).unwrap_err();
         assert!(
-            ecart.contains(r#"effective.sandbox.network.allowedDomains : entrée "b.test" hors du déclaré"#),
+            ecart.contains(r#"effective.sandbox.network.allowedDomains : entry "b.test" outside the declared"#),
             "{ecart}"
         );
     }
     // Rien de déclaré : toute entrée effective est de trop.
     let ecart = jugement_du_mur(REGLAGES, domaines, r#""allowedDomains":["b.test"]"#).unwrap_err();
-    assert!(ecart.contains(r#"allowedDomains : entrée "b.test" hors du déclaré"#), "{ecart}");
+    assert!(ecart.contains(r#"allowedDomains : entry "b.test" outside the declared"#), "{ecart}");
 }
 
 #[test]
@@ -771,8 +774,8 @@ fn la_liste_qui_ferme_le_mur_garde_chaque_entree_declaree() {
     assert_eq!(
         ecart,
         concat!(
-            "main : réglages non pris : get_settings : ",
-            r#"effective.sandbox.filesystem.denyRead : entrée "/srv/lydite" déclarée, absente"#,
+            "hand: settings not applied: get_settings : ",
+            r#"effective.sandbox.filesystem.denyRead : entry "/srv/lydite" declared, absent"#,
         )
     );
     // Une clé absente, ou qui n'est pas une liste, ne garde rien.
@@ -803,10 +806,39 @@ fn au_mur_exige(mut reponses: BTreeMap<String, Json>) -> (String, BTreeMap<Strin
 }
 
 fn ecart_de_regle(regle: &str, source: &str) -> String {
+    let lieu = match source {
+        "userSettings" => {
+            "~/.claude/settings.json (or the settings.json in the folder CLAUDE_CONFIG_DIR names)".to_string()
+        }
+        autre => format!("the settings of \"{autre}\""),
+    };
     format!(
-        "main : réglages non pris : list_permission_rules : allow \"{regle}\" vue à \"{source}\", non déclarée : \
-         la retirer des réglages de cette source pour lancer Lydite"
+        "hand: settings not applied: list_permission_rules : allow \"{regle}\" seen at \"{source}\", not declared : \
+         remove this rule from {lieu} to launch Lydite. \
+         A rule on Bash or PowerShell stays allowed, under a required wall (sandbox.failIfUnavailable true)"
     )
+}
+
+#[test]
+fn l_ecart_d_une_regle_allow_de_user_settings_se_dit_en_entier() {
+    let reponses = avec_regle("allow", "userSettings", "Read(/srv/gh/**)");
+    let dit = concat!(
+        "hand: settings not applied: list_permission_rules : ",
+        r#"allow "Read(/srv/gh/**)" seen at "userSettings", not declared : "#,
+        "remove this rule from ~/.claude/settings.json (or the settings.json in the folder CLAUDE_CONFIG_DIR names) ",
+        "to launch Lydite. A rule on Bash or PowerShell stays allowed, ",
+        "under a required wall (sandbox.failIfUnavailable true)",
+    );
+    assert_eq!(juger_reponses(&attendu(REGLAGES), &reponses).1, Err(dit.to_string()));
+    // Une autre source : son nom seul, pas un fichier que Lydite ne connaît pas.
+    let reponses = avec_regle("allow", "projectSettings", "Read(/srv/gh/**)");
+    let ecart = juger_reponses(&attendu(REGLAGES), &reponses).1.unwrap_err();
+    let attendu_ici = concat!(
+        r#"seen at "projectSettings", not declared : "#,
+        r#"remove this rule from the settings of "projectSettings" to launch"#,
+    );
+    assert!(ecart.contains(attendu_ici), "{ecart}");
+    assert!(!ecart.contains("~/.claude"), "{ecart}");
 }
 
 #[test]
@@ -870,16 +902,35 @@ fn les_dossiers_de_plus_des_outils_de_fichiers_sont_un_ecart() {
     assert_eq!(
         ecart,
         concat!(
-            "main : réglages non pris : get_settings : ",
-            r#"effective.permissions.additionalDirectories : dossier "/srv/gh" "#,
-            "hors du déclaré (aucun)",
+            "hand: settings not applied: get_settings : ",
+            r#"effective.permissions.additionalDirectories : directory "/srv/gh" outside the declared (none) : "#,
+            "remove this entry from permissions.additionalDirectories in ",
+            "the settings of the source that adds it to launch Lydite",
+        )
+    );
+    // La source qui porte le dossier, quand `sources` le dit : son fichier, pour `userSettings`.
+    let de_l_utilisateur = GET_SETTINGS
+        .replace(
+            r#"{"source":"userSettings","settings":{}}"#,
+            r#"{"source":"userSettings","settings":{"permissions":{"additionalDirectories":["/srv/gh"]}}}"#,
+        )
+        .replace(r#""effective":{"#, r#""effective":{"permissions":{"additionalDirectories":["/srv/gh"]},"#);
+    assert!(de_l_utilisateur.contains(r#""settings":{"permissions""#));
+    let ecart = juger_reponses(&attendu(REGLAGES), &avec(&de_l_utilisateur)).1.unwrap_err();
+    assert_eq!(
+        ecart,
+        concat!(
+            "hand: settings not applied: get_settings : ",
+            r#"effective.permissions.additionalDirectories : directory "/srv/gh" outside the declared (none), "#,
+            r#"seen at "userSettings" : remove this entry from permissions.additionalDirectories in "#,
+            "~/.claude/settings.json (or the settings.json in the folder CLAUDE_CONFIG_DIR names) to launch Lydite",
         )
     );
     // Chaque entrée est nommée ; une valeur qui n'est pas une liste n'est pas lue comme vide.
     let ecart = avec_dossiers(r#"["/a","/b"]"#).unwrap_err();
-    assert!(ecart.contains(r#"dossier "/a" hors"#) && ecart.contains(r#"dossier "/b" hors"#), "{ecart}");
+    assert!(ecart.contains(r#"directory "/a" outside"#) && ecart.contains(r#"directory "/b" outside"#), "{ecart}");
     let ecart = avec_dossiers(r#""tout""#).unwrap_err();
-    assert!(ecart.contains(r#"additionalDirectories "tout", déclaré une liste vide"#), "{ecart}");
+    assert!(ecart.contains(r#"additionalDirectories "tout", declared an empty list"#), "{ecart}");
     // Une liste vide, et une clé absente (les réponses justes), ne sont pas un écart.
     assert_eq!(avec_dossiers("[]"), Ok(()));
     assert_eq!(juger_reponses(&attendu(REGLAGES), &rangees(&JUSTES)).1, Ok(()));

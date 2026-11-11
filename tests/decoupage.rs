@@ -816,7 +816,7 @@ fn le_decoupeur_part_sur_son_effort_et_sur_aucun_autre() {
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     assert!(erreur.ends_with("le découpage n'est pas pris : aucune vague ne part\n"), "{erreur}");
     let fil = essai.fil();
-    let ecart = r#"applied.effort \"high\", déclaré \"low\""#;
+    let ecart = r#"applied.effort \"high\", declared \"low\""#;
     assert_eq!(fil.matches(ecart).count(), 2, "un écart par tentative : {fil}");
     assert_eq!(vagues(&fil).len(), 1, "{fil}");
     let _ = fs::remove_dir_all(&essai.racine);
