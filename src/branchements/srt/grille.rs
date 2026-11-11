@@ -442,13 +442,15 @@ impl Cas {
 }
 
 /// Le décor d'un essai, dans un dossier neuf : un faux dossier personnel, un faux dossier de Lydite, un dossier de
-/// `lecture`, un dépôt git avec son worktree, le bac, et le temporaire du bac. Un fichier témoin porte une marque tirée
-/// pour l'essai dans le faux dossier personnel (`temoin`), dans celui de Lydite (`temoin`) et dans `lecture`
-/// (`lisible`).
+/// `lecture`, un faux dossier de `CLAUDE_CONFIG_DIR`, un dépôt git avec son worktree, le bac, et le temporaire du bac.
+/// Un fichier témoin porte une marque tirée pour l'essai dans le faux dossier personnel (`temoin`), dans celui de
+/// Lydite (`temoin`), dans celui de `CLAUDE_CONFIG_DIR` (`.credentials.json`) et dans `lecture` (`lisible`).
 struct Decor {
     dir: PathBuf,
     personnel: PathBuf,
     kraken: PathBuf,
+    /// Le faux dossier de `CLAUDE_CONFIG_DIR`, le leurre `config` de [`profil_borne`].
+    config: PathBuf,
     lecture: PathBuf,
     depot: PathBuf,
     bac: PathBuf,
@@ -465,7 +467,8 @@ impl Decor {
         let tirage = lot();
         let dir = env::temp_dir().join(format!("lg-{tirage}"));
         let (personnel, kraken, lecture) = (dir.join("personnel"), dir.join("lydite"), dir.join("lecture"));
-        for dossier in [&personnel, &kraken, &lecture] {
+        let config = dir.join("config");
+        for dossier in [&personnel, &kraken, &config, &lecture] {
             fs::create_dir_all(dossier).unwrap();
         }
         let le_depot = depot(&dir);
@@ -478,9 +481,10 @@ impl Decor {
             let ipv4 = adresses.filter(|adresse| adresse.is_ipv4()).map(|adresse| adresse.ip().to_string()).next();
             ipv4.expect("example.com n'a pas d'adresse IPv4")
         });
-        let decor = Decor { dir, personnel, kraken, lecture, depot: le_depot, bac, temporaire, tirage, ip };
+        let decor = Decor { dir, personnel, kraken, config, lecture, depot: le_depot, bac, temporaire, tirage, ip };
         fs::write(decor.personnel.join("temoin"), decor.marque("PERSO")).unwrap();
         fs::write(decor.kraken.join("temoin"), decor.marque("DOSSIER")).unwrap();
+        fs::write(decor.config.join(".credentials.json"), decor.marque("CONNEXION")).unwrap();
         fs::write(decor.lecture.join("lisible"), decor.marque("LECTURE")).unwrap();
         decor
     }
@@ -579,6 +583,7 @@ const TABLE: &[(&str, Fabrique)] = &[
     ("F9a", f9a),
     ("F9b", f9b),
     ("F9c", f9c),
+    ("F10", f10),
     ("R1", r1),
     ("R2", r2),
     ("R3", r3),
@@ -717,6 +722,15 @@ fn f9b(d: &Decor) -> Cas {
 /// F9 : le temporaire du bac.
 fn f9c(d: &Decor) -> Cas {
     renommage_refuse(d, &d.temporaire)
+}
+
+/// F10 : un fichier témoin `.credentials.json` dans le dossier de `CLAUDE_CONFIG_DIR`, sur l'hôte, porte une marque ;
+/// la lecture échoue, et la marque n'est nulle part. Le profil de la grille borne ce dossier par le leurre `config`.
+fn f10(d: &Decor) -> Cas {
+    let temoin = d.config.join(".credentials.json");
+    let marque = d.marque("CONNEXION");
+    let cas = Cas::new(d, format!("cat \"{}\"", temoin.display()), Fin::Rouge);
+    cas.ne_voit_pas(&marque).sur_l_hote(&temoin, Etat::Contient(marque))
 }
 
 /// Une requête HTTP par le proxy du mur, vers `url`, sous l'en-tête `Host` si `hote` n'est pas vide : sa marque de
@@ -966,6 +980,12 @@ fn f9c_le_temporaire_ne_se_renomme_pas() {
 
 #[test]
 #[ignore = "demande bwrap, srt et le réseau : LYDITE_GRILLE=srt cargo test grille -- --ignored"]
+fn f10_un_temoin_du_dossier_de_connexion_de_claude_ne_se_lit_pas() {
+    jouer(Mur::Srt, "F10");
+}
+
+#[test]
+#[ignore = "demande bwrap, srt et le réseau : LYDITE_GRILLE=srt cargo test grille -- --ignored"]
 fn r1_un_domaine_non_permis_est_refuse() {
     jouer(Mur::Srt, "R1");
 }
@@ -1121,6 +1141,12 @@ fn natif_f9b_le_bac_ne_se_renomme_pas() {
 #[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
 fn natif_f9c_le_temporaire_ne_se_renomme_pas() {
     jouer(Mur::Natif, "F9c");
+}
+
+#[test]
+#[ignore = "demande bwrap, le réseau, LYDITE_RESEAU : LYDITE_GRILLE=natif cargo test grille::natif_ -- --ignored"]
+fn natif_f10_un_temoin_du_dossier_de_connexion_de_claude_ne_se_lit_pas() {
+    jouer(Mur::Natif, "F10");
 }
 
 #[test]
@@ -1289,7 +1315,9 @@ fn le_decor_monte_ses_temoins_dans_un_dossier_neuf() {
     let decor = Decor::neuf(false);
     let dedans = |chemin: &Path| chemin.starts_with(&decor.dir);
     let (personnel, kraken, lecture) = (&decor.personnel, &decor.kraken, &decor.lecture);
-    assert!([personnel, kraken, lecture, &decor.depot, &decor.bac, &decor.temporaire].into_iter().all(|c| dedans(c)));
+    let tous = [personnel, kraken, &decor.config, lecture, &decor.depot, &decor.bac, &decor.temporaire];
+    assert!(tous.into_iter().all(|c| dedans(c)));
+    assert_eq!(etat_de(&decor.config.join(".credentials.json")), Etat::Contient(decor.marque("CONNEXION")));
     assert_eq!(etat_de(&personnel.join("temoin")), Etat::Contient(decor.marque("PERSO")));
     assert_eq!(etat_de(&kraken.join("temoin")), Etat::Contient(decor.marque("DOSSIER")));
     assert_eq!(etat_de(&lecture.join("lisible")), Etat::Contient(decor.marque("LECTURE")));
