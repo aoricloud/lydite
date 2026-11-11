@@ -19,7 +19,8 @@ VERSION_DU_SCHEMA = "1.0"
 
 OCTETS_MAXIMUM = 4_194_304
 ENTREES_MAXIMUM = 200
-CONSTATS_GARDES_PAR_CHEMIN = 4
+CHEMINS_GARDES_PAR_CONSTAT = 4
+LIGNE_MAXIMUM = 1_000_000_000
 
 # La taille qu'un plan ne passe pas : la borne que le plugin tient pour un plan (`LIMITE_DU_PLAN`, outils.py, qu'on
 # ne peut pas importer d'ici : ce module ne dépend de rien du plugin). À garder égale à elle.
@@ -111,10 +112,10 @@ def _lieux(locations):
         if _hors_de_portee(chemin):
             continue
         ligne = lieu.get("startLine")
-        if isinstance(ligne, int) and not isinstance(ligne, bool) and ligne >= 1:
+        if isinstance(ligne, int) and not isinstance(ligne, bool) and 1 <= ligne <= LIGNE_MAXIMUM:
             chemin = f"{chemin}:{ligne}"
         gardes.append(chemin)
-        if len(gardes) == CONSTATS_GARDES_PAR_CHEMIN:
+        if len(gardes) == CHEMINS_GARDES_PAR_CONSTAT:
             break
     if gardes:
         return gardes, None
@@ -251,7 +252,6 @@ _CONSIGNE = (
     "   as it is, for the reason the report claims. Run it and copy the lines of its failure into your",
     "   answer. The test calls the project's own code with ordinary inputs: no network, no running service,",
     "   no real secret, no attack tool.",
-    "",
     "2. Fix it. Make the smallest change that turns that test green. Do not change the test after step 1,",
     "   and do not weaken any other test.",
     "",
