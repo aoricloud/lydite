@@ -185,6 +185,11 @@ def _lire_entree(entree, sorte, place, vus):
     return constat, None
 
 
+def identite_bien_formee(identite):
+    """Une identité de constat (`hsf_…` ou `cand_…`) a-t-elle la forme qu'une entrée du rapport doit porter ?"""
+    return isinstance(identite, str) and any(forme.fullmatch(identite) for _l, _c, forme, _e in _SORTES.values())
+
+
 def _rang(constat):
     gravites = (*_GRAVITES, "unknown")
     return (constat["kind"] != "finding", gravites.index(constat["severity"]), constat["id"])
