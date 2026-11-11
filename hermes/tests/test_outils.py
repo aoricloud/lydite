@@ -397,6 +397,59 @@ class Verrou(AvecOutils):
                 self.assertNotIn("touch", message)
                 self.assertIn("·1task·", message)
 
+    def plan_a_deux_preuves(self, ouverture):
+        """Un plan dont l'en-tête dit `preuve : true` et dont la tâche, ouverte par `ouverture`, en porte une autre."""
+        return f"plan 1\nobjectif : o\npreuve : true\n\n{ouverture}\npreuve : python3 -m unittest\n    faire.\n"
+
+    def test_une_preuve_de_tache_bloque_le_verrou_sans_deranger_l_humain(self):
+        for ouverture in ("tache a", "tache\ta"):
+            with self.subTest(ouverture=ouverture):
+                args = self.demande_de_plan(self.plan_a_deux_preuves(ouverture))
+                decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+                self.assertEqual(decision["action"], "block", decision)
+                erreur = json.loads(decision["message"])["error"]
+                self.assertIn("single proof", erreur)
+                self.assertIn("header", erreur)
+                self.assertNotIn("unittest", erreur)
+
+    def test_une_preuve_de_tache_fait_refuser_lancer_sans_appeler_lydite(self):
+        self.faux_lydite()
+        for ouverture in ("tache a", "tache\ta"):
+            with self.subTest(ouverture=ouverture):
+                args = self.demande_de_plan(self.plan_a_deux_preuves(ouverture))
+                rendu = json.loads(self.outils().lancer(args))
+                self.assertIn("single proof", rendu["error"])
+                self.assertNotIn("started", rendu)
+                self.assertFalse((self.sortie / "argv").exists())
+
+    def test_une_preuve_de_tache_fait_refuser_lydite_plan_sans_appeler_lydite(self):
+        self.faux_lydite()
+        for ouverture in ("tache a", "tache\ta"):
+            with self.subTest(ouverture=ouverture):
+                chemin = self.dossier / "plan.txt"
+                chemin.write_text(self.plan_a_deux_preuves(ouverture), encoding="utf-8", newline="\n")
+                rendu = json.loads(self.outils().plan({"plan": str(chemin)}))
+                self.assertIn("single proof", rendu["error"])
+                self.assertNotIn("accepted", rendu)
+                self.assertFalse((self.sortie / "argv").exists())
+
+    def test_un_plan_ecrit_par_plan_de_passe_toujours(self):
+        lu = sous_module("constats").lire(octets(document(findings=[finding()])))
+        texte = sous_module("constats").plan_de(lu["constats"][0], lu["scan"], "python3 -m unittest")
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande_de_plan(texte))
+        self.assertEqual(decision["action"], "approve", decision)
+        self.assertIn("python3-munittest", self.compact(decision["message"]))
+
+    def test_une_tache_ouverte_par_une_tabulation_se_compte(self):
+        self.faux_lydite()
+        texte = "plan 1\nobjectif : o\npreuve : cargo test\n\ntache a\n    faire.\n\ntache\tb\n    faire.\n"
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande_de_plan(texte))
+        self.assertEqual(decision["action"], "approve", decision)
+        self.assertIn("·2tasks·", self.compact(decision["message"]))
+        chemin = self.dossier / "plan.txt"
+        rendu = json.loads(self.outils().plan({"plan": str(chemin)}))
+        self.assertEqual(rendu["tasks"], 2)
+
     def test_un_plan_en_crlf_se_lit_comme_le_meme_plan_en_lf(self):
         deux = "plan 1\nobjectif : o\npreuve : cargo test\n\ntache a\n    faire.\n\ntache b\n    faire.\n"
         for texte, compte in ((PLAN, "·1task·"), (deux, "·2tasks·")):
