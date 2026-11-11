@@ -146,6 +146,8 @@ enum Fin {
     Rouge,
     Code(i32),
     Delai,
+    /// Attendu seulement : la fin du rejeu n'est pas ce que le cas constate, il accepte toute fin.
+    Indifferent,
 }
 
 impl Fin {
@@ -159,9 +161,10 @@ impl Fin {
         code.and_then(|(code, _)| code.parse().ok()).map_or(Fin::Rouge, Fin::Code)
     }
 
-    /// `vu` est ce que `self` attend : un rouge attendu sans code accepte tout rouge.
+    /// `vu` est ce que `self` attend : un rouge attendu sans code accepte tout rouge, une fin indifférente toute fin.
     fn attend(self, vu: Fin) -> bool {
         match (self, vu) {
+            (Fin::Indifferent, _) => true,
             (Fin::Rouge, Fin::Code(_)) => true,
             (attendu, vu) => attendu == vu,
         }
@@ -562,9 +565,12 @@ fn f4a(d: &Decor) -> Cas {
     ecriture_refusee(d, Path::new("/tmp").join(d.marque("F4a")))
 }
 
-/// F4 : dans le faux `~`.
+/// F4 : dans le faux `~`. Fait constaté : srt couvre le dossier personnel d'un calque temporaire, l'écriture y réussit
+/// puis disparaît, et rien n'arrive sur l'hôte : seul compte le fichier absent ensuite, la fin est indifférente.
 fn f4b(d: &Decor) -> Cas {
-    ecriture_refusee(d, d.personnel.join(d.marque("F4b")))
+    let chemin = d.personnel.join(d.marque("F4b"));
+    let cas = Cas::new(d, format!("echo x > \"{}\"", chemin.display()), Fin::Indifferent);
+    cas.sur_l_hote(&chemin, Etat::Absent)
 }
 
 /// F4 : dans le dossier de `lecture`.
@@ -589,7 +595,8 @@ fn f5(d: &Decor) -> Cas {
 fn f6(d: &Decor) -> Cas {
     let commun = d.depot.join(".git");
     let (lu, ecrit) = (d.marque("LU"), d.marque("ECRIT"));
-    let ecrit_dans = commun.join(&ecrit);
+    // Le fichier a un nom distinct de la marque : l'erreur d'écriture cite le chemin, et ne doit pas montrer `ECRIT`.
+    let ecrit_dans = commun.join(d.marque("F6"));
     let corps = format!(
         "cat \"{}\" > /dev/null && echo {lu}; echo x > \"{}\" && echo {ecrit}",
         commun.join("HEAD").display(),
@@ -1068,4 +1075,7 @@ fn la_fin_du_rejeu_se_lit_de_son_resultat() {
     assert_eq!(Fin::vue(&Err("vérification « x » : temps dépassé (20 s) ; mise à mort : e".into())), Fin::Rouge);
     assert!(Fin::Rouge.attend(Fin::Code(1)) && Fin::Code(42).attend(Fin::Code(42)));
     assert!(!Fin::Code(42).attend(Fin::Code(1)) && !Fin::Vert.attend(Fin::Rouge) && !Fin::Rouge.attend(Fin::Vert));
+    for vu in [Fin::Vert, Fin::Rouge, Fin::Code(1), Fin::Delai] {
+        assert!(Fin::Indifferent.attend(vu), "{vu:?}");
+    }
 }
