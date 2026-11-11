@@ -76,6 +76,28 @@ fn la_consigne_dit_que_le_2_de_la_premiere_ligne_est_la_forme_et_non_un_compte()
 }
 
 #[test]
+fn la_correction_porte_l_union_des_exacts_des_taches_critiques() {
+    // a et c sont critiques et partagent un `exact` ; b ne l'est pas et porte le sien.
+    let texte = "plan 1\nobjectif : Ecrire trois fichiers\npreuve : exit 0\n\n\
+                 tache a\nfichiers : sortie/\ncritique : oui\nexact : sortie/a.txt : alpha\n\
+                 exact : sortie/a.txt : commun\n    Ecrire a\n\n\
+                 tache b\nfichiers : autre/\nexact : autre/b.txt : beta\n    Ecrire b\n\n\
+                 tache c\nfichiers : sortie/ doc/lisez.md\ncritique : oui\nexact : sortie/a.txt : commun\n\
+                 exact : doc/lisez.md : gamma\n    Ecrire c\n";
+    let plan = Plan::lire(texte.as_bytes()).unwrap();
+    let critiques: Vec<&Tache> = plan.taches.iter().filter(|tache| tache.critique).collect();
+    assert_eq!(critiques.len(), 2);
+    let correction = plan_de_la_correction(&claude("sorte = claude\n"), &plan, &critiques, &[]);
+    let [tache] = &correction.taches[..] else { panic!("{correction:?}") };
+    let paire = |fichier: &str, texte: &str| (fichier.to_string(), texte.to_string());
+    // L'union des deux critiques, dans leur ordre, le doublon une fois ; le texte de b, non critique, n'y est pas.
+    let attendus =
+        vec![paire("sortie/a.txt", "alpha"), paire("sortie/a.txt", "commun"), paire("doc/lisez.md", "gamma")];
+    assert_eq!(tache.exacts, attendus);
+    assert!(!tache.exacts.contains(&paire("autre/b.txt", "beta")), "{:?}", tache.exacts);
+}
+
+#[test]
 fn le_relecteur_et_la_correction_partent_sur_leurs_cles_du_profil() {
     let plan = Plan::lire(PLAN.as_bytes()).unwrap();
     let critiques: Vec<&Tache> = plan.taches.iter().filter(|tache| tache.critique).collect();

@@ -226,6 +226,20 @@ fn fichiers_de(taches: &[&Tache]) -> Option<Vec<String>> {
     Some(tous).filter(|tous| !tous.is_empty())
 }
 
+/// Les `exacts` de ces tâches (`exact : <fichier> : <texte>`), réunis sans doublon (même paire fichier et texte), dans
+/// l'ordre : les textes qu'une tâche bâtie par Lydite doit garder, que sa consigne dit et que le jugement vérifie.
+pub(crate) fn exacts_de<'a>(taches: impl IntoIterator<Item = &'a Tache>) -> Vec<(String, String)> {
+    let mut tous: Vec<(String, String)> = Vec::new();
+    for tache in taches {
+        for exact in &tache.exacts {
+            if !tous.contains(exact) {
+                tous.push(exact.clone());
+            }
+        }
+    }
+    tous
+}
+
 /// Écrit [`DIFF`] dans le bac : `git diff <base> <tete>`, limité à `fichiers` (tous les chemins s'il n'y en a pas),
 /// sans couleur, ni programme de diff ni conversion de texte du dépôt visé, et sans joker dans les chemins
 /// (`GIT_LITERAL_PATHSPECS`). La sortie se lit bornée : Kraken en garde [`TAILLE_MAX`] + 1 octets et compte le reste
@@ -597,8 +611,9 @@ fn plan_du_relecteur(profil: &Profil, plan: &Plan, critiques: &[&Tache], points:
 }
 
 /// Le plan de la correction : une vague d'une seule tâche, `correction`, de preuve celle de la vague, d'objectif
-/// [`objectif_de_la_correction`], de `fichiers` l'union de ceux des tâches critiques, et de modèle la clé `relance` du
-/// profil à ses deux tentatives. Elle n'est pas critique : la correction n'a pas de seconde relecture.
+/// [`objectif_de_la_correction`], de `fichiers` l'union de ceux des tâches critiques, d'`exacts` l'union de ceux des
+/// tâches critiques ([`exacts_de`]), et de modèle la clé `relance` du profil à ses deux tentatives. Elle n'est pas
+/// critique : la correction n'a pas de seconde relecture.
 fn plan_de_la_correction(profil: &Profil, plan: &Plan, critiques: &[&Tache], remarques: &[Remarque]) -> Plan {
     let relance = profil.relance().map(str::to_string);
     let objectif = objectif_de_la_correction(remarques);
@@ -608,6 +623,7 @@ fn plan_de_la_correction(profil: &Profil, plan: &Plan, critiques: &[&Tache], rem
         modele: relance.clone(),
         relance,
         fichiers: fichiers_de(critiques),
+        exacts: exacts_de(critiques.iter().copied()),
         ..Tache::default()
     };
     Plan { objectif, preuve: plan.preuve.clone(), taches: vec![tache] }
