@@ -912,13 +912,14 @@ impl Profil {
     /// comme la règle `Edit(<git commun en règle>/**)` de la main le ferme à son bac à sable. Fait constaté : Claude
     /// Code y met ses sockets de pont (`<dossier temporaire>/claude-http-<16 hex>.sock`) et donne à ses commandes
     /// `<dossier temporaire>/claude-<uid>` en `TMPDIR`. `None` sous un mur demandé et pour une main brute : la preuve
-    /// se rejoue par la coquille, et `None` aussi sous `mur = natif` : le mur natif ne lit pas de réglages de srt, il
-    /// lit les règles de [`Profil::listes_du_mur`]. Un mur exigé, de srt ou natif, que `borner` n'a pas borné est une
-    /// erreur : la preuve ne se rejoue pas.
+    /// se rejoue par la coquille. Sous `mur = natif`, le mur natif ne lit pas de réglages de srt, il lit les règles de
+    /// [`Profil::listes_du_mur`] ; tant qu'il n'est pas branché, c'est une erreur, et non `None` (qui voudrait dire
+    /// « la coquille, sans mur ») : la preuve ne se rejoue pas. Un mur exigé, de srt ou natif, que `borner` n'a pas
+    /// borné est aussi une erreur : la preuve ne se rejoue pas.
     pub(crate) fn rejeu(&self, worktree: &Path, temporaire: &Path) -> Result<Option<Srt>, String> {
         let Some((claude, bornes, listes)) = self.mur_exige(worktree, temporaire)? else { return Ok(None) };
         if claude.mur == Mur::Natif {
-            return Ok(None);
+            return Err("le mur natif n'est pas encore branché : la preuve ne se rejoue pas".into());
         }
         let reglages = format!(
             concat!(

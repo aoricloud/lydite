@@ -2095,6 +2095,20 @@ fn un_mur_exige_se_constate_actif_ou_la_main_est_tuee() {
 }
 
 #[test]
+fn un_mur_natif_non_branche_est_refuse_en_6028_et_la_preuve_ne_se_rejoue_pas_dans_la_coquille() {
+    // Le faux srt de l'essai jouerait `true` et passerait : seul le refus du rejeu sous `mur = natif` arrête le
+    // lancement, avant toute main et avant toute preuve.
+    let essai = Essai::nouveau("natif-non-branche");
+    essai.profil_accepte("veille", "mur = natif\n");
+    let refus = lire_refus(essai.kraken().args(["lancer", "veille", OBJECTIF, "--verifier", VERIFIER]));
+    assert_eq!(refus.code, "lydite : 6028 lancer.mur_refuse");
+    assert!(refus.preuve.contains("le mur natif n'est pas encore branché"), "{refus:?}");
+    assert!(essai.note("args.txt").is_none(), "la fausse claude n'est pas partie");
+    assert!(!essai.dossier.join("fil.jsonl").exists(), "aucun fil n'est écrit");
+    essai.nettoyer();
+}
+
+#[test]
 fn un_profil_declare_ses_sortants_et_son_mcp_a_la_fausse_claude() {
     let essai = Essai::nouveau("outils");
     let mcp = r#"{"mcpServers":{"docs":{"command":"docs-mcp"}}}"#;
