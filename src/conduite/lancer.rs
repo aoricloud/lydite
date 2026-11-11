@@ -296,7 +296,7 @@ fn en_message(main: impl FnOnce() -> Rendu) -> Rendu {
             .map(|quoi| (*quoi).to_string())
             .or_else(|| panique.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "sans message".into());
-        (None, None, Err(Echec::Erreur(format!("la main a paniqué : {quoi}"))))
+        (None, None, Err(Echec::Erreur(format!("the hand panicked: {quoi}"))))
     })
 }
 

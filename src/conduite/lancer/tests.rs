@@ -1922,10 +1922,10 @@ fn une_panique_de_main_devient_son_message() {
     let (constat, verif, verdict) = en_message(|| panic!("boum"));
     assert_eq!(
         (constat, verif, verdict.unwrap_err()),
-        (None, None, Echec::Erreur("la main a paniqué : boum".to_string()))
+        (None, None, Echec::Erreur("the hand panicked: boum".to_string()))
     );
     let (_, _, verdict) = en_message(|| panic!("boum {}", 2));
-    assert_eq!(verdict.unwrap_err(), Echec::Erreur("la main a paniqué : boum 2".to_string()));
+    assert_eq!(verdict.unwrap_err(), Echec::Erreur("the hand panicked: boum 2".to_string()));
     // Sans panique, ce que la main rend passe tel quel, son constat compris.
     let lu = Constat { version: Some("2.1.312".into()), mur_actif: Some(false), ..Constat::default() };
     let pris = Ok(Pris { sortie: "fait".into(), prouve: true });
