@@ -227,9 +227,30 @@ fn doctor_d_un_profil_natif_verifie_bwrap_et_lydite_reseau_a_la_place_de_srt() {
     assert!(a(&lignes, "missing bwrap: `") && a(&lignes, "missing profile: p, refusal 6028"), "{lignes:?}");
     let bwrap = lignes.iter().find(|ligne| ligne.starts_with("missing bwrap: ")).unwrap();
     assert!(bwrap.contains(" Fix: install bubblewrap ") && bwrap.contains("LYDITE_BWRAP"), "{bwrap}");
-    assert!(lignes.contains(&format!("ok lydite-reseau: {}", reseau.display())), "{lignes:?}");
+    // Sans ligne `reseau`, le rejeu n'a pas besoin du filtre : `lydite-reseau` n'est ni vérifié, ni compté.
+    let sans_filtre =
+        "skipped lydite-reseau: the profile allows no domain, so the native wall needs no network filter.";
+    assert!(lignes.contains(&sans_filtre.to_string()), "{lignes:?}");
+    assert!(!a(&lignes, "ok lydite-reseau") && !a(&lignes, "missing lydite-reseau"), "{lignes:?}");
     assert!(a(&lignes, "skipped srt: the profile uses the native wall"), "{lignes:?}");
     assert!(!a(&lignes, "missing srt"), "{lignes:?}");
+    // Le même profil natif avec des domaines : le filtre se vérifie. Présent, il est dit `ok` ; absent, il manque, et
+    // la correction dit d'abord que l'archive le livre.
+    fs::write(dossier.join("profils").join("d.profil"), "sorte = claude\nmur = natif\nreseau = docs.exemple.test\n")
+        .unwrap();
+    let accepter = doctor().args(["accepter", "d"]).output().unwrap();
+    assert!(accepter.status.success(), "{}", String::from_utf8_lossy(&accepter.stderr));
+    let (lignes, code) = jouer(doctor().args(["doctor", "d"]));
+    assert_eq!(code, 1, "{lignes:?}");
+    assert!(lignes.contains(&format!("ok lydite-reseau: {}", reseau.display())), "{lignes:?}");
+    assert!(!a(&lignes, "skipped lydite-reseau"), "{lignes:?}");
+    let (lignes, _) = jouer(doctor().env("LYDITE_RESEAU", dir.join("reseau-absent")).args(["doctor", "d"]));
+    let manque = lignes.iter().find(|ligne| ligne.starts_with("missing lydite-reseau: ")).unwrap_or_else(|| {
+        panic!("{lignes:?}");
+    });
+    let archive = " Fix: the Linux archive ships it next to `lydite`: put it there, or name its path in LYDITE_RESEAU \
+                   (from the source: `cargo build --release --manifest-path reseau/Cargo.toml`).";
+    assert!(manque.ends_with(archive), "{manque}");
     // Le profil au mur de srt : srt se vérifie, et ni bwrap ni lydite-reseau.
     let (lignes, code) = jouer(doctor().args(["doctor", "s"]));
     assert_eq!(code, 1, "{lignes:?}");
