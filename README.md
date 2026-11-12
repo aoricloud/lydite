@@ -516,6 +516,29 @@ reviewer get the list of all lessons, one line each, the same way.
   removed before it. It does not show a line appended after it, nor a journal rewritten with its seals redone (the
   receipt in the PR, off the machine, keeps its own).
 
+### Memory (read-only)
+
+Two commands read the thread and write nothing: no file or folder is created, the lock of the state folder is not
+taken (like `lydite status`), and no hand is launched.
+
+- `lydite memory` prints an index, one line per line the reader took from the thread, in the order of the thread, and
+  exits 0. A line has six fields separated by a space: `<address> <sha256> <type> <instant> <faith> <size>`. The faith
+  is `observed`, `declared`, or `-` when the line states none; the size counts the bytes of the line without its `\n`.
+  A thread that is absent gives an empty index.
+  What the reader says about the thread (a broken line it skips, a `seq` out of order it keeps) is
+  said on stderr, as `lydite status` says it, and a thread of another version is refused as by `lydite status`.
+- `lydite memory recall <address>` prints that exact line from the thread, followed by a `\n`, and exits 0. The
+  address is either `<session>/<seq>` (the `seq` in decimal digits, without sign or leading zero) or the SHA-256 of the
+  line, 64 lowercase hexadecimal digits, as the index shows it. If two lines carry the same address, the first in the
+  thread is the one recalled. A text with no `/` that is not 64 lowercase hexadecimal digits is refused with 6035
+  (`lancer.memoire_empreinte_fausse`) before the thread is read; a line the thread does not hold is refused with 6034
+  (`lancer.memoire_texte_absent`). Both refusals exit 2.
+
+A line of a type Lydite does not know is not listed, and a session with an unusual name (a blank, a control or non-ASCII
+character, a `/`) has no address: its lines show `-` in the index, and only their SHA-256 recalls them. A broken seal
+stops both commands as it stops `lydite status`: the first seal that no longer holds is named on stderr, nothing is
+printed on stdout, and the exit is 2. As for `lydite status`, a seal does not cover lines appended after it.
+
 ### Reviews
 
 - **Plans, reviews.** An objective (or an issue) is split into tasks by a hand, and Lydite reads the plan itself;

@@ -348,6 +348,47 @@ fn la_depense_du_jour_somme_les_usages_estimes_de_ce_jour_seulement() {
     let _ = fs::remove_dir_all(&dossier);
 }
 
+#[test]
+fn lire_avec_lignes_rend_ce_que_rend_lire_avec_sceaux_les_lignes_et_les_octets_lus() {
+    let dossier = kraken("avec-lignes");
+    let seance = Fil::seance(&dossier, "humain");
+    seance.noter(&crate::essais::ouverture("v", 1, "premier")).unwrap();
+    seance.sceller("v").unwrap();
+    seance.noter(&crate::essais::ouverture("v", 1, "dernier")).unwrap();
+    let octets = fs::read(dossier.join(FICHIER)).unwrap();
+    let (scelle, lignes, lus) = lire_avec_lignes(&dossier).unwrap();
+    assert_eq!(lus, octets);
+    assert_eq!(scelle, lire_avec_sceaux(&dossier).unwrap());
+    // Une ligne lue par note, issue ou sceau, et chacune se retrouve dans les octets lus.
+    assert_eq!(lignes.len(), 3);
+    let genres: Vec<&str> = lignes.iter().map(|ligne| ligne.genre.as_str()).collect();
+    assert_eq!(genres, ["vague.ouverte", "vague.sceau", "vague.ouverte"]);
+    let texte = String::from_utf8(octets).unwrap();
+    for (ligne, attendue) in lignes.iter().zip(texte.lines()) {
+        assert_eq!(&texte[ligne.debut..ligne.fin], attendue);
+    }
+    // Un sceau rompu se dit avec les lignes, comme `lire_avec_sceaux` le dit.
+    fs::write(dossier.join(FICHIER), texte.replace("premier", "premiex")).unwrap();
+    let (rompu, lignes, _) = lire_avec_lignes(&dossier).unwrap();
+    assert_eq!(rompu.3.map(|sceau| sceau.vague), Some("v".to_string()));
+    assert_eq!(lignes.len(), 3);
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn lire_avec_lignes_d_un_fil_absent_est_un_fil_vide_et_ne_cree_rien() {
+    let dossier = kraken("avec-lignes-absent");
+    let absent = dossier.join("pas-encore");
+    let (scelle, lignes, octets) = lire_avec_lignes(&absent).unwrap();
+    assert_eq!(scelle, (Lecture::default(), Vec::new(), Vec::new(), None));
+    assert!((lignes.is_empty() && octets.is_empty()), "{lignes:?}");
+    assert!(!absent.exists(), "{} a été créé", absent.display());
+    // Un dossier sans fil : de même, sans que le fil se crée.
+    assert!(lire_avec_lignes(&dossier).unwrap().1.is_empty());
+    assert!(!dossier.join(FICHIER).exists());
+    let _ = fs::remove_dir_all(&dossier);
+}
+
 /// Un chemin absolu pour le système qui joue le test ; il n'est jamais lu, ni créé.
 fn absolu(chemin: &str) -> PathBuf {
     PathBuf::from(if cfg!(windows) { r"C:\" } else { "/" }).join(chemin)

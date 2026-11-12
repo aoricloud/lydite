@@ -48,6 +48,8 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 6031 | `lancer.lecon_mal_formee` | A lesson is a `.agents/skills/<name>/SKILL.md` of 4096 bytes at most, in UTF-8: a header `name` (the folder) and `description` (one line), then `## What happened`, `## Why`, `## How it is checked`, `## Pitfall`, `## Files` (lines `- <path>`) and `## Falls when`, each once, in order, with text. |
 | 6032 | `lancer.dossier_pris` | A launch holds Lydite's folder for itself until its process ends: a second launch on the same folder is refused, because they would write the same thread and read the same quota. |
 | 6033 | `lancer.effort_non_permis` | A plan asks only for an effort that the profile allows (`efforts_permis`). |
+| 6034 | `lancer.memoire_texte_absent` | A memory recall names a line that the thread carries, by its address `<session>/<seq>` or by its SHA-256; otherwise nothing is recalled. |
+| 6035 | `lancer.memoire_empreinte_fausse` | A memory recall by hash gives 64 lowercase hexadecimal digits; any other text without `/` is refused before the thread is read. |
 | 7001 | `vague.bac_impossible` | Each task has its own worktree, which git creates just before its hand; a task without a worktree is refused, and the others go on. |
 | 7002 | `vague.main_active` | A task never has two active hands: a hand starts only on a task with no lease, open or expired. |
 | 7003 | `vague.resultat_perime` | A result is taken only if it carries the attempt of its task's open lease; any other is stale. |
