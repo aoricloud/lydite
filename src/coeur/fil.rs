@@ -157,6 +157,11 @@
 //!   ce que Kraken a gelé du bac de la main prise, et c'est sur lui que porte son `main.verdict`. Noté juste après le
 //!   gel, avant la fusion ; une main classée ou impossible n'en note pas. Une note de Kraken, sans `foi`. Type neuf,
 //!   il ne change pas `v`. Au rejeu, la main garde le dernier `sha` noté.
+//! - `main.empreintes {vague, main, sha, fichiers}` : les épingles `sha256` de la tâche tiennent dans le commit gelé
+//!   `sha` (40 hexadécimaux minuscules, comme celui de `main.gel`). `fichiers` est une liste en chaîne, un élément
+//!   `<fichier> <empreinte>` par ligne : les épingles de la tâche, lues dans ce commit et égales à celles du plan.
+//!   Noté quand tous les jugements du gel sont passés, juste avant la fusion, et seulement pour une tâche qui a des
+//!   épingles. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`. Le rejeu n'en retient rien.
 //! - `vague.refus {vague, main, code, regle, preuve, correction, verif}` : Kraken a refusé la tâche. Une décision de
 //!   Kraken, sans `foi`. `code` est le numéro d'un code, un entier de 1000 à 9999 ; `regle`, `preuve` et `correction`
 //!   sont les trois textes de son refus (`erreur.rs`). `verif` est la fin de la sortie de la preuve de la vague, `null`
@@ -445,6 +450,9 @@ pub(crate) enum Evenement {
     Fusion { vague: String, main: usize, sha: String, verif: String },
     /// `main.gel` : le commit `sha` que Kraken a gelé du bac de la main prise, celui sur lequel porte son verdict.
     Gel { vague: String, main: usize, sha: String },
+    /// `main.empreintes` : les épingles `sha256` de la tâche, lues dans le commit gelé `sha`, sont celles du plan ;
+    /// `fichiers` en liste un `<fichier> <empreinte>` par élément.
+    Empreintes { vague: String, main: usize, sha: String, fichiers: Vec<String> },
     /// `vague.refus` : Kraken refuse la tâche. `code` est le numéro d'un code (1000 à 9999), `verif` la fin de la
     /// sortie de la preuve de la vague, `None` si elle n'a pas tourné.
     Refus {
@@ -1261,6 +1269,12 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
             fusion
         }
         "main.gel" => Evenement::Gel { vague: texte("vague")?.into(), main: nombre("main")?, sha: sha("sha")? },
+        "main.empreintes" => Evenement::Empreintes {
+            vague: texte("vague")?.into(),
+            main: nombre("main")?,
+            sha: sha("sha")?,
+            fichiers: liste("fichiers")?,
+        },
         "vague.refus" => Evenement::Refus {
             vague: texte("vague")?.into(),
             main: nombre("main")?,
@@ -1716,6 +1730,7 @@ pub(crate) fn etat(evenements: &[Evenement]) -> Vec<Vague> {
             Evenement::Gel { main, sha, .. } => {
                 vague.mains.entry(*main).or_default().gel = Some(sha.clone());
             }
+            Evenement::Empreintes { .. } => {} // une note de Kraken, que le reçu lit dans les notes
             Evenement::Refus { main, code, regle, preuve, correction, .. } => {
                 let (regle, preuve, correction) = (regle.clone(), preuve.clone(), correction.clone());
                 vague.mains.entry(*main).or_default().issue =
@@ -1817,6 +1832,7 @@ impl Evenement {
             Evenement::Perimee { .. } => "main.perimee",
             Evenement::Fusion { .. } => "vague.fusion",
             Evenement::Gel { .. } => "main.gel",
+            Evenement::Empreintes { .. } => "main.empreintes",
             Evenement::Refus { .. } => "vague.refus",
             Evenement::Poussee { .. } => "forge.poussee",
             Evenement::Pr { .. } => "forge.pr",
@@ -1850,6 +1866,7 @@ impl Evenement {
         | Evenement::Verdict { vague, .. }
         | Evenement::Fusion { vague, .. }
         | Evenement::Gel { vague, .. }
+        | Evenement::Empreintes { vague, .. }
         | Evenement::Refus { vague, .. }
         | Evenement::Poussee { vague, .. }
         | Evenement::Pr { vague, .. }
@@ -1969,6 +1986,12 @@ impl Evenement {
             Evenement::Gel { vague, main, sha } => {
                 vec![("vague", texte(vague)), ("main", entier(*main)), ("sha", texte(sha))]
             }
+            Evenement::Empreintes { vague, main, sha, fichiers } => vec![
+                ("vague", texte(vague)),
+                ("main", entier(*main)),
+                ("sha", texte(sha)),
+                ("fichiers", texte(&fichiers.join("\n"))),
+            ],
             Evenement::Refus { vague, main, code, regle, preuve, correction, verif } => vec![
                 ("vague", texte(vague)),
                 ("main", entier(*main)),

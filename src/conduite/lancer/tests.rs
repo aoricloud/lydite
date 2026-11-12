@@ -3,6 +3,7 @@ use crate::branchements::bac::temporaire_de;
 use crate::branchements::dossier::lire_avec_lancements;
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::fil::{Issue, LancementLu, Lecture, Mur, Note, etat};
+use crate::essais::main_qui_copie;
 use crate::essais::{depot, fausse_main, git, main_de_vague, main_hors_fichiers, main_texte_coupe, racine};
 use crate::essais::{ecrire, effacer, faux_srt, lancer, lancer_sur, pour_sh, script};
 use std::collections::{BTreeMap, BTreeSet};
@@ -62,6 +63,7 @@ fn histoire(evenements: &[Evenement]) -> Vec<String> {
         Evenement::Perimee { tentative, couleur, foi, .. } => format!("périmée {tentative} {couleur:?} {foi:?}"),
         Evenement::Verdict { verdict, foi, .. } => format!("verdict {verdict:?} {foi:?}"),
         Evenement::Gel { .. } => "gel".into(),
+        Evenement::Empreintes { .. } => "empreintes".into(),
         Evenement::Fusion { .. } => "fusion".into(),
         Evenement::Refus { code, .. } => format!("refus {code}"),
         Evenement::Poussee { .. } => "poussée".into(),
@@ -262,6 +264,7 @@ fn main_de(evenement: &Evenement) -> Option<usize> {
         | Evenement::Perimee { main, .. }
         | Evenement::Verdict { main, .. }
         | Evenement::Gel { main, .. }
+        | Evenement::Empreintes { main, .. }
         | Evenement::Fusion { main, .. }
         | Evenement::Refus { main, .. } => Some(*main),
     }
@@ -3061,6 +3064,184 @@ fn une_main_qui_n_ecrit_pas_le_fichier_exact_est_rouge() {
     let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
     let erreur = issues[0].1.as_ref().unwrap_err();
     assert_eq!(erreur, "the text that the plan requires is missing from absent.txt: x");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+/// Le SHA-256 de ces octets, en hexadécimaux.
+fn sha_de(octets: &str) -> String {
+    hex(&sha256(octets.as_bytes()))
+}
+
+/// Le plan d'une tâche `a` qui peut changer `dedans.txt`, que le plan épingle par `empreinte`.
+fn plan_epingle(empreinte: &str) -> Plan {
+    let epingle = format!("sha256 : dedans.txt : {empreinte}");
+    plan(&[
+        "plan 1",
+        "objectif : Écrire dedans.txt",
+        "preuve : exit 0",
+        "tache a",
+        "fichiers : dedans.txt",
+        epingle.as_str(),
+        "    Écrire a",
+    ])
+}
+
+/// La ligne qui introduit les épingles dans la consigne de la main, puis la ligne de l'épingle `fichier: empreinte`.
+fn ligne_d_epingle(fichier: &str, empreinte: &str) -> String {
+    format!("These files must have exactly this SHA-256, as git stores them:\n{fichier}: {empreinte}\n")
+}
+
+#[test]
+fn une_main_qui_ecrit_le_fichier_epingle_a_l_octet_est_prise_avec_main_empreintes_avant_la_fusion() {
+    let racine = racine("epingle-tenue");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    fs::write(racine.join("bon.txt"), "alpha beta").unwrap();
+    let attendue = sha_de("alpha beta");
+    let profil = Profil::faux(main_qui_copie(&racine, &[("bon.txt", "dedans.txt")]), DELAI);
+    let (branche, issues) = lancer(&depot, &kraken, &profil, &plan_epingle(&attendue), BAIL).unwrap();
+    assert!(branche.is_some());
+    assemblee(&issues[0].0, &issues[0].1);
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Vert Constate",
+        "verdict Prise Constate",
+        "gel",
+        "empreintes",
+        "fusion",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    // La note porte le commit gelé, celui de `main.gel`, et l'épingle lue dans ce commit.
+    let gel = evenements.iter().find_map(|e| match e {
+        Evenement::Gel { sha, .. } => Some(sha.clone()),
+        _ => None,
+    });
+    let note = evenements.iter().find_map(|e| match e {
+        Evenement::Empreintes { main, sha, fichiers, .. } => Some((*main, Some(sha.clone()), fichiers.clone())),
+        _ => None,
+    });
+    assert_eq!(note, Some((1, gel, vec![format!("dedans.txt {attendue}")])));
+    assert!(consigne_de(&racine, 1).contains(&ligne_d_epingle("dedans.txt", &attendue)), "{}", consigne_de(&racine, 1));
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn un_octet_change_rougit_la_tentative_et_la_relance_recoit_les_deux_empreintes() {
+    let racine = racine("epingle-changee");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    fs::write(racine.join("bon.txt"), "alpha beta").unwrap();
+    fs::write(racine.join("mauvais.txt"), "alpha bet").unwrap();
+    let (attendue, vue) = (sha_de("alpha beta"), sha_de("alpha bet"));
+    let copies = [("mauvais.txt", "dedans.txt"), ("bon.txt", "dedans.txt")];
+    let profil = Profil::faux(main_qui_copie(&racine, &copies), DELAI);
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan_epingle(&attendue), BAIL).unwrap();
+    assemblee(&issues[0].0, &issues[0].1);
+    let evenements = fil(&kraken);
+    // Rouge à la première tentative, verte à la relance, puis gelée, notée et fusionnée.
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Vert Constate",
+        "verdict Prise Constate",
+        "gel",
+        "empreintes",
+        "fusion",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    let erreur = fin_de(&evenements, 1);
+    for vu in ["dedans.txt", attendue.as_str(), vue.as_str()] {
+        assert!(erreur.contains(vu), "{vu} : {erreur}");
+    }
+    // La relance reçoit cette erreur, qui cite les deux empreintes.
+    let relance = consigne_de(&racine, 2);
+    assert!(relance.contains(&format!("Tentative précédente échouée :\n{erreur}")), "{relance}");
+    assert!(relance.contains(&attendue) && relance.contains(&vue), "{relance}");
+    assert!(!consigne_de(&racine, 1).contains("Tentative pr"));
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn un_fichier_epingle_que_git_ignore_rougit_la_tentative() {
+    let racine = racine("epingle-ignoree");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    ecrire(&depot, ".gitignore", "dedans.txt\n");
+    git(&depot, &["add", ".gitignore"]);
+    git(&depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ignore"]);
+    fs::write(racine.join("bon.txt"), "alpha beta").unwrap();
+    // Les octets sont les bons, mais git n'ajoute pas le fichier : ce que la vague prendrait n'est pas ce fichier.
+    let profil = Profil::faux(main_qui_copie(&racine, &[("bon.txt", "dedans.txt")]), DELAI);
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan_epingle(&sha_de("alpha beta")), BAIL).unwrap();
+    let erreur = issues[0].1.as_ref().unwrap_err();
+    assert!(erreur.contains("dedans.txt") && erreur.contains("not added by git"), "{erreur}");
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Rouge Constate",
+        "verdict Classee Constate",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    assert!(fusions(&evenements).is_empty(), "aucune fusion n'est notée");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn une_tache_qui_change_le_fichier_epingle_d_une_autre_tache_du_plan_est_rouge() {
+    let racine = racine("epingle-d-une-autre");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    fs::write(racine.join("bon.txt"), "alpha").unwrap();
+    fs::write(racine.join("autre.txt"), "autre").unwrap();
+    let (attendue, vue) = (sha_de("alpha"), sha_de("autre"));
+    let epingle = format!("sha256 : pin.txt : {attendue}");
+    let plan = plan(&[
+        "plan 1",
+        "objectif : Écrire pin.txt",
+        "preuve : exit 0",
+        "tache a",
+        "fichiers : pin.txt",
+        epingle.as_str(),
+        "    Écrire a",
+        "tache b",
+        "depend : a",
+        "fichiers : dedans.txt pin.txt",
+        "    Écrire b",
+    ]);
+    // Le premier appel est celui de `a`, qui écrit les bons octets ; ceux de `b` écrivent d'autres octets dans le
+    // fichier de `a`.
+    let copies = [("bon.txt", "pin.txt"), ("autre.txt", "pin.txt")];
+    let profil = Profil::faux(main_qui_copie(&racine, &copies), DELAI);
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    assemblee(&issues[0].0, &issues[0].1);
+    let erreur = issues[1].1.as_ref().unwrap_err();
+    for vu in ["pin.txt", "task a", attendue.as_str(), vue.as_str()] {
+        assert!(erreur.contains(vu), "{vu} : {erreur}");
+    }
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche b",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Rouge Constate",
+        "verdict Classee Constate",
+    ];
+    assert_eq!(histoire_de(&evenements, 2), attendu);
+    assert_eq!(fusions(&evenements).len(), 1, "seule `a` est fusionnée");
+    // Les mains reçoivent l'épingle de `a`, celle de `b` parce que ses `fichiers` couvrent `pin.txt`.
+    let ligne = ligne_d_epingle("pin.txt", &attendue);
+    assert!(consigne_de(&racine, 1).contains(&ligne) && consigne_de(&racine, 2).contains(&ligne));
     let _ = fs::remove_dir_all(&racine);
 }
 

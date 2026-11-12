@@ -72,8 +72,10 @@ pub(crate) struct Pris {
 pub(crate) type Juge<'a> = &'a (dyn Fn(&Path) -> Result<(), String> + Sync);
 
 /// Ce que la main reçoit : l'objectif, l'erreur de la tentative précédente s'il y en a une, puis la preuve qu'on attend
-/// d'elle. `pretee` : la commande de vérification est prêtée à la main (voir `Profil::prete`), qui la joue elle-même
-/// jusqu'à ce qu'elle passe, avant que Kraken la rejoue. La main en lance chaque morceau seul et tel quel, car sous
+/// d'elle. Les `epingles` (fichier et empreinte) viennent après les textes exacts, sous une ligne qui dit à la main que
+/// ces fichiers doivent avoir cette empreinte, telle que git les garde ; sans épingle, rien ne s'ajoute. `pretee` :
+/// la commande de vérification est prêtée à la main (voir `Profil::prete`), qui la joue elle-même jusqu'à ce qu'elle
+/// passe, avant que Kraken la rejoue. La main en lance chaque morceau seul et tel quel, car sous
 /// Windows, sans bac à sable, Claude Code ne laisse passer un morceau prêté que seul et tel quel (`excludedCommands`),
 /// et refuse une commande qui l'enrobe.
 ///
@@ -84,6 +86,7 @@ fn consigne(
     objectif: &str,
     fichiers: Option<&[String]>,
     exacts: &[(String, String)],
+    epingles: &[(String, String)],
     verifier: Option<&str>,
     precedente: Option<&str>,
     pretee: bool,
@@ -103,6 +106,10 @@ fn consigne(
     if !exacts.is_empty() {
         lignes.push("These texts must appear in your files byte for byte, as written here:".to_string());
         lignes.extend(exacts.iter().map(|(fichier, texte)| format!("{fichier}: {texte}")));
+    }
+    if !epingles.is_empty() {
+        lignes.push("These files must have exactly this SHA-256, as git stores them:".to_string());
+        lignes.extend(epingles.iter().map(|(fichier, empreinte)| format!("{fichier}: {empreinte}")));
     }
     lignes.push(COMMIT.to_string());
     let perimetre = lignes.join("\n");
@@ -138,12 +145,16 @@ fn avec_precedente(objectif: &str, precedente: Option<&str>) -> String {
 /// Le texte exact que reçoit la main d'une tentative, calculé une seule fois : la vague en garde les octets, en note
 /// l'empreinte (`main.consigne`) et les envoie à [`tenter`]. Le socle porte l'heure où la main s'arrête : son départ,
 /// pris ici, et son délai. Avec `juge`, la main est le découpeur ou le relecteur : son objectif, puis l'erreur
-/// d'avant ; sinon c'est une main de tâche, avec ses fichiers, ses textes exacts et sa preuve.
+/// d'avant ; sinon c'est une main de tâche, avec ses fichiers, ses textes exacts, ses épingles `sha256` (un couple
+/// fichier et empreinte chacune : celles de sa tâche, puis celles des autres tâches que ses `fichiers` couvrent) et sa
+/// preuve.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn consigne_de(
     profil: &Profil,
     objectif: &str,
     fichiers: Option<&[String]>,
     exacts: &[(String, String)],
+    epingles: &[(String, String)],
     verifier: Option<&str>,
     precedente: Option<&str>,
     juge: bool,
@@ -154,7 +165,7 @@ pub(crate) fn consigne_de(
         format!("{socle}\n\n{}", avec_precedente(objectif, precedente))
     } else {
         let sans_a1 = profil.mesure().sans_a1;
-        consigne(objectif, fichiers, exacts, verifier, precedente, profil.prete(verifier), &socle, sans_a1)
+        consigne(objectif, fichiers, exacts, epingles, verifier, precedente, profil.prete(verifier), &socle, sans_a1)
     }
 }
 

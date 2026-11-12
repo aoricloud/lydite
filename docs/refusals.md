@@ -71,6 +71,7 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 7019 | `vague.plafond_atteint` | A hand that reaches its spending cap is stopped and not retried; its task is refused, and what follows is for the human. |
 | 7020 | `vague.bloquante_hors_de_portee` | A blocking remark targets a file that the correction cannot touch; the wave stops before any correction and nothing is pushed. |
 | 7021 | `vague.ouverture_executable` | A hand adds or changes no file that runs when the branch is next opened (.mcp.json, .vscode, .idea, a shell or git configuration file); the freeze that carries one is refused before the merge. |
+| 7022 | `vague.empreinte_differente` | A file that the plan pins by `sha256` has that SHA-256 in the commit Lydite freezes; otherwise the task is refused without a retry, and nothing of it is merged. |
 | 8001 | `forge.distant_illisible` | With `--pr`, the target repository has a remote `origin` whose URL names a host, an owner and a repository. |
 | 8002 | `forge.base_inconnue` | The base that `--pr` names is a branch of the remote, which Lydite fetches before the wave. |
 | 8003 | `forge.gh_injoignable` | `gh` starts and says it is logged in to the remote's host before the wave. |

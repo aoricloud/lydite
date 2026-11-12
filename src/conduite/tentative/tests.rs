@@ -194,7 +194,7 @@ fn consigne(
     pretee: bool,
     socle: &str,
 ) -> String {
-    super::consigne(objectif, fichiers, exacts, verifier, precedente, pretee, socle, false)
+    super::consigne(objectif, fichiers, exacts, &[], verifier, precedente, pretee, socle, false)
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn sans_a1_retire_honnetete_et_perimetre_et_rien_d_autre() {
         (None, &[][..], None, Some("avant"), false),
     ] {
         let pieces =
-            |sans_a1| super::consigne("Écrire a", fichiers, exacts, verifier, precedente, pretee, "S", sans_a1);
+            |sans_a1| super::consigne("Écrire a", fichiers, exacts, &[], verifier, precedente, pretee, "S", sans_a1);
         let (pleine, nue) = (pieces(false), pieces(true));
         assert!(pleine.contains(HONNETETE) && pleine.contains(PERIMETRE), "{pleine}");
         assert!(!nue.contains(HONNETETE) && !nue.contains(PERIMETRE) && !nue.contains("IMPOSSIBLE"), "{nue}");
@@ -227,7 +227,7 @@ fn sans_a1_retire_honnetete_et_perimetre_et_rien_d_autre() {
 
 #[test]
 fn sans_a1_ne_laisse_pas_de_ligne_vide_en_trop() {
-    let nue = super::consigne("Écrire a", None, &[], None, None, false, "S", true);
+    let nue = super::consigne("Écrire a", None, &[], &[], None, None, false, "S", true);
     assert!(nue.starts_with(&format!("S\n\nÉcrire a\n\n{COMMIT}\n\n")), "{nue}");
 }
 
@@ -237,13 +237,13 @@ fn le_profil_sans_a1_retire_les_deux_phrases_de_la_consigne_de_tache_seulement()
     let mesure = Mesure { sans_a1: true, ..Mesure::default() };
     let nue = Profil::faux(vec![], DELAI).avec_mesure(mesure);
     let (a, b) = (
-        consigne_de(&pleine, "Écrire a", None, &[], None, None, false),
-        consigne_de(&nue, "Écrire a", None, &[], None, None, false),
+        consigne_de(&pleine, "Écrire a", None, &[], &[], None, None, false),
+        consigne_de(&nue, "Écrire a", None, &[], &[], None, None, false),
     );
     assert!(a.contains(HONNETETE) && a.contains(PERIMETRE), "{a}");
     assert!(!b.contains(HONNETETE) && !b.contains(PERIMETRE) && b.contains(COMMIT), "{b}");
     // Une main jugée n'a jamais ces phrases : le réglage n'y change rien.
-    let juge = |profil: &Profil| consigne_de(profil, "Juger", None, &[], Some("exit 0"), Some("avant"), true);
+    let juge = |profil: &Profil| consigne_de(profil, "Juger", None, &[], &[], Some("exit 0"), Some("avant"), true);
     assert_eq!(juge(&pleine).split_once("\n\n").unwrap().1, juge(&nue).split_once("\n\n").unwrap().1);
 }
 
@@ -272,6 +272,26 @@ fn la_consigne_nomme_les_textes_exacts_juste_apres_la_ligne_des_fichiers() {
     assert!(avec.starts_with(&attendu), "{avec}");
     let sans = consigne("Écrire a", Some(&fichiers), &[], None, None, false, "S");
     assert!(!sans.contains("These texts"), "{sans}");
+}
+
+#[test]
+fn la_consigne_nomme_les_epingles_sha256_apres_les_textes_exacts_et_sans_epingle_elle_ne_change_pas() {
+    let fichiers = ["src/a.rs".to_string(), "docs/".to_string()];
+    let exacts = [("src/a.rs".to_string(), "fn a() {}".to_string())];
+    let (h1, h2) = ("1".repeat(64), "2".repeat(64));
+    let epingles = [("src/a.rs".to_string(), h1.clone()), ("docs/x.md".to_string(), h2.clone())];
+    let avec = super::consigne("Écrire a", Some(&fichiers), &exacts, &epingles, None, None, false, "S", false);
+    let textes = "These texts must appear in your files byte for byte, as written here:\nsrc/a.rs: fn a() {}";
+    let titre = "These files must have exactly this SHA-256, as git stores them:";
+    // Une ligne de titre, puis une ligne par épingle, juste après les textes exacts.
+    let lignes = format!("{titre}\nsrc/a.rs: {h1}\ndocs/x.md: {h2}");
+    let attendue = format!("S\n\nÉcrire a{FIXE} Your files: src/a.rs docs/\n{textes}\n{lignes}{SUITE}{PREUVE}");
+    assert_eq!(avec, attendue);
+    // Sans épingle, la consigne est celle d'avant, à l'octet : ni titre, ni ligne vide.
+    let sans = super::consigne("Écrire a", Some(&fichiers), &exacts, &[], None, None, false, "S", false);
+    let d_avant = format!("S\n\nÉcrire a{FIXE} Your files: src/a.rs docs/\n{textes}{SUITE}{PREUVE}");
+    assert_eq!(sans, d_avant);
+    assert!(!sans.contains("SHA-256"), "{sans}");
 }
 
 #[test]
@@ -410,13 +430,13 @@ fn la_main_de_tache_et_la_main_jugee_recoivent_le_socle_en_tete() {
     let (dir, bac) = bac_jetable("socle");
     let journal = dir.join("journal.tmp");
     let main = Profil::faux(crate::essais::fausse_main(&dir), DELAI);
-    let texte = consigne_de(&main, "Écrire a", None, &[], None, None, false);
+    let texte = consigne_de(&main, "Écrire a", None, &[], &[], None, None, false);
     let _ = tenter(&main, &bac, &texte, None, None, &journal, None, None);
     let tache = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(tache.starts_with(TETE_DU_SOCLE), "{tache}");
     assert!(tache.contains(" UTC, in 60 minutes: keep the last minutes to say what is done and what is not.\n\n"));
     let juge = |_: &Path| Ok(());
-    let texte = consigne_de(&main, "Juger", None, &[], Some("exit 0"), Some("avant"), true);
+    let texte = consigne_de(&main, "Juger", None, &[], &[], Some("exit 0"), Some("avant"), true);
     let _ = tenter(&main, &bac, &texte, Some("exit 0"), Some("avant"), &journal, Some(&juge), None);
     let jugee = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(jugee.starts_with(TETE_DU_SOCLE), "{jugee}");

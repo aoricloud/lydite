@@ -1,5 +1,6 @@
 use super::*;
 use crate::branchements::bac::{bac, sans_claude};
+use crate::coeur::empreinte::{hex, sha256};
 use crate::essais::{depot, ecrire, etat_de_claude, git, pour_sh, racine, script};
 use std::fs;
 use std::process::Command;
@@ -408,7 +409,9 @@ fn un_claude_ecrit_apres_sans_claude_est_le_refus_7006_au_gel() {
         "a",
         Some(&permis),
         1,
+        &[],
         |_| Ok(()),
+        |_, _| Ok(()),
         |_, _| panic!("un .claude au gel ne se note pas"),
     );
     let refus = issue.unwrap_err();
@@ -429,7 +432,9 @@ fn un_claude_ecrit_apres_sans_claude_est_le_refus_7006_au_gel() {
         "b",
         None,
         2,
+        &[],
         |_| Ok(()),
+        |_, _| Ok(()),
         |_, _| panic!("un .claude au gel ne se note pas"),
     );
     let refus = issue.unwrap_err();
@@ -460,7 +465,9 @@ fn un_claude_commite_puis_ote_apres_sans_claude_est_le_refus_7006_au_gel() {
         "a",
         Some(&permis),
         1,
+        &[],
         |_| Ok(()),
+        |_, _| Ok(()),
         |_, _| panic!("un .claude au gel ne se note pas"),
     );
     let refus = issue.unwrap_err();
@@ -487,7 +494,9 @@ fn un_claude_commite_puis_ote_apres_sans_claude_est_le_refus_7006_au_gel() {
         "b",
         None,
         2,
+        &[],
         |_| Ok(()),
+        |_, _| Ok(()),
         |_, _| panic!("un .claude au gel ne se note pas"),
     );
     let refus = issue.unwrap_err();
@@ -852,7 +861,9 @@ fn le_gel_refuse_un_fichier_non_vide_ou_inscriptible_sous_claude() {
             "t",
             None,
             1,
+            &[],
             |_| Ok(()),
+            |_, _| Ok(()),
             |_, _| panic!("un .claude au gel ne se note pas"),
         );
         let refus = issue.unwrap_err();
@@ -925,7 +936,9 @@ fn un_fichier_non_vide_ou_inscriptible_a_un_chemin_protege_reste_le_refus_7018()
             "t",
             Some(&permis),
             1,
+            &[],
             |_| Ok(()),
+            |_, _| Ok(()),
             |_, _| panic!("un chemin protégé ne se note pas"),
         );
         let refus = issue.unwrap_err();
@@ -1022,7 +1035,9 @@ fn les_lecons_sont_protegees_meme_pour_un_profil_sans_proteges() {
         "lecon",
         None,
         1,
+        &[],
         |_| Ok(()),
+        |_, _| Ok(()),
         |_, _| panic!("une leçon changée ne se note pas"),
     );
     assert_eq!((issue.unwrap_err().code, verif), (Code::CheminProtege, None));
@@ -1050,7 +1065,9 @@ fn un_chemin_protege_au_gel_refuse_la_tache_et_rien_n_est_fusionne() {
         "a",
         Some(&permis),
         1,
+        &[],
         |_| Ok(()),
+        |_, _| Ok(()),
         |_, _| panic!("un chemin protégé ne se note pas"),
     );
     let refus = issue.unwrap_err();
@@ -1067,7 +1084,9 @@ fn un_chemin_protege_au_gel_refuse_la_tache_et_rien_n_est_fusionne() {
         "b",
         None,
         2,
+        &[],
         |_| Ok(()),
+        |_, _| Ok(()),
         |_, _| panic!("un chemin protégé ne se note pas"),
     );
     let refus = issue.unwrap_err();
@@ -1084,6 +1103,160 @@ fn un_chemin_protege_au_gel_refuse_la_tache_et_rien_n_est_fusionne() {
     assert_eq!(assemblage.tete(), sha);
     let propre = prise(&depot, &kraken, "d", &sha, &[("neuf2.txt", "2")]);
     assert!(assemblage.fusionner(&propre, &sha, "d", None, 4, |_, _| Ok(())).1.is_ok());
+    let _ = fs::remove_dir_all(&racine);
+}
+
+/// Le SHA-256 de ces octets, en hexadécimaux.
+fn sha(octets: &str) -> String {
+    hex(&sha256(octets.as_bytes()))
+}
+
+/// Comme [`vise`], mais la base dit `* text=auto` : git y normalise les fins de ligne `\r\n` en `\n` à l'ajout, et le
+/// commit gelé garde d'autres octets que le disque.
+fn vise_normalisant(nom: &str) -> (PathBuf, PathBuf, PathBuf, String) {
+    let (racine, depot, kraken, _) = vise(nom);
+    ecrire(&depot, ".gitattributes", "* text=auto\n");
+    git(&depot, &["add", "-A"]);
+    git(&depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "normalise"]);
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    (racine, depot, kraken, base)
+}
+
+/// Le gel de la tâche `id` (numéro `k`) sous ces épingles, sans note de fusion ni d'empreintes à attendre : le refus,
+/// ou le sha de la fusion et ce que la note des empreintes a reçu.
+fn geler_sous_epingles(
+    assemblage: &mut Assemblage<'_>,
+    bac: &Path,
+    base: &str,
+    (id, fichiers, k): (&str, Option<&[String]>, usize),
+    epingles: &[Epingle<'_>],
+) -> Result<(String, Vec<String>), Refus> {
+    let mut notees = Vec::new();
+    let (_, issue) = assemblage.fusionner_et_noter_le_gel(
+        bac,
+        base,
+        id,
+        fichiers,
+        k,
+        epingles,
+        |_| Ok(()),
+        |_, lues| {
+            notees = lues;
+            Ok(())
+        },
+        |_, _| Ok(()),
+    );
+    issue.map(|sha| (sha, notees))
+}
+
+#[test]
+fn un_fichier_epingle_que_git_garde_sous_d_autres_octets_que_le_disque_est_le_refus_7022_au_gel() {
+    let (racine, depot, kraken, base) = vise_normalisant("empreinte-normalisee");
+    let profil = profil();
+    let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+    let (disque, garde) = (sha("a\r\nb\r\n"), sha("a\nb\n"));
+    assert_ne!(disque, garde);
+    let permis = chemins(&["src/"]);
+    // Épinglé par l'empreinte des octets du disque (`\r\n`) : git garde `\n`, le gel refuse, la branche ne bouge pas.
+    let bac = prise(&depot, &kraken, "a", &base, &[("src/crlf.txt", "a\r\nb\r\n")]);
+    let pins = [Epingle { tache: "a", fichier: "src/crlf.txt", empreinte: &disque }];
+    let refus = geler_sous_epingles(&mut assemblage, &bac, &base, ("a", Some(&permis), 1), &pins).unwrap_err();
+    assert_eq!(refus.code.numero(), 7022, "{refus}");
+    for vu in ["task a", "src/crlf.txt", disque.as_str(), garde.as_str()] {
+        assert!(refus.preuve.contains(vu), "{vu} : {refus}");
+    }
+    assert!(refus.correction.contains("fresh wave") && refus.correction.contains("bytes git stores"), "{refus}");
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
+    a_sa_tete(&kraken, &base);
+    // Épinglé par l'empreinte de ce que git garde : la tâche est assemblée, et la note dit son épingle.
+    let bac = prise(&depot, &kraken, "b", &base, &[("src/crlf.txt", "a\r\nb\r\n")]);
+    let pins = [Epingle { tache: "b", fichier: "src/crlf.txt", empreinte: &garde }];
+    let (sha_fusion, notees) =
+        geler_sous_epingles(&mut assemblage, &bac, &base, ("b", Some(&permis), 2), &pins).unwrap();
+    assert_eq!(notees, [format!("src/crlf.txt {garde}")]);
+    assert_eq!(assemblage.tete(), sha_fusion);
+    assert_eq!(git(&depot, &["show", &format!("{sha_fusion}:src/crlf.txt")]), "a\nb");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn une_tache_sans_fichiers_qui_a_une_epingle_est_controlee_au_gel() {
+    let (racine, depot, kraken, base) = vise("empreinte-sans-fichiers");
+    let profil = profil();
+    let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+    let attendue = sha("x\n");
+    let pins_de = |id| [Epingle { tache: id, fichier: "x.txt", empreinte: &attendue }];
+    // Le fichier épinglé manque : la tâche n'a ni `fichiers` ni chemin protégé, et le gel la refuse en 7022.
+    let bac = prise(&depot, &kraken, "t", &base, &[("autre.txt", "y\n")]);
+    let refus = geler_sous_epingles(&mut assemblage, &bac, &base, ("t", None, 1), &pins_de("t")).unwrap_err();
+    assert_eq!(refus.code.numero(), 7022, "{refus}");
+    assert!(refus.preuve.contains("x.txt") && refus.preuve.contains(&attendue), "{refus}");
+    assert!(refus.preuve.contains("git stores no such file"), "{refus}");
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
+    // Un autre octet : refusé de même, la preuve cite l'empreinte vue.
+    let bac = prise(&depot, &kraken, "u", &base, &[("x.txt", "z\n")]);
+    let refus = geler_sous_epingles(&mut assemblage, &bac, &base, ("u", None, 2), &pins_de("u")).unwrap_err();
+    assert_eq!(refus.code.numero(), 7022, "{refus}");
+    assert!(refus.preuve.contains(&sha("z\n")), "{refus}");
+    // Le bon octet : assemblé.
+    let bac = prise(&depot, &kraken, "v", &base, &[("x.txt", "x\n")]);
+    let (_, notees) = geler_sous_epingles(&mut assemblage, &bac, &base, ("v", None, 3), &pins_de("v")).unwrap();
+    assert_eq!(notees, [format!("x.txt {attendue}")]);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn un_gel_qui_change_le_fichier_epingle_d_une_autre_tache_est_refuse_en_7022() {
+    let (racine, depot, kraken, base) = vise_avec_fichiers("empreinte-d-une-autre");
+    let profil = profil();
+    let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+    // `autre` épingle `src/a.txt`, que la base porte déjà sous cette empreinte.
+    let attendue = sha("a\n");
+    let pins = [Epingle { tache: "autre", fichier: "src/a.txt", empreinte: &attendue }];
+    let permis = chemins(&["src/"]);
+    // Une tâche qui change ce fichier est refusée, bien qu'il soit dans ses `fichiers` ; la preuve nomme les deux.
+    let bac = prise(&depot, &kraken, "t", &base, &[("src/a.txt", "changé\n")]);
+    let refus = geler_sous_epingles(&mut assemblage, &bac, &base, ("t", Some(&permis), 1), &pins).unwrap_err();
+    assert_eq!(refus.code.numero(), 7022, "{refus}");
+    for vu in ["task t", "task autre", "src/a.txt", attendue.as_str(), sha("changé\n").as_str()] {
+        assert!(refus.preuve.contains(vu), "{vu} : {refus}");
+    }
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
+    // Sans `fichiers` non plus, rien ne passe.
+    let bac = prise(&depot, &kraken, "u", &base, &[("src/a.txt", "encore\n")]);
+    let refus = geler_sous_epingles(&mut assemblage, &bac, &base, ("u", None, 2), &pins).unwrap_err();
+    assert_eq!(refus.code.numero(), 7022, "{refus}");
+    // Une tâche qui ne touche pas ce fichier n'a rien à voir avec l'épingle d'une autre : assemblée, et sans note.
+    let bac = prise(&depot, &kraken, "w", &base, &[("src/b.txt", "autre\n")]);
+    let (_, notees) = geler_sous_epingles(&mut assemblage, &bac, &base, ("w", Some(&permis), 3), &pins).unwrap();
+    assert!(notees.is_empty(), "{notees:?}");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn une_note_des_empreintes_qui_ne_s_ecrit_pas_est_le_refus_7012_et_rien_n_est_fusionne() {
+    let (racine, depot, kraken, base) = vise("empreinte-note-ratee");
+    let profil = profil();
+    let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+    let attendue = sha("x\n");
+    let pins = [Epingle { tache: "t", fichier: "x.txt", empreinte: &attendue }];
+    let bac = prise(&depot, &kraken, "t", &base, &[("x.txt", "x\n")]);
+    let (verif, issue) = assemblage.fusionner_et_noter_le_gel(
+        &bac,
+        &base,
+        "t",
+        None,
+        1,
+        &pins,
+        |_| Ok(()),
+        |_, _| Err(io::Error::other("fil en lecture seule")),
+        |_, _| panic!("rien ne se note après une note ratée"),
+    );
+    let refus = issue.unwrap_err();
+    assert_eq!((refus.code, verif), (Code::FilInjoignable, None), "{refus}");
+    assert!(refus.preuve.contains("fil en lecture seule"), "{refus}");
+    assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
+    a_sa_tete(&kraken, &base);
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -1108,8 +1281,17 @@ fn un_fichier_qui_s_execute_a_l_ouverture_au_gel_est_le_refus_7021_et_la_branche
             commiter(&bac);
             fs::remove_file(bac.join(chemin)).unwrap();
         }
-        let (verif, issue) =
-            assemblage.assembler(&bac, &base, id, fichiers, k + 1, |_| Ok(()), |_, _| panic!("rien ne se note"));
+        let (verif, issue) = assemblage.assembler(
+            &bac,
+            &base,
+            id,
+            fichiers,
+            k + 1,
+            &[],
+            |_| Ok(()),
+            |_, _| Ok(()),
+            |_, _| panic!("rien ne se note"),
+        );
         let refus = issue.unwrap_err();
         assert_eq!((refus.code.numero(), verif), (7021, None), "{refus}");
         assert!(refus.preuve.contains(chemin), "{refus}");
