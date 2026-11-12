@@ -524,7 +524,8 @@ taken (like `lydite status`), and no hand is launched.
 - `lydite memory` prints an index, one line per line the reader took from the thread, in the order of the thread, and
   exits 0. A line has six fields separated by a space: `<address> <sha256> <type> <instant> <faith> <size>`. The faith
   is `observed`, `declared`, or `-` when the line states none; the size counts the bytes of the line without its `\n`.
-  A thread that is absent gives an empty index. A line the reader skipped (a broken line, a `seq` out of order) is
+  A thread that is absent gives an empty index.
+  What the reader says about the thread (a broken line it skips, a `seq` out of order it keeps) is
   said on stderr, as `lydite status` says it, and a thread of another version is refused as by `lydite status`.
 - `lydite memory recall <address>` prints that exact line from the thread, followed by a `\n`, and exits 0. The
   address is either `<session>/<seq>` (the `seq` in decimal digits, without sign or leading zero) or the SHA-256 of the
