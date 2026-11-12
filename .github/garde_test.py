@@ -5,12 +5,17 @@ Les valeurs qui tomberaient sous un motif sont écrites en morceaux, pour que la
 quand il change ; les mots de la liste d'essai sont inventés.
 """
 
+import base64
+import hashlib
 import json
 import os
+import shutil
+import string
 import subprocess
 import sys
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 ICI = Path(__file__).resolve().parent
@@ -30,6 +35,13 @@ CHEMIN_MAC = "/Us" + "ers/someone/projet"
 NOM_DE_RESEAU = "nas.l" + "an"
 NOM_LOCAL = "portable.lo" + "cal"
 COURRIEL = "someone@" + "mailbox.org"
+
+# Un contenu binaire d'essai, et le diff net qui l'ajoute à docs/a.png : le diff net ne porte jamais son contenu.
+IMAGE = bytes(range(256)) * 3
+NET_IMAGE = (
+    "diff --git a/docs/a.png b/docs/a.png\nnew file mode 100644\nindex 0000000..1111111\n"
+    "Binary files /dev/null and b/docs/a.png differ\n"
+)
 
 PROPRE = {
     "sha": "a" * 40,
@@ -63,9 +75,36 @@ def supprime(chemin, *lignes):
     )
 
 
-def jouer(diff="", commits=(PROPRE,), erreur=False, liste=LISTE, pr=None, **variables):
-    """Joue la garde sur ces entrées (`pr` : le titre, le corps et la branche, comme l'API les écrit) : son code de
-    sortie et tout ce qu'elle a écrit."""
+def blob(contenu):
+    """L'id de blob git de `contenu`."""
+    return hashlib.sha1(b"blob %d\0" % len(contenu) + contenu).hexdigest()
+
+
+def approuve(chemin, contenu):
+    """La ligne de la liste des binaires qui approuve `contenu` au `chemin`."""
+    return f"{hashlib.sha256(contenu).hexdigest()}  {chemin}\n"
+
+
+def binaire(chemin, contenu, sorte="literal"):
+    """Le diff d'un commit qui ajoute le binaire `chemin`, comme l'API le rend (`.patch`) : l'id de blob entier, puis un
+    `GIT binary patch` dont la première partie (`sorte`) porte le contenu compressé, en base 85, 52 octets par ligne."""
+    compresse = zlib.compress(contenu)
+    lignes = []
+    for debut in range(0, len(compresse), 52):
+        morceau = compresse[debut : debut + 52]
+        lettre = (string.ascii_uppercase + string.ascii_lowercase)[len(morceau) - 1]
+        lignes.append(lettre + base64.b85encode(morceau, pad=True).decode("ascii"))
+    donnees = "\n".join(lignes)
+    return (
+        f"diff --git a/{chemin} b/{chemin}\nnew file mode 100644\nindex {'0' * 40}..{blob(contenu)}\n"
+        f"GIT binary patch\n{sorte} {len(contenu)}\n{donnees}\n\nliteral 0\nHcmV?d00001\n\n"
+    )
+
+
+def jouer(diff="", commits=(PROPRE,), erreur=False, liste=LISTE, pr=None, approuves=None, fichiers=None, **variables):
+    """Joue la garde sur ces entrées (`pr` : le titre, le corps et la branche, comme l'API les écrit ; `fichiers` :
+    chemin → id de blob de la version finale) : son code de sortie et tout ce qu'elle a écrit. Avec `approuves`, elle
+    joue une copie de la garde à côté de cette liste des binaires ; sans, la garde du dépôt et sa liste."""
     with tempfile.TemporaryDirectory() as dossier:
         Path(dossier, "diff").write_text(diff, encoding="utf-8")
         Path(dossier, "commits.jsonl").write_text("".join(json.dumps(c) + "\n" for c in commits), encoding="utf-8")
@@ -73,11 +112,20 @@ def jouer(diff="", commits=(PROPRE,), erreur=False, liste=LISTE, pr=None, **vari
             Path(dossier, "pr.json").write_text(json.dumps(pr), encoding="utf-8")
         if erreur:
             Path(dossier, "erreur").write_text("diff\n", encoding="utf-8")
+        if fichiers is not None:
+            lignes = "".join(json.dumps({"nom": nom, "sha": sha}) + "\n" for nom, sha in fichiers.items())
+            Path(dossier, "fichiers.jsonl").write_text(lignes, encoding="utf-8")
+        garde = GARDE
+        if approuves is not None:
+            base = Path(dossier, "base")
+            base.mkdir()
+            garde = Path(shutil.copy(GARDE, base))
+            Path(base, "binaires.txt").write_text(approuves, encoding="utf-8")
         ecartees = ("GARDE", "LISTE", "TITRE", "CORPS", "BRANCHE")
         environ = {k: v for k, v in os.environ.items() if k not in ecartees}
         environ.update({"GARDE": liste, **variables})
         fini = subprocess.run(
-            [sys.executable, "-I", str(GARDE), dossier], check=False, env=environ, capture_output=True, encoding="utf-8"
+            [sys.executable, "-I", str(garde), dossier], check=False, env=environ, capture_output=True, encoding="utf-8"
         )
     return fini.returncode, fini.stdout + fini.stderr
 
@@ -260,6 +308,79 @@ class Garde(unittest.TestCase):
         retire += "Binary files a/img.png and /dev/null differ\n"
         self.assertEqual(jouer(retire)[0], 0)
 
+    def test_un_message_de_commit_ne_retire_pas_un_binaire(self):
+        # Le bloc d'un binaire n'a pas de `@@` : la ligne « deleted file mode » d'un message de commit qui le suit dans le
+        # `.patch` ne le dit pas supprimé, ni dans le diff net (suivi du premier commit), ni dans un commit.
+        def commit(message):
+            return f"From {'a' * 40} Mon Sep 17 00:00:00 2001\nFrom: x <x@exemple.invalid>\nSubject: [PATCH] x\n\n{message}\n---\n"
+
+        message = "deleted file mode 100644"
+        diff = NET_IMAGE + commit(message) + binaire("docs/a.png", IMAGE) + commit(message)
+        code, sortie = jouer(diff, approuves="", fichiers={"docs/a.png": blob(IMAGE)})
+        self.assertEqual(code, 1, sortie)
+        self.assertIn("A binary file is changed: docs/a.png; its content cannot be checked.", sortie)
+
+    def test_un_binaire_approuve_passe(self):
+        # Listé dans la liste de la base, sa seule version de cette empreinte, et sa version finale celle-là.
+        diff = NET_IMAGE + binaire("docs/a.png", IMAGE)
+        code, sortie = jouer(diff, approuves=approuve("docs/a.png", IMAGE), fichiers={"docs/a.png": blob(IMAGE)})
+        self.assertEqual(code, 0, sortie)
+
+    def test_un_binaire_approuve_au_contenu_change_rougit(self):
+        autre = IMAGE + b"\0"
+        code, sortie = jouer(
+            NET_IMAGE + binaire("docs/a.png", autre),
+            approuves=approuve("docs/a.png", IMAGE),
+            fichiers={"docs/a.png": blob(autre)},
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("A binary file is changed: docs/a.png; its content is not the approved one.", sortie)
+
+    def test_une_version_de_l_histoire_non_approuvee_rougit(self):
+        # Un commit publie une autre version, qu'un second remplace par l'approuvée : la première reste dans l'histoire.
+        diff = NET_IMAGE + binaire("docs/a.png", IMAGE + b"\0") + binaire("docs/a.png", IMAGE)
+        code, sortie = jouer(diff, approuves=approuve("docs/a.png", IMAGE), fichiers={"docs/a.png": blob(IMAGE)})
+        self.assertEqual(code, 1)
+        self.assertIn("A binary file is changed: docs/a.png; its content is not the approved one.", sortie)
+
+    def test_la_liste_de_la_tete_n_approuve_rien(self):
+        # La PR ajoute à sa propre liste la ligne qui approuverait son binaire : seule la liste de la base compte.
+        diff = bloc(".github/binaires.txt", approuve("docs/a.png", IMAGE).strip()) + binaire("docs/a.png", IMAGE)
+        code, sortie = jouer(diff, approuves="", fichiers={"docs/a.png": blob(IMAGE)})
+        self.assertEqual(code, 1)
+        self.assertIn("A binary file is changed: docs/a.png; its content cannot be checked.", sortie)
+
+    def test_une_ligne_mal_ecrite_rougit_et_n_approuve_rien(self):
+        juste = approuve("docs/a.png", IMAGE)
+        empreinte = juste.split()[0]
+        for fausse in ("pas une empreinte  docs/b.png", f"{empreinte} docs/b.png", f"{empreinte}  ", juste.strip()):
+            with self.subTest(fausse=fausse):
+                code, sortie = jouer(
+                    binaire("docs/a.png", IMAGE), approuves=juste + fausse + "\n", fichiers={"docs/a.png": blob(IMAGE)}
+                )
+                self.assertEqual(code, 1)
+                self.assertIn("Line 2 of .github/binaires.txt is not `<sha256>  <path>`", sortie)
+                self.assertIn("A binary file is changed: docs/a.png; its content cannot be checked.", sortie)
+
+    def test_une_version_qui_ne_se_lit_pas_rougit(self):
+        # Le diff net seul (la version d'un commit de fusion), une partie delta, des données qui ne se décodent pas, une
+        # version finale qu'aucun commit ne montre, ou aucune version finale lue.
+        casse = binaire("docs/a.png", IMAGE).replace(f"literal {len(IMAGE)}\n", f"literal {len(IMAGE)}\n?", 1)
+        cas = (
+            (NET_IMAGE, {"docs/a.png": blob(IMAGE)}),
+            (binaire("docs/a.png", IMAGE, sorte="delta"), {"docs/a.png": blob(IMAGE)}),
+            (casse, {"docs/a.png": blob(IMAGE)}),
+            (binaire("docs/a.png", IMAGE), {"docs/a.png": blob(IMAGE + b"\0")}),
+            (binaire("docs/a.png", IMAGE), None),
+        )
+        for diff, fichiers in cas:
+            with self.subTest(diff=diff[:200], fichiers=fichiers):
+                code, sortie = jouer(diff, approuves=approuve("docs/a.png", IMAGE), fichiers=fichiers)
+                self.assertEqual(code, 1)
+                self.assertIn(
+                    "A binary file is changed: docs/a.png; its content could not be read from the change.", sortie
+                )
+
     def test_une_lecture_echouee_rougit(self):
         code, sortie = jouer(erreur=True)
         self.assertEqual(code, 1)
@@ -273,7 +394,8 @@ class Garde(unittest.TestCase):
 
     def test_les_fichiers_de_la_garde_passent(self):
         # La garde, ses essais, ses workflows et le CLAUDE.md du dépôt, publiés tels quels, ne portent aucun motif.
-        fichiers = [GARDE, ICI / "garde_test.py", ICI / "workflows" / "garde.yml", ICI / "workflows" / "ci.yml"]
+        fichiers = [GARDE, ICI / "garde_test.py", ICI / "binaires.txt", ICI / "workflows" / "garde.yml"]
+        fichiers.append(ICI / "workflows" / "ci.yml")
         fichiers.append(ICI.parent / "CLAUDE.md")
         diff = "".join(bloc(f.name, *f.read_text(encoding="utf-8").splitlines()) for f in fichiers)
         code, sortie = jouer(diff, LISTE="fork")

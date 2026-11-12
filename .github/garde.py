@@ -13,19 +13,37 @@ rejouée sur `main` après la fusion de sa PR la reverrait.
 La PR d'un fork ne lit pas la liste (`LISTE=fork`) : sa sortie est publique, et rougir sur un mot deviné le
 confirmerait. Ailleurs, une liste vide ou absente est une faute : la garde ne passe pas sans elle.
 
+Un fichier binaire ne se lit pas comme du texte : il passe si, et seulement si, la liste des binaires approuvés
+(`binaires.txt`, à côté de ce script, donc celle de la branche de base) porte son chemin et l'empreinte SHA-256 de
+chacune des versions que les commits lui donnent, et que sa version finale est l'une d'elles (voir `juge_du_binaire`).
+
 Entrées : en argument, le dossier que l'étape d'avant remplit par l'API (`diff`, `commits.jsonl`, `pr.json` avec le
-titre, le corps et la branche d'une PR, et `erreur` quand une lecture a échoué) ; dans l'environnement, `GARDE` et
-`LISTE`. Le texte de la PR ne passe jamais par l'environnement, que le journal d'Actions affiche.
+titre, le corps et la branche d'une PR, `fichiers.jsonl` avec l'id de blob de chaque fichier changé, et `erreur` quand
+une lecture a échoué) ; dans l'environnement, `GARDE` et `LISTE`. Le texte de la PR ne passe jamais par
+l'environnement, que le journal d'Actions affiche.
 Sortie : une annotation par trouvaille, en anglais ; code 1 s'il y en a une, 0 sinon.
 """
 
+import base64
+import hashlib
 import json
 import os
 import re
+import string
 import sys
+import zlib
 from pathlib import Path
 
 BOM = chr(0xFEFF)
+
+# La liste des binaires approuvés : celle qui est à côté de ce script, c'est-à-dire, sous `pull_request_target`, celle de
+# la branche par défaut, qu'une PR ne change pas pour elle-même.
+BINAIRES = Path(__file__).resolve().parent / "binaires.txt"
+# La taille d'un fichier au-delà de laquelle un `GIT binary patch` ne se lit pas (la borne d'un fichier sur GitHub).
+TAILLE_MAX = 100 * 1024 * 1024
+# La lettre qui ouvre une ligne de données d'un `GIT binary patch` dit combien d'octets elle porte : A-Z 1 à 26, a-z
+# 27 à 52.
+LONGUEURS = string.ascii_uppercase + string.ascii_lowercase
 
 # Les motifs génériques, repris du relevé d'arbre.sh et resserrés pour ne rougir que sur une fuite probable : les
 # valeurs d'essai du dépôt (127.0.0.1, exemple.invalid, /home/x, C:\Users\é t, %USERPROFILE%, ~/.local,
@@ -138,11 +156,40 @@ def chemin_d_en_tete(ligne, prefixe):
     return nom[len(prefixe) :] if nom.startswith(prefixe) else None
 
 
+def version_binaire(lignes, neuf):
+    """La version qu'un `GIT binary patch` donne à un fichier, lue de sa première partie (`lignes`, de `literal
+    <taille>` à la ligne vide exclue : base 85 par ligne, puis zlib) : son empreinte SHA-256 et son id de blob git. None
+    si elle ne se lit pas sans doute : une partie `delta` (elle ne se lit qu'avec l'ancien contenu), des données qui ne
+    se décodent pas, une taille fausse ou trop grande, ou un id de blob qui n'est pas `neuf`, celui de la ligne
+    `index`."""
+    entete = re.fullmatch(r"literal (\d+)", lignes[0]) if lignes else None
+    if entete is None or not re.fullmatch(r"[0-9a-f]{40}", neuf or "") or int(entete.group(1)) > TAILLE_MAX:
+        return None
+    taille, brut = int(entete.group(1)), bytearray()
+    try:
+        for ligne in lignes[1:]:
+            octets = LONGUEURS.find(ligne[:1]) + 1
+            donnees = base64.b85decode(ligne[1:])
+            if octets == 0 or len(donnees) < octets:
+                return None
+            brut += donnees[:octets]
+        lecteur = zlib.decompressobj()
+        contenu = lecteur.decompress(bytes(brut), taille + 1)
+    except (ValueError, zlib.error):
+        return None
+    blob = hashlib.sha1(b"blob %d\0" % len(contenu) + contenu).hexdigest()
+    if len(contenu) != taille or not lecteur.eof or blob != neuf:
+        return None
+    return hashlib.sha256(contenu).hexdigest(), blob
+
+
 def lire_diff(texte):
     """D'un diff de git, net ou commit par commit : les noms neufs (un fichier supprimé n'en a pas), les lignes
-    ajoutées par fichier, et les fichiers binaires publiés."""
-    noms, ajouts, binaires = [], {}, []
-    en_tete, dans_l_en_tete, fichier = None, False, None
+    ajoutées par fichier, les fichiers binaires publiés, et, pour chacun, les versions que les commits lui donnent
+    (`version_binaire`, None pour une version qui ne se lit pas). Le diff net ne porte pas le contenu d'un binaire :
+    seul un `GIT binary patch` en donne une version."""
+    noms, ajouts, binaires, versions = [], {}, [], {}
+    en_tete, dans_l_en_tete, fichier, partie = None, False, None, None
 
     def clore():
         nonlocal fichier
@@ -151,14 +198,28 @@ def lire_diff(texte):
             noms.append(nom)
             if en_tete["binaire"]:
                 binaires.append(nom)
+            if en_tete["patch"] is not None:
+                versions.setdefault(nom, []).append(version_binaire(en_tete["patch"], en_tete["neuf"]))
         fichier = nom or en_tete["b"]
 
     for ligne in texte.split("\n"):
+        if partie is not None:
+            if ligne:
+                partie.append(ligne)
+                continue
+            partie = None  # la ligne vide clôt la première partie ; la seconde (le retour) ne compte pas
+        if re.match(r"From [0-9a-f]{40} ", ligne):
+            # Un commit du `.patch` commence : son message n'est d'aucun fichier, et une de ses lignes (« deleted file
+            # mode ») ne doit pas changer l'en-tête resté ouvert d'un bloc sans `@@`, comme celui d'un binaire.
+            if dans_l_en_tete:
+                clore()
+            en_tete, dans_l_en_tete = None, False
+            continue
         if ligne.startswith("diff --git "):
             if dans_l_en_tete:
                 clore()  # un bloc sans `@@` : binaire, renommage seul, mode
             en_tete = {"b": cote_b(ligne[len("diff --git ") :]), "plus": None, "vers": None}
-            en_tete.update(supprime=False, binaire=False)
+            en_tete.update(supprime=False, binaire=False, neuf=None, patch=None)
             dans_l_en_tete = True
         elif dans_l_en_tete:
             if ligne.startswith("@@"):
@@ -170,13 +231,64 @@ def lire_diff(texte):
                 en_tete["vers"] = sans_guillemets(ligne.split(" to ", 1)[1])
             elif ligne.startswith("deleted file mode"):
                 en_tete["supprime"] = True
-            elif ligne.startswith(("Binary files ", "GIT binary patch")):
+            elif ligne.startswith("index ") and ".." in ligne:
+                en_tete["neuf"] = ligne.split("..", 1)[1].split(" ", 1)[0]
+            elif ligne.startswith("Binary files "):
                 en_tete["binaire"] = True
+            elif ligne == "GIT binary patch" and en_tete["patch"] is None:
+                en_tete["binaire"], en_tete["patch"] = True, []
+                partie = en_tete["patch"]
         elif ligne.startswith("+") and en_tete is not None:
             ajouts.setdefault(fichier, []).append(ligne[1:])
     if dans_l_en_tete:
         clore()
-    return noms, ajouts, binaires
+    return noms, ajouts, binaires, versions
+
+
+def lire_binaires(chemin):
+    """Les binaires approuvés (chemin → empreinte SHA-256) de la liste `chemin`, et une faute par ligne mal écrite.
+    Une ligne s'écrit `<empreinte>  <chemin>` (la forme de sha256sum), un chemin une fois ; `#` ouvre un commentaire,
+    une ligne vide ne compte pas. Une ligne mal écrite n'approuve rien : la liste entière ne vaut plus. Une liste
+    absente n'approuve rien."""
+    approuves, fautes = {}, []
+    if not chemin.exists():
+        return approuves, fautes
+    for numero, ligne in enumerate(chemin.read_text(encoding="utf-8").removeprefix(BOM).splitlines(), start=1):
+        if not ligne.strip() or ligne.lstrip().startswith("#"):
+            continue
+        lu = re.fullmatch(r"([0-9a-f]{64})  (\S(?:.*\S)?)", ligne)
+        if lu is None or lu.group(2) in approuves:
+            fautes.append(
+                f"Line {numero} of .github/binaires.txt is not `<sha256>  <path>` for a path not listed above: "
+                "no binary file is approved."
+            )
+        else:
+            approuves[lu.group(2)] = lu.group(1)
+    return ({} if fautes else approuves), fautes
+
+
+def lire_finales(chemin):
+    """L'id de blob de la version finale de chaque fichier changé, que l'étape d'avant a lu par l'API (`nom`, `sha`,
+    un objet JSON par ligne)."""
+    if not chemin.exists():
+        return {}
+    lus = [json.loads(ligne) for ligne in chemin.read_text(encoding="utf-8").splitlines() if ligne.strip()]
+    return {lu.get("nom"): lu.get("sha") for lu in lus}
+
+
+def juge_du_binaire(approuve, lues, finale):
+    """Pourquoi un binaire publié ne passe pas, None s'il passe. `approuve` est l'empreinte que la liste de la base lui
+    donne (None s'il n'y est pas), `lues` les versions que les commits lui donnent (`version_binaire`), `finale` l'id de
+    blob de sa version finale. Il passe si chaque version se lit et porte l'empreinte approuvée, et que la version
+    finale est l'une d'elles : une version qu'aucun `GIT binary patch` ne montre (celle d'un commit de fusion) ne se
+    lit pas."""
+    if approuve is None:
+        return "its content cannot be checked"
+    if not lues or None in lues or finale not in {blob for _, blob in lues}:
+        return "its content could not be read from the change"
+    if any(empreinte != approuve for empreinte, _ in lues):
+        return "its content is not the approved one"
+    return None
 
 
 def lire_commits(chemin):
@@ -210,16 +322,21 @@ def garder(dossier, environ):
     if (dossier / "erreur").exists():
         fautes.append("Part of the change could not be read from the API (it may be too large): check it by hand.")
     diff = (dossier / "diff").read_text(encoding="utf-8", errors="replace") if (dossier / "diff").exists() else ""
-    noms, ajouts, binaires = lire_diff(diff)
+    noms, ajouts, binaires, versions = lire_diff(diff)
     dans_les_noms = trouvailles("\n".join(noms), mots)
     fautes += [f"{t} appears in a changed file name." for t in dans_les_noms]
     noms_surs = not dans_les_noms
     for fichier, lignes in ajouts.items():
         lieu = f"the added lines of {fichier}" if noms_surs and fichier else "the added lines of a changed file"
         fautes += [f"{t} appears in {lieu}." for t in trouvailles("\n".join(lignes), mots)]
+    approuves, mal_ecrites = lire_binaires(BINAIRES)
+    fautes += mal_ecrites
+    finales = lire_finales(dossier / "fichiers.jsonl")
     for fichier in binaires:
-        nomme = f": {fichier}" if noms_surs else ""
-        fautes.append(f"A binary file is changed{nomme}; its content cannot be checked.")
+        raison = juge_du_binaire(approuves.get(fichier), versions.get(fichier, []), finales.get(fichier))
+        if raison is not None:
+            nomme = f": {fichier}" if noms_surs else ""
+            fautes.append(f"A binary file is changed{nomme}; {raison}.")
     for commit in lire_commits(dossier / "commits.jsonl"):
         court = str(commit.get("sha") or "")[:7]
         message = trouvailles(commit.get("m") or "", mots)

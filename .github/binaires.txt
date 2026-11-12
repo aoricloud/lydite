@@ -1,0 +1,16 @@
+# Les fichiers binaires que la garde (.github/garde.py) laisse publier. Un binaire ajouté ou changé passe si, et
+# seulement si, son chemin et l'empreinte SHA-256 de son contenu sont sur une ligne de cette liste, telle que la branche
+# de base la porte : une PR ne s'approuve pas elle-même. Seul l'humain la change, par une PR à la main (Lydite ne publie
+# rien sous .github/, 8005), après avoir regardé chaque fichier qu'il y ajoute.
+#
+# Une ligne : l'empreinte, deux blancs, le chemin depuis la racine du dépôt (la forme de sha256sum). `#` ouvre un
+# commentaire, une ligne vide ne compte pas ; toute autre ligne rougit la garde et n'approuve rien.
+
+# La vitrine (docs/), PR 134, d'après le SHA256SUMS de la vitrine (bac45ec5).
+56d44f052725a903168b0e14e3bf4ec9e10cf9cbc3e6c91832b836ddb2db32d4  docs/assets/fonts/eb-garamond-italic-latin.woff2
+15dd1596faf1e97ffd3f646ca8f663184af32e45c60084228f7d46a724d81a0e  docs/assets/fonts/inter-latin.woff2
+143c810c976da779a0e97d943e218611814f514cce597710dd445fc9a39d3250  docs/assets/fonts/jetbrains-mono-latin.woff2
+6aef70142e443cd628b382c993fd4cfe12be21347f13ffeb5cf238d184b0ce7f  docs/assets/givre-lab.jpg
+2637e4abc103dc0b94e6644d10332df3d430d7fe2af450e7ef1c25c1d1f9f779  docs/assets/mycelium-lab.jpg
+e1a0309b4f8b6edb9666cfb3b6d3358545a4dafd0d95ca3b3a992b8f5e1ea816  docs/assets/physarum-lab.jpg
+a6372ed84f48d030b1334deab385000a3dfdba8fd5c8b55bc441021e90c7a597  docs/assets/social-preview.png
