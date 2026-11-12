@@ -1652,7 +1652,7 @@ fn une_vague_qui_s_ouvre_et_finit_pendant_le_delai_est_rendue_sans_avoir_vu_le_d
 
 #[test]
 fn kraken_etat_n_ecrit_aucun_controle_venu_d_une_main_et_garde_ses_propres_mots() {
-    let piege = "rouge\r\u{1b}[2K\u{202e}impossible (déclarée)";
+    let piege = "rouge\r\u{1b}[2K\u{202e}impossible (declared)";
     let evenements = vec![
         ouverture(V1, 1, "Écrire\u{1b}[2J\nsuite\u{202e}"),
         debut(V1, 1, 1),
@@ -1664,7 +1664,23 @@ fn kraken_etat_n_ecrit_aucun_controle_venu_d_une_main_et_garde_ses_propres_mots(
         assert!(!texte.contains(interdit), "{texte:?}");
     }
     let ligne = texte.lines().find(|ligne| ligne.starts_with(&format!("main-{V1}-1"))).expect(&texte);
-    assert_eq!(ligne, format!("main-{V1}-1 : set aside: rouge\\r\\u{{1b}}[2K\\u{{202e}}impossible (déclarée)"));
+    assert_eq!(ligne, format!("main-{V1}-1 : set aside: rouge\\r\\u{{1b}}[2K\\u{{202e}}impossible (declared)"));
     // L'objectif garde ses lignes, et écrit ses contrôles.
     assert!(texte.starts_with("Écrire\\u{1b}[2J\nsuite\\u{202e}\n"), "{texte:?}");
+}
+
+#[test]
+fn kraken_etat_dit_la_ligne_d_une_main_impossible_depuis_son_verdict() {
+    let impossible = (Verdict::Impossible, Foi::Declare);
+    let evenements = vec![
+        ouverture(V1, 1, "Un test"),
+        debut(V1, 1, 1),
+        fin(V1, 1, 1, (Couleur::Rouge, Foi::Declare), "première ligne\nnot proved: le défaut"),
+        verdict(V1, 1, impossible),
+    ];
+    let (texte, _) = etat_du_fil(&evenements);
+    let ligne = texte.lines().find(|ligne| ligne.starts_with(&format!("main-{V1}-1"))).expect(&texte);
+    // La ligne vient du verdict et de la dernière ligne du texte de la main, sans rien d'un texte gardé.
+    assert_eq!(ligne, format!("main-{V1}-1 : impossible (declared): not proved: le défaut"));
+    assert!(!texte.contains("déclarée"), "{texte}");
 }
