@@ -35,7 +35,8 @@ impl MurNatif {
 /// Err(erreur). Sa sortie passe par `journal`, un fichier temporaire effacé dans tous les cas. Une commande blanche ne
 /// part pas : elle ferait prendre toute main pour prouvée. Le profil choisit le mur : sous `mur = exige`, elle se
 /// rejoue par srt ([`sous_le_mur`]) ; sous `mur = natif`, par le mur natif ([`natif::rejouer`]), sans chercher ni
-/// lancer srt, et une preuve qui ne s'y rejoue pas est une erreur, jamais une coquille nue.
+/// lancer srt, et une preuve qui ne s'y rejoue pas est une erreur, jamais une coquille nue. Une preuve qui finit tuée
+/// du dehors ([`est_tuee`]) se rejoue une fois ([`rejouer_si_tuee`]), dans les deux murs.
 // raccourci : sous un mur demandé, la preuve se rejoue hors du mur, avec les droits de l'humain ; le code que la main
 // laisse peut y écrire le fil ou une empreinte ; monter avec le compte séparé du nœud
 pub(crate) fn rejouer(
@@ -64,10 +65,51 @@ fn rejouer_avec(
             Err(erreur) => (None, Err(format!("vérification « {commande} » impossible : {erreur}"))),
         };
     }
+    rejouer_si_tuee(|| jouer_sous_srt(profil, commande, bac, journal))
+}
+
+/// Ce que rend un rejeu : son `verif` et son issue.
+pub(crate) type Rejeu = (Option<String>, Result<(), String>);
+
+/// Un jeu de la preuve : son rejeu, et son statut si la commande a fini tuée ([`est_tuee`]).
+pub(crate) type Jeu = (Rejeu, Option<ExitStatus>);
+
+/// Vrai si la commande lancée a fini tuée du dehors : du signal 9 (SIGKILL) ou 15 (SIGTERM), ou par le code 137 ou 143,
+/// que rend une coquille dont la commande est morte d'un de ces deux signaux. Un autre signal est un plantage, rouge.
+/// Sous Windows, aucune fin n'est dite tuée.
+pub(crate) fn est_tuee(statut: &ExitStatus) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        matches!(statut.signal(), Some(9 | 15)) || matches!(statut.code(), Some(137 | 143))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = statut;
+        false
+    }
+}
+
+/// Joue la preuve avec `jouer` ; si elle a fini tuée ([`est_tuee`]), la joue une seule fois de plus, et l'issue de ce
+/// second jeu est celle du rejeu : sa première ligne de `verif`, écrite par Lydite, dit `proof killed (<statut du
+/// premier jeu>), replayed once`, puis vient la fin de la sortie du second jeu. La ligne s'ajoute après la coupe aux
+/// derniers caractères. Si le second jeu ne peut pas partir, `verif` reste absent, et la ligne avec lui.
+pub(crate) fn rejouer_si_tuee(mut jouer: impl FnMut() -> Jeu) -> Rejeu {
+    let (premier, tuee) = jouer();
+    let Some(statut) = tuee else {
+        return premier;
+    };
+    let ((verif, rejeu), _) = jouer();
+    (verif.map(|sortie| format!("proof killed ({statut}), replayed once\n{sortie}")), rejeu)
+}
+
+/// Un jeu de la preuve par la coquille, sous srt si le profil exige le mur : le mur préparé de nouveau, son dossier
+/// temporaire recréé vide, et le journal repris à neuf.
+fn jouer_sous_srt(profil: &Profil, commande: &str, bac: &Path, journal: &Path) -> Jeu {
     let delai = profil.delai_preuve();
     let srt = match sous_le_mur(profil, bac) {
         Ok(srt) => srt,
-        Err(erreur) => return (None, Err(format!("vérification « {commande} » impossible : {erreur}"))),
+        Err(erreur) => return ((None, Err(format!("vérification « {commande} » impossible : {erreur}"))), None),
     };
     let issue = executer(commande, bac, delai, journal, profil.variable_de_la_cle(), srt.as_ref());
     if let Some(srt) = &srt {
@@ -77,7 +119,11 @@ fn rejouer_avec(
     let sortie = lire_journal(journal);
     let issue = match issue {
         Ok(issue) => issue,
-        Err(erreur) => return (None, Err(erreur)),
+        Err(erreur) => return ((None, Err(erreur)), None),
+    };
+    let tuee = match &issue {
+        Ok(Some(statut)) if est_tuee(statut) => Some(*statut),
+        _ => None,
     };
     let rejeu = match issue {
         Err(erreur) => Err(erreur),
@@ -87,7 +133,7 @@ fn rejouer_avec(
             Err(queue(&format!("vérification « {commande} » : temps dépassé ({} s) :\n{sortie}", delai.as_secs_f32())))
         }
     };
-    (Some(queue(&sortie)), rejeu)
+    ((Some(queue(&sortie)), rejeu), tuee)
 }
 
 /// La correction d'un mur exigé que srt ne tient pas (6028).

@@ -64,6 +64,7 @@ use std::time::{Duration, Instant};
 use crate::branchements::bac::temporaire_de;
 use crate::branchements::claude::temporaire;
 use crate::branchements::processus::{attendre, echeance, retire_de_la_preuve, sans_session, tuer_et_attendre};
+use crate::branchements::srt::{Jeu, est_tuee, rejouer_si_tuee};
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{nommee, queue};
 use crate::coeur::fil::lot;
@@ -269,10 +270,24 @@ fn rejouer_avec(
     if commande.trim().is_empty() {
         return (None, Err(format!("vérification « {commande} » blanche : rien ne se rejoue, rien n'est prouvé")));
     }
+    rejouer_si_tuee(|| jouer_sous_le_mur(programme, maison, profil, commande, bac, journal, reglage))
+}
+
+/// Un jeu de la preuve sous le mur natif : le mur préparé de nouveau, et le journal repris à neuf. Rend son rejeu, et
+/// le statut de la commande si elle a fini tuée ([`est_tuee`]).
+fn jouer_sous_le_mur(
+    programme: &OsStr,
+    maison: &Path,
+    profil: &Profil,
+    commande: &str,
+    bac: &Path,
+    journal: &Path,
+    reglage: &Reglage,
+) -> Jeu {
     let delai = profil.delai_preuve();
     let mur = match preparer(maison, profil, bac, reglage) {
         Ok(mur) => mur,
-        Err(erreur) => return (None, Err(format!("vérification « {commande} » impossible : {erreur}"))),
+        Err(erreur) => return ((None, Err(format!("vérification « {commande} » impossible : {erreur}"))), None),
     };
     let jouee = executer(programme, commande, bac, delai, journal, profil.variable_de_la_cle(), &mur);
     let _ = fs::remove_file(&mur.filtre);
@@ -280,7 +295,11 @@ fn rejouer_avec(
     let sortie = lire_journal(journal);
     let (issue, arret) = match jouee {
         Ok(jouee) => jouee,
-        Err(erreur) => return (None, Err(erreur)),
+        Err(erreur) => return ((None, Err(erreur)), None),
+    };
+    let tuee = match &issue {
+        Ok(Some(statut)) if est_tuee(statut) => Some(*statut),
+        _ => None,
     };
     let rejeu = match issue {
         Err(erreur) => Err(erreur),
@@ -296,7 +315,7 @@ fn rejouer_avec(
         (Ok(()), Some(echec)) => Err(format!("vérification « {commande} » : {echec}")),
         (Err(erreur), Some(echec)) => Err(format!("{erreur}\n{echec}")),
     };
-    (Some(queue(&sortie)), rejeu)
+    ((Some(queue(&sortie)), rejeu), tuee)
 }
 
 /// Ce que [`preparer`] a posé pour un rejeu.

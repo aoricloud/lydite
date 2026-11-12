@@ -1847,9 +1847,9 @@ fn une_main_qui_touche_claude_n_est_pas_relancee() {
 }
 
 #[test]
-fn le_bail_couvre_la_main_sa_preuve_et_une_marge() {
+fn le_bail_couvre_la_main_ses_deux_jeux_de_preuve_et_une_marge() {
     let profil = Profil::faux(vec!["x".into()], Duration::from_secs(30));
-    assert_eq!(duree_du_bail(&profil), profil.delai_main() + Duration::from_secs(30 + 60));
+    assert_eq!(duree_du_bail(&profil), profil.delai_main() + Duration::from_secs(30 + 30 + 60));
 }
 
 #[test]

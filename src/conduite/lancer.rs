@@ -127,10 +127,11 @@ const ARRET: &str = "The wave stops: no more notes, starts or merges, and its ru
                      writable, or the settings that the proof names readable, then run again in a fresh wave the \
                      tasks that are not assembled.";
 
-/// La durée du bail de chaque main de la vague : le délai de la main, celui de sa preuve, et une minute de marge. Une
-/// tentative conclut donc avant son échéance, qui ne tombe que sur une main qui n'a rien rendu.
+/// La durée du bail de chaque main de la vague : le délai de la main, deux délais de preuve (une preuve tuée se rejoue
+/// une fois), et une minute de marge. Une tentative conclut donc avant son échéance, qui ne tombe que sur une main qui
+/// n'a rien rendu.
 pub(crate) fn duree_du_bail(profil: &Profil) -> Duration {
-    profil.delai_main() + profil.delai_preuve() + MARGE
+    profil.delai_main() + 2 * profil.delai_preuve() + MARGE
 }
 
 /// La base d'une vague sans `--pr` : le `HEAD` du dépôt visé, en sha. Un dépôt qui n'est pas un dossier est le refus
