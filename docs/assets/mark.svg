@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><title>Lydite</title><g transform="rotate(7 24 24)">
+<rect x="9" y="4" width="30" height="40" rx="5" fill="#181B21" stroke="#343A43"/>
+<g fill="none" stroke-linecap="round">
+<path d="M15 20L33 17.6" stroke="#E8B931" stroke-width="2.6"/>
+<path d="M16 27L30 25.3" stroke="#C9CDD2" stroke-opacity=".62" stroke-width="2"/>
+<path d="M15 34L26 32.9" stroke="#8E969F" stroke-width="1.7" stroke-dasharray=".1 3.6"/>
+</g></g></svg>

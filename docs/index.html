@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lydite: a harness for coding agents, with independent verification</title>
+<meta name="description" content="Lydite runs coding agents (called hands) on your repository, each hand’s commands behind a sandbox wall, replays your proof command itself, and opens a pull request only for what passed, with a receipt.">
+<link rel="canonical" href="https://aoricloud.github.io/lydite/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://aoricloud.github.io/lydite/">
+<meta property="og:title" content="Lydite: a harness for coding agents, with independent verification">
+<meta property="og:description" content="Lydite runs coding agents (called hands) on your repository, each hand’s commands behind a sandbox wall, replays your proof command itself, and opens a pull request only for what passed, with a receipt.">
+<meta property="og:image" content="https://aoricloud.github.io/lydite/assets/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0B0D10">
+<link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+<style>
+
+@font-face { font-family: "Inter"; src: url("assets/fonts/inter-latin.woff2") format("woff2"); font-weight: 400 800; font-style: normal; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("assets/fonts/jetbrains-mono-latin.woff2") format("woff2"); font-weight: 400 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "EB Garamond"; src: url("assets/fonts/eb-garamond-italic-latin.woff2") format("woff2"); font-weight: 400 500; font-style: italic; font-display: swap; }
+/* Lydite, la pierre de touche. Un fond de pierre noire ; l'or ne marque que ce que Lydite a rejoué lui-même ;
+   ce qu'une main a seulement déclaré est en craie pâle ; ce qui n'a pas été rejoué est un trait creux.
+   Mise en page : une colonne de 1120 px, des filets de 1 px, des angles de 4 px. Un seul thème, sombre, voulu. */
+:root {
+  --pierre: #0B0D10;      /* le fond : la pierre de touche */
+  --ardoise: #14171C;     /* les surfaces : le reçu, les cartes */
+  --filet: #262B32;       /* les filets et les bords */
+  --filet-fort: #3A414A;
+  --craie: #F1EEE6;       /* le texte ; chaude, pour s'accorder à l'or */
+  --cendre: #8E969F;      /* le texte second, le déclaré, le non-rejoué */
+  --pale: #C9CDD2;        /* le trait de ce qui brille sans être de l'or */
+  --or: #E8B931;          /* le trait : ce que Lydite a rejoué lui-même, et rien d'autre */
+  --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --serif: "EB Garamond", ui-serif, "Iowan Old Style", Charter, Georgia, serif;
+  --large: 1120px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--pierre); color: var(--craie); }
+body { margin: 0; font: 400 16px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration-color: rgb(241 238 230 / .35); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--or); }
+:focus-visible { outline: 2px solid var(--or); outline-offset: 3px; border-radius: 3px; }
+code, pre { font-family: var(--mono); }
+p code, li code { font-size: .88em; background: var(--ardoise); border: 1px solid var(--filet); border-radius: 3px; padding: 1px 5px; overflow-wrap: anywhere; }
+.enveloppe { max-width: var(--large); margin-inline: auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+@media (min-width: 760px) { .enveloppe { padding-left: max(36px, env(safe-area-inset-left, 0px)); padding-right: max(36px, env(safe-area-inset-right, 0px)); } }
+
+/* ---------- la marque et le trait ---------- */
+.trait { display: inline-block; width: 22px; height: 3px; border-radius: 2px; background: var(--or); transform: rotate(-6deg); flex: none; }
+.trait.pale { background: var(--pale); opacity: .62; }
+.trait.creux { background: none; height: 0; border-top: 3px dotted var(--cendre); border-radius: 0; }
+.logo { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font: 800 22px/1 var(--sans); letter-spacing: -.03em; }
+.logo svg { width: 34px; height: 34px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; font: 500 15px/1 var(--sans); text-decoration: none; border: 1px solid var(--filet-fort);
+  border-radius: 4px; padding: 13px 16px; color: var(--craie); }
+.btn:hover { border-color: var(--craie); }
+.btn.plein { background: var(--craie); border-color: var(--craie); color: var(--pierre); font-weight: 600; }
+.btn.depot { font-family: var(--mono); font-size: 13.5px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 26px 0 0; }
+.etat { font: 400 12.5px/1.6 var(--mono); color: var(--cendre); margin: 18px 0 0; }
+.lead { font-size: 17px; line-height: 1.55; color: rgb(241 238 230 / .8); margin: 0; max-width: 56ch; text-wrap: pretty; }
+/* le slogan, en signature : la voix humaine, une seule fois par page */
+.signature { font: italic 400 clamp(21px, 1vw + 16px, 27px)/1.3 var(--serif); color: rgb(241 238 230 / .88); margin: 0 0 20px; }
+.lead em { font-style: normal; color: var(--craie); border-bottom: 1px solid var(--filet-fort); }
+
+/* ---------- les sections ---------- */
+.sec { border-top: 1px solid var(--filet); padding-block: clamp(52px, 8vw, 100px); }
+.sur { font: 500 12px/1.2 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--cendre);
+  display: flex; align-items: center; gap: 12px; margin: 0 0 16px; }
+h2 { font: 700 clamp(26px, 2.2vw + 14px, 40px)/1.12 var(--sans); letter-spacing: -.022em; margin: 0 0 14px; text-wrap: balance; max-width: 22ch; }
+.chapo { color: rgb(241 238 230 / .78); max-width: 62ch; margin: 0 0 38px; font-size: 17px; text-wrap: pretty; }
+.legende { font: italic 400 17px/1.4 var(--serif); color: rgb(241 238 230 / .82); margin: 16px 0 0; max-width: 70ch; text-wrap: pretty; }
+.legende b { font-style: normal; font: 500 12px var(--mono); letter-spacing: .08em; color: var(--cendre); margin-right: 6px; }
+
+/* les étapes d'une vague */
+.etapes { list-style: none; margin: 0; padding: 0; }
+.etapes b { display: block; font-weight: 600; font-size: 17.5px; line-height: 1.3; margin-bottom: 5px; text-wrap: balance; }
+.etapes span { display: block; color: rgb(241 238 230 / .72); font-size: 15.5px; }
+
+/* le reçu annoté : une ligne du reçu à gauche, la note d'une personne à droite */
+.recu { margin: 0; }
+.recu-corps { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); column-gap: 40px; align-items: start;
+  background: var(--ardoise); border: 1px solid var(--filet); border-radius: 4px; padding: clamp(16px, 3vw, 34px); }
+.recu-corps .l { grid-column: 1; font: 400 13.5px/1.75 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+  color: rgb(241 238 230 / .7); margin: 0; padding-left: 36px; position: relative; min-height: 1.75em; }
+.recu-corps .l.vide { min-height: 0; height: 1em; }
+.recu-corps .l.att { color: var(--cendre); }
+.recu-corps .l[data-k] { color: var(--craie); }
+.recu-corps .l[data-k]::before { content: ""; position: absolute; left: 0; top: .78em; width: 22px; height: 3px; border-radius: 2px;
+  background: var(--or); transform: rotate(-6deg); }
+.recu-corps .l[data-k="pale"]::before { background: var(--pale); opacity: .62; }
+.recu-corps .l[data-k="creux"]::before { background: none; height: 0; border-top: 3px dotted var(--cendre); border-radius: 0; }
+.recu-corps .note { grid-column: 2; font: italic 400 18px/1.32 var(--serif); color: var(--craie); margin: 0; padding: 1px 0 12px; text-wrap: pretty; }
+@media (max-width: 760px) {
+  .recu-corps { grid-template-columns: minmax(0, 1fr); }
+  .recu-corps .l, .recu-corps .note { grid-column: 1; }
+  .recu-corps .l { font-size: 12.5px; padding-left: 30px; }
+  .recu-corps .note { padding: 6px 0 16px 30px; font-size: 17.5px; }
+}
+
+/* ce que Lydite refuse */
+.refus { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 0 44px; }
+.refus li { border-top: 1px solid var(--filet); padding: 18px 0 22px; display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 4px 12px; align-items: baseline; }
+.refus .code { font: 500 13px/1.6 var(--mono); color: var(--cendre); }
+.refus b { font-weight: 600; font-size: 17px; line-height: 1.35; display: block; margin-bottom: 4px; }
+.refus span { color: rgb(241 238 230 / .72); font-size: 15px; }
+.apres { margin: 26px 0 0; max-width: 70ch; color: rgb(241 238 230 / .78); }
+
+/* les trois simulateurs */
+.bancs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 28px; margin: 0; padding: 0; list-style: none; }
+.banc { display: grid; gap: 12px; align-content: start; }
+.banc img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--filet); border-radius: 4px; background: #000; }
+.banc h3 { font: 700 20px/1.2 var(--sans); letter-spacing: -.015em; margin: 4px 0 0; }
+.banc p { margin: 0; color: rgb(241 238 230 / .75); font-size: 15px; }
+.banc .compte { font: 400 12.5px/1.6 var(--mono); color: var(--cendre); font-variant-numeric: tabular-nums; }
+.banc .compte b { color: var(--craie); font-weight: 500; }
+.banc .compte .trait { margin-right: 8px; vertical-align: middle; }
+.banc .liens { font: 400 13px var(--mono); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.somme { margin: 34px 0 0; padding-top: 18px; border-top: 1px solid var(--filet); font: 400 13px/1.7 var(--mono); color: var(--cendre); font-variant-numeric: tabular-nums; max-width: 86ch; }
+.somme b { color: var(--craie); font-weight: 500; }
+
+/* installer */
+pre.cmd { margin: 0 0 12px; background: var(--ardoise); border: 1px solid var(--filet); border-radius: 4px; padding: 16px 18px;
+  font: 400 13px/1.75 var(--mono); overflow-x: auto; color: var(--craie); }
+pre.cmd .c { color: var(--cendre); }
+.deux { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 40px; align-items: start; }
+.deux > * { min-width: 0; }
+@media (max-width: 860px) { .deux { grid-template-columns: minmax(0, 1fr); gap: 28px; } }
+.depuis { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.depuis li { border-top: 1px solid var(--filet); padding: 14px 0; font-size: 15px; color: rgb(241 238 230 / .75); }
+.depuis b { display: block; color: var(--craie); font-weight: 600; font-size: 16px; }
+.petit { font-size: 14.5px; color: rgb(241 238 230 / .7); margin: 12px 0 0; max-width: 70ch; }
+
+/* ce que la page ne montre pas */
+.limites { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 22px 44px; max-width: 980px; }
+.limites li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 14px; align-items: start; color: rgb(241 238 230 / .75); font-size: 15.5px; }
+.limites .trait { margin-top: .7em; }
+.limites b { display: block; color: var(--craie); font-weight: 600; }
+
+.pied { border-top: 1px solid var(--filet); padding-block: 44px 64px; }
+.pied .nom-pierre { font: italic 400 clamp(21px, 1.4vw + 14px, 28px)/1.3 var(--serif); max-width: 34ch; margin: 14px 0 26px; text-wrap: balance; }
+.pied small { display: block; font: 400 12.5px/1.7 var(--mono); color: var(--cendre); max-width: 80ch; }
+
+/* ---------- le mouvement : un seul moment, à l'ouverture ----------
+   Le dessin est complet au repos ; la classe « joue », posée par le script quand la page s'affiche vraiment,
+   ne fait que le rejouer. Une page figée (onglet en fond, vignette) montre donc le dessin entier. */
+@keyframes tirer { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes venir { from { opacity: 0; } }
+@keyframes souffle { 50% { opacity: .22; } }
+@media (prefers-reduced-motion: no-preference) {
+  .anime.joue .dz-t1, .anime .dz-t2 { stroke-dasharray: 1; animation: tirer .95s cubic-bezier(.3, .7, .2, 1) both; }
+  .anime.joue .dz-t1 { animation-delay: .35s; }
+  .anime.joue .dz-t2 { animation-delay: 1.25s; }
+  .anime.joue .dz-t3 { animation: venir .7s 2.1s both; }
+  .anime.joue .dz-e1 { animation: venir .5s 1s both; }
+  .anime.joue .dz-e2 { animation: venir .5s 1.9s both; }
+  .anime.joue .dz-e3 { animation: venir .5s 2.5s both; }
+  .anime.joue .dz-lueur { animation: venir 1s .9s both; }
+  .anime .dz-lueur { animation: souffle 5s 2.2s ease-in-out infinite; }
+  .anime.joue .vg-a { stroke-dasharray: 1; animation: tirer .8s .2s ease-out both; }
+  .anime.joue .vg-n { animation: venir .4s .7s both; }
+  .anime.joue .vg-p { animation: venir .5s 1.2s both; }
+  .anime.joue .vg-o1 { stroke-dasharray: 1; animation: tirer .9s 1.5s ease-out both; }
+  .anime.joue .vg-o2 { stroke-dasharray: 1; animation: tirer .9s 2.2s ease-out both; }
+  .anime.joue .vg-x { animation: venir .6s 2.5s both; }
+  .anime.joue .vg-r { animation: venir .7s 3.1s both; }
+}
+
+
+/* Parti B, « le parcours » : une planche. Le nom et son sous-titre, puis la figure qui montre une vague de bout en bout. */
+.b .tete { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; padding-block: 20px 0; }
+.b .tete .etat { margin: 0; }
+.b .tete .depot-lien { margin-left: auto; font: 400 13px var(--mono); color: var(--cendre); text-decoration: none; }
+.b .tete .depot-lien:hover { color: var(--craie); }
+.b .titre { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: clamp(20px, 4vw, 60px); align-items: end;
+  padding-block: clamp(28px, 5vw, 64px) clamp(24px, 3.4vw, 40px); }
+.b h1 { font: 800 clamp(68px, 10vw, 136px)/.88 var(--sans); letter-spacing: -.05em; margin: 0 0 clamp(14px, 2vw, 26px) -.04em; }
+.b .sous-titre { font: 600 clamp(22px, 1.8vw + 12px, 35px)/1.15 var(--sans); letter-spacing: -.018em; margin: 0 0 14px; max-width: 20ch; text-wrap: balance; }
+.b .signature { margin-bottom: 0; }
+.b .titre .actions { margin-top: 20px; }
+@media (max-width: 820px) { .b .titre { grid-template-columns: minmax(0, 1fr); } }
+.b .ouv { padding-bottom: clamp(44px, 6vw, 76px); }
+.b .planche { margin: 0; }
+.b .planche-cadre { border: 1px solid var(--filet); background: #0D0F12; border-radius: 4px; padding: clamp(14px, 2.4vw, 30px); }
+.b .planche svg { display: block; width: 100%; height: auto; }
+.b .planche svg.debout { display: none; }
+@media (max-width: 760px) { .b .planche svg.couche { display: none; } .b .planche svg.debout { display: block; max-width: 440px; margin-inline: auto; } }
+.b .etapes { counter-reset: e; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 32px 40px; }
+.b .etapes li { counter-increment: e; border-top: 1px solid #555C65; padding-top: 14px; }
+.b .etapes li[data-k="or"], .b .etapes li[data-k="pierre"] { border-top-color: var(--or); }
+.b .etapes li::before { content: counter(e); display: block; font: 500 13px var(--mono); color: var(--cendre); margin-bottom: 10px; }
+
+</style>
+</head>
+<body>
+<main class="b">
+
+<header class="ouv"><div class="enveloppe">
+<div class="tete"><a class="logo" href="https://github.com/aoricloud/lydite" aria-label="Lydite on GitHub"><svg viewBox="0 0 48 48" aria-hidden="true"><g transform="rotate(7 24 24)">
+<rect x="9" y="4" width="30" height="40" rx="5" fill="#181B21" stroke="#343A43"/>
+<g fill="none" stroke-linecap="round">
+<path d="M15 20L33 17.6" stroke="#E8B931" stroke-width="2.6"/>
+<path d="M16 27L30 25.3" stroke="#C9CDD2" stroke-opacity=".62" stroke-width="2"/>
+<path d="M15 34L26 32.9" stroke="#8E969F" stroke-width="1.7" stroke-dasharray=".1 3.6"/>
+</g></g></svg></a>
+<p class="etat">v0.4.0 · Rust · MIT · early</p><a class="depot-lien" href="https://github.com/aoricloud/lydite">github.com/aoricloud/lydite</a></div>
+<div class="titre">
+<div><h1>Lydite</h1>
+<p class="sous-titre">A harness for coding agents, with independent verification.</p>
+<p class="signature">The agents’ word is never the proof.</p></div>
+<div><p class="lead">Lydite runs coding agents (called <em>hands</em>) on your repository, each hand’s commands behind a sandbox wall, replays your proof command itself, and opens a pull request only for what passed, with a receipt.</p>
+<p class="actions"><a class="btn plein" href="#recu">Read a real receipt</a><a class="btn" href="#installer">Install</a></p></div>
+</div>
+<figure class="planche">
+<div class="planche-cadre">
+<svg class="anime couche" viewBox="0 0 1200 352" role="img" aria-label="How a wave goes: you give an objective and the command that proves it; three hands work, their commands behind the wall; Lydite replays your proof itself; critical tasks are reviewed; what passed goes into a pull request with its receipt. A task that stays red after one retry is set aside."><defs>
+<pattern id="vl-ha" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#1A1E24"/><rect width="3" height="8" fill="#434A54"/></pattern>
+<linearGradient id="vl-pv" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#252A32"/><stop offset="1" stop-color="#0F1115"/></linearGradient>
+</defs>
+<text x="0" y="44" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="1.8" fill="#8E969F">YOU</text>
+<text x="262" y="44" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="1.8" fill="#8E969F">BEHIND THE WALL</text><text x="262" y="68" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15.5" fill="#F1EEE6" fill-opacity=".8">each hand’s commands</text>
+<text x="622" y="44" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="1.8" fill="#8E969F">LYDITE</text><text x="622" y="68" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15.5" fill="#F1EEE6" fill-opacity=".8">replays your proof itself</text>
+<text x="842" y="44" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="1.8" fill="#8E969F">REVIEW</text><text x="842" y="68" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15.5" fill="#F1EEE6" fill-opacity=".8">of critical tasks</text>
+<text x="990" y="44" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" letter-spacing="1.8" fill="#8E969F">PULL REQUEST</text><text x="990" y="68" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15.5" fill="#F1EEE6" fill-opacity=".8">with its receipt</text>
+
+<rect x="0" y="104" width="196" height="164" rx="4" fill="#14171C" stroke="#262B32"/>
+<text x="18" y="138" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="16" font-weight="600" fill="#F1EEE6">An objective</text>
+<text x="18" y="164" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15.5" fill="#F1EEE6" fill-opacity=".8">and the command</text><text x="18" y="186" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15.5" fill="#F1EEE6" fill-opacity=".8">that proves it:</text>
+<rect x="18" y="206" width="124" height="36" rx="3" fill="#0E1013" stroke="#3A414A"/>
+<text x="31" y="229" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="15" fill="#F1EEE6">cargo test</text>
+<g fill="none" stroke="#666D76" stroke-width="2">
+<path class="vg-a" pathLength="1" d="M196 222C232 222 232 150 262 150"/>
+<path class="vg-a" pathLength="1" d="M196 222H262"/>
+<path class="vg-a" pathLength="1" d="M196 222C232 222 232 294 262 294"/>
+</g>
+
+<rect x="274" y="104" width="274" height="236" fill="#0E1013" fill-opacity=".7"/>
+<path d="M274 104.5H548M274 339.5H548" stroke="#3A414A"/>
+<rect x="262" y="104" width="12" height="236" fill="url(#vl-ha)"/><rect x="548" y="104" width="12" height="236" fill="url(#vl-ha)"/>
+<path class="vg-a" pathLength="1" d="M274 150H642" stroke="#666D76" stroke-width="2" fill="none"/>
+<circle class="vg-n" cx="310" cy="150" r="8" fill="#0B0D10" stroke="#F1EEE6" stroke-width="1.8"/>
+<text x="328" y="138" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" fill="#F1EEE6" fill-opacity=".86">hand · task 1</text><path class="vg-a" pathLength="1" d="M274 222H642" stroke="#666D76" stroke-width="2" fill="none"/>
+<circle class="vg-n" cx="310" cy="222" r="8" fill="#0B0D10" stroke="#F1EEE6" stroke-width="1.8"/>
+<text x="328" y="210" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" fill="#F1EEE6" fill-opacity=".86">hand · task 2</text><path class="vg-a" pathLength="1" d="M274 294H642" stroke="#666D76" stroke-width="2" fill="none"/>
+<circle class="vg-n" cx="310" cy="294" r="8" fill="#0B0D10" stroke="#F1EEE6" stroke-width="1.8"/>
+<text x="328" y="282" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" fill="#F1EEE6" fill-opacity=".86">hand · task 3</text>
+
+<rect x="642" y="112" width="40" height="220" rx="11" fill="url(#vl-pv)" stroke="#39404A"/>
+<g class="vg-p" fill="none" stroke-linecap="round">
+<path d="M651 152L673 147" stroke="#E8B931" stroke-width="4"/>
+<path d="M651 224L673 219" stroke="#E8B931" stroke-width="4"/>
+<path d="M652 296L673 291" stroke="#8E969F" stroke-width="3.2" stroke-dasharray=".1 6.5"/>
+</g>
+
+<text x="700" y="137" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" fill="#F1EEE6" fill-opacity=".86">green</text>
+<text x="700" y="209" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" fill="#F1EEE6" fill-opacity=".86">red, one retry, green</text>
+<text x="700" y="281" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" fill="#F1EEE6" fill-opacity=".86">red, one retry, red</text>
+<g fill="none" stroke="#E8B931" stroke-width="3" stroke-linecap="round">
+<path class="vg-o1" pathLength="1" d="M684 150H936C966 150 962 176 990 176"/>
+<path class="vg-o2" pathLength="1" d="M684 222H936C966 222 962 198 990 198"/>
+</g>
+<g class="vg-x">
+<path d="M686 294H792" stroke="#8E969F" stroke-width="2.4" stroke-linecap="round" stroke-dasharray=".1 8" fill="none"/>
+<path d="M800 288L812 300M800 300L812 288" stroke="#F1EEE6" stroke-width="2" stroke-linecap="round" fill="none"/>
+<text x="824" y="299" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#F1EEE6">set aside</text>
+<text x="700" y="322" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="12" fill="#8E969F">not in the pull request</text>
+</g>
+
+<path d="M880 116V254" stroke="#F1EEE6" stroke-opacity=".55" stroke-width="1.5"/>
+<circle cx="880" cy="150" r="5.5" fill="#0B0D10" stroke="#F1EEE6" stroke-width="1.6"/>
+<circle cx="880" cy="222" r="5.5" fill="#0B0D10" stroke="#F1EEE6" stroke-width="1.6"/>
+
+<rect x="990" y="104" width="210" height="172" rx="4" fill="#14171C" stroke="#262B32"/>
+<text x="1006" y="133" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13.5" fill="#F1EEE6">Receipt</text>
+<g class="vg-r" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11.5" fill="#F1EEE6" fill-opacity=".86">
+<path d="M1006 160L1026 157.8" stroke="#E8B931" stroke-width="3" stroke-linecap="round"/><text x="1034" y="163">Proof: … → green</text>
+<path d="M1006 186L1026 183.8" stroke="#E8B931" stroke-width="3" stroke-linecap="round"/><text x="1034" y="189">Replayed on commit …</text>
+<path d="M1006 212L1026 209.8" stroke="#8E969F" stroke-width="3" stroke-linecap="round" stroke-dasharray=".1 5.4"/><text x="1034" y="215">Not replayed: …</text>
+<text x="1006" y="252" fill="#8E969F" fill-opacity="1">Thread sealed: sha256 …</text>
+</g>
+<text x="990" y="310" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15.5" font-weight="600" fill="#F1EEE6">You merge.</text>
+<text x="990" y="332" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14.5" fill="#8E969F">Lydite never does.</text></svg>
+<svg class="anime debout" viewBox="0 0 360 744" role="img" aria-label="How a wave goes, from your objective and proof command down to a pull request with its receipt."><defs>
+<pattern id="vd-ha" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#1A1E24"/><rect width="3" height="8" fill="#434A54"/></pattern>
+<linearGradient id="vd-pv" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#252A32"/><stop offset="1" stop-color="#0F1115"/></linearGradient>
+</defs>
+<text x="0" y="14" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#8E969F">YOU</text>
+<rect x="0" y="26" width="360" height="64" rx="4" fill="#14171C" stroke="#262B32"/>
+<text x="14" y="51" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14.5" font-weight="600" fill="#F1EEE6">An objective</text>
+<text x="14" y="73" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#F1EEE6" fill-opacity=".8">and the command that proves it:</text>
+<rect x="250" y="41" width="98" height="34" rx="3" fill="#0E1013" stroke="#3A414A"/>
+<text x="259" y="63" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="13" fill="#F1EEE6">cargo test</text>
+<g fill="none" stroke="#666D76" stroke-width="2">
+<path class="vg-a" pathLength="1" d="M230 90C230 112 150 106 150 128"/>
+<path class="vg-a" pathLength="1" d="M230 90V128"/>
+<path class="vg-a" pathLength="1" d="M230 90C230 112 310 106 310 128"/>
+</g>
+
+<rect x="0" y="139" width="360" height="123" fill="#0E1013" fill-opacity=".7"/>
+<rect x="0" y="128" width="360" height="11" fill="url(#vd-ha)"/><rect x="0" y="262" width="360" height="11" fill="url(#vd-ha)"/>
+<text x="10" y="184" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#8E969F">BEHIND</text><text x="10" y="199" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#8E969F">THE WALL</text>
+<text x="10" y="220" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#F1EEE6" fill-opacity=".8">each hand’s</text><text x="10" y="237" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#F1EEE6" fill-opacity=".8">commands</text>
+<path class="vg-a" pathLength="1" d="M150 139V320" stroke="#666D76" stroke-width="2" fill="none"/>
+<circle class="vg-n" cx="150" cy="200" r="7.5" fill="#0B0D10" stroke="#F1EEE6" stroke-width="1.8"/>
+<text x="163" y="204" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" fill="#F1EEE6" fill-opacity=".82">hand</text><path class="vg-a" pathLength="1" d="M230 139V320" stroke="#666D76" stroke-width="2" fill="none"/>
+<circle class="vg-n" cx="230" cy="200" r="7.5" fill="#0B0D10" stroke="#F1EEE6" stroke-width="1.8"/>
+<text x="243" y="204" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" fill="#F1EEE6" fill-opacity=".82">hand</text><path class="vg-a" pathLength="1" d="M310 139V320" stroke="#666D76" stroke-width="2" fill="none"/>
+<circle class="vg-n" cx="310" cy="200" r="7.5" fill="#0B0D10" stroke="#F1EEE6" stroke-width="1.8"/>
+<text x="323" y="204" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" fill="#F1EEE6" fill-opacity=".82">hand</text>
+
+<text x="0" y="330" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#8E969F">LYDITE</text>
+<text x="0" y="350" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#F1EEE6" fill-opacity=".8">replays your</text><text x="0" y="367" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#F1EEE6" fill-opacity=".8">proof itself</text>
+<rect x="124" y="320" width="212" height="40" rx="11" fill="url(#vd-pv)" stroke="#39404A"/>
+<g class="vg-p" fill="none" stroke-linecap="round">
+<path d="M139 343L161 338" stroke="#E8B931" stroke-width="4"/>
+<path d="M219 343L241 338" stroke="#E8B931" stroke-width="4"/>
+<path d="M299 343L321 338" stroke="#8E969F" stroke-width="3.2" stroke-dasharray=".1 6.5"/>
+</g>
+
+<g fill="none" stroke="#E8B931" stroke-width="3" stroke-linecap="round">
+<path class="vg-o1" pathLength="1" d="M150 362V592"/>
+<path class="vg-o2" pathLength="1" d="M230 362V592"/>
+</g>
+<rect x="114" y="384" width="72" height="24" rx="3" fill="#0B0D10" stroke="#262B32"/><text x="150" y="400" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" fill="#F1EEE6" fill-opacity=".86" text-anchor="middle">green</text>
+<rect x="194" y="384" width="72" height="56" rx="3" fill="#0B0D10" stroke="#262B32"/><text x="230" y="400" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" fill="#F1EEE6" fill-opacity=".86" text-anchor="middle">red</text><text x="230" y="416" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" fill="#F1EEE6" fill-opacity=".86" text-anchor="middle">one retry</text><text x="230" y="432" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" fill="#F1EEE6" fill-opacity=".86" text-anchor="middle">green</text>
+<g class="vg-x">
+<path d="M310 364V462" stroke="#8E969F" stroke-width="2.4" stroke-linecap="round" stroke-dasharray=".1 8" fill="none"/>
+<rect x="274" y="384" width="72" height="56" rx="3" fill="#0B0D10" stroke="#262B32"/><text x="310" y="400" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" fill="#F1EEE6" fill-opacity=".86" text-anchor="middle">red</text><text x="310" y="416" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" fill="#F1EEE6" fill-opacity=".86" text-anchor="middle">one retry</text><text x="310" y="432" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" fill="#F1EEE6" fill-opacity=".86" text-anchor="middle">red</text>
+<path d="M304 468L316 480M304 480L316 468" stroke="#F1EEE6" stroke-width="2" stroke-linecap="round" fill="none"/>
+<text x="310" y="500" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14" font-weight="600" fill="#F1EEE6" text-anchor="middle">set aside</text>
+<text x="310" y="517" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="10.5" fill="#8E969F" text-anchor="middle">not in the PR</text>
+</g>
+
+<text x="0" y="536" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#8E969F">REVIEW</text>
+<text x="0" y="556" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#F1EEE6" fill-opacity=".8">of critical</text><text x="0" y="573" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#F1EEE6" fill-opacity=".8">tasks</text>
+<path d="M124 548H256" stroke="#F1EEE6" stroke-opacity=".55" stroke-width="1.5"/>
+<circle cx="150" cy="548" r="5.5" fill="#0B0D10" stroke="#F1EEE6" stroke-width="1.6"/>
+<circle cx="230" cy="548" r="5.5" fill="#0B0D10" stroke="#F1EEE6" stroke-width="1.6"/>
+
+<text x="0" y="608" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#8E969F">PULL</text><text x="0" y="623" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#8E969F">REQUEST</text>
+<text x="0" y="644" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#F1EEE6" fill-opacity=".8">with its</text><text x="0" y="661" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13" fill="#F1EEE6" fill-opacity=".8">receipt</text>
+<rect x="124" y="592" width="236" height="112" rx="4" fill="#14171C" stroke="#262B32"/>
+<text x="138" y="617" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="12.5" fill="#F1EEE6">Receipt</text>
+<g class="vg-r" font-family="'JetBrains Mono',ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace" font-size="11" fill="#F1EEE6" fill-opacity=".86">
+<path d="M138 640L158 637.8" stroke="#E8B931" stroke-width="3" stroke-linecap="round"/><text x="166" y="643">Proof: … → green</text>
+<path d="M138 662L158 659.8" stroke="#E8B931" stroke-width="3" stroke-linecap="round"/><text x="166" y="665">Replayed on commit …</text>
+<path d="M138 684L158 681.8" stroke="#8E969F" stroke-width="3" stroke-linecap="round" stroke-dasharray=".1 5.4"/><text x="166" y="687">Not replayed: …</text>
+</g>
+<text x="124" y="732" font-family="Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14.5" fill="#8E969F"><tspan font-weight="600" fill="#F1EEE6">You merge.</tspan> Lydite never does.</text></svg>
+</div>
+<figcaption class="legende"><b>FIG. 1</b>A wave. A thread stays ash while the work is only declared by a hand; it turns gold once Lydite has replayed your proof itself.</figcaption>
+</figure>
+</div></header>
+<section class="sec" id="chemin"><div class="enveloppe">
+<p class="sur"><i class="trait"></i>How a wave goes</p>
+<h2>The same wave, step by step</h2>
+<p class="chapo">A wave is one launch: an objective, its tasks, one pull request.</p>
+
+<ol class="etapes">
+<li data-k="pale"><b>You give an objective and the command that proves the work done.</b><span>An issue works too. The proof is yours: <code>--verify "cargo test"</code>.</span></li>
+<li data-k="pale"><b>A hand splits it into tasks. Lydite reads the plan itself.</b><span>With <code>--dry-run</code> it stops here and shows the plan.</span></li>
+<li data-k="pale"><b>Each task goes to a hand, in its own git worktree and branch.</b><span>Under a required wall, the hand’s commands run behind it, with a filtered network exit.</span></li>
+<li data-k="pierre"><b>When a hand says it is done, Lydite replays your proof itself.</b><span>Under a required wall, in a new sandboxed process. Green: the work is merged into the wave’s branch, and the proof is replayed after every merge. Red: one retry, with the error given to the hand, then the task is set aside.</span></li>
+<li data-k="or"><b>The tasks a plan marks critical are reviewed by another hand.</b><span>It gets the diff and the replayed proof, and must say what was replayed and what was not.</span></li>
+<li data-k="or"><b>Lydite pushes the branch, opens the pull request with its receipt, and reads the CI.</b><span>It never merges. Merging is your rule.</span></li>
+</ol>
+</div></section>
+<section class="sec" id="recu"><div class="enveloppe">
+<p class="sur"><i class="trait"></i>What a Lydite pull request says</p>
+<h2>A real receipt, read line by line</h2>
+<p class="chapo">This is the body of <a href="https://github.com/aoricloud/lydite/pull/127">pull request #127</a> of Lydite’s own repository, merged on 11 November 2026, abridged (<code>[…]</code>) and rewrapped. Lydite wrote it. The notes on the right are ours.</p>
+<figure class="recu">
+<div class="recu-corps">
+<p class="l">Receipt</p>
+<p class="l att">- […]</p>
+<p class="l" data-k="or">- 3 hands, 0 retries, 0 set aside</p>
+<p class="note">Counted by Lydite, not reported by the agents: the hands, their retries, the tasks set aside.</p>
+<p class="l">- Effort: hand: high; reviewer: high</p>
+<p class="l" data-k="or">- Thread sealed at 4448678 bytes: sha256 f58fc6b0[…].</p>
+<p class="note">The journal of the run, sealed by its SHA-256 before the pull request is written.</p>
+<p class="l">- Proof settings changed: none</p>
+<p class="l vide"></p>
+<p class="l att">Judge every sandbox key that opens a hand’s wall, […]</p>
+<p class="l vide"></p>
+<p class="l" data-k="or">Proof: cargo test &amp;&amp; cargo clippy --all-targets -- -D warnings &amp;&amp; cargo fmt --check → green</p>
+<p class="note">Your command, run again by Lydite after the hands have finished. Not by them.</p>
+<p class="l vide"></p>
+<p class="l att">[…]</p>
+<p class="l vide"></p>
+<p class="l" data-k="or">Points to justify (found by Lydite without a model):</p>
+<p class="note">Found by Lydite itself, without a model: tests of the base that lost lines, assertions removed or changed. The reviewer is asked to say whether each one is justified.</p>
+<p class="l">- `src/branchements/srt/tests.rs`, line 194: an assertion removed or changed</p>
+<p class="l">- `src/coeur/protocole/tests.rs`: a test of the base changed (4 lines removed)</p>
+<p class="l att">[…] 17 more lines</p>
+<p class="l vide"></p>
+<p class="l">Review: 11 remarks, 0 blocking.</p>
+<p class="l" data-k="or">Reviewed and replayed on commit 9627088c2723976c196642ea836803dc20817a51.</p>
+<p class="note">The exact commit that was replayed and reviewed.</p>
+<p class="l" data-k="creux">Not replayed (from the review):</p>
+<p class="note">What the review could not see replayed. Lydite prints it.</p>
+<p class="l">- Nothing here plays a real Claude Code hand on Linux or Windows: the real get_settings record is only copied into a fixture. […]</p>
+</div>
+<figcaption class="legende"><b>FIG. 2</b>A gold streak marks what Lydite replayed or counted itself. The dotted one marks what was not replayed.</figcaption>
+</figure>
+</div></section>
+<section class="sec" id="refus"><div class="enveloppe">
+<p class="sur"><i class="trait creux"></i>What Lydite refuses to do</p>
+<h2>What sets it apart is what it will not do</h2>
+<p class="chapo">Each numbered refusal says what it saw and what to do.</p>
+<ul class="refus">
+<li><span class="code">always</span><div><b>It never merges.</b><span>It opens the pull request and reads its CI. Merging is your rule.</span></div></li>
+<li><span class="code">always</span><div><b>It never takes a hand’s word.</b><span>A fact a hand only declared is shown as declared, never as observed.</span></div></li>
+<li><span class="code">6022</span><div><b>It starts nothing if your proof is already red.</b><span>On the base commit, a red proof proves nothing afterwards.</span></div></li>
+<li><span class="code">6028</span><div><b>It starts nothing if the wall does not start.</b><span>Before any hand, it runs <code>true</code> under the wall that will replay your proof: that shows the wall starts, not what it closes.</span></div></li>
+<li><span class="code">7013</span><div><b>It keeps a hand inside its task.</b><span>A change outside the task’s list of files is refused. A hand does not run <code>git commit</code>: Lydite commits.</span></div></li>
+<li><span class="code">8005</span><div><b>It does not publish what should stay yours.</b><span>A change under <code>.github/</code>, a path of your machine, or a line of your <code>garde</code> file.</span></div></li>
+<li><span class="code">always</span><div><b>It does not push a hand to cheat.</b><span>A hand that finds a test no honest code can pass says <code>IMPOSSIBLE</code>. Lydite sets the task aside, replays nothing, retries nothing and merges nothing from it. The reason is the hand’s word, shown as declared.</span></div></li>
+<li><span class="code">always</span><div><b>It never opens your Claude login file.</b><span>And it puts no provider key in a profile or a pull request.</span></div></li>
+</ul>
+<p class="apres">What it does not do for you: a green proof is worth what your proof is worth. Lydite does not judge whether your tests are good. <a href="https://github.com/aoricloud/lydite/blob/main/docs/refusals.md">Every refusal code, with its rule</a>.</p>
+</div></section>
+<section class="sec" id="bancs"><div class="enveloppe">
+<p class="sur"><i class="trait"></i>Built under Lydite</p>
+<h2>Three simulators, pull request after pull request</h2>
+<p class="chapo">Lydite builds part of itself, and part of three public scientific simulators in Rust: 169 of the 231 pull requests merged in these four repositories carry a receipt. Every count below is read from the merged pull request bodies, as of 11 November 2026, 23:40 UTC.</p>
+<ul class="bancs">
+<li class="banc"><img src="assets/givre-lab.jpg" alt="Nine simulated snow crystals, from Givre Lab" loading="lazy">
+<h3>Givre Lab</h3><p>Crystal growth: aggregates, snow crystals, dielectric breakdown.</p>
+<p class="compte"><i class="trait"></i><b>38</b> of 42 merged pull requests carry a receipt<br><b>208</b> hands · <b>7</b> retries · <b>1</b> task set aside</p>
+<p class="liens"><a href="https://aoricloud.github.io/givre-lab/">Run it in your browser</a><a href="https://github.com/aoricloud/givre-lab">Repository</a></p></li>
+<li class="banc"><img src="assets/mycelium-lab.jpg" alt="A simulated mycelium colony, from Mycelium Lab" loading="lazy">
+<h3>Mycelium Lab</h3><p>The growth of a mycelium colony, hypha by hypha.</p>
+<p class="compte"><i class="trait"></i><b>37</b> of 60 merged pull requests carry a receipt<br><b>159</b> hands · <b>1</b> retry · <b>0</b> tasks set aside</p>
+<p class="liens"><a href="https://aoricloud.github.io/mycelium-lab/">Run it in your browser</a><a href="https://github.com/aoricloud/mycelium-lab">Repository</a></p></li>
+<li class="banc"><img src="assets/physarum-lab.jpg" alt="A path found through a maze, from Physarum Lab" loading="lazy">
+<h3>Physarum Lab</h3><p>The slime mold <i>Physarum polycephalum</i>: a network of tubes that grows and finds its way.</p>
+<p class="compte"><i class="trait"></i><b>12</b> of 13 merged pull requests carry a receipt<br><b>83</b> hands · <b>0</b> retries · <b>0</b> tasks set aside</p>
+<p class="liens"><a href="https://github.com/aoricloud/physarum-lab">Repository</a></p></li>
+</ul>
+<p class="somme">With Lydite’s own repository (<b>82</b> of 116 merged pull requests carry a receipt; <b>240</b> hands, <b>7</b> retries, <b>0</b> tasks set aside): <b>169</b> of 231 merged pull requests with a receipt, <b>690</b> hands, <b>15</b> retries, <b>1</b> task set aside. The hands ran on Claude models and on DeepSeek.</p>
+</div></section>
+<section class="sec" id="installer"><div class="enveloppe">
+<p class="sur"><i class="trait"></i>Try it</p>
+<h2>Install, check your machine, look at a plan first</h2>
+<p class="chapo">What it takes: Linux on x86-64 (or WSL2 on Windows), <code>git</code>, <code>gh</code> logged in, Claude Code signed in, and about an hour the first time.</p>
+<div class="deux">
+<div>
+<pre class="cmd"><span class="c"># download, verify it was built by this repository’s GitHub Actions, install</span>
+gh release download --repo aoricloud/lydite --pattern 'lydite-*-linux-x86_64.tar.gz*'
+gh attestation verify lydite-*-linux-x86_64.tar.gz --repo aoricloud/lydite
+tar -xzf lydite-*-linux-x86_64.tar.gz
+mkdir -p ~/.local/bin &amp;&amp; install -m 755 lydite-*-linux-x86_64/lydite lydite-*-linux-x86_64/lydite-reseau ~/.local/bin/
+
+<span class="c"># launches no hand, writes nothing, says what is missing</span>
+lydite doctor</pre>
+<pre class="cmd"><span class="c"># checks the wall and your proof, runs one hand that splits the objective, prints the plan, stops</span>
+lydite launch first "Add a test for the empty-input case of parse()" --split --verify "cargo test" --dry-run</pre>
+<p class="petit">The wall needs bubblewrap and socat, then <code>srt</code> (or, with the native wall, <code>lydite-reseau</code>), and a profile that you write and accept. <a href="https://github.com/aoricloud/lydite#try-it">The README has every step</a>.</p>
+</div>
+<ul class="depuis">
+<li><b>From a shell</b><code>lydite launch</code>, <code>lydite status</code>, <code>lydite wait</code>.</li>
+<li><b>From Claude Code or another agent</b><code>lydite skill</code> prints the skill an agent follows to drive Lydite.</li>
+<li><b>From Hermes</b>A plugin with five tools, in the Hermes Agent plugin catalogue. The workers stay Lydite’s own.</li>
+</ul>
+</div>
+</div></section>
+<section class="sec" id="limites"><div class="enveloppe">
+<p class="sur"><i class="trait creux"></i>Not replayed</p>
+<h2>What this page cannot show you</h2>
+<p class="chapo">A receipt ends with what nobody saw replayed. So does this page. Status: early.</p>
+<ul class="limites">
+<li><i class="trait creux"></i><div><b>Anyone but us.</b>Lydite has only run on our own repositories. We know of no one else who has run it yet.</div></li>
+<li><i class="trait creux"></i><div><b>The wall outside Linux.</b>It only works there. On Windows it does not hold, and Lydite says so before it starts.</div></li>
+<li><i class="trait creux"></i><div><b>Your tests.</b>A green proof is worth what your proof is worth. Lydite does not judge whether your tests are good.</div></li>
+<li><i class="trait creux"></i><div><b>The native wall around the hands.</b>It holds the wall check and the replay of your proof, not yet the hands’ commands, which stay under Claude Code’s sandbox.</div></li>
+</ul>
+</div></section>
+<footer class="pied"><div class="enveloppe">
+<a class="logo" href="https://github.com/aoricloud/lydite"><svg viewBox="0 0 48 48" aria-hidden="true"><g transform="rotate(7 24 24)">
+<rect x="9" y="4" width="30" height="40" rx="5" fill="#181B21" stroke="#343A43"/>
+<g fill="none" stroke-linecap="round">
+<path d="M15 20L33 17.6" stroke="#E8B931" stroke-width="2.6"/>
+<path d="M16 27L30 25.3" stroke="#C9CDD2" stroke-opacity=".62" stroke-width="2"/>
+<path d="M15 34L26 32.9" stroke="#8E969F" stroke-width="1.7" stroke-dasharray=".1 3.6"/>
+</g></g></svg>Lydite</a>
+<p class="nom-pierre">Lydite is the touchstone: the black stone on which gold was rubbed to tell it from what only shines.</p>
+<small>MIT · <a href="https://github.com/aoricloud/lydite">github.com/aoricloud/lydite</a><br>Lydite is an independent project, not made or endorsed by Anthropic. “Claude Code” and “Anthropic” only name what Lydite runs.</small>
+</div></footer>
+</main>
+<script>
+(function () {
+  var s = document.querySelectorAll("svg.anime");
+  requestAnimationFrame(function () { requestAnimationFrame(function () {
+    s.forEach(function (e) { e.classList.add("joue"); });
+    setTimeout(function () { s.forEach(function (e) { e.classList.remove("joue"); }); }, 5200);
+  }); });
+})();
+</script>
+</body>
+</html>
