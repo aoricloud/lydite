@@ -1034,3 +1034,104 @@ fn un_mur_natif_qui_ne_tient_pas_refuse_en_6028_avant_toute_main_et_ne_laisse_ri
     assert_eq!(git(&depot, &["status", "--porcelain"]), "");
     let _ = fs::remove_dir_all(&racine);
 }
+
+/// Joue `lydite etat` sur le dossier de Kraken de la racine : son code et sa sortie.
+#[cfg(unix)]
+fn etat_de_la_racine(racine: &Path) -> (Option<i32>, String) {
+    let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
+    commande.arg("etat").current_dir(racine).env("LYDITE_DOSSIER", racine.join("lydite"));
+    let sortie = avec_leurres(&mut commande, racine).output().unwrap();
+    (sortie.status.code(), String::from_utf8_lossy(&sortie.stdout).into_owned())
+}
+
+#[cfg(unix)]
+#[test]
+fn un_lancement_tue_pendant_que_sa_main_court_est_dit_interrompu_par_etat_et_pas_avant() {
+    let racine = racine("interrompu");
+    let depot = depot(&racine);
+    let (dossier, main) = (racine.join("lydite"), racine.join("main"));
+    fs::create_dir_all(dossier.join("profils")).unwrap();
+    fs::create_dir_all(&main).unwrap();
+    let (controle_jsonl, marques) = (main.join("controle.jsonl"), racine.join("marques"));
+    fs::create_dir_all(&marques).unwrap();
+    let (demarre, libre) = (marques.join("demarre"), marques.join("libre"));
+    // La fausse main : elle répond aux contrôles, pose `demarre`, puis attend que le test pose `libre` sans lire son
+    // entrée, et sort sans rien rendre. Son plafond (une minute) n'est qu'un garde-fou contre une main orpheline.
+    let lignes = [
+        "#!/bin/sh".to_string(),
+        r#"[ "$1" = --version ] && exit 0"#.to_string(),
+        format!(r#"sed "s|@BAC@|/$(pwd)|g" '{}'"#, controle_jsonl.display()),
+        format!("touch '{}'", demarre.display()),
+        "n=0".to_string(),
+        format!("while [ ! -f '{}' ]; do", libre.display()),
+        "  n=$((n + 1))".to_string(),
+        "  [ \"$n\" -ge 600 ] && exit 1".to_string(),
+        "  sleep 0.1".to_string(),
+        "done".to_string(),
+    ];
+    let fausse = faux_programme(&main, "fausse-claude.sh", &lignes);
+    let srt = faux_srt(&racine);
+    let preuve = "exit 0";
+    fs::write(&controle_jsonl, controle(&racine, &dossier, &depot, preuve)).unwrap();
+    let profil = format!(
+        "sorte = claude\nprogramme = {}\nmodele = haiku\nrelance = haiku\nmur = exige\ndelai_main = 120\n\
+         delai_preuve = 60\n",
+        fausse.display()
+    );
+    fs::write(dossier.join("profils").join("essai.profil"), profil).unwrap();
+    let kraken = || {
+        let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
+        commande
+            .current_dir(&racine)
+            .env("LYDITE_DOSSIER", &dossier)
+            .env("LYDITE_CLAUDE", racine.join("claude-absent"))
+            .env("LYDITE_SRT", &srt);
+        avec_leurres(&mut commande, &racine);
+        commande
+    };
+    let accepte = kraken().args(["accepter", "essai"]).output().unwrap();
+    assert_eq!(accepte.status.code(), Some(0), "{}", String::from_utf8_lossy(&accepte.stderr));
+    let lignes_du_plan = ["plan 1", "objectif : o", "preuve : exit 0", "", "tache a", "    Écrire a.txt"];
+    let chemin = plan(&racine, "plan.txt", &lignes_du_plan);
+    let mut lancement = kraken()
+        .args(["lancer", "essai", "--plan"])
+        .arg(&chemin)
+        .arg("--depot")
+        .arg(&depot)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    // La main court : la marque que sa fausse pose est la seule attente, son plafond n'est qu'un garde-fou.
+    let debut = Instant::now();
+    while !demarre.exists() {
+        if let Some(statut) = lancement.try_wait().unwrap() {
+            panic!("le lancement est sorti ({statut}) avant que sa main ne démarre");
+        }
+        assert!(debut.elapsed() < Duration::from_secs(60), "la main n'a jamais démarré");
+        thread::sleep(Duration::from_millis(20));
+    }
+    // Le lancement tient le dossier : sa vague court, rien n'est interrompu.
+    let (code, dit) = etat_de_la_racine(&racine);
+    assert_eq!(code, Some(1), "{dit}");
+    assert!(dit.contains("running, attempt 1") && !dit.contains("Interrupted:"), "{dit}");
+    // Le lancement est tué, sa main survit. Un enfant du lancement peut tenir le verrou un instant après sa mort :
+    // `etat` se rejoue jusqu'au 3, sans attente fixe.
+    lancement.kill().unwrap();
+    lancement.wait().unwrap();
+    let debut = Instant::now();
+    let (code, dit) = loop {
+        let (code, dit) = etat_de_la_racine(&racine);
+        if code == Some(3) || debut.elapsed() > Duration::from_secs(30) {
+            break (code, dit);
+        }
+    };
+    assert_eq!(code, Some(3), "{dit}");
+    assert!(dit.contains("interrupted, attempt 1") && !dit.contains("running"), "{dit}");
+    assert_eq!(dit.lines().last().map(|ligne| ligne.starts_with("Interrupted:")), Some(true), "{dit}");
+    // La fausse main survit à son lancement : elle finit quand le test la libère.
+    assert!(!libre.exists());
+    fs::write(&libre, "").unwrap();
+    let _ = fs::remove_dir_all(&racine);
+}

@@ -68,7 +68,8 @@ that launch's log. Do not poll in a tight loop.
 What Lydite prints is the report. Relay it as it is written:
 
 - `code`: 0, the last wave finished (or there is none); 1, it is not finished (running or failed); 2, the record
-  cannot be read or a seal is broken.
+  cannot be read or a seal is broken; 3, the launch was interrupted: what it counted is partial, and nothing more
+  will come from it.
 - `(observed)` means Lydite observed it. `(declared)` and `declared, not proven` mean a worker only said so: present
   it as a claim, never as a fact. An older version of Lydite writes these words in French: `constaté` or `constatée`
   for observed, `déclaré` or `déclarée` for declared.
@@ -127,10 +128,13 @@ The exit codes, command by command:
 - `lydite launch`: 0 if every task was taken, its proof replayed green and, with `--pr`, the CI green; 1 otherwise; 2
   if Lydite refused and nothing started.
 - `lydite status`: 0 if the last wave was carried through and green, or there is none; 1 if it is running or red; 2 if
-  the thread cannot be read or a seal is broken. It does not check that the wave was sealed (a killed launch can read
-  green): `lydite wait` does.
-- `lydite wait`: 0 if the last wave was carried through and green; 1 if it is red or carries no seal at all (a launch
-  killed before its first seal); 2 if the thread cannot be read or a seal is broken; if the folder was held and then
-  freed with no new note (a launch refused before it opened its wave), unless the last wave of the thread carries no
-  seal and is not a split alone, which is 1; or if, after 60 seconds, no note has come and no launch holds the folder:
-  there is nothing to wait for.
+  the thread cannot be read or a seal is broken; 3 if the launch was interrupted (it was killed after it opened its
+  wave: its last wave has no closing line and no launch holds the folder), and what it counted is partial. For a
+  thread written by an earlier Lydite, it does not check that the wave was sealed (a killed launch can read green):
+  `lydite wait` does.
+- `lydite wait`: 0 if the last wave was carried through and green; 1 if it is red; 2 if the thread cannot be read or a
+  seal is broken; 3 if the launch it waited for was interrupted; if the folder was held and then freed with no new
+  note (a launch refused before it opened its wave), unless the last wave of the thread carries no seal and is not a
+  split alone in a thread written by an earlier Lydite, which is 1; or if, after 60 seconds, no note has come and no
+  launch holds the folder: there is nothing to wait for. For a thread written by an earlier Lydite, a wave that carries
+  no seal at all (a launch killed before its first seal) is also 1.

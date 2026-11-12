@@ -1684,3 +1684,250 @@ fn kraken_etat_dit_la_ligne_d_une_main_impossible_depuis_son_verdict() {
     assert_eq!(ligne, format!("main-{V1}-1 : impossible (declared): not proved: le défaut"));
     assert!(!texte.contains("déclarée"), "{texte}");
 }
+
+// Un lancement mort sans sa fin : la dernière vague du fil a son `vague.lancement` et pas son `vague.fin`, et aucun
+// lancement ne tient le dossier. Les fils sont écrits par les tests, ligne à ligne.
+
+/// Le `vague.lancement` de `vague`, noté comme le fait un lancement quand il l'ouvre.
+fn noter_le_lancement(dossier: &Path, vague: &str) {
+    let lancement = fil::LancementVague { vague: vague.into(), version: "0.4.0".into(), plan: None };
+    Fil::seance(dossier, "humain").noter_lancement(&lancement).unwrap();
+}
+
+/// Le `vague.fin` de `vague`, noté comme le fait un lancement quand il sort.
+fn noter_la_fin(dossier: &Path, vague: &str, code: u8) {
+    Fil::seance(dossier, "humain").noter_fin(&fil::FinVague { vague: vague.into(), code }).unwrap();
+}
+
+/// Une vague d'une main qui court encore : sa première tentative a commencé.
+fn vague_qui_court() -> Vec<Evenement> {
+    vec![ouverture(V1, 1, "Écrire bonjour.txt"), debut(V1, 1, 1)]
+}
+
+/// Ce que `lydite status` dit d'un dossier : sa sortie, sa sortie d'erreur et son code.
+fn status_de(dossier: &Path) -> (String, String, ExitCode) {
+    let (mut sortie, mut erreur) = (Vec::new(), Vec::new());
+    let code = etat_ecrivant(dossier, &mut sortie, &mut erreur).unwrap();
+    (String::from_utf8(sortie).unwrap(), String::from_utf8(erreur).unwrap(), code)
+}
+
+/// Le texte sans les lignes de reçu (`Cost:` et `Effort:`), qui ont leurs propres essais.
+fn sans_les_recus(texte: &str) -> String {
+    let lignes: Vec<&str> =
+        texte.lines().filter(|ligne| !ligne.starts_with("Cost: ") && !ligne.starts_with("Effort: ")).collect();
+    lignes.join("\n")
+}
+
+const INTERROMPU: &str =
+    "Interrupted: the launch ended without its closing line (vague.fin); what is counted above is partial.";
+
+#[test]
+fn un_lancement_mort_sans_sa_fin_est_dit_interrompu_par_status() {
+    let dossier = dossier_d_attente("interrompu");
+    ecrire_au_fil(&dossier, &vague_qui_court(), false);
+    noter_le_lancement(&dossier, V1);
+    // Le dossier est libre : le lancement est mort. Sa main ne court plus, et ce que le texte compte est partiel.
+    let (sortie, erreur, code) = status_de(&dossier);
+    let attendu = format!("Écrire bonjour.txt\nmain-{V1}-1 : interrupted, attempt 1\n{INTERROMPU}");
+    assert_eq!(sans_les_recus(&sortie), attendu, "{sortie}");
+    assert_eq!((erreur.as_str(), code), ("", ExitCode::from(3)));
+    // Les lignes de reçu restent avant la dernière ligne, qui est la sienne.
+    assert_eq!(sortie.lines().last(), Some(INTERROMPU), "{sortie}");
+    assert!(sortie.contains("\nCost: "), "{sortie}");
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_lancement_qui_tient_le_dossier_court_et_n_est_pas_interrompu() {
+    let dossier = dossier_d_attente("court");
+    ecrire_au_fil(&dossier, &vague_qui_court(), false);
+    noter_le_lancement(&dossier, V1);
+    let tenu = tenu_par_un_lancement(&dossier);
+    let (sortie, erreur, code) = status_de(&dossier);
+    let attendu = format!("Écrire bonjour.txt\nmain-{V1}-1 : running, attempt 1");
+    assert_eq!(sans_les_recus(&sortie), attendu, "{sortie}");
+    assert_eq!((erreur.as_str(), code), ("", ExitCode::FAILURE));
+    // Le même fil, le lancement mort : il se dit interrompu.
+    lacher(tenu, &dossier);
+    let (sortie, _, code) = status_de(&dossier);
+    assert!(sortie.contains("interrupted, attempt 1") && sortie.contains("Interrupted:"), "{sortie}");
+    assert_eq!(code, ExitCode::from(3));
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_lancement_qui_a_ecrit_sa_fin_se_lit_comme_avant() {
+    let dossier = dossier_d_attente("fini");
+    ecrire_au_fil(&dossier, &vague_qui_court(), false);
+    noter_le_lancement(&dossier, V1);
+    noter_la_fin(&dossier, V1, 1);
+    let (sortie, erreur, code) = status_de(&dossier);
+    let attendu = format!("Écrire bonjour.txt\nmain-{V1}-1 : running, attempt 1");
+    assert_eq!(sans_les_recus(&sortie), attendu, "{sortie}");
+    assert_eq!((erreur.as_str(), code), ("", ExitCode::FAILURE));
+    // Une vague menée à bout, sa fin écrite : 0, comme avant.
+    let menee = dossier_d_attente("fini-vert");
+    ecrire_au_fil(&menee, &vague_d_une_main(PRISE), false);
+    noter_le_lancement(&menee, V1);
+    noter_la_fin(&menee, V1, 0);
+    let (sortie, _, code) = status_de(&menee);
+    assert!(!sortie.contains("nterrupted"), "{sortie}");
+    assert_eq!(code, ExitCode::SUCCESS);
+    let _ = fs::remove_dir_all(&dossier);
+    let _ = fs::remove_dir_all(&menee);
+}
+
+#[test]
+fn une_vague_scellee_avant_sa_pr_et_tuee_pendant_sa_ci_est_dite_interrompue() {
+    let dossier = dossier_d_attente("tuee-en-ci");
+    let branche = branche_de(V1);
+    // Menée à bout, scellée avant sa PR, la PR ouverte et sa CI en attente ; le lancement est mort sans sa fin.
+    ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), true);
+    ecrire_au_fil(&dossier, &[poussee(V1, &branche), pr(V1, &branche, Foi::Constate)], false);
+    noter_le_lancement(&dossier, V1);
+    let (sortie, erreur, code) = status_de(&dossier);
+    assert!(sortie.contains(&format!("PR 12 · {URL_DE_LA_PR} · CI pending")), "{sortie}");
+    assert!(!sortie.contains("interrupted, attempt"), "ses mains ont fini : {sortie}");
+    assert_eq!(sortie.lines().last(), Some(INTERROMPU), "{sortie}");
+    assert_eq!((erreur.as_str(), code), ("", ExitCode::from(3)));
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn une_relance_de_la_ci_sans_fin_est_dite_interrompue() {
+    let dossier = dossier_d_attente("relance-tuee");
+    let v1 = branche_de(V1);
+    let (relancee, _) = assemblees(V1, "Deux tâches", &["a", "b"]);
+    let (relance, _) = assemblees(V2, "Make the CI of PR 12 green", &["ci"]);
+    let ouverte = vec![poussee(V1, &v1), pr(V1, &v1, Foi::Constate), ci(V1, Couleur::Rouge, Foi::Constate)];
+    ecrire_au_fil(&dossier, &[relancee, ouverte].concat(), false);
+    noter_le_lancement(&dossier, V1);
+    noter_la_fin(&dossier, V1, 1);
+    // La vague relance la CI de V1 : elle pousse dans sa branche, et son lancement meurt sans sa fin.
+    ecrire_au_fil(&dossier, &[relance, vec![poussee(V2, &v1), pr(V2, &v1, Foi::Constate)]].concat(), false);
+    noter_le_lancement(&dossier, V2);
+    let (sortie, _, code) = status_de(&dossier);
+    assert!(sortie.contains("Deux tâches") && sortie.contains("Make the CI of PR 12 green"), "{sortie}");
+    assert_eq!(sortie.lines().last(), Some(INTERROMPU), "{sortie}");
+    assert_eq!(code, ExitCode::from(3));
+    // La relance a sa fin : plus rien d'interrompu.
+    noter_la_fin(&dossier, V2, 1);
+    let (sortie, _, code) = status_de(&dossier);
+    assert!(!sortie.contains("nterrupted"), "{sortie}");
+    assert_eq!(code, ExitCode::FAILURE);
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn une_vague_d_avant_interrompue_suivie_d_une_vague_finie_sans_lancement_n_est_pas_interrompue() {
+    let dossier = dossier_d_attente("avant-puis-fini");
+    // V1 est morte sans sa fin ; V2, écrite par un Lydite d'avant, n'a ni `vague.lancement` ni `vague.fin`.
+    ecrire_au_fil(&dossier, &vague_qui_court(), false);
+    noter_le_lancement(&dossier, V1);
+    let finie =
+        [ouverture(V2, 1, "Une vague d'avant"), debut(V2, 1, 1), fin(V2, 1, 1, VERTE, "fini"), verdict(V2, 1, PRISE)];
+    ecrire_au_fil(&dossier, &finie, false);
+    let (sortie, erreur, code) = status_de(&dossier);
+    assert!(!sortie.contains("nterrupted") && sortie.contains("Une vague d'avant"), "{sortie}");
+    assert_eq!((erreur.as_str(), code), ("", ExitCode::SUCCESS));
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_sceau_rompu_rend_2_avant_toute_interruption() {
+    let dossier = fil_scelle("rompu-interrompu");
+    // Le lancement de la dernière vague est mort sans sa fin, mais un sceau d'avant ne tient plus : 2, et rien sur
+    // stdout.
+    noter_le_lancement(&dossier, V1);
+    let (_, _, code) = status_de(&dossier);
+    assert_eq!(code, ExitCode::from(3), "le fil intact, interrompu");
+    changer_dans_le_fil(&dossier, "premier", "premiex");
+    let (sortie, erreur, code) = status_de(&dossier);
+    assert_eq!(code, ExitCode::from(2));
+    assert!(sortie.is_empty() && erreur.contains("no longer matches the seal"), "{sortie} {erreur}");
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_lancement_attendu_qui_meurt_sans_sa_fin_rend_3_sans_le_texte_du_sceau_de_fin() {
+    let dossier = dossier_d_attente("attendu-tue");
+    let mut lancement = Some(tenu_par_un_lancement(&dossier));
+    // Le lancement note sa vague, sa main court, puis il meurt : le verrou se lâche sans `vague.fin` ni sceau.
+    let (mut sortie, mut erreur) = (Vec::new(), Vec::new());
+    let code = attendre_sur(
+        &dossier,
+        0,
+        &mut || {
+            ecrire_au_fil(&dossier, &vague_qui_court(), false);
+            noter_le_lancement(&dossier, V1);
+            lacher(lancement.take().unwrap(), &dossier);
+        },
+        &mut sortie,
+        &mut erreur,
+    );
+    assert_eq!(code, Ok(ExitCode::from(3)));
+    let (sortie, erreur) = (String::from_utf8(sortie).unwrap(), String::from_utf8(erreur).unwrap());
+    assert!(sortie.contains("interrupted, attempt 1") && sortie.ends_with(&format!("{INTERROMPU}\n")), "{sortie}");
+    assert_eq!(erreur, "", "ni le texte du sceau de fin, ni celui d'une vague absente");
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_lancement_attendu_scelle_avant_sa_pr_qui_meurt_sans_note_de_plus_rend_3() {
+    let dossier = dossier_d_attente("attendu-tue-sans-note");
+    // La vague avait déjà son sceau d'avant sa PR et son lancement ; pendant l'attente, aucune note ne vient.
+    ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), true);
+    noter_le_lancement(&dossier, V1);
+    let mut lancement = Some(tenu_par_un_lancement(&dossier));
+    let (mut sortie, mut erreur) = (Vec::new(), Vec::new());
+    let code = attendre_sur(&dossier, 0, &mut || lacher(lancement.take().unwrap(), &dossier), &mut sortie, &mut erreur);
+    assert_eq!(code, Ok(ExitCode::from(3)));
+    let (sortie, erreur) = (String::from_utf8(sortie).unwrap(), String::from_utf8(erreur).unwrap());
+    assert!(sortie.ends_with(&format!("{INTERROMPU}\n")), "{sortie}");
+    assert_eq!(erreur, "", "ni SANS_VAGUE ni le texte du sceau de fin");
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_fil_d_avant_sans_sceau_de_fin_garde_la_regle_de_wait_a_la_lettre() {
+    let dossier = dossier_d_attente("attendu-d-avant");
+    let mut lancement = Some(tenu_par_un_lancement(&dossier));
+    // Aucun `vague.lancement` : la vague est verte, sans sceau, comme un Lydite d'avant l'a laissée.
+    let (mut sortie, mut erreur) = (Vec::new(), Vec::new());
+    let code = attendre_sur(
+        &dossier,
+        0,
+        &mut || {
+            ecrire_au_fil(&dossier, &vague_d_une_main(PRISE), false);
+            lacher(lancement.take().unwrap(), &dossier);
+        },
+        &mut sortie,
+        &mut erreur,
+    );
+    assert_eq!(code, Ok(ExitCode::FAILURE));
+    let (sortie, erreur) = (String::from_utf8(sortie).unwrap(), String::from_utf8(erreur).unwrap());
+    assert!(!sortie.contains("nterrupted") && sortie.contains("main-"), "{sortie}");
+    let attendu =
+        "the last wave has no closing seal (vague.sceau): the launch ended without writing it, probably killed";
+    assert_eq!(erreur.trim_end(), attendu);
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn rien_a_attendre_garde_la_reponse_d_aujourd_hui_meme_sur_une_vague_interrompue() {
+    let dossier = dossier_d_attente("rien-a-attendre-interrompue");
+    ecrire_au_fil(&dossier, &vague_qui_court(), false);
+    noter_le_lancement(&dossier, V1);
+    // Le dossier est libre et aucune note ne vient pendant le délai de grâce : 2, et rien de la vague sur stdout.
+    let (mut sortie, mut erreur) = (Vec::new(), Vec::new());
+    let mut pauses = 0;
+    let code = attendre_sur(&dossier, 2, &mut || pauses += 1, &mut sortie, &mut erreur);
+    assert_eq!(code, Ok(ExitCode::from(2)));
+    assert_eq!(pauses, 2);
+    let (sortie, erreur) = (String::from_utf8(sortie).unwrap(), String::from_utf8(erreur).unwrap());
+    assert_eq!(sortie, "");
+    assert!(erreur.contains("there is nothing to wait for"), "{erreur}");
+    // `lydite status` est la commande qui dit l'interruption à toute heure.
+    assert_eq!(status_de(&dossier).2, ExitCode::from(3));
+    let _ = fs::remove_dir_all(&dossier);
+}
