@@ -11,8 +11,9 @@ use std::sync::{Mutex, PoisonError};
 
 use crate::coeur::erreur::{Code, Refus, nommee};
 use crate::coeur::fil::{
-    Base, Evenement, IssueVague, Lecture, LigneLue, SceauLu, SceauVague, ligne_d_issue, ligne_de_note, ligne_de_sceau,
-    lire_octets, lire_octets_avec_lignes, lot, origine_lue, premier_sceau_rompu,
+    Base, Evenement, FinVague, IssueVague, LancementLu, LancementVague, Lecture, LigneLue, SceauLu, SceauVague,
+    ligne_d_issue, ligne_de_fin, ligne_de_lancement, ligne_de_note, ligne_de_sceau, lire_octets_avec_lancements,
+    lire_octets_avec_lignes, lot, origine_lue, premier_sceau_rompu,
 };
 use crate::coeur::profil::{self, Profil, empreinte, integre};
 
@@ -48,6 +49,30 @@ pub(crate) const VERROU: &str = "lancer.verrou";
 /// Les dossiers qu'un lancement de ce processus tient, avec le fichier qui porte le verrou : ils ne se lâchent qu'à la
 /// fin du processus, quand le système rend le verrou, mort ou tué.
 static TENUS: Mutex<Vec<(PathBuf, fs::File)>> = Mutex::new(Vec::new());
+
+/// La dernière vague que ce processus a ouverte, avec son dossier : de quoi noter la fin du lancement à sa sortie
+/// ([`noter_la_fin`]). `None` tant qu'il n'a ouvert aucune vague.
+static OUVERTE: Mutex<Option<(PathBuf, String)>> = Mutex::new(None);
+
+/// Retient `vague`, que ce processus vient d'ouvrir dans `dossier` et dont le `vague.lancement` est noté : la dernière
+/// retenue est celle que [`noter_la_fin`] nomme.
+pub(crate) fn retenir_la_vague(dossier: &Path, vague: &str) {
+    *OUVERTE.lock().unwrap_or_else(PoisonError::into_inner) = Some((dossier.to_path_buf(), vague.into()));
+}
+
+/// Note le `vague.fin` de la dernière vague que ce processus a ouverte, avec le code qu'il rend, dans une séance à
+/// lui. Sans vague ouverte, rien n'est noté.
+pub(crate) fn noter_la_fin(code: u8) -> io::Result<()> {
+    let ouverte = OUVERTE.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    noter_la_fin_de(ouverte.as_ref().map(|(dossier, vague)| (dossier.as_path(), vague.as_str())), code)
+}
+
+/// [`noter_la_fin`] sur la vague et le dossier qu'on lui donne, `ouverte` : `None`, rien n'est noté. Les tests n'ont
+/// ainsi pas à toucher l'état du processus.
+fn noter_la_fin_de(ouverte: Option<(&Path, &str)>, code: u8) -> io::Result<()> {
+    let Some((dossier, vague)) = ouverte else { return Ok(()) };
+    Fil::seance(dossier, "humain").noter_fin(&FinVague { vague: vague.into(), code })
+}
 
 /// Un lancement (`lydite lancer`) tient le dossier de Kraken pour lui seul jusqu'à la fin de son processus : le fil et
 /// le quota du jour ne sont écrits et lus que par lui. Le dossier se crée ici s'il manque, avec le fichier
@@ -228,6 +253,21 @@ impl Fil {
         self.ecrire(&mut seq, ligne)
     }
 
+    /// Ajoute le `vague.lancement` d'une vague au bout du fil, comme [`Fil::noter_issue`] : dans son enveloppe, à
+    /// l'origine de la séance.
+    pub(crate) fn noter_lancement(&self, lancement: &LancementVague) -> io::Result<()> {
+        let mut seq = self.seq.lock().unwrap_or_else(PoisonError::into_inner);
+        let ligne = ligne_de_lancement(&self.seance, *seq + 1, &self.origine, lancement);
+        self.ecrire(&mut seq, ligne)
+    }
+
+    /// Ajoute le `vague.fin` d'un lancement au bout du fil, comme [`Fil::noter_lancement`].
+    pub(crate) fn noter_fin(&self, fin: &FinVague) -> io::Result<()> {
+        let mut seq = self.seq.lock().unwrap_or_else(PoisonError::into_inner);
+        let ligne = ligne_de_fin(&self.seance, *seq + 1, &self.origine, fin);
+        self.ecrire(&mut seq, ligne)
+    }
+
     /// Scelle le fil pour la vague `vague` : lit le fil tel qu'il est, puis ajoute à son bout le `vague.sceau` de ses
     /// octets et de leur empreinte. D'autres séances peuvent écrire entre la lecture et l'ajout : le sceau couvre ce
     /// qui précède ses `octets`, non ce qui précède sa ligne. Un fil vide ne se scelle pas (`InvalidInput`).
@@ -300,18 +340,27 @@ pub(crate) type FilScelle = (Lecture, Vec<IssueVague>, Vec<SceauLu>, Option<Scea
 
 /// Le fil lu une fois, comme [`lire_scelle`], avec de plus tous ses sceaux, dans l'ordre du fil.
 pub(crate) fn lire_avec_sceaux(kraken: &Path) -> Result<FilScelle, Refus> {
+    lire_avec_lancements(kraken).map(|(scelle, _)| scelle)
+}
+
+/// Ce que [`lire_avec_lancements`] rend : ce que [`lire_avec_sceaux`] rend, et les `vague.lancement` et `vague.fin`
+/// lus, dans l'ordre du fil.
+pub(crate) type FilAvecLancements = (FilScelle, Vec<LancementLu>);
+
+/// Le fil lu une fois, comme [`lire_avec_sceaux`], avec de plus ses lancements et ses fins, dans l'ordre du fil.
+pub(crate) fn lire_avec_lancements(kraken: &Path) -> Result<FilAvecLancements, Refus> {
     let chemin = kraken.join(FICHIER);
     // `fs::read` ouvre en partage lecture, écriture et effacement : une note passe pendant la lecture.
     let octets = match fs::read(&chemin) {
         Ok(octets) => octets,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            return Ok((Lecture::default(), Vec::new(), Vec::new(), None));
+            return Ok(((Lecture::default(), Vec::new(), Vec::new(), None), Vec::new()));
         }
         Err(e) => return Err(nommee(e, format!("reading the thread {}", chemin.display())).into()),
     };
-    let (lecture, issues, sceaux) = lire_octets(&chemin, &octets)?;
+    let ((lecture, issues, sceaux), lancements) = lire_octets_avec_lancements(&chemin, &octets)?;
     let rompu = premier_sceau_rompu(&octets, &sceaux).cloned();
-    Ok((lecture, issues, sceaux, rompu))
+    Ok(((lecture, issues, sceaux, rompu), lancements))
 }
 
 /// Ce que [`lire_avec_lignes`] rend : ce que [`lire_avec_sceaux`] rend, les [`LigneLue`] du fil dans son ordre, et les
@@ -337,9 +386,7 @@ pub(crate) fn lire_avec_lignes(kraken: &Path) -> Result<FilAvecLignes, Refus> {
 /// Les sceaux du fil de `kraken`, dans l'ordre du fil, pour les essais.
 #[cfg(test)]
 pub(crate) fn lire_sceaux(kraken: &Path) -> Vec<SceauVague> {
-    let chemin = kraken.join(FICHIER);
-    let octets = fs::read(&chemin).unwrap();
-    lire_octets(&chemin, &octets).unwrap().2.into_iter().map(|lu| lu.sceau).collect()
+    lire_avec_sceaux(kraken).unwrap().2.into_iter().map(|lu| lu.sceau).collect()
 }
 
 /// Le quota du jour du dossier de Kraken, en micro-dollars : le fichier `<dossier>/profils/quota`, que les réglages

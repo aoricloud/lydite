@@ -3566,6 +3566,121 @@ fn l_etat_d_une_vague_porte_son_issue() {
 }
 
 #[test]
+fn le_lancement_et_la_fin_d_une_vague_s_ecrivent_et_se_relisent_a_l_identique() {
+    let dir = dossier("lancement-aller-retour");
+    let fil = Fil::seance(&dir, "humain");
+    let empreinte = "0123456789abcdef".repeat(4);
+    let lancements = [
+        LancementVague { vague: "v".into(), version: "0.4.0".into(), plan: Some(empreinte.clone()) },
+        LancementVague { vague: "w".into(), version: "1.0.0-rc.1+b~2".into(), plan: None },
+    ];
+    let fins = [FinVague { vague: "w".into(), code: 0 }, FinVague { vague: "w".into(), code: 255 }];
+    fil.noter_lancement(&lancements[0]).unwrap();
+    fil.noter_lancement(&lancements[1]).unwrap();
+    // Elles partagent le compteur de la séance : la note qui suit prend le seq d'après.
+    fil.noter(&Evenement::Correction { vague: "v".into(), corrige: "u".into() }).unwrap();
+    fil.noter_fin(&fins[0]).unwrap();
+    fil.noter_fin(&fins[1]).unwrap();
+    // Le corps, plat, dans l'ordre du contrat ; `plan` vaut `null` quand la vague n'a pas de fichier de plan.
+    let brut = fs::read(dir.join(FICHIER)).unwrap();
+    let ecrit = String::from_utf8(brut.clone()).unwrap();
+    let corps = format!(r#""type":"vague.lancement","vague":"v","version":"0.4.0","plan":"{empreinte}"}}"#);
+    assert!(ecrit.contains(&corps), "{ecrit}");
+    let corps = r#""type":"vague.lancement","vague":"w","version":"1.0.0-rc.1+b~2","plan":null}"#;
+    assert!(ecrit.contains(corps), "{ecrit}");
+    assert!(ecrit.contains(r#""type":"vague.fin","vague":"w","code":0}"#), "{ecrit}");
+    assert!(ecrit.contains(r#""type":"vague.fin","vague":"w","code":255}"#), "{ecrit}");
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(ecarts.is_empty(), "{ecarts:?}");
+    assert_eq!(seqs(&notes), [3], "la correction suit les deux lancements, et les deux fins la suivent");
+    // Un seul passage rend ce que `lire_octets` rend, et de plus les lancements et les fins, dans l'ordre du fil.
+    let chemin = dir.join(FICHIER);
+    let (lu, lues) = lire_octets_avec_lancements(&chemin, &brut).unwrap();
+    assert_eq!(lu, lire_octets(&chemin, &brut).unwrap());
+    let [premier, second] = lancements;
+    let [zero, tout] = fins;
+    let attendues =
+        [LancementLu::Ouvert(premier), LancementLu::Ouvert(second), LancementLu::Sorti(zero), LancementLu::Sorti(tout)];
+    assert_eq!(lues, attendues);
+    // Chacune est aussi une `LigneLue`, sans `foi`, comme une issue ou un sceau.
+    let (_, lignes) = lire_octets_avec_lignes(&chemin, &brut).unwrap();
+    let genres: Vec<&str> = lignes.iter().map(|ligne| ligne.genre.as_str()).collect();
+    assert_eq!(genres, ["vague.lancement", "vague.lancement", "vague.correction", "vague.fin", "vague.fin"]);
+    assert!(lignes.iter().all(|ligne| ligne.foi.is_none()), "{lignes:?}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_lancement_ou_une_fin_aux_champs_faux_est_mal_forme() {
+    let plan = "a".repeat(64);
+    let lancement = format!(r#""type":"vague.lancement","vague":"v","version":"0.4.0","plan":"{plan}""#);
+    let fin = r#""type":"vague.fin","vague":"v","code":1"#.to_string();
+    let cas = vec![
+        (format!("{lancement},\"titre\":\"x\""), "champ en trop pour vague.lancement : « titre »"),
+        (lancement.replace(r#""version":"0.4.0","#, ""), "« version » manque"),
+        (lancement.replace(r#","plan":"#, r#","plan_de":"#), "« plan » manque"),
+        (lancement.replace("0.4.0", "0.4 0"), "« version » vaut \"0.4 0\", hors de son domaine"),
+        (lancement.replace("0.4.0", ""), "« version » vaut \"\", hors de son domaine"),
+        (lancement.replace("0.4.0", "é"), "« version » vaut \"é\", hors de son domaine"),
+        (lancement.replace(r#""version":"0.4.0""#, r#""version":null"#), "« version » manque"),
+        (lancement.replace(&plan, &"a".repeat(63)), "« plan » vaut"),
+        (lancement.replace(&plan, &"a".repeat(65)), "« plan » vaut"),
+        (lancement.replace(&plan, &"A".repeat(64)), "64 hexadécimaux minuscules"),
+        (lancement.replace(&plan, &"g".repeat(64)), "64 hexadécimaux minuscules"),
+        (lancement.replace(&format!(r#""{plan}""#), "7"), "« plan » manque ou n'est pas une chaîne"),
+        (lancement.replace(r#""vague":"v","#, ""), "« vague » manque"),
+        (format!("{fin},\"titre\":\"x\""), "champ en trop pour vague.fin : « titre »"),
+        (fin.replace(r#""code":1"#, r#""code":256"#), "« code » vaut 256, hors de son domaine : un entier de 0 à 255"),
+        (fin.replace(r#""code":1"#, r#""code":-1"#), "« code » n'est pas une valeur plate"),
+        (fin.replace(r#""code":1"#, r#""code":"1""#), "« code » manque ou n'est pas un entier positif"),
+        (fin.replace(r#""code":1"#, r#""code":null"#), "« code » manque ou n'est pas un entier positif"),
+        (fin.replace(r#","code":1"#, ""), "« code » manque"),
+        (fin.replace(r#""vague":"v","#, ""), "« vague » manque"),
+    ];
+    // Chaque ligne fausse est suivie d'une juste, de la même séance : aucun trou ne s'y voit.
+    let mut lignes = Vec::new();
+    for (i, (faux, _)) in cas.iter().enumerate() {
+        lignes.push(ligne_s(2 * i as u64 + 1, faux));
+        lignes.push(ligne_s(2 * i as u64 + 2, if faux.contains("vague.fin") { &fin } else { &lancement }));
+    }
+    let dir = dossier("lancement-faux");
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(notes.is_empty(), "un lancement n'est pas une note d'événement : {notes:?}");
+    assert_eq!(codes(&ecarts), (0..cas.len()).map(|i| (2 * i + 1, 1009)).collect::<Vec<_>>(), "et aucun 1010");
+    for ((_, refus), (_, bout)) in ecarts.iter().zip(&cas) {
+        assert!(refus.preuve.contains(bout), "la preuve devait dire « {bout} » : {refus}");
+    }
+    // Les lignes justes se lisent, et elles seules : une mal formée se saute.
+    let brut = fs::read(dir.join(FICHIER)).unwrap();
+    let (_, lues) = lire_octets_avec_lancements(&dir.join(FICHIER), &brut).unwrap();
+    assert_eq!(lues.len(), cas.len());
+    let bonne_fin = LancementLu::Sorti(FinVague { vague: "v".into(), code: 1 });
+    let bon_lancement =
+        LancementLu::Ouvert(LancementVague { vague: "v".into(), version: "0.4.0".into(), plan: Some(plan) });
+    let attendues: Vec<LancementLu> = cas
+        .iter()
+        .map(|(faux, _)| if faux.contains("vague.fin") { bonne_fin.clone() } else { bon_lancement.clone() })
+        .collect();
+    assert_eq!(lues, attendues);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_fil_d_avant_sans_lancement_ni_fin_se_lit_comme_avant() {
+    let exemples: String = include_str!("exemples.jsonl")
+        .lines()
+        .filter(|ligne| ligne.starts_with(r#"{"v":2,"#))
+        .map(|ligne| format!("{ligne}\n"))
+        .collect();
+    let chemin = Path::new("exemples.jsonl");
+    let (lu, lancements) = lire_octets_avec_lancements(chemin, exemples.as_bytes()).unwrap();
+    assert!(lancements.is_empty(), "{lancements:?}");
+    assert!(!lu.0.notes.is_empty(), "les exemples se lisent");
+    assert_eq!(lu, lire_octets(chemin, exemples.as_bytes()).unwrap());
+}
+
+#[test]
 fn des_lots_tires_a_la_chaine_different() {
     assert_ne!(lot(), lot());
     // Des centaines de tirages en quelques ms, depuis plusieurs fils : aucun doublon.

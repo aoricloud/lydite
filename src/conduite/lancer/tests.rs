@@ -1,7 +1,8 @@
 use super::*;
 use crate::branchements::bac::temporaire_de;
+use crate::branchements::dossier::lire_avec_lancements;
 use crate::coeur::empreinte::{hex, sha256};
-use crate::coeur::fil::{Issue, Lecture, Mur, Note, etat};
+use crate::coeur::fil::{Issue, LancementLu, Lecture, Mur, Note, etat};
 use crate::essais::{depot, fausse_main, git, main_de_vague, main_hors_fichiers, main_texte_coupe, racine};
 use crate::essais::{ecrire, effacer, faux_srt, lancer, lancer_sur, pour_sh, script};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1263,9 +1264,11 @@ fn chaque_lancement_ouvre_sa_seance_numerotee_de_1() {
     assert_eq!(seances.len(), 2, "une séance par lancement");
     let mut nommees = BTreeSet::new();
     for (seance, (seqs, vagues)) in &seances {
-        // Une ouverture, puis un bail, un début, une consigne, une fin et un verdict par main : les deux mains notent
-        // au même compteur.
-        assert_eq!(seqs, &(1..=11).collect::<Vec<_>>(), "séance {seance} : de 1 à ses onze notes, sans trou");
+        // Une ouverture, son `vague.lancement` (le seq 2, que `notes` ne rend pas : ce n'est pas une note d'événement),
+        // puis un bail, un début, une consigne, une fin et un verdict par main : les deux mains notent au même
+        // compteur.
+        let attendus: Vec<u64> = iter::once(1).chain(3..=12).collect();
+        assert_eq!(seqs, &attendus, "séance {seance} : de 1 à ses douze lignes, sans trou, le seq 2 en plus");
         assert_eq!(vagues.len(), 1, "séance {seance} : une seule vague");
         assert!(!vagues.contains(seance), "la séance n'est pas la vague");
         nommees.extend(vagues.iter().cloned());
@@ -3511,6 +3514,84 @@ fn une_vague_de_relecteur_note_son_lien_apres_son_ouverture_et_avant_ses_mains()
     let sans =
         fil(&kraken).into_iter().filter(|e| e.vague() == sans.id).any(|e| matches!(e, Evenement::Relecteur { .. }));
     assert!(!sans);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+/// Les `type` des lignes du fil du dossier de Kraken qui nomment la vague `vague`, dans l'ordre du fil.
+fn genres_de(kraken: &Path, vague: &str) -> Vec<String> {
+    let fil = fs::read_to_string(kraken.join("fil.jsonl")).unwrap();
+    let marque = format!(r#""vague":"{vague}""#);
+    let genre = |ligne: &str| {
+        let (_, apres) = ligne.split_once(r#""type":""#).expect("une ligne porte son type");
+        apres.split('"').next().unwrap_or_default().to_string()
+    };
+    fil.lines().filter(|ligne| ligne.contains(&marque)).map(genre).collect()
+}
+
+#[test]
+fn toute_vague_note_un_seul_lancement_apres_son_ouverture_et_avant_son_premier_depart() {
+    let racine = racine("lancement");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    let profil = Profil::faux(main_de_vague(&racine), DELAI);
+    let juge = |_: &Path| -> Result<(), String> { Ok(()) };
+    let empreinte = "ab".repeat(32);
+    let un_plan = plan(&["plan 1", "objectif : Jouer", "preuve : exit 0", "tache a", "    Jouer"]);
+    let copies = Plan::copies("objectif", None, 2);
+    let (tete, fin) = (["vague.ouverte"], ["vague.lancement", "main.bail"]);
+    let cas = [
+        ("des copies", copies.clone(), Liens::default(), None, tete.to_vec()),
+        (
+            "des copies, un plan donné",
+            copies.clone(),
+            Liens { plan: Some(&empreinte), ..Liens::default() },
+            Some(&empreinte),
+            tete.to_vec(),
+        ),
+        ("un juge", copies.clone(), Liens { juge: Some(&juge), ..Liens::default() }, None, tete.to_vec()),
+        (
+            "un relecteur",
+            copies.clone(),
+            Liens { juge: Some(&juge), relit: Some("v"), ..Liens::default() },
+            None,
+            vec!["vague.ouverte", "vague.relecteur"],
+        ),
+        ("une relance de la CI", copies.clone(), Liens { relance_ci: true, ..Liens::default() }, None, tete.to_vec()),
+        ("un plan", un_plan.clone(), Liens::default(), None, vec!["vague.ouverte", "vague.assemblage", "vague.tache"]),
+        (
+            "un plan découpé, né d'une issue",
+            un_plan.clone(),
+            Liens { decoupage: Some("d"), issue: Some(7), ..Liens::default() },
+            None,
+            vec!["vague.ouverte", "vague.assemblage", "vague.joue", "vague.tache", "vague.issue"],
+        ),
+        (
+            "une correction",
+            un_plan.clone(),
+            Liens { corrige: Some("v"), ..Liens::default() },
+            None,
+            vec!["vague.ouverte", "vague.assemblage", "vague.correction", "vague.tache"],
+        ),
+    ];
+    for (nom, plan, liens, attendue, avant) in cas {
+        let menee = lancer_avec(&depot, &kraken, &profil, &plan, BAIL, &base, liens).unwrap();
+        let genres = genres_de(&kraken, &menee.id);
+        let attendus: Vec<&str> = avant.iter().copied().chain(fin).collect();
+        assert_eq!(&genres[..attendus.len()], attendus, "{nom} : {genres:?}");
+        assert_eq!(genres.iter().filter(|genre| *genre == "vague.lancement").count(), 1, "{nom} : {genres:?}");
+        // Le lancement relu : la vague, la version de ce binaire, et le plan que les liens donnent, ou `null`.
+        let (_, lancements) = lire_avec_lancements(&kraken).unwrap();
+        let version = env!("CARGO_PKG_VERSION").to_string();
+        let attendu = LancementVague { vague: menee.id.clone(), version, plan: attendue.cloned() };
+        let ouverts: Vec<&LancementVague> = lancements
+            .iter()
+            .filter_map(|lu| match lu {
+                LancementLu::Ouvert(lancement) if lancement.vague == menee.id => Some(lancement),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ouverts, [&attendu], "{nom}");
+    }
     let _ = fs::remove_dir_all(&racine);
 }
 
