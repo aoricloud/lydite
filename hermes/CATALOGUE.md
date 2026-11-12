@@ -14,18 +14,19 @@ repo: https://github.com/aoricloud/lydite
 sha: <sha>
 subdir: hermes
 description: >-
-  Hand a GitHub issue and the command that proves it done to Lydite from the chat. Lydite runs the job in Claude
-  Code sessions, on the model and provider of its profile, replays your proof itself and opens a pull request with
-  a receipt. Also reads the lessons Lydite keeps for a repository, checks a plan file, and turns a hermes-security
-  findings export into one plan per finding you choose: prove it by a failing test, then fix it. Disclosure: after
-  your approval of each launch (it shows the repository, the work, the proof or the plan's SHA-256, the profile and
-  the target branch; "always" covers that exact request only), starts the installed `lydite` binary (argument list,
-  no shell) as a detached background process, with a closed environment list plus the provider key you set; Lydite
-  runs git, gh and Claude Code on the host with your GitHub login and reaches GitHub and its profile's provider;
-  under a required wall (`mur = exige`, the default, or `natif`) the sessions' commands run in Claude Code's sandbox
-  and your proof is replayed inside the wall; under a profile you accepted with `mur = demande` they may run outside
-  it and the proof is replayed on the host. The status, lessons and plan checks are read-only and ask no approval.
-  Writes plans only under the plugin's data folder; no telemetry. The full list is in the README.
+  Hand a GitHub issue and the command that proves it done to Lydite from the chat. Lydite runs the job in Claude Code
+  sessions, on the model and provider of its profile, replays your proof itself and opens a pull request, with a
+  receipt, for the work that passed. Also reads the lessons Lydite keeps for a repository, checks a plan file, and
+  turns a hermes-security findings export into one plan per finding you choose: prove it by a failing test, then fix
+  it. Disclosure: after your approval of each launch (it shows the repository, the work, the proof (for a plan, also
+  its SHA-256), the profile and the target branch; "always" covers that exact request only), starts the installed
+  `lydite` binary (argument list, no shell) as a detached background process, with a closed environment list plus the
+  provider key you set; Lydite runs git, gh and Claude Code on the host with your GitHub login and reaches GitHub and
+  its profile's provider; under a required wall (`mur = exige`, the default, or `natif`) the sessions' commands run in
+  Claude Code's sandbox and your proof is replayed inside the wall; under a profile you accepted with `mur = demande`
+  they may run outside it and see the provider key if there is one, and the proof is replayed on the host. The status,
+  lessons and plan-check tools are read-only and ask no approval. Writes plans only under the plugin's data folder; no
+  telemetry. The full list is in the README.
 maintainer: aoricloud
 tier: community
 category: automation
