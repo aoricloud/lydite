@@ -1406,6 +1406,75 @@ fn la_tache_ci_prend_l_union_des_exacts_des_taches_assemblees() {
     assert!(plan_de_relance(&plan, &issues, 12, "").taches[0].exacts.is_empty());
 }
 
+/// Une empreinte de 64 chiffres hexadécimaux, faite du seul chiffre `c`.
+fn hache(c: char) -> String {
+    c.to_string().repeat(64)
+}
+
+#[test]
+fn la_tache_ci_prend_les_exacts_et_les_epingles_des_taches_assemblees_avec_ou_sans_fichiers() {
+    let (h1, h2, h3, h4) = (hache('1'), hache('2'), hache('3'), hache('4'));
+    // a et b épinglent a.txt sous la même empreinte ; b a ses `fichiers`, ou n'en a pas quand `libre`.
+    let lignes = |libre: bool| {
+        let (a, b, c) =
+            (format!("sha256 : a.txt : {h1}"), format!("sha256 : b.txt : {h2}"), format!("sha256 : c.txt : {h3}"));
+        let d = format!("sha256 : d.txt : {h4}");
+        let mut lignes = vec!["plan 1", "objectif : Ecrire a, b et c", "preuve : exit 0"];
+        lignes.extend(["tache a", "fichiers : a.txt", "exact : a.txt : alpha", a.as_str(), "    Ecrire a"]);
+        lignes.push("tache b");
+        if !libre {
+            lignes.push("fichiers : a.txt b.txt");
+        }
+        lignes.extend(["exact : b.txt : beta", b.as_str(), a.as_str(), "    Ecrire b"]);
+        lignes.extend(["tache c", "fichiers : c.txt d.txt", "exact : c.txt : gamma", c.as_str(), d.as_str()]);
+        lignes.push("    Ecrire c");
+        plan(&lignes)
+    };
+    let paire = |fichier: &str, hache: &String| (fichier.to_string(), hache.clone());
+    for libre in [false, true] {
+        let plan = lignes(libre);
+        // Tout est assemblé : les épingles des trois tâches, dans leur ordre, a.txt une fois.
+        let attendues = vec![paire("a.txt", &h1), paire("b.txt", &h2), paire("c.txt", &h3), paire("d.txt", &h4)];
+        let relance = plan_de_relance(&plan, &assemblees(&plan), 12, "");
+        assert_eq!(relance.taches[0].empreintes, attendues, "libre : {libre}");
+        assert_eq!(relance.taches[0].fichiers.is_none(), libre);
+        // c est refusée : ni ses épingles ni ses exacts ne sont portés, même pour un fichier qu'une autre tâche pose.
+        let mut issues = assemblees(&plan);
+        issues[2].1 = Err("refusée (6022)".into());
+        let [ci] = &plan_de_relance(&plan, &issues, 12, "").taches[..] else { panic!() };
+        assert_eq!(ci.empreintes, attendues[..2].to_vec(), "libre : {libre}");
+        assert!(!ci.exacts.iter().any(|(fichier, _)| fichier == "c.txt"), "{:?}", ci.exacts);
+        // b est mise de côté, c redevient assemblée : b.txt n'est plus porté, a.txt l'est encore (a l'épingle aussi).
+        issues[2].1 = Ok(Pris { sortie: "fait".into(), prouve: true });
+        issues[1].1 = Err("set aside".into());
+        let [ci] = &plan_de_relance(&plan, &issues, 12, "").taches[..] else { panic!() };
+        assert_eq!(ci.empreintes, vec![paire("a.txt", &h1), paire("c.txt", &h3), paire("d.txt", &h4)]);
+        assert!(!ci.exacts.iter().any(|(fichier, _)| fichier == "b.txt"), "{:?}", ci.exacts);
+        // Aucune tâche assemblée : rien n'est porté.
+        for issue in &mut issues {
+            issue.1 = Err("impossible".into());
+        }
+        let [ci] = &plan_de_relance(&plan, &issues, 12, "").taches[..] else { panic!() };
+        assert!(ci.empreintes.is_empty() && ci.exacts.is_empty(), "{ci:?}");
+    }
+}
+
+#[test]
+fn un_plan_sans_exact_ni_epingle_rend_la_tache_ci_d_avant() {
+    let plan =
+        plan(&["plan 1", "objectif : Ecrire a", "preuve : cargo test", "tache a", "fichiers : a.txt", "    Ecrire a"]);
+    let relance = plan_de_relance(&plan, &assemblees(&plan), 7, "boom\n");
+    let tache = Tache {
+        id: "ci".into(),
+        objectif: format!("{CORRIGER}\nboom"),
+        fichiers: Some(vec!["a.txt".into()]),
+        ..Tache::default()
+    };
+    let attendu =
+        Plan { objectif: "Make the CI of PR 7 green".into(), preuve: Some("cargo test".into()), taches: vec![tache] };
+    assert_eq!(relance, attendu);
+}
+
 #[test]
 fn la_tache_ci_prend_l_union_des_fichiers_quand_chaque_tache_en_a() {
     // Chaque tâche a ses fichiers : la tâche ci a leur union, dans leur ordre, sans doublon.

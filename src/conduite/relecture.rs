@@ -24,7 +24,11 @@
 //!    `null` pour une main nue), avant la correction et la forge ; puis le bac du relecteur se retire. Sans remarque
 //!    bloquante, la forge peut partir de `t`. Avec, une seule correction part :
 //!    une vague d'une tâche `correction`, partie de `t`, de modèle la clé `relance` du profil, de `fichiers` l'union
-//!    de ceux des tâches critiques, de preuve celle de la vague. Assemblée en `t2`, elle fait avancer la branche de
+//!    de ceux des tâches critiques, de preuve celle de la vague. Elle porte les `exact` et les épingles `sha256` des
+//!    tâches critiques assemblées, et ceux de toute autre tâche assemblée de la vague dont le fichier est couvert par
+//!    ses `fichiers` (tout fichier si une tâche critique n'a pas de `fichiers`) : une tâche mise de côté, impossible
+//!    ou refusée n'a rien posé, et ni ses `exact` ni ses épingles ne sont portés ([`portes_de_la_correction`]).
+//!    Assemblée en `t2`, elle fait avancer la branche de
 //!    la vague de `t` à `t2`, d'où la forge part ; non assemblée, ou sans rien changer à `t`, rien ne se pousse, et
 //!    c'est le refus 7017. La correction n'a pas de seconde relecture.
 //!
@@ -38,8 +42,9 @@
 //! de la PR ne reprend pas (`publication::corps` n'en garde que les nombres), à une exception : les lignes du bloc
 //! `non rejoue`, dix au plus et coupées à 200 caractères, sous « Not replayed (from the review): ».
 //! Avant toute correction, une remarque bloquante dont le fichier n'est couvert (`plan::couvre`) par aucune entrée des
-//! `fichiers` de la correction arrête la relecture : c'est le refus 7020, aucune main ne part et rien ne se pousse ;
-//! sans `fichiers` aux tâches critiques, rien ne borne la correction et la règle ne joue pas.
+//! `fichiers` de la correction, ou qui vise un fichier que le plan épingle par `sha256` et que la correction porte,
+//! arrête la relecture : c'est le refus 7020, aucune main ne part et rien ne se pousse ; sans `fichiers` aux tâches
+//! critiques, rien ne borne la correction, et seule la règle des épingles joue.
 //! Les refus 7016, 7017 et 7020 se notent au fil
 //! par un `forge.refus` de la vague relue.
 
@@ -98,6 +103,11 @@ const SANS_CORRECTION: &str = "Nothing is pushed: blocking remarks remain withou
 /// La correction d'une remarque bloquante hors de portée (7020).
 const SANS_PORTEE: &str = "Nothing is pushed: no correction was started. Rerun the task in a fresh wave with that \
                            file in its `fichiers`, or fix it yourself on the branch, then have it reviewed.";
+
+/// La correction d'une remarque bloquante sur un fichier que le plan épingle (7020).
+const SANS_CHANGER_L_EPINGLE: &str = "Nothing is pushed: no correction was started. If the file must change, change \
+                                      its `sha256` line in the plan and rerun the task in a fresh wave, or fix it \
+                                      yourself on the branch, then have it reviewed.";
 
 /// La correction d'un fil qui ne reçoit pas la note d'une relecture prise (7012).
 const SANS_NOTE: &str = "Nothing is pushed: a review that the thread has not received does not count, and its \
@@ -229,15 +239,75 @@ fn fichiers_de(taches: &[&Tache]) -> Option<Vec<String>> {
 /// Les `exacts` de ces tâches (`exact : <fichier> : <texte>`), réunis sans doublon (même paire fichier et texte), dans
 /// l'ordre : les textes qu'une tâche bâtie par Lydite doit garder, que sa consigne dit et que le jugement vérifie.
 pub(crate) fn exacts_de<'a>(taches: impl IntoIterator<Item = &'a Tache>) -> Vec<(String, String)> {
+    sans_doublon(taches.into_iter().flat_map(|tache| &tache.exacts))
+}
+
+/// Les épingles de ces tâches (`sha256 : <fichier> : <empreinte>`), réunies sans doublon (même paire fichier et
+/// empreinte), dans l'ordre.
+pub(crate) fn empreintes_de<'a>(taches: impl IntoIterator<Item = &'a Tache>) -> Vec<(String, String)> {
+    sans_doublon(taches.into_iter().flat_map(|tache| &tache.empreintes))
+}
+
+/// Ces couples, chacun une fois, dans l'ordre où ils viennent.
+fn sans_doublon<'a>(couples: impl Iterator<Item = &'a (String, String)>) -> Vec<(String, String)> {
     let mut tous: Vec<(String, String)> = Vec::new();
-    for tache in taches {
-        for exact in &tache.exacts {
-            if !tous.contains(exact) {
-                tous.push(exact.clone());
-            }
+    for couple in couples {
+        if !tous.contains(couple) {
+            tous.push(couple.clone());
         }
     }
     tous
+}
+
+/// Ce que porte la tâche `correction` : ses `fichiers`, et ses `exact` et épingles.
+struct Portes {
+    fichiers: Option<Vec<String>>,
+    exacts: Vec<(String, String)>,
+    empreintes: Vec<(String, String)>,
+}
+
+/// Ce que la correction porte : ses `fichiers` sont l'union de ceux des tâches `critiques` ([`fichiers_de`]) ; ses
+/// `exact` et ses épingles sont ceux de chaque tâche `assemblees` de la vague (dans l'ordre du plan, chaque couple une
+/// fois) dont le fichier est couvert par ces `fichiers` (`plan::couvre`), ou tout fichier si une tâche critique n'a
+/// pas de `fichiers`. Ceux des tâches critiques y sont toujours : leur fichier est couvert par leurs `fichiers`. Une
+/// tâche qui n'est pas assemblée n'a rien posé : elle ne figure pas dans `assemblees`, et rien d'elle n'est porté.
+fn portes_de_la_correction(critiques: &[&Tache], assemblees: &[&Tache]) -> Portes {
+    let fichiers = fichiers_de(critiques);
+    let a_portee = |fichier: &str| fichiers.as_ref().is_none_or(|tous| tous.iter().any(|e| couvre(e, fichier)));
+    let exacts = sans_doublon(assemblees.iter().flat_map(|tache| &tache.exacts).filter(|(f, _)| a_portee(f)));
+    let empreintes = sans_doublon(assemblees.iter().flat_map(|tache| &tache.empreintes).filter(|(f, _)| a_portee(f)));
+    Portes { fichiers, exacts, empreintes }
+}
+
+/// Pourquoi une remarque bloquante est hors de portée de la correction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HorsDePortee {
+    /// Son fichier n'est couvert par aucune entrée des `fichiers` de la correction.
+    SansPortee,
+    /// Son fichier est épinglé par `sha256`, et la correction porte l'épingle : elle ne peut pas le changer.
+    Epinglee,
+}
+
+/// Le numéro (à partir de 1), le fichier et le cas de la première remarque bloquante hors de portée de la correction
+/// de `fichiers` (`None` : rien ne la borne) qui porte ces `empreintes` : son fichier n'est couvert (`plan::couvre`)
+/// par aucune entrée de `fichiers` ([`HorsDePortee::SansPortee`]), ou il est l'un des fichiers épinglés
+/// ([`HorsDePortee::Epinglee`]). Une remarque non bloquante n'y change rien.
+fn hors_de_portee<'r>(
+    fichiers: Option<&[String]>,
+    empreintes: &[(String, String)],
+    remarques: &'r [Remarque],
+) -> Option<(usize, &'r str, HorsDePortee)> {
+    remarques.iter().enumerate().filter(|(_, remarque)| remarque.bloquante).find_map(|(i, remarque)| {
+        let fichier = remarque.fichier.as_str();
+        let couvert = fichiers.is_none_or(|tous| tous.iter().any(|entree| couvre(entree, fichier)));
+        if !couvert {
+            Some((i + 1, fichier, HorsDePortee::SansPortee))
+        } else if empreintes.iter().any(|(epingle, _)| epingle == fichier) {
+            Some((i + 1, fichier, HorsDePortee::Epinglee))
+        } else {
+            None
+        }
+    })
 }
 
 /// Écrit [`DIFF`] dans le bac : `git diff <base> <tete>`, limité à `fichiers` (tous les chemins s'il n'y en a pas),
@@ -370,7 +440,11 @@ fn relire_selon(
     if critiques.is_empty() {
         return Relue::Aucune;
     }
-    let relecture = Relecture { depot, dossier, profil, plan, menee, base, tete, bail, critiques, origine };
+    let assemblees: Vec<&Tache> = (plan.taches.iter().zip(&menee.issues))
+        .filter(|(_, (_, issue))| issue.is_ok())
+        .map(|(tache, _)| tache)
+        .collect();
+    let relecture = Relecture { depot, dossier, profil, plan, menee, base, tete, bail, critiques, assemblees, origine };
     match relecture.mener() {
         Ok(prise) => Relue::Prise(prise),
         Err(refus) => Relue::Dehors(relecture.noter_le_refus(refus)),
@@ -392,6 +466,8 @@ struct Relecture<'a> {
     bail: Duration,
     /// Ses tâches critiques assemblées.
     critiques: Vec<&'a Tache>,
+    /// Toutes ses tâches assemblées, dans l'ordre du plan : celles dont la correction peut changer le fichier.
+    assemblees: Vec<&'a Tache>,
     /// D'où vient la vague relue.
     origine: Origine,
 }
@@ -437,28 +513,38 @@ impl Relecture<'_> {
         }
         let ecrits = [REMARQUES, DIFF, FICHIER_PREUVE];
         retirer_le_bac(self.depot, self.dossier, "the reviewer's sandbox", &main, self.tete, &ecrits);
-        if let Some((numero, fichier)) = self.bloquante_hors_de_portee(&remarques) {
-            let preuve = format!(
-                "the review of wave {} has a blocking remark, number {numero}, on {fichier}, \
-                 which the correction cannot touch",
-                self.menee.id
-            );
-            return Err(Refus::new(Code::BloquanteHorsDePortee, preuve, SANS_PORTEE));
+        if let Some((numero, fichier, cas)) = self.bloquante_hors_de_portee(&remarques) {
+            let id = &self.menee.id;
+            let refus = match cas {
+                HorsDePortee::SansPortee => {
+                    let preuve = format!(
+                        "the review of wave {id} has a blocking remark, number {numero}, on {fichier}, \
+                         which the correction cannot touch"
+                    );
+                    Refus::new(Code::BloquanteHorsDePortee, preuve, SANS_PORTEE)
+                }
+                HorsDePortee::Epinglee => {
+                    let preuve = format!(
+                        "the review of wave {id} has a blocking remark, number {numero}, on {fichier}, \
+                         which the plan pins by sha256: the correction cannot change it"
+                    );
+                    Refus::new(Code::BloquanteHorsDePortee, preuve, SANS_CHANGER_L_EPINGLE)
+                }
+            };
+            return Err(refus);
         }
         let correction = if bloquantes == 0 { None } else { Some(self.corriger(&remarques)?) };
         Ok(Prise { main, n, bloquantes, correction })
     }
 
-    /// Le numéro (à partir de 1) et le fichier de la première remarque bloquante qu'aucune entrée des fichiers de la
-    /// correction ne couvre (`plan::couvre`, à la lettre). Quand une tâche critique n'a pas de `fichiers`
-    /// ([`fichiers_de`] rend `None`), rien ne borne la correction : aucune remarque n'est hors de portée. Une remarque
-    /// non bloquante n'y change rien.
-    fn bloquante_hors_de_portee<'r>(&self, remarques: &'r [Remarque]) -> Option<(usize, &'r str)> {
-        let fichiers = fichiers_de(&self.critiques)?;
-        remarques.iter().enumerate().find_map(|(i, remarque)| {
-            let couvert = fichiers.iter().any(|entree| couvre(entree, &remarque.fichier));
-            (remarque.bloquante && !couvert).then_some((i + 1, remarque.fichier.as_str()))
-        })
+    /// Le numéro (à partir de 1), le fichier et le cas de la première remarque bloquante hors de portée de la
+    /// correction ([`hors_de_portee`]) : son fichier n'est couvert par aucune entrée de ses `fichiers`, ou il est
+    /// épinglé par `sha256` et la correction porte l'épingle ([`portes_de_la_correction`]). Quand une tâche critique
+    /// n'a pas de `fichiers` ([`fichiers_de`] rend `None`), rien ne borne la correction : seule la règle des épingles
+    /// joue. Une remarque non bloquante n'y change rien.
+    fn bloquante_hors_de_portee<'r>(&self, remarques: &'r [Remarque]) -> Option<(usize, &'r str, HorsDePortee)> {
+        let portes = portes_de_la_correction(&self.critiques, &self.assemblees);
+        hors_de_portee(portes.fichiers.as_deref(), &portes.empreintes, remarques)
     }
 
     /// Le profil, l'empreinte et le modèle du dernier `main.lancement` de la main du relecteur dans sa vague `vague`,
@@ -557,7 +643,7 @@ impl Relecture<'_> {
     /// la branche de la vague avance de `t` à `t2`, et la vague de la correction est rendue ; sinon le refus 7017.
     fn corriger(&self, remarques: &[Remarque]) -> Result<Menee, Refus> {
         let (id, tete) = (&self.menee.id, self.tete);
-        let correction = plan_de_la_correction(self.profil, self.plan, &self.critiques, remarques);
+        let correction = plan_de_la_correction(self.profil, self.plan, &self.critiques, &self.assemblees, remarques);
         let manque = |preuve: String| Refus::new(Code::BloquantesRestantes, preuve, SANS_CORRECTION);
         let liens = Liens { corrige: Some(id), lecons: Some(&self.menee.lecons), ..Liens::default() };
         let profil = self.profil.pour_la_correction();
@@ -611,19 +697,29 @@ fn plan_du_relecteur(profil: &Profil, plan: &Plan, critiques: &[&Tache], points:
 }
 
 /// Le plan de la correction : une vague d'une seule tâche, `correction`, de preuve celle de la vague, d'objectif
-/// [`objectif_de_la_correction`], de `fichiers` l'union de ceux des tâches critiques, d'`exacts` l'union de ceux des
-/// tâches critiques ([`exacts_de`]), et de modèle la clé `relance` du profil à ses deux tentatives. Elle n'est pas
+/// [`objectif_de_la_correction`], de `fichiers` l'union de ceux des tâches critiques, d'`exacts` et d'épingles ceux
+/// des tâches critiques et ceux de toute autre tâche `assemblees` (dans l'ordre du plan) dont le fichier est couvert
+/// par ces `fichiers`, ou de toute tâche assemblée si une tâche critique n'a pas de `fichiers`
+/// ([`portes_de_la_correction`]), et de modèle la clé `relance` du profil à ses deux tentatives. Elle n'est pas
 /// critique : la correction n'a pas de seconde relecture.
-fn plan_de_la_correction(profil: &Profil, plan: &Plan, critiques: &[&Tache], remarques: &[Remarque]) -> Plan {
+fn plan_de_la_correction(
+    profil: &Profil,
+    plan: &Plan,
+    critiques: &[&Tache],
+    assemblees: &[&Tache],
+    remarques: &[Remarque],
+) -> Plan {
     let relance = profil.relance().map(str::to_string);
     let objectif = objectif_de_la_correction(remarques);
+    let Portes { fichiers, exacts, empreintes } = portes_de_la_correction(critiques, assemblees);
     let tache = Tache {
         id: "correction".into(),
         objectif: objectif.clone(),
         modele: relance.clone(),
         relance,
-        fichiers: fichiers_de(critiques),
-        exacts: exacts_de(critiques.iter().copied()),
+        fichiers,
+        exacts,
+        empreintes,
         ..Tache::default()
     };
     Plan { objectif, preuve: plan.preuve.clone(), taches: vec![tache] }
