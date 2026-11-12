@@ -106,7 +106,7 @@ Each refusal has a number, says what it saw, and says what to do.
   lesson (7018), or to a `.claude/` folder (7006) is refused; a hand does not run `git commit` (Lydite commits).
 - **It does not push a hand to cheat.** A hand that finds a test no honest code can pass says `IMPOSSIBLE: <reason>`;
   Lydite sets the task aside, replays nothing, retries nothing and merges nothing from it. The reason is the hand's
-  word, shown as `impossible (déclarée)` and never checked: a task set aside this way does not show that the test is
+  word, shown as `impossible (declared)` and never checked: a task set aside this way does not show that the test is
   wrong, and a finding that comes back not proved does not show that there is no flaw.
 - **It does not publish** a change under `.github/`, a path of your machine, or a line of your `garde` file (8005),
   nor take a pull request whose CI stays silent (8008). The `garde` file, in the state folder, holds one word or name
