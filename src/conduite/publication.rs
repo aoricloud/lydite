@@ -75,8 +75,10 @@ fn plan_de_relance(plan: &Plan, issues: &Issues, numero: u64, contexte: &str) ->
 /// `path with an unreadable name` s'il porte un caractère de contrôle ou une apostrophe inverse ; vingt au plus, puis
 /// « … and <k> more »), ou « none » ; puis
 /// l'objectif du plan ; `Proof: <preuve de la vague> → green` ; les tâches assemblées,
-/// `<id>: <première ligne de son objectif>` ; les tâches dehors, `<id>: set aside` ou `<id>: refused (<code>):
-/// <règle>` ; puis la ligne de la relecture, `relecture`, si la vague a été relue, et sous elle la ligne du commit
+/// `<id>: <première ligne de son objectif>` ; les tâches dehors, `<id>: refused (<code>): <règle>` pour un refus,
+/// `<id>: impossible (declared)` si la main porte le verdict `impossible` (sans sa raison : le corps ne reprend
+/// jamais un texte écrit par une main), `<id>: set aside` pour toute autre ; puis la ligne de la relecture,
+/// `relecture`, si la vague a été relue, et sous elle la ligne du commit
 /// relu et rejoué ([`controler_la_tete`]), que `relecture` porte aussi, dont `rejouee` fait un texte de deux lignes.
 /// La fusion suit la règle du dépôt, et
 /// le corps n'en dit rien. L'issue de la tâche `k` du plan est celle que le fil rejoue pour la main `k` de `vague`
@@ -114,7 +116,14 @@ pub(crate) fn corps(
                 Some(code) => format!("{id}: refused ({}): {}", code.numero(), code.regle()),
                 None => format!("{id}: refused ({code})"),
             }),
-            None => dehors.push(format!("{id}: set aside")),
+            None => {
+                let verdict = vague.mains.get(&k).and_then(|main| main.verdict);
+                let impossible = matches!(verdict, Some((fil::Verdict::Impossible, _)));
+                dehors.push(match impossible {
+                    true => format!("{id}: impossible (declared)"),
+                    false => format!("{id}: set aside"),
+                });
+            }
         }
     }
     let preuve = format!("Proof: {} → green", plan.preuve.as_deref().unwrap_or_default());

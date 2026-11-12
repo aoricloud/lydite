@@ -30,7 +30,7 @@ const COMMIT: &str = "Lydite commits your work itself: do not run git commit.";
 
 /// Le début du texte de l'issue d'une tâche classée impossible : Kraken l'écrit lui-même en tête, et la raison de la
 /// main suit. Il ne sert qu'à dire l'issue ; aucune décision ne le lit.
-pub(crate) const IMPOSSIBLE: &str = "impossible (déclarée) : ";
+pub(crate) const IMPOSSIBLE: &str = "impossible (declared): ";
 
 /// L'échec d'une tentative, du point où elle le rend jusqu'à celui où la vague décide.
 #[derive(Debug, PartialEq, Eq)]

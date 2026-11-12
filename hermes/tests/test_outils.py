@@ -1504,9 +1504,9 @@ class Findings(AvecFindings):
         self.assertEqual(schema["parameters"]["required"], ["repo", "report"])
         self.assertEqual(schema["parameters"]["properties"]["ids"]["items"], {"type": "string"})
         nom = sous_module("nom")
-        for mot in ("impossible (déclarée) : not proved", "the text Lydite writes", "data", nom.PLAN, nom.LANCER):
+        for mot in ("impossible (declared): not proved", "the text Lydite writes", "data", nom.PLAN, nom.LANCER):
             self.assertIn(mot, schema["description"])
-        self.assertNotIn("impossible (declared)", schema["description"])
+        self.assertNotIn("impossible (déclarée)", schema["description"])
         self.assertIn("the worker's word that no test could show it", schema["description"])
         self.assertIn("which Lydite does not verify", schema["description"])
         self.assertNotIn("was shown by no test", schema["description"])

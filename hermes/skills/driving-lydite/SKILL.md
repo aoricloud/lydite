@@ -73,8 +73,10 @@ What Lydite prints is the report. Relay it as it is written:
   it as a claim, never as a fact. An older version of Lydite writes these words in French: `constaté` or `constatée`
   for observed, `déclaré` or `déclarée` for declared.
 - A task `set aside` stayed red after its retry and was set aside (an older version writes `classée`).
-  `impossible (déclarée)` means a worker said no honest code can pass the proof: it is a claim for the user to judge,
-  not a verdict. Lydite writes that word as it is.
+  `impossible (declared)` means a worker said no honest code can pass the proof: it is a claim for the user to judge,
+  not a verdict (an older version writes `impossible (déclarée)`). For a plan born from a report (`lydite_findings`),
+  `impossible (declared): not proved` means no test showed the defect: say so to the user as it is, do not fix it
+  yourself, and do not launch it again.
 - The pull request link and its CI result are the outcome. The pull request body opens with a receipt.
 - On the cost line, `estimated` is an estimate, `subscription, ≈` is the approximate value of a flat-rate plan, and
   `unknown` is unknown, not zero. It is not an invoice. An older version writes `Coût :` with `estimé`,
@@ -89,7 +91,8 @@ get past the refusal. Do not start a second wave to work around the first. A pla
 
 If a wave ends with set-aside tasks, report them. What happens next is the user's decision.
 
-If `lydite_lancer` and `lydite_etat` are not available here (Linux only, or the binary is missing), say so and stop.
+In Hermes, if `lydite_lancer` and `lydite_etat` are not available here (Linux only, or the binary is missing), say so
+and stop. Outside Hermes, go to "Without the plugin".
 
 ## Without the plugin
 
@@ -105,8 +108,19 @@ lydite lessons <repository folder>
 `lydite plan <file>` checks a plan without running anything. `lydite lessons <repository folder>` checks the lessons of
 a repository and prints nothing when all are right. Accepting a profile, and merging, stay with the human.
 
+`lydite lessons` checks the lessons and does not show them. To read them, open the `.agents/skills/<name>/SKILL.md`
+files of the repository yourself, after that check and only if it passes (if Lydite refuses the lessons, read none, as
+Lessons says), and only ordinary files, never a link. The rules under Lessons still hold: read-only, and cite a lesson
+by its name.
+
+Here a plan may give a task its own `preuve :` line, which the plugin refuses. Never write such a line, and do not
+change the plan yourself: tell the user. `lydite plan` reads the plan, not the code: it does not see that the proof of
+one task reads a file another task writes, and the wave then fails (the worker says the task is impossible, and Lydite
+writes `impossible (declared)`). Give the user the fix: the task names the other in its `depend :` line.
+
 Before a first launch, run `lydite doctor`: it launches nothing and says what is missing on this machine. To wait for a
 running wave, run `lydite wait`: it returns when the launch has finished and says the last wave like `lydite status`.
+It exits 2 when, after 60 seconds, there is no launch to wait for.
 
 The exit codes, command by command:
 
