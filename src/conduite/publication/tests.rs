@@ -559,6 +559,105 @@ fn le_corps_d_une_vague_decoupee_nomme_ses_taches_par_leur_id_et_dit_la_relectur
 }
 
 #[test]
+fn le_corps_dit_les_fichiers_verifies_par_sha256_sur_ceux_que_le_plan_epingle() {
+    let (v, c1) = ("1761901500000_11_0", "1761901600000_11_0");
+    let (ha, hb, hc) = (hache('a'), hache('b'), hache('c'));
+    let avec_epingles = format!(
+        "plan 1\nobjectif : Trois fichiers\npreuve : cargo test\n\n\
+         tache a\nsha256 : src/a.rs : {ha}\n    Ecrire a\n\
+         tache b\nsha256 : src/b.rs : {hb}\n    Ecrire b\n\
+         tache c\nsha256 : src/c.rs : {hc}\n    Ecrire c\n"
+    );
+    let plan = Plan::lire(avec_epingles.as_bytes()).unwrap();
+    let ouverte = Evenement::Vague {
+        vague: v.into(),
+        n: 3,
+        depot: "/srv/depot".into(),
+        verifier: None,
+        objectif: "Trois fichiers".into(),
+    };
+    let fusion =
+        |vague: &str, main| Evenement::Fusion { vague: vague.into(), main, sha: TETE.into(), verif: "v".into() };
+    let empreintes = |vague: &str, main, fichier: &str, h: &str| Evenement::Empreintes {
+        vague: vague.into(),
+        main,
+        sha: TETE.into(),
+        fichiers: vec![format!("{fichier} {h}")],
+    };
+    let refus = |main| Evenement::Refus {
+        vague: v.into(),
+        main,
+        code: Code::Conflit.numero(),
+        regle: "r".into(),
+        preuve: "p".into(),
+        correction: "c".into(),
+        verif: None,
+    };
+    let corps_de = |plan: &Plan, evenements: &[Evenement]| {
+        let notes: Vec<fil::Note> = (1..)
+            .zip(evenements)
+            .map(|(seq, evenement)| fil::Note {
+                seance: "s".into(),
+                seq,
+                instant: "2026-10-31T21:00:00.000Z".into(),
+                origine: "humain".into(),
+                origine_foi: Foi::Declare,
+                evenement: evenement.clone(),
+            })
+            .collect();
+        corps_sans_reglage(plan, &etat(evenements), v, None, None, &notes)
+    };
+    // a et b sont assemblées avec leurs empreintes ; c note la sienne, puis est refusée : son fichier n'est pas dans la
+    // branche, il ne compte pas. Deux fichiers vérifiés sur trois, à sa place : après l'effort, avant la preuve.
+    let notes = [
+        ouverte.clone(),
+        empreintes(v, 1, "src/a.rs", &ha),
+        fusion(v, 1),
+        empreintes(v, 2, "src/b.rs", &hb),
+        fusion(v, 2),
+        empreintes(v, 3, "src/c.rs", &hc),
+        refus(3),
+    ];
+    let texte = corps_de(&plan, &notes);
+    let recu = "Receipt\n- Cost: unknown\n- 0 hands, 0 retries, 0 set aside, 1 refused\n\
+                - Effort: Claude Code's default\n- Files verified by SHA-256: 2 of 3\n\
+                - Proof settings changed: none\n\nTrois fichiers\n\n";
+    assert!(texte.starts_with(recu), "{texte}");
+    // Le même fichier vérifié par la tâche, puis par sa correction, compte une fois ; un fichier de plus, une de plus.
+    let correction = Evenement::Correction { vague: c1.into(), corrige: v.into() };
+    let ouverte_c1 = Evenement::Vague {
+        vague: c1.into(),
+        n: 1,
+        depot: "/srv/depot".into(),
+        verifier: None,
+        objectif: "Corriger".into(),
+    };
+    let corrigee = [&notes[..], &[ouverte_c1, correction, empreintes(c1, 1, "src/a.rs", &ha), fusion(c1, 1)]].concat();
+    assert!(corps_de(&plan, &corrigee).contains("\n- Files verified by SHA-256: 2 of 3\n"));
+    let plus = [&corrigee[..], &[empreintes(c1, 1, "src/c.rs", &hc)]].concat();
+    assert!(corps_de(&plan, &plus).contains("\n- Files verified by SHA-256: 3 of 3\n"));
+    // Un plan sans épingle rend le corps d'aujourd'hui, à l'octet, quoi que le fil porte.
+    let sans =
+        Plan::lire(b"plan 1\nobjectif : Trois fichiers\npreuve : cargo test\n\ntache a\n    Ecrire a\n").unwrap();
+    let attendu = "Receipt\n- Cost: unknown\n- 0 hands, 0 retries, 0 set aside\n- Effort: Claude Code's default\n\
+                   - Proof settings changed: none\n\nTrois fichiers\n\nProof: cargo test → green\n\na: Ecrire a\n";
+    assert_eq!(corps_de(&sans, &[ouverte, empreintes(v, 1, "src/a.rs", &ha), fusion(v, 1)]), attendu);
+    // Le reçu d'une PR dit la ligne entre la mesure et le sceau ; sans épingle au plan, il n'en dit rien.
+    let scelle = Recu {
+        verifies: vec!["src/a.rs".into()],
+        mesure: vec![SANS_A1],
+        sceau: Some(SceauVague::sur(v, b"fil")),
+        ..Recu::default()
+    };
+    let lignes = scelle.lignes_de_pr(3);
+    let [.., mesure, fichiers, sceau] = &lignes[..] else { panic!("{lignes:?}") };
+    assert_eq!(mesure, "- Measurement: sans-a1.");
+    assert_eq!(fichiers, "- Files verified by SHA-256: 1 of 3");
+    assert!(sceau.starts_with("- Thread sealed at 3 bytes: sha256 "), "{sceau}");
+    assert!(!scelle.lignes_de_pr(0).iter().any(|ligne| ligne.contains("SHA-256: ")), "{lignes:?}");
+}
+
+#[test]
 fn le_recu_ferme_les_liens_de_proche_en_proche_et_s_arrete_sur_une_boucle() {
     let (v, c1, c2) = ("1761901100000_7_0", "1761901200000_7_0", "1761901300000_7_0");
     let ouvertes = [v, c1, c2].map(|id| crate::essais::ouverture(id, 1, "o"));
