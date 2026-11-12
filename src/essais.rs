@@ -222,6 +222,50 @@ pub(crate) fn main_texte_coupe(dir: &Path, se_corrige: bool) -> Vec<String> {
     }
 }
 
+/// Une fausse main qui copie dans son bac des fichiers que le test a posés dans `dir` : à son appel `n` (1 au premier,
+/// que compte `compte`, hors du bac), elle copie `copies[n - 1]`, couple (source de `dir`, cible du bac, sans dossier),
+/// et le dernier couple à tout appel au-delà. Elle garde sa consigne dans `entree-<n>.txt` de `dir`, et finit sur
+/// `PREUVE: vert`. Les octets copiés sont ceux du test, sans fin de ligne ajoutée par un script. `dir` sert à un seul
+/// test.
+pub(crate) fn main_qui_copie(dir: &Path, copies: &[(&str, &str)]) -> Vec<String> {
+    let d = dir.to_string_lossy();
+    let dernier = copies.len();
+    if cfg!(windows) {
+        let script = dir.join("copie.bat");
+        let etapes: String = copies
+            .iter()
+            .enumerate()
+            .map(|(i, (source, cible))| {
+                let test = if i + 1 == dernier { format!("GEQ {}", i + 1) } else { format!("== {}", i + 1) };
+                format!("if %n% {test} copy /y \"%d%\\{source}\" \"{cible}\" >nul\r\n")
+            })
+            .collect();
+        let corps = format!(
+            "@echo off\r\nset \"d={d}\"\r\nset n=0\r\nif exist \"%d%\\compte\" set /p n=<\"%d%\\compte\"\r\n\
+             set /a n+=1\r\n>\"%d%\\compte\" echo %n%\r\nfindstr \"^\" > \"%d%\\entree-%n%.txt\"\r\n\
+             {etapes}echo PREUVE: vert\r\n"
+        );
+        fs::write(&script, corps).unwrap();
+        vec![script.to_string_lossy().into_owned()]
+    } else {
+        let script = dir.join("copie.sh");
+        let etapes: String = copies
+            .iter()
+            .enumerate()
+            .map(|(i, (source, cible))| {
+                let motif = if i + 1 == dernier { "*".to_string() } else { (i + 1).to_string() };
+                format!("{motif}) cp \"$d/{source}\" '{cible}';;\n")
+            })
+            .collect();
+        let corps = format!(
+            "d='{d}'\nn=0\nif [ -f \"$d/compte\" ]; then n=$(cat \"$d/compte\"); fi\nn=$((n+1))\n\
+             echo $n > \"$d/compte\"\ncat > \"$d/entree-$n.txt\"\ncase $n in\n{etapes}esac\necho 'PREUVE: vert'\n"
+        );
+        fs::write(&script, corps).unwrap();
+        vec!["sh".into(), script.to_string_lossy().into_owned()]
+    }
+}
+
 /// Une fausse main de relance qui touche `.github/` : comme [`main_de_vague`], elle écrit sa consigne dans `<bac>.txt`,
 /// puis `.github/ci.yml` dans son bac, ce qu'une PR de Kraken ne publie pas.
 pub(crate) fn main_qui_ecrit_la_ci(dir: &Path) -> Vec<String> {

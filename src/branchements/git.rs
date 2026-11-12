@@ -10,6 +10,8 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use crate::branchements::github::GIT_FORGE;
+use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus, nommee};
 use crate::coeur::lecons::{self, Lecon};
 
@@ -274,6 +276,68 @@ pub(crate) fn lecons_du_commit(depot: &Path, base: &str) -> Result<Vec<Lecon>, R
         lecons.push(lecon);
     }
     Ok(lecons)
+}
+
+/// La borne de la lecture d'un fichier épinglé (`sha256` du plan) : 64 Mio. Au-delà, le fichier est trop lourd, et
+/// n'est pas lu en entier.
+pub(crate) const BORNE_EMPREINTE: u64 = 64 * 1024 * 1024;
+
+/// Où git garde le fichier qu'on lui demande : l'index du bac, ou un commit.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Arbre<'a> {
+    Index,
+    Commit(&'a str),
+}
+
+/// Ce que git garde d'un fichier ([`empreinte_gardee`]).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Gardee {
+    /// Un fichier ordinaire : le SHA-256 (64 hexadécimaux minuscules) des octets que git en garde.
+    Empreinte(String),
+    /// Git n'a aucune entrée à ce chemin.
+    Absent,
+    /// Une entrée qui n'est pas un fichier ordinaire (un lien symbolique, un sous-dépôt, un dossier) : son mode.
+    PasOrdinaire(String),
+    /// Un fichier de plus que la borne : il n'est pas lu en entier.
+    TropLourd,
+}
+
+/// Ce que git garde du fichier `chemin`, dans l'index du bac ou dans un commit : la seule lecture d'un fichier épinglé,
+/// la même à la fin d'une tentative et au gel. Elle n'ouvre jamais un fichier du bac, qu'une main a écrit : elle
+/// demande à git l'entrée du chemin (`ls-files -s` pour l'index, `ls-tree` pour un commit), sans entrée le fichier est
+/// absent, et un mode autre que 100644 ou 100755 n'est pas un fichier ordinaire ; puis elle lit l'objet par
+/// `cat-file blob`, borné à `borne` octets (au-delà, le fichier est trop lourd), et en prend le SHA-256.
+///
+/// Le chemin se donne à git à la lettre (`GIT_LITERAL_PATHSPECS`, que `geste` ôte), et les objets se lisent sans les
+/// remplacements que le dépôt déclare (`GIT_NO_REPLACE_OBJECTS`, comme les gestes de la forge). Un git qui échoue est
+/// une erreur, jamais un fichier absent.
+pub(crate) fn empreinte_gardee(bac: &Path, arbre: Arbre<'_>, chemin: &str, borne: u64) -> Result<Gardee, String> {
+    let mut entrees = match arbre {
+        Arbre::Index => geste(bac, &["ls-files", "-s", "-z", "--", chemin]),
+        Arbre::Commit(commit) => geste(bac, &["ls-tree", "-z", commit, "--", chemin]),
+    };
+    entrees.envs(GIT_FORGE).env("GIT_LITERAL_PATHSPECS", "1");
+    let sortie = faire(entrees)?;
+    // `ls-files -s` : `<mode> <objet> <étape>\t<chemin>` ; `ls-tree` : `<mode> <type> <objet>\t<chemin>`. Git rend
+    // aussi ce qui est sous un dossier que `chemin` nomme, et rien d'autre que ce chemin ne compte.
+    let mut trouvees = sortie.split('\0').filter_map(|entree| {
+        let (champs, nom) = entree.split_once('\t')?;
+        let [mode, deuxieme, troisieme] = champs.split(' ').collect::<Vec<_>>()[..] else { return None };
+        let objet = if matches!(arbre, Arbre::Index) { deuxieme } else { troisieme };
+        (nom == chemin).then(|| (mode.to_string(), objet.to_string()))
+    });
+    let Some((mode, objet)) = trouvees.next() else { return Ok(Gardee::Absent) };
+    if trouvees.next().is_some() || (mode != "100644" && mode != "100755") {
+        return Ok(Gardee::PasOrdinaire(mode));
+    }
+    let mut lire = geste(bac, &["cat-file", "blob", &objet]);
+    lire.envs(GIT_FORGE);
+    let garde = usize::try_from(borne.saturating_add(1)).unwrap_or(usize::MAX);
+    let (octets, total) = faire_borne(lire, garde)?;
+    if total > borne {
+        return Ok(Gardee::TropLourd);
+    }
+    Ok(Gardee::Empreinte(hex(&sha256(&octets))))
 }
 
 /// Le chemin canonique d'un chemin qui n'existe peut-être pas : son plus proche ancêtre qui existe, canonisé, puis le
