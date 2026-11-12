@@ -36,7 +36,7 @@ use crate::coeur::profil::{EFFORT_PAR_DEFAUT, SANS_A1, SANS_LECTURE};
 use crate::coeur::remarques::lire_fichier;
 use crate::conduite::alarmes;
 use crate::conduite::lancer::{Issues, Menee};
-use crate::conduite::relecture::exacts_de;
+use crate::conduite::relecture::{empreintes_de, exacts_de};
 
 /// La correction du refus 8011.
 const ROUGE: &str = "The PR stays open and red, and Lydite does not retry it twice: read its CI, then fix it yourself.";
@@ -48,9 +48,11 @@ const CORRIGER: &str = "Corrige au plus petit ce que le contexte nomme, et rien 
 /// dépendance. Elle joue la preuve de la vague relancée, et son objectif est [`CORRIGER`], puis le `contexte` : les
 /// checks en échec et la fin du journal de la CI. Ses `fichiers` sont l'union de ceux des tâches de la vague relancée,
 /// dans leur ordre et sans doublon, quand chacune en a ; aucun sinon : une tâche que rien ne bornait a pu tout changer.
-/// Ses `exacts` sont l'union de ceux des tâches assemblées de la vague (`issues`, issue `Ok`, lues comme la relecture
-/// lit les siennes), dans leur ordre et sans doublon, qu'elles aient ou non des `fichiers` : une tâche mise de côté,
-/// impossible ou refusée n'a pas posé son texte, et l'exiger rendrait la relance rouge pour rien.
+/// Ses `exacts` et ses épingles `sha256` sont l'union de ceux des tâches assemblées de la vague (`issues`, issue
+/// `Ok`, lues comme la relecture lit les siennes), dans leur ordre et sans doublon, qu'elles aient ou non des
+/// `fichiers` : tout fichier d'une tâche assemblée est à sa portée. Une tâche mise de côté, impossible ou refusée n'a
+/// posé ni son texte ni son fichier : ni ses `exacts` ni ses épingles ne sont portés, et les exiger rendrait la
+/// relance rouge pour rien.
 fn plan_de_relance(plan: &Plan, issues: &Issues, numero: u64, contexte: &str) -> Plan {
     let contexte = contexte.trim_end();
     let objectif = if contexte.is_empty() { CORRIGER.to_string() } else { format!("{CORRIGER}\n{contexte}") };
@@ -62,10 +64,20 @@ fn plan_de_relance(plan: &Plan, issues: &Issues, numero: u64, contexte: &str) ->
         }
         Some(unis)
     });
-    let assemblees = plan.taches.iter().zip(issues).filter(|(_, (_, issue))| issue.is_ok()).map(|(tache, _)| tache);
-    let exacts = exacts_de(assemblees);
-    let tache =
-        Tache { id: "ci".into(), depend: Vec::new(), preuve: None, objectif, fichiers, exacts, ..Tache::default() };
+    let assemblees: Vec<&Tache> =
+        plan.taches.iter().zip(issues).filter(|(_, (_, issue))| issue.is_ok()).map(|(tache, _)| tache).collect();
+    let exacts = exacts_de(assemblees.iter().copied());
+    let empreintes = empreintes_de(assemblees.iter().copied());
+    let tache = Tache {
+        id: "ci".into(),
+        depend: Vec::new(),
+        preuve: None,
+        objectif,
+        fichiers,
+        exacts,
+        empreintes,
+        ..Tache::default()
+    };
     Plan { objectif: format!("Make the CI of PR {numero} green"), preuve: plan.preuve.clone(), taches: vec![tache] }
 }
 

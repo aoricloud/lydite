@@ -1,5 +1,6 @@
 use super::*;
 use crate::branchements::bac::bac;
+use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::fil::{Couleur, Lecture, Verdict, etat};
 use crate::coeur::remarques::lire_remarques;
 use crate::commande::etat::{etat_dans, rendu};
@@ -76,7 +77,7 @@ fn la_consigne_dit_que_le_2_de_la_premiere_ligne_est_la_forme_et_non_un_compte()
 }
 
 #[test]
-fn la_correction_porte_l_union_des_exacts_des_taches_critiques() {
+fn la_correction_porte_les_exacts_des_critiques_et_pas_ceux_d_une_non_critique_hors_de_ses_fichiers() {
     // a et c sont critiques et partagent un `exact` ; b ne l'est pas et porte le sien.
     let texte = "plan 1\nobjectif : Ecrire trois fichiers\npreuve : exit 0\n\n\
                  tache a\nfichiers : sortie/\ncritique : oui\nexact : sortie/a.txt : alpha\n\
@@ -87,7 +88,8 @@ fn la_correction_porte_l_union_des_exacts_des_taches_critiques() {
     let plan = Plan::lire(texte.as_bytes()).unwrap();
     let critiques: Vec<&Tache> = plan.taches.iter().filter(|tache| tache.critique).collect();
     assert_eq!(critiques.len(), 2);
-    let correction = plan_de_la_correction(&claude("sorte = claude\n"), &plan, &critiques, &[]);
+    let assemblees: Vec<&Tache> = plan.taches.iter().collect();
+    let correction = plan_de_la_correction(&claude("sorte = claude\n"), &plan, &critiques, &assemblees, &[]);
     let [tache] = &correction.taches[..] else { panic!("{correction:?}") };
     let paire = |fichier: &str, texte: &str| (fichier.to_string(), texte.to_string());
     // L'union des deux critiques, dans leur ordre, le doublon une fois ; le texte de b, non critique, n'y est pas.
@@ -121,7 +123,8 @@ fn le_relecteur_et_la_correction_partent_sur_leurs_cles_du_profil() {
     assert_eq!((tache.modele.as_deref(), tache.relance.as_deref()), (Some("opus"), Some("opus")));
     assert!(tache.depend.is_empty() && tache.fichiers.is_none() && !tache.critique);
     assert_eq!(tache.objectif, consigne(&plan.objectif, &critiques, &[]));
-    let correction = plan_de_la_correction(&defaut, &plan, &critiques, &remarques);
+    let assemblees: Vec<&Tache> = plan.taches.iter().collect();
+    let correction = plan_de_la_correction(&defaut, &plan, &critiques, &assemblees, &remarques);
     let [tache] = &correction.taches[..] else { panic!("{correction:?}") };
     assert_eq!((tache.modele.as_deref(), tache.relance.as_deref()), (Some("sonnet"), Some("sonnet")));
     // Les clés du profil : `relecteur` au relecteur, `relance` à la correction, et `modele` à aucun des deux.
@@ -130,7 +133,7 @@ fn le_relecteur_et_la_correction_partent_sur_leurs_cles_du_profil() {
     let modeles = |plan: &Plan| (plan.taches[0].modele.clone(), plan.taches[0].relance.clone());
     let pair = |modele: &str| (Some(modele.to_string()), Some(modele.to_string()));
     assert_eq!(modeles(&relecteur), pair("claude-opus-5-5"));
-    let correction = plan_de_la_correction(&profil, &plan, &critiques, &remarques);
+    let correction = plan_de_la_correction(&profil, &plan, &critiques, &assemblees, &remarques);
     assert_eq!(modeles(&correction), pair("claude-sonnet-5-5"));
     // La correction : l'objectif fixe puis les seules remarques bloquantes, la preuve de la vague, les fichiers des
     // tâches critiques réunis sans doublon, et pas critique elle-même.
@@ -142,11 +145,150 @@ fn le_relecteur_et_la_correction_partent_sur_leurs_cles_du_profil() {
     // Une main brute n'a pas de modèle ; une tâche critique sans `fichiers` ne borne ni le diff ni la correction.
     let brute = Profil::faux(vec!["x".into()], Duration::from_secs(1));
     assert_eq!(modeles(&plan_du_relecteur(&brute, &plan, &critiques, &[])), (None, None));
-    assert_eq!(modeles(&plan_de_la_correction(&brute, &plan, &critiques, &remarques)), (None, None));
+    assert_eq!(modeles(&plan_de_la_correction(&brute, &plan, &critiques, &assemblees, &remarques)), (None, None));
     let libre = Tache { fichiers: None, ..critiques[0].clone() };
     assert_eq!(fichiers_de(&[&libre, critiques[1]]), None);
-    assert_eq!(plan_de_la_correction(&brute, &plan, &[&libre], &remarques).taches[0].fichiers, None);
+    assert_eq!(plan_de_la_correction(&brute, &plan, &[&libre], &[&libre], &remarques).taches[0].fichiers, None);
     assert_eq!(fichiers_de(&[]), None);
+}
+
+/// Une empreinte de 64 chiffres hexadécimaux, faite du seul chiffre `c`.
+fn hache(c: char) -> String {
+    c.to_string().repeat(64)
+}
+
+/// Un couple (fichier, texte ou empreinte).
+fn paire(fichier: &str, valeur: &str) -> (String, String) {
+    (fichier.to_string(), valeur.to_string())
+}
+
+/// Un plan de cinq tâches, chacune avec un `exact` et une épingle : `k1` et `k2` critiques (`k2` sans `fichiers` quand
+/// `libre`), `n1` non critique sous `sortie/sous/`, `n2` non critique sous `autre/`, `n3` non critique sous
+/// `sortie/ecarte/`. `k1` et `k2` portent le même `exact` et la même épingle de `sortie/a.txt`.
+fn plan_des_portes(libre: bool) -> Plan {
+    let lignes = |id: &str, critique: bool, fichiers: &str, couples: &[(&str, &str, char)]| {
+        let mut lignes = vec![format!("tache {id}")];
+        lignes.extend(critique.then(|| "critique : oui".to_string()));
+        lignes.extend((!fichiers.is_empty()).then(|| format!("fichiers : {fichiers}")));
+        for (fichier, texte, c) in couples {
+            lignes.push(format!("exact : {fichier} : {texte}"));
+            lignes.push(format!("sha256 : {fichier} : {}", hache(*c)));
+        }
+        lignes.push(format!("    Ecrire {id}"));
+        lignes.join("\n")
+    };
+    let fichiers_de_k2 = if libre { "" } else { "sortie/ doc/lisez.md" };
+    let taches = [
+        lignes("k1", true, "sortie/", &[("sortie/a.txt", "alpha", '1')]),
+        lignes("n1", false, "sortie/sous/", &[("sortie/sous/n.txt", "nu", '3')]),
+        lignes("k2", true, fichiers_de_k2, &[("sortie/a.txt", "alpha", '1'), ("doc/lisez.md", "gamma", '2')]),
+        lignes("n2", false, "autre/", &[("autre/b.txt", "beta", '4')]),
+        lignes("n3", false, "sortie/ecarte/", &[("sortie/ecarte/e.txt", "ecarte", '5')]),
+    ];
+    let texte = format!("plan 1\nobjectif : Ecrire cinq taches\npreuve : exit 0\n\n{}\n", taches.join("\n\n"));
+    Plan::lire(texte.as_bytes()).unwrap()
+}
+
+/// Les tâches critiques de `plan`, puis ses tâches assemblées : toutes, sauf `n3`, mise de côté.
+fn critiques_et_assemblees(plan: &Plan) -> (Vec<&Tache>, Vec<&Tache>) {
+    let critiques = plan.taches.iter().filter(|tache| tache.critique).collect();
+    (critiques, plan.taches.iter().filter(|tache| tache.id != "n3").collect())
+}
+
+#[test]
+fn la_correction_porte_les_exacts_et_les_epingles_des_critiques_et_des_assemblees_qu_elle_couvre() {
+    let plan = plan_des_portes(false);
+    let (critiques, assemblees) = critiques_et_assemblees(&plan);
+    assert_eq!((critiques.len(), assemblees.len()), (2, 4));
+    let correction = plan_de_la_correction(&claude("sorte = claude\n"), &plan, &critiques, &assemblees, &[]);
+    let [tache] = &correction.taches[..] else { panic!("{correction:?}") };
+    // Les fichiers restent l'union de ceux des critiques.
+    assert_eq!(tache.fichiers, Some(vec!["sortie/".to_string(), "doc/lisez.md".to_string()]));
+    // Les deux critiques et n1 (assemblée, `sortie/sous/` est couvert), dans l'ordre du plan, `sortie/a.txt` une fois ;
+    // ni n2 (assemblée, mais `autre/` n'est pas couvert), ni n3 (mise de côté, bien que `sortie/ecarte/` le soit).
+    let exacts = vec![paire("sortie/a.txt", "alpha"), paire("sortie/sous/n.txt", "nu"), paire("doc/lisez.md", "gamma")];
+    let empreintes = vec![
+        paire("sortie/a.txt", &hache('1')),
+        paire("sortie/sous/n.txt", &hache('3')),
+        paire("doc/lisez.md", &hache('2')),
+    ];
+    assert_eq!(tache.exacts, exacts);
+    assert_eq!(tache.empreintes, empreintes);
+}
+
+#[test]
+fn sans_fichiers_a_une_critique_la_correction_porte_ceux_de_toutes_les_assemblees_et_pas_ceux_de_la_mise_de_cote() {
+    let plan = plan_des_portes(true);
+    let (critiques, assemblees) = critiques_et_assemblees(&plan);
+    let correction = plan_de_la_correction(&claude("sorte = claude\n"), &plan, &critiques, &assemblees, &[]);
+    let [tache] = &correction.taches[..] else { panic!("{correction:?}") };
+    assert_eq!(tache.fichiers, None);
+    let exacts = vec![
+        paire("sortie/a.txt", "alpha"),
+        paire("sortie/sous/n.txt", "nu"),
+        paire("doc/lisez.md", "gamma"),
+        paire("autre/b.txt", "beta"),
+    ];
+    let empreintes = vec![
+        paire("sortie/a.txt", &hache('1')),
+        paire("sortie/sous/n.txt", &hache('3')),
+        paire("doc/lisez.md", &hache('2')),
+        paire("autre/b.txt", &hache('4')),
+    ];
+    assert_eq!(tache.exacts, exacts);
+    assert_eq!(tache.empreintes, empreintes);
+}
+
+#[test]
+fn un_plan_sans_exact_ni_epingle_rend_la_correction_d_avant() {
+    let plan = Plan::lire(PLAN.as_bytes()).unwrap();
+    let (critiques, assemblees) = critiques_et_assemblees(&plan);
+    let remarques = [remarque("sortie/a.txt", None, true, "Perdu.")];
+    let correction = plan_de_la_correction(&claude("sorte = claude\n"), &plan, &critiques, &assemblees, &remarques);
+    let objectif = objectif_de_la_correction(&remarques);
+    let tache = Tache {
+        id: "correction".into(),
+        objectif: objectif.clone(),
+        modele: Some("sonnet".into()),
+        relance: Some("sonnet".into()),
+        fichiers: Some(vec!["sortie/".into(), "doc/lisez.md".into()]),
+        ..Tache::default()
+    };
+    assert_eq!(correction, Plan { objectif, preuve: Some("exit 0".into()), taches: vec![tache] });
+}
+
+#[test]
+fn le_tri_des_remarques_dit_hors_de_portee_ou_epinglee_selon_le_cas() {
+    let bloquante = |fichier: &str| remarque(fichier, None, true, "Un constat.");
+    // Le tri de ces remarques sous la correction de `plan_des_portes(libre)`.
+    let tri = |libre: bool, remarques: &[Remarque]| {
+        let plan = plan_des_portes(libre);
+        let (critiques, assemblees) = critiques_et_assemblees(&plan);
+        let portes = portes_de_la_correction(&critiques, &assemblees);
+        hors_de_portee(portes.fichiers.as_deref(), &portes.empreintes, remarques)
+            .map(|(numero, fichier, cas)| (numero, fichier.to_string(), cas))
+    };
+    let cas = |numero: usize, fichier: &str, cas: HorsDePortee| Some((numero, fichier.to_string(), cas));
+    for libre in [false, true] {
+        // Un fichier épinglé que la correction porte : hors de portée, avec ou sans `fichiers`.
+        let epinglee = HorsDePortee::Epinglee;
+        assert_eq!(tri(libre, &[bloquante("doc/lisez.md")]), cas(1, "doc/lisez.md", epinglee), "libre : {libre}");
+        assert_eq!(tri(libre, &[bloquante("sortie/sous/n.txt")]), cas(1, "sortie/sous/n.txt", epinglee));
+        // Le fichier épinglé d'une tâche mise de côté, que les `fichiers` couvrent, n'est pas porté : il est à portée.
+        assert_eq!(tri(libre, &[bloquante("sortie/ecarte/e.txt")]), None, "libre : {libre}");
+        // Les cas d'avant : un fichier couvert et non épinglé ne l'est pas ; une non bloquante n'y change rien ; la
+        // première bloquante dit son numéro.
+        assert_eq!(tri(libre, &[remarque("doc/lisez.md", None, false, "Un détail.")]), None);
+        let double = [bloquante("sortie/libre.txt"), bloquante("sortie/sous/n.txt"), bloquante("doc/lisez.md")];
+        assert_eq!(tri(libre, &double), cas(2, "sortie/sous/n.txt", epinglee));
+    }
+    // Un fichier que rien ne couvre est hors de portée, sauf sans `fichiers` : rien ne borne alors la correction.
+    let deux = [bloquante("sortie/libre.txt"), bloquante("hors/liste.txt")];
+    assert_eq!(tri(false, &deux), cas(2, "hors/liste.txt", HorsDePortee::SansPortee));
+    assert_eq!(tri(true, &deux), None);
+    // `autre/b.txt` : assemblée et épinglée, hors des `fichiers` de la correction ; sans `fichiers`, elle est portée.
+    assert_eq!(tri(false, &[bloquante("autre/b.txt")]), cas(1, "autre/b.txt", HorsDePortee::SansPortee));
+    assert_eq!(tri(true, &[bloquante("autre/b.txt")]), cas(1, "autre/b.txt", HorsDePortee::Epinglee));
 }
 
 #[test]
@@ -992,11 +1134,22 @@ fn remarques_sur(visees: &[(&str, bool)]) -> String {
 
 /// Une bloquante hors de portée : le refus 7020, aucune correction, rien de poussé, et `lydite etat` le montre.
 fn refus_7020(essai: &Essai, visees: &[(&str, bool)], numero: usize, fichier: &str) {
+    let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    refus_7020_du_plan(essai, &plan, visees, numero, fichier);
+}
+
+/// [`refus_7020`] sur ce plan ; rend la preuve du refus et sa correction.
+fn refus_7020_du_plan(
+    essai: &Essai,
+    plan: &Plan,
+    visees: &[(&str, bool)],
+    numero: usize,
+    fichier: &str,
+) -> (String, String) {
     distant_nu(&essai.racine, &essai.depot);
     let gh = gh_qui_suit(&essai.racine, &essai.depot);
     essai.remarques(1, &remarques_sur(visees));
-    let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
-    assert_eq!(essai.mener(&plan, Some(&gh)), ExitCode::FAILURE);
+    assert_eq!(essai.mener(plan, Some(&gh)), ExitCode::FAILURE);
     let fil = essai.fil();
     let ouvertes = ouvertes(&fil);
     let [v, r] = &ouvertes[..] else { panic!("la vague et le relecteur, sans correction : {ouvertes:?}") };
@@ -1012,6 +1165,33 @@ fn refus_7020(essai: &Essai, visees: &[(&str, bool)], numero: usize, fichier: &s
     let dit = rendu(&etat(&fil), PLUS_TARD);
     assert!(dit.contains("refusée (7020) : "), "{dit}");
     assert_eq!(etat_dans(&essai.kraken), Ok(ExitCode::FAILURE));
+    let correction = fil.iter().find_map(|e| match e {
+        Evenement::RefusForge { vague, correction, .. } if vague == v => Some(correction.clone()),
+        _ => None,
+    });
+    (preuve.clone(), correction.unwrap())
+}
+
+#[test]
+fn une_bloquante_sur_un_fichier_epingle_que_la_correction_porte_est_le_refus_7020_sans_aucune_correction() {
+    let essai = Essai::nouveau("relecture-7020-epingle");
+    // `doc/lisez.md` est dans la base, et la tâche critique l'épingle sous son empreinte : aucune main ne le change.
+    ecrire(&essai.depot, "doc/lisez.md", "alpha beta");
+    git(&essai.depot, &["add", "doc/lisez.md"]);
+    git(&essai.depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "lisez"]);
+    let epingle = hex(&sha256(b"alpha beta"));
+    let texte = PLAN_DE_VAGUE.replace(
+        "fichiers : sortie/\n",
+        &format!("fichiers : sortie/ doc/lisez.md\nsha256 : doc/lisez.md : {epingle}\n"),
+    );
+    let plan = Plan::lire(texte.as_bytes()).unwrap();
+    let visees = [("sortie/a.txt", true), ("doc/lisez.md", true)];
+    let (preuve, correction) = refus_7020_du_plan(&essai, &plan, &visees, 2, "doc/lisez.md");
+    // La preuve dit l'épingle, et pas le cas d'une remarque hors des `fichiers`.
+    assert!(preuve.contains("which the plan pins by sha256: the correction cannot change it"), "{preuve}");
+    assert!(!preuve.contains("which the correction cannot touch"), "{preuve}");
+    assert!(correction.contains("`sha256` line") && correction.contains("fix it yourself"), "{correction}");
+    let _ = fs::remove_dir_all(&essai.racine);
 }
 
 #[test]
