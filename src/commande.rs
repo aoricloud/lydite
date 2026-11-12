@@ -3,13 +3,19 @@
 //! est assemblée ; 1 sinon : une prise déclarée (sans vérification, la main seule a dit `PREUVE: vert`) donne 1, comme
 //! une main classée, et un refus de la forge pendant la vague aussi. Il vaut 2 pour un refus d'avant la vague, et si
 //! le fil ne se lit pas. `lydite etat` y ajoute ses règles : découpage, relecture et CI verte, et le code 0 quand il
-//! n'y a aucune vague, rien n'étant alors affirmé.
+//! n'y a aucune vague, rien n'étant alors affirmé. Il vaut 3 pour un lancement interrompu : la dernière vague du fil
+//! porte son `vague.lancement` et aucun `vague.fin`, et aucun lancement ne tient plus le dossier (le verrou se sonde un
+//! instant) ; ce que le texte compte alors est partiel, et ses mains qui couraient se disent interrompues. Un fil
+//! illisible et un sceau rompu (2) se jugent avant ; une dernière vague sans `vague.lancement` (un fil d'avant) se
+//! lit comme avant. `lydite lancer` ne rend jamais 3.
 //!
 //! `lydite attendre` attend la fin du lancement qui tient le dossier, puis, si le fil a au moins une note de plus
 //! qu'à son départ, dit la dernière vague comme `lydite etat` et en rend le code : 0 si elle est menée à bout et
 //! verte ; 1 si elle est rouge, ou finie sans son sceau de fin (un lancement tué, même sans note de plus) ; 2 si le fil
 //! ne se lit pas ou si un sceau est rompu, si le lancement attendu n'a ouvert aucune vague ni fait avancer aucune
-//! (aucune note de plus), et si, faute de dossier tenu comme de note neuve en 60 s, il n'y a rien à attendre.
+//! (aucune note de plus), et si, faute de dossier tenu comme de note neuve en 60 s, il n'y a rien à attendre ; 3 si le
+//! lancement attendu est mort sans son `vague.fin`, avec ou sans note de plus, ce qui l'emporte sur le 1 du sceau de
+//! fin.
 //!
 //! Un déclaré ne s'affiche jamais comme un fait : il porte toujours son mot (« pris, déclaré : main-… » dans `lancer`,
 //! « prise déclarée, non prouvée » et « mur exigé (déclaré) » dans `lydite etat`), et ne donne jamais le code 0.
