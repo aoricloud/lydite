@@ -538,6 +538,9 @@ reviewer get the list of all lessons, one line each, the same way.
   Lydite, and the SHA-256 of the plan file (null for a wave with no plan file). When it exits, it writes a `vague.fin`
   line on the last wave it opened: the exit code of the launch. A wave with a `vague.lancement` and no `vague.fin`, once
   no launch holds the folder, is an interrupted launch (see [Waiting for a wave](#waiting-for-a-wave)).
+- **A killed proof is replayed once.** A proof killed from outside (signal 9 or 15, or exit code 137 or 143; never
+  on Windows) is not a red proof: Lydite replays it once, and the thread says so in the first line of its `verif`,
+  `proof killed (<status>), replayed once`.
 
 ### Memory (read-only)
 

@@ -127,7 +127,10 @@
 //!     (journal impossible à créer, coquille qui ne part pas). Dans ce dernier cas, la fin est rouge, et son texte le
 //!     dit ;
 //!   - une chaîne : elle a tourné, et c'est la fin de sa sortie, vide si elle n'a rien écrit. Un journal illisible y
-//!     met « journal illisible : <erreur> », jamais la chaîne vide.
+//!     met « journal illisible : <erreur> », jamais la chaîne vide. Une preuve tuée du dehors (signal 9 ou 15, code
+//!     137 ou 143 ; jamais sous Windows) est rejouée une seule fois : la première ligne de la chaîne est alors écrite
+//!     par Lydite, `proof killed (<statut du premier jeu>), replayed once`, puis vient la fin de la sortie du second
+//!     jeu. La même ligne ouvre `verif` de `vague.fusion` et de `vague.refus` pour la preuve de la vague.
 //! - `main.verdict {vague, main, verdict, foi}` : la main est `prise`, `classee` ou `impossible`. Prise `constate`, sa
 //!   vérification a réussi ; prise `declare`, elle ne tient qu'à la ligne `PREUVE: vert` de la main ; classée, Kraken
 //!   l'a vu, et écrit `constate`. Impossible, la main de la tâche a fini sur `IMPOSSIBLE: <raison>` : le verdict est

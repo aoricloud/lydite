@@ -100,6 +100,92 @@ fn une_verification_qui_ne_part_pas_n_a_pas_de_verif() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// Une commande qui pose une ligne dans `jeux` du bac à chaque jeu, puis joue `suite` ; le second jeu sort en 0 si
+/// `reussit_au_second`.
+#[cfg(unix)]
+fn commande_comptee(suite: &str, reussit_au_second: bool) -> String {
+    let second = if reussit_au_second { r#"if [ "$(wc -l < jeux)" -ge 2 ]; then exit 0; fi; "# } else { "" };
+    format!("echo j >> jeux; {second}{suite}")
+}
+
+/// Rejoue `commande` dans un bac jetable : son rejeu, le nombre de jeux qu'elle a comptés, et le dossier à effacer.
+#[cfg(unix)]
+fn rejeu_compte(nom: &str, commande: &str, delai: Duration) -> (Rejeu, usize, PathBuf) {
+    let (dir, bac) = bac_jetable(nom);
+    let profil = Profil::faux(vec!["x".into()], delai);
+    let rejeu = rejouer(&profil, commande, &bac, &dir.join("journal.tmp"));
+    let jeux = fs::read_to_string(bac.join("jeux")).unwrap_or_default().lines().count();
+    (rejeu, jeux, dir)
+}
+
+#[cfg(unix)]
+#[test]
+fn une_preuve_tuee_au_premier_jeu_se_rejoue_une_fois_et_le_fil_le_dit() {
+    // Tuée du signal 9 puis du code 137 (une coquille dont l'enfant est tué) : verte au second jeu.
+    for (nom, suite) in [("tuee-9", "kill -9 $$"), ("tuee-137", "sh -c 'kill -9 $$'; exit $?")] {
+        let ((verif, rejeu), jeux, dir) = rejeu_compte(nom, &commande_comptee(suite, true), DELAI);
+        assert_eq!(rejeu, Ok(()), "{nom}");
+        assert_eq!(jeux, 2, "{nom} : la commande a joué deux fois");
+        let verif = verif.unwrap();
+        assert!(verif.starts_with("proof killed ("), "{nom} : {verif}");
+        assert!(verif.lines().next().unwrap().ends_with("), replayed once"), "{nom} : {verif}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn le_statut_du_premier_jeu_est_dans_la_ligne_et_la_sortie_du_second_la_suit() {
+    // Le premier jeu écrit PREMIER-JEU puis se tue ; le second écrit SECOND-JEU et sort en 0.
+    let commande =
+        r#"echo j >> jeux; if [ "$(wc -l < jeux)" -lt 2 ]; then echo PREMIER-JEU; kill -9 $$; fi; echo SECOND-JEU"#;
+    let ((verif, rejeu), jeux, dir) = rejeu_compte("tuee-ligne", commande, DELAI);
+    assert_eq!(rejeu, Ok(()));
+    assert_eq!(jeux, 2);
+    let verif = verif.unwrap();
+    let (premiere, reste) = verif.split_once('\n').unwrap();
+    assert!(premiere.starts_with("proof killed (signal: 9"), "{premiere}");
+    assert!(premiere.ends_with("), replayed once"), "{premiere}");
+    assert_eq!(reste.trim_end(), "SECOND-JEU", "la fin de la sortie du second jeu seulement");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn une_preuve_tuee_deux_fois_est_rouge_jouee_deux_fois_et_pas_trois() {
+    let ((verif, rejeu), jeux, dir) = rejeu_compte("tuee-deux-fois", &commande_comptee("kill -9 $$", false), DELAI);
+    let erreur = rejeu.unwrap_err();
+    assert!(erreur.contains("rouge (signal: 9"), "{erreur}");
+    assert_eq!(jeux, 2, "jouée deux fois, pas trois");
+    assert!(verif.unwrap().starts_with("proof killed ("), "la ligne dit le premier jeu");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn une_preuve_rouge_ou_plantee_ou_trop_lente_n_est_jouee_qu_une_fois() {
+    // `exit 3` : rouge, et la ligne n'y est pas. Le signal 11 : un plantage, rouge. Le délai : « temps dépassé ».
+    let cas = [
+        ("rouge-3", "exit 3", Duration::from_secs(30), "rouge (exit status: 3)"),
+        ("rouge-11", "kill -11 $$", Duration::from_secs(30), "rouge (signal: 11"),
+        ("rouge-lente", "sleep 30", Duration::from_secs(3), "temps dépassé"),
+    ];
+    for (nom, suite, delai, dit) in cas {
+        let ((verif, rejeu), jeux, dir) = rejeu_compte(nom, &commande_comptee(suite, false), delai);
+        let erreur = rejeu.unwrap_err();
+        assert!(erreur.contains(dit), "{nom} : {erreur}");
+        assert_eq!(jeux, 1, "{nom} : jouée une seule fois");
+        assert!(!verif.unwrap().contains("proof killed"), "{nom} : pas de ligne");
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[test]
+fn le_code_137_n_est_dit_tue_que_sous_unix() {
+    let statut = coquille("exit 137").status().unwrap();
+    assert_eq!(est_tuee(&statut), cfg!(unix));
+}
+
 #[test]
 fn la_preuve_rejouee_garde_le_dossier_temporaire_de_kraken() {
     // La main a son dossier temporaire ; la preuve que Kraken rejoue garde celui de Kraken, et n'en crée aucun.
