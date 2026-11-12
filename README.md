@@ -7,11 +7,11 @@ your proof command itself, and opens a pull request only for what passed, with a
 the proof.
 
 - **Only what passed reaches the pull request.** Lydite replays your proof itself, for each task and after every
-  merge; a task still red after its retry is set aside, not merged.
+  merge; a task that stays red (one retry at most) is set aside, not merged.
 - **The hands' commands run behind a wall**, a sandbox that limits what they read, write and reach on the network.
   By default, if the wall does not start, no hand starts.
 - **Each pull request opens with a receipt**: the hands, their retries, the tasks set aside, the seal of the run's
-  journal. After a review, the body also lists what the reviewer says was not replayed.
+  journal. After a review, the body also lists anything the reviewer says was not replayed.
 
 **Install** on Linux x86-64 (or WSL2), then check your setup:
 
@@ -22,8 +22,9 @@ tar -xzf lydite-*-linux-x86_64.tar.gz && mkdir -p ~/.local/bin && install -m 755
 lydite doctor
 ```
 
-A wave also needs `git`, `gh`, Claude Code and the wall's `srt`: `lydite doctor` says what is missing, and
-[Try it](#try-it) goes on from there to your first pull request.
+A wave also needs `git`, `gh` logged in, Claude Code signed in (or another provider's key), the wall's `srt` and an
+accepted profile: [Try it](#try-it) goes on from there to your first pull request, and `lydite doctor <profile>` says
+what is missing.
 
 <p>
   <a href="https://aoricloud.github.io/givre-lab/"><img src="https://raw.githubusercontent.com/aoricloud/givre-lab/main/apercus/etape-3-planche.png" alt="Nine simulated snow crystals, from Givre Lab" height="240"></a>
