@@ -57,6 +57,19 @@ fn un_geste_ote_de_l_enfant_les_variables_qui_nomment_un_depot() {
     }
 }
 
+#[test]
+fn un_geste_ote_de_l_enfant_les_variables_qui_changent_la_lecture_des_pathspecs() {
+    // Sans elles ôtées, `GIT_LITERAL_PATHSPECS=1` ferait lire mot pour mot les pathspecs à magie des refus 7006 et
+    // 7021, qui ne trouveraient plus rien. Le test lit ce que la `Command` ôte à l'enfant, sans rien poser dans son
+    // processus.
+    let git = geste(Path::new("."), &["status"]);
+    let otees: Vec<&OsStr> = git.get_envs().filter(|(_, valeur)| valeur.is_none()).map(|(nom, _)| nom).collect();
+    let noms = ["GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"];
+    for nom in noms {
+        assert!(otees.contains(&OsStr::new(nom)), "{nom} passerait à git : {otees:?}");
+    }
+}
+
 // Les tests du dépôt visé (ses racines, le dossier de Kraken hors de lui), à part : `depot` y nomme l'aide des tests
 // qui pose un dépôt sous une racine, pas `depot_neuf`.
 mod racines;
