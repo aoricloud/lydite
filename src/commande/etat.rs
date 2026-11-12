@@ -5,10 +5,11 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use crate::branchements::dossier::{lire, lire_avec_sceaux, sonder};
+use crate::branchements::dossier::{lire, lire_avec_lancements, sonder};
 use crate::coeur::erreur::Refus;
 use crate::coeur::fil::{
-    self, Evenement, Foi, Lecture, Main, Note, SceauLu, SceauVague, Vague, Verdict, correction_de, etat, relecture_de,
+    self, Evenement, Foi, LancementLu, Lecture, Main, Note, SceauLu, SceauVague, Vague, Verdict, correction_de, etat,
+    relecture_de,
 };
 use crate::coeur::texte;
 use crate::conduite::publication::recu_de;
@@ -20,7 +21,12 @@ use crate::conduite::tentative::IMPOSSIBLE;
 /// un fil qu'on ne lit pas, sans l'état. Le sceau montre une ligne changée ou retirée avant lui ; il ne montre ni une
 /// ligne ajoutée après lui, ni un fil réécrit avec des sceaux refaits.
 pub(crate) fn etat_dans(dossier: &Path) -> Result<ExitCode, Refus> {
-    rendre_avec(dossier, false, None, &mut std::io::stderr())
+    etat_ecrivant(dossier, &mut std::io::stdout(), &mut std::io::stderr())
+}
+
+/// [`etat_dans`] avec la sortie et la sortie d'erreur en paramètres, pour que les tests lisent ce qu'elle dit.
+pub(crate) fn etat_ecrivant(dossier: &Path, sortie: &mut dyn Write, erreur: &mut dyn Write) -> Result<ExitCode, Refus> {
+    rendre_avec(dossier, false, None, sortie, erreur)
 }
 
 /// Ce que `lydite attendre` dit sur stderr quand le dossier tenu s'est libéré sans qu'aucune note soit venue.
@@ -35,12 +41,13 @@ pub(crate) const DELAI_D_OUVERTURE: Duration = Duration::from_secs(60);
 /// `lydite attendre` : attend tant qu'un lancement tient le dossier ([`sonder`]), puis dit la dernière vague comme
 /// `lydite etat`, mais seulement si le fil a bougé pendant l'attente : il porte au moins une note de plus qu'au départ
 /// (une vague neuve en est un cas). Le code est celui de `etat` (0 menée à bout et verte, 1 sinon), avec un 1 de plus
-/// pour une dernière vague finie sans son sceau de fin (un lancement tué), même sans note de plus, et 2 pour un fil
-/// illisible ou un sceau rompu, jugés avant. Si le dossier a été tenu puis libéré sans note de plus (un lancement
-/// refusé avant d'ouvrir sa vague), elle ne dit aucune vague : un message sur stderr et la sortie 2. Si le dossier
-/// n'est pas tenu quand elle part, elle laisse `delai` (en pauses de `pause`) à une note pour venir, au fil ou par le
-/// dossier tenu ; sans l'un ni l'autre, elle le dit sur stderr et sort en 2. Tant que le dossier est tenu, elle ne
-/// compte rien : elle attend la fin.
+/// pour une dernière vague finie sans son sceau de fin (un lancement tué), même sans note de plus, 3 pour un lancement
+/// interrompu (la dernière vague a son `vague.lancement` sans son `vague.fin`, et le dossier est libre), qui l'emporte
+/// sur ce 1, et 2 pour un fil illisible ou un sceau rompu, jugés avant. Si le dossier a été tenu puis libéré sans note
+/// de plus (un lancement refusé avant d'ouvrir sa vague), elle ne dit aucune vague : un message sur stderr et la
+/// sortie 2. Si le dossier n'est pas tenu quand elle part, elle laisse `delai` (en pauses de `pause`) à une note pour
+/// venir, au fil ou par le dossier tenu ; sans l'un ni l'autre, elle le dit sur stderr et sort en 2. Tant que le
+/// dossier est tenu, elle ne compte rien : elle attend la fin.
 pub(crate) fn attendre_dans(dossier: &Path, delai: Duration, pause: Duration) -> Result<ExitCode, Refus> {
     let pauses = delai.as_millis() / pause.as_millis().max(1);
     attendre_avec(dossier, u32::try_from(pauses).unwrap_or(u32::MAX), &mut || std::thread::sleep(pause))
@@ -59,6 +66,17 @@ pub(crate) fn attendre_ecrivant(
     pause: &mut dyn FnMut(),
     erreur: &mut dyn Write,
 ) -> Result<ExitCode, Refus> {
+    attendre_sur(dossier, pauses, pause, &mut std::io::stdout(), erreur)
+}
+
+/// [`attendre_ecrivant`] avec de plus la sortie en paramètre, pour que les tests lisent la vague qu'elle dit.
+pub(crate) fn attendre_sur(
+    dossier: &Path,
+    pauses: u32,
+    pause: &mut dyn FnMut(),
+    sortie: &mut dyn Write,
+    erreur: &mut dyn Write,
+) -> Result<ExitCode, Refus> {
     let avant = lire(dossier)?.notes.len();
     let (mut vu_tenu, mut restantes) = (false, pauses);
     loop {
@@ -68,10 +86,10 @@ pub(crate) fn attendre_ecrivant(
             continue;
         }
         if lire(dossier)?.notes.len() > avant {
-            return rendre_avec(dossier, true, None, erreur);
+            return rendre_avec(dossier, true, None, sortie, erreur);
         }
         if vu_tenu {
-            return rendre_avec(dossier, true, Some(avant), erreur);
+            return rendre_avec(dossier, true, Some(avant), sortie, erreur);
         }
         if restantes == 0 {
             let _ = writeln!(
@@ -86,17 +104,63 @@ pub(crate) fn attendre_ecrivant(
     }
 }
 
+/// Ce que `rendre_avec` lit du fil en une fois : ses notes et écarts, ses sceaux, ses vagues, et ses lancements.
+struct Relu {
+    lecture: Lecture,
+    sceaux: Vec<SceauLu>,
+    rompu: Option<SceauVague>,
+    vagues: Vec<Vague>,
+    lancements: Vec<LancementLu>,
+}
+
+impl Relu {
+    /// Le fil de `dossier`, lu une fois.
+    fn de(dossier: &Path) -> Result<Relu, Refus> {
+        let ((lecture, issues, sceaux, rompu), lancements) = lire_avec_lancements(dossier)?;
+        let evenements: Vec<Evenement> = lecture.notes.iter().map(|note| note.evenement.clone()).collect();
+        let mut vagues = etat(&evenements);
+        fil::porter_issues(&mut vagues, &issues);
+        Ok(Relu { lecture, sceaux, rompu, vagues, lancements })
+    }
+
+    /// La dernière vague du fil porte un `vague.lancement` et aucun `vague.fin` : le lancement qui l'a ouverte n'a pas
+    /// écrit sa sortie. Il court encore, ou il est mort : la sonde du dossier le dit.
+    fn sans_fin(&self) -> bool {
+        let Some(derniere) = self.vagues.last() else {
+            return false;
+        };
+        let ouvert = |lu: &LancementLu| matches!(lu, LancementLu::Ouvert(ouverture) if ouverture.vague == derniere.id);
+        let sorti = |lu: &LancementLu| matches!(lu, LancementLu::Sorti(sortie) if sortie.vague == derniere.id);
+        self.lancements.iter().any(ouvert) && !self.lancements.iter().any(sorti)
+    }
+}
+
+/// Ce que `lydite status` écrit après le dernier reçu quand le lancement de la dernière vague est mort sans sa fin.
+const LIGNE_INTERROMPUE: &str =
+    "Interrupted: the launch ended without its closing line (vague.fin); what is counted above is partial.";
+
 /// `etat_dans`, et avec `sceau_exige` la règle de `attendre` : la dernière vague montrée doit porter son sceau de fin.
 /// Avec `Some(avant)` (le nombre de notes au départ de `attendre`), un fil qui n'a pas plus de notes qu'alors et dont
 /// la dernière vague montrée n'est pas sans son sceau de fin ne dit aucune vague : sortie 2, sans rien sur stdout.
-/// Un sceau rompu se juge avant.
+/// Un sceau rompu se juge avant, puis l'interruption : la dernière vague du fil a son `vague.lancement` sans son
+/// `vague.fin`, et aucun lancement ne tient le dossier. Elle se dit même sans note de plus, l'emporte sur la règle du
+/// sceau de fin, et sort en 3.
 fn rendre_avec(
     dossier: &Path,
     sceau_exige: bool,
     avant: Option<usize>,
+    sortie: &mut dyn Write,
     erreur: &mut dyn Write,
 ) -> Result<ExitCode, Refus> {
-    let (Lecture { notes, ecarts }, issues, sceaux, rompu) = lire_avec_sceaux(dossier)?;
+    let mut relu = Relu::de(dossier)?;
+    let mut interrompue = false;
+    // Le dossier ne se sonde que si la fin manque. Libre, le fil se relit, et la seconde lecture décide : un lancement
+    // qui écrit sa fin et sort entre la lecture et la sonde n'est pas dit interrompu.
+    if relu.rompu.is_none() && relu.sans_fin() && !sonder(dossier)? {
+        relu = Relu::de(dossier)?;
+        interrompue = relu.sans_fin();
+    }
+    let Relu { lecture: Lecture { notes, ecarts }, sceaux, rompu, vagues, lancements: _ } = relu;
     for (_, refus) in &ecarts {
         let _ = writeln!(erreur, "{refus}");
     }
@@ -105,9 +169,11 @@ fn rendre_avec(
         dire_le_sceau_rompu(erreur, &sceau);
         return Ok(ExitCode::from(2));
     }
-    let evenements: Vec<Evenement> = notes.iter().map(|note| note.evenement.clone()).collect();
-    let mut vagues = etat(&evenements);
-    fil::porter_issues(&mut vagues, &issues);
+    if interrompue {
+        let maintenant = fil::instant(fil::maintenant());
+        let _ = writeln!(sortie, "{}", rendu_selon(&vagues, &notes, &maintenant, true));
+        return Ok(ExitCode::from(3));
+    }
     let montrees = montrees(&vagues);
     let tuee = sceau_exige && sans_sceau_de_fin(&montrees, &sceaux);
     if avant.is_some_and(|avant| notes.len() <= avant) && !tuee {
@@ -115,7 +181,8 @@ fn rendre_avec(
         return Ok(ExitCode::from(2));
     }
     let maintenant = fil::instant(fil::maintenant());
-    println!("{}", if vagues.is_empty() { aucune_vague(dossier) } else { rendu_avec(&vagues, &notes, &maintenant) });
+    let dit = if vagues.is_empty() { aucune_vague(dossier) } else { rendu_selon(&vagues, &notes, &maintenant, false) };
+    let _ = writeln!(sortie, "{dit}");
     if tuee {
         let _ = writeln!(
             erreur,
@@ -208,22 +275,34 @@ pub(crate) fn rendu(vagues: &[Vague], maintenant: &str) -> String {
 }
 
 /// Le texte de `lydite etat` avec le reçu de chaque vague montrée, lu dans les `notes` du fil (voir `recu_de`).
+#[cfg(test)]
 pub(crate) fn rendu_avec(vagues: &[Vague], notes: &[Note], maintenant: &str) -> String {
-    let blocs: Vec<String> = montrees(vagues).into_iter().map(|vague| bloc(vague, vagues, notes, maintenant)).collect();
-    if blocs.is_empty() { "no wave".into() } else { blocs.join("\n\n") }
+    rendu_selon(vagues, notes, maintenant, false)
+}
+
+/// [`rendu_avec`], et avec `interrompue` le texte d'un lancement mort sans sa fin : une main qui courrait s'affiche
+/// `interrupted, attempt <n>`, et la ligne [`LIGNE_INTERROMPUE`] finit le texte.
+pub(crate) fn rendu_selon(vagues: &[Vague], notes: &[Note], maintenant: &str, interrompue: bool) -> String {
+    let blocs: Vec<String> =
+        montrees(vagues).into_iter().map(|vague| bloc(vague, vagues, notes, maintenant, interrompue)).collect();
+    if blocs.is_empty() {
+        return "no wave".into();
+    }
+    let texte = blocs.join("\n\n");
+    if interrompue { format!("{texte}\n{LIGNE_INTERROMPUE}") } else { texte }
 }
 
 /// Le texte d'une vague : son objectif et sa branche, puis ses mains, sa relecture, sa correction, sa forge et enfin
-/// son reçu (`ligne_du_recu`).
+/// son reçu (`ligne_du_recu`). Avec `interrompue`, ses mains qui courraient se disent interrompues.
 /// Un découpage seul, observé ou dont aucune vague ne joue le plan, ne dit que sa propre ligne.
-fn bloc(vague: &Vague, vagues: &[Vague], notes: &[Note], maintenant: &str) -> String {
+fn bloc(vague: &Vague, vagues: &[Vague], notes: &[Note], maintenant: &str, interrompue: bool) -> String {
     if let Some(taches) = vague.plan_pris {
-        let ligne = ligne_du_decoupage(vague, taches, maintenant);
+        let ligne = ligne_du_decoupage(vague, taches, maintenant, interrompue);
         return std::iter::once(ligne).chain([ligne_du_recu(vagues, notes, &vague.id)]).collect::<Vec<_>>().join("\n");
     }
     let decoupage = vague.decoupage.iter().map(|id| match vague_de(vagues, id) {
         Some(d) => match d.plan_pris {
-            Some(taches) => ligne_du_decoupage(d, taches, maintenant),
+            Some(taches) => ligne_du_decoupage(d, taches, maintenant, interrompue),
             None => format!("Split: {id} · no plan in the thread"),
         },
         None => format!("Split: {id} · not in the thread"),
@@ -234,11 +313,11 @@ fn bloc(vague: &Vague, vagues: &[Vague], notes: &[Note], maintenant: &str) -> St
         .map(|(branche, preuve)| format!("branch: {} · proof: {}", texte::en_ligne(branche), texte::en_ligne(preuve)));
     let relecture = match (relecture_de(vagues, &vague.id), relecteur_de(vagues, &vague.id)) {
         (Some(relecture), _) => Some(format!("Review: {} remarks, {} blocking", relecture.n, relecture.bloquantes)),
-        (None, Some(relecteur)) => Some(ligne_du_relecteur(relecteur, maintenant)),
+        (None, Some(relecteur)) => Some(ligne_du_relecteur(relecteur, maintenant, interrompue)),
         (None, None) => None,
     };
     let correction = correction_de(vagues, &vague.id).into_iter().flat_map(|correction| {
-        lignes_des_mains(correction, maintenant).into_iter().map(|ligne| format!("Correction: {ligne}"))
+        lignes_des_mains(correction, maintenant, interrompue).into_iter().map(|ligne| format!("Correction: {ligne}"))
     });
     let forge = vague.forge.iter().flat_map(|forge| {
         let ci = match forge.ci {
@@ -256,7 +335,8 @@ fn bloc(vague: &Vague, vagues: &[Vague], notes: &[Note], maintenant: &str) -> St
         _ => texte::en_lignes(&vague.objectif),
     };
     let toutes = decoupage.chain(std::iter::once(objectif)).chain(entete);
-    let toutes = toutes.chain(lignes_des_mains(vague, maintenant)).chain(relecture).chain(correction).chain(forge);
+    let mains = lignes_des_mains(vague, maintenant, interrompue);
+    let toutes = toutes.chain(mains).chain(relecture).chain(correction).chain(forge);
     toutes.chain([ligne_du_recu(vagues, notes, &vague.id)]).collect::<Vec<_>>().join("\n")
 }
 
@@ -272,31 +352,31 @@ fn ligne_du_recu(vagues: &[Vague], notes: &[Note], id: &str) -> String {
 
 /// La ligne d'un relecteur que le fil lie à une vague, sans relecture prise : `Review: main-<id>-1 · set aside (7016)
 /// : <dernière ligne>` si sa main est classée, quelle que soit la foi, sinon `Review: main-<id>-1 · <état>`.
-fn ligne_du_relecteur(relecteur: &Vague, maintenant: &str) -> String {
+fn ligne_du_relecteur(relecteur: &Vague, maintenant: &str, interrompue: bool) -> String {
     let main = relecteur.mains.get(&1);
     let etat = match main {
         Some(main) if matches!(main.verdict, Some((Verdict::Classee, _))) => {
             format!("set aside (7016): {}", derniere_ligne(main.texte()))
         }
-        _ => etat_de(main, None, maintenant),
+        _ => etat_selon(main, None, maintenant, interrompue),
     };
     format!("Review: main-{}-1 · {etat}", relecteur.id)
 }
 
 /// La ligne d'un découpage qui a pris un plan de `taches` tâches : `Split: <k> tasks · <main> · taken (observed)`.
 /// Une prise que Kraken n'a pas rejouée porte son mot, comme dans une ligne de main.
-fn ligne_du_decoupage(decoupage: &Vague, taches: usize, maintenant: &str) -> String {
+fn ligne_du_decoupage(decoupage: &Vague, taches: usize, maintenant: &str, interrompue: bool) -> String {
     let main = decoupage.mains.get(&1);
     let etat = match main.and_then(|main| main.verdict) {
         Some((Verdict::Prise, Foi::Constate)) => "taken (observed)".to_string(),
-        _ => etat_de(main, None, maintenant),
+        _ => etat_selon(main, None, maintenant, interrompue),
     };
     format!("Split: {taches} tasks · main-{}-1 · {etat}", decoupage.id)
 }
 
 /// Les lignes des mains d'une vague, de 1 à n (et au-delà si le fil en nomme davantage) : `main-<vague>-<n>`, l'id de
 /// sa tâche si la vague a un plan, son état (`etat_de`), puis le mot de son mur et celui de son fournisseur.
-fn lignes_des_mains(vague: &Vague, maintenant: &str) -> Vec<String> {
+fn lignes_des_mains(vague: &Vague, maintenant: &str, interrompue: bool) -> Vec<String> {
     let plus_grande = vague.mains.last_key_value().map_or(0, |(n, _)| *n);
     // Une vague à plan : les ids de ses tâches assemblées, de quoi dire ce qu'une tâche attend encore.
     let assemblees: Option<std::collections::HashSet<&str>> = vague.assemblage.is_some().then(|| {
@@ -306,7 +386,7 @@ fn lignes_des_mains(vague: &Vague, maintenant: &str) -> Vec<String> {
     let ligne = |n: usize| {
         let main = vague.mains.get(&n);
         let id = main.and_then(|main| main.tache.as_ref()).map_or_else(String::new, |(id, _)| format!(" {id}"));
-        let etat = etat_de(main, assemblees.as_ref(), maintenant);
+        let etat = etat_selon(main, assemblees.as_ref(), maintenant, interrompue);
         format!("main-{}-{n}{id} : {etat}{}{}", vague.id, mot_du_mur(main), mot_du_fournisseur(main))
     };
     (1..=vague.n.max(plus_grande)).map(ligne).collect()
@@ -345,7 +425,20 @@ fn mot_du_fournisseur(main: Option<&Main>) -> String {
 /// <échéance> (inferred) », si sa dernière tentative n'a pas fini et que son échéance est passée à `maintenant` ;
 /// « running » avec sa tentative ; « waiting », de ses dépendances non encore assemblées dans une vague à plan. Une
 /// classée affiche la dernière ligne de son erreur, et un verdict déclaré porte son mot.
+#[cfg(test)]
 fn etat_de(main: Option<&Main>, assemblees: Option<&std::collections::HashSet<&str>>, maintenant: &str) -> String {
+    etat_selon(main, assemblees, maintenant, false)
+}
+
+/// [`etat_de`], et avec `interrompue` (le lancement est mort sans sa fin) une main qui courrait, ou dont l'échéance est
+/// passée sans nouvelles, s'affiche « interrupted, attempt <n> » : plus aucune main ne court. Les autres états ne
+/// changent pas.
+fn etat_selon(
+    main: Option<&Main>,
+    assemblees: Option<&std::collections::HashSet<&str>>,
+    maintenant: &str,
+    interrompue: bool,
+) -> String {
     let Some(main) = main else {
         return "waiting".into();
     };
@@ -364,6 +457,7 @@ fn etat_de(main: Option<&Main>, assemblees: Option<&std::collections::HashSet<&s
         }
         (_, None) => match main.tentatives.last_key_value() {
             // Sans fin à son échéance, une main n'est pas dite expirée : Kraken a pu s'arrêter, et n'en sait rien.
+            Some((tentative, _)) if interrompue => format!("interrupted, attempt {tentative}"),
             Some((tentative, lue)) => match main.echeances.get(tentative) {
                 Some(echeance) if lue.couleur.is_none() && echeance.as_str() <= maintenant => {
                     format!("no news since {echeance} (inferred)")

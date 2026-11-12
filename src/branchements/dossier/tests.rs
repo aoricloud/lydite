@@ -389,6 +389,51 @@ fn lire_avec_lignes_d_un_fil_absent_est_un_fil_vide_et_ne_cree_rien() {
     let _ = fs::remove_dir_all(&dossier);
 }
 
+#[test]
+fn la_fin_se_note_pour_la_vague_et_le_code_donnes_et_se_relit() {
+    let dossier = kraken("fin-notee");
+    let lancement = LancementVague { vague: "v".into(), version: "1.2.3".into(), plan: Some("a".repeat(64)) };
+    Fil::seance(&dossier, "humain").noter_lancement(&lancement).unwrap();
+    Fil::seance(&dossier, "humain").sceller("v").unwrap();
+    // La fin prend une séance à elle : son `seq` est 1, et le fil reste lisible sans écart.
+    noter_la_fin_de(Some((&dossier, "v")), 2).unwrap();
+    let (scelle, lancements) = lire_avec_lancements(&dossier).unwrap();
+    assert!(scelle.0.ecarts.is_empty(), "{:?}", scelle.0.ecarts);
+    assert_eq!(
+        lancements,
+        [LancementLu::Ouvert(lancement), LancementLu::Sorti(FinVague { vague: "v".into(), code: 2 })]
+    );
+    // Un autre code et une autre vague : ce qui est donné est ce qui est noté.
+    noter_la_fin_de(Some((&dossier, "w")), 0).unwrap();
+    let (_, lancements) = lire_avec_lancements(&dossier).unwrap();
+    assert_eq!(lancements.last(), Some(&LancementLu::Sorti(FinVague { vague: "w".into(), code: 0 })));
+    // `lire_avec_sceaux` rend ce que rend `lire_avec_lancements`, sans les lancements.
+    assert_eq!(lire_avec_sceaux(&dossier).unwrap(), lire_avec_lancements(&dossier).unwrap().0);
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn la_fin_ne_se_note_pas_quand_aucune_vague_n_est_retenue() {
+    let dossier = kraken("fin-sans-vague");
+    noter_la_fin_de(None, 1).unwrap();
+    assert!(!dossier.join(FICHIER).exists(), "le fil a été créé");
+    // Le même fil, une vague retenue : le fichier, lui, se crée.
+    noter_la_fin_de(Some((&dossier, "v")), 1).unwrap();
+    assert!(dossier.join(FICHIER).exists(), "la fin ne s'est pas écrite avec une vague retenue");
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn lire_avec_lancements_d_un_fil_absent_est_un_fil_vide_et_ne_cree_rien() {
+    let dossier = kraken("lancements-absent");
+    let absent = dossier.join("pas-encore");
+    let (scelle, lancements) = lire_avec_lancements(&absent).unwrap();
+    assert_eq!(scelle, (Lecture::default(), Vec::new(), Vec::new(), None));
+    assert!(lancements.is_empty());
+    assert!(!absent.exists(), "{} a été créé", absent.display());
+    let _ = fs::remove_dir_all(&dossier);
+}
+
 /// Un chemin absolu pour le système qui joue le test ; il n'est jamais lu, ni créé.
 fn absolu(chemin: &str) -> PathBuf {
     PathBuf::from(if cfg!(windows) { r"C:\" } else { "/" }).join(chemin)

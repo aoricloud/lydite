@@ -757,7 +757,10 @@ class Outils:
             )
             rendu["state"] = fin.stdout.strip()
             rendu["code"] = fin.returncode
-            rendu["note"] = "0: last wave finished (or none); 1: it is not (running or failed); 2: thread unreadable"
+            rendu["note"] = (
+                "0: last wave finished (or none); 1: it is not (running or failed); 2: thread unreadable; "
+                "3: the launch was interrupted, its counts are partial"
+            )
             if fin.stderr.strip():
                 rendu["stderr"] = fin.stderr.strip()[-2000:]
         except Refus as refus:

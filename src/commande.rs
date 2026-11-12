@@ -3,13 +3,19 @@
 //! est assemblée ; 1 sinon : une prise déclarée (sans vérification, la main seule a dit `PREUVE: vert`) donne 1, comme
 //! une main classée, et un refus de la forge pendant la vague aussi. Il vaut 2 pour un refus d'avant la vague, et si
 //! le fil ne se lit pas. `lydite etat` y ajoute ses règles : découpage, relecture et CI verte, et le code 0 quand il
-//! n'y a aucune vague, rien n'étant alors affirmé.
+//! n'y a aucune vague, rien n'étant alors affirmé. Il vaut 3 pour un lancement interrompu : la dernière vague du fil
+//! porte son `vague.lancement` et aucun `vague.fin`, et aucun lancement ne tient plus le dossier (le verrou se sonde un
+//! instant) ; ce que le texte compte alors est partiel, et ses mains qui couraient se disent interrompues. Un fil
+//! illisible et un sceau rompu (2) se jugent avant ; une dernière vague sans `vague.lancement` (un fil d'avant) se
+//! lit comme avant. `lydite lancer` ne rend jamais 3.
 //!
 //! `lydite attendre` attend la fin du lancement qui tient le dossier, puis, si le fil a au moins une note de plus
 //! qu'à son départ, dit la dernière vague comme `lydite etat` et en rend le code : 0 si elle est menée à bout et
 //! verte ; 1 si elle est rouge, ou finie sans son sceau de fin (un lancement tué, même sans note de plus) ; 2 si le fil
 //! ne se lit pas ou si un sceau est rompu, si le lancement attendu n'a ouvert aucune vague ni fait avancer aucune
-//! (aucune note de plus), et si, faute de dossier tenu comme de note neuve en 60 s, il n'y a rien à attendre.
+//! (aucune note de plus), et si, faute de dossier tenu comme de note neuve en 60 s, il n'y a rien à attendre ; 3 si le
+//! lancement attendu est mort sans son `vague.fin`, avec ou sans note de plus, ce qui l'emporte sur le 1 du sceau de
+//! fin.
 //!
 //! Un déclaré ne s'affiche jamais comme un fait : il porte toujours son mot (« pris, déclaré : main-… » dans `lancer`,
 //! « prise déclarée, non prouvée » et « mur exigé (déclaré) » dans `lydite etat`), et ne donne jamais le code 0.
@@ -25,6 +31,7 @@ use std::process::ExitCode;
 use self::ligne::{Commande, options};
 use crate::branchements::dossier;
 use crate::branchements::github;
+use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::lecons;
 use crate::coeur::plan;
@@ -42,10 +49,32 @@ pub(crate) mod ligne;
 pub(crate) mod memoire;
 
 pub fn principal() -> ExitCode {
-    executer().unwrap_or_else(|refus| {
+    let sortie = executer().unwrap_or_else(|refus| {
         eprintln!("{refus}");
         ExitCode::from(2)
-    })
+    });
+    avec_sa_fin(sortie)
+}
+
+/// À la sortie, pour toutes les sorties en un seul endroit : si ce processus a ouvert au moins une vague, il note au
+/// fil le `vague.fin` de la dernière, avec le code qu'il rend (0, 1, ou 2 pour un refus). `ExitCode` ne dit pas son
+/// nombre : il se compare à `SUCCESS` et à `FAILURE`, et tout autre est le 2 d'un refus. Une commande qui n'ouvre
+/// aucune vague ne note rien. Une fin qui ne s'écrit pas se dit sur stderr et fait rendre 1 à la place de 0.
+fn avec_sa_fin(sortie: ExitCode) -> ExitCode {
+    let code: u8 = if sortie == ExitCode::SUCCESS {
+        0
+    } else if sortie == ExitCode::FAILURE {
+        1
+    } else {
+        2
+    };
+    match dossier::noter_la_fin(code) {
+        Ok(()) => sortie,
+        Err(e) => {
+            eprintln!("the end of the launch is not written to the thread: {e}");
+            if code == 0 { ExitCode::FAILURE } else { sortie }
+        }
+    }
 }
 
 /// Lit la ligne de commande et la joue. Tout refus sort par `Err` : `main` l'écrit sur stderr et sort en 2. Le plan
@@ -53,15 +82,16 @@ pub fn principal() -> ExitCode {
 /// `--decouper` passe par `decouper_cmd` ; sinon `mener_sur` mène la vague, sa relecture et sa forge.
 fn executer() -> Result<ExitCode, Refus> {
     let args: Vec<OsString> = env::args_os().skip(1).collect();
-    let (profil, depot, dossier, plan, pr, decoupe) = match options(&args)? {
+    let (profil, depot, dossier, plan, pr, decoupe, empreinte) = match options(&args)? {
         Commande::Lancer(o) => {
             let (profil, depot, dossier) = preparer(&o.profil, o.depot.as_deref())?;
             let plan = Plan::copies(&o.objectif, o.verifier.as_deref(), o.n);
-            (profil, depot, dossier, plan, None, o.decouper.then_some(o))
+            (profil, depot, dossier, plan, None, o.decouper.then_some(o), None)
         }
         Commande::Plan { profil, plan, depot, pr } => {
             let (profil, depot, dossier) = preparer(&profil, depot.as_deref())?;
-            (profil, depot, dossier, lire_plan(&plan, plan::Mode::Main)?.0, pr, None)
+            let (plan, _, empreinte) = lire_plan(&plan, plan::Mode::Main)?;
+            (profil, depot, dossier, plan, pr, None, Some(empreinte))
         }
         Commande::Accepter(nom) => return accepter_cmd(&nom),
         Commande::Profil(nom) => return profil_cmd(&nom),
@@ -89,19 +119,22 @@ fn executer() -> Result<ExitCode, Refus> {
     if let Some(o) = decoupe {
         return decouper_cmd(&lieu, &o);
     }
+    // L'empreinte des octets du fichier de `--plan` : la vague du plan la porte à son `vague.lancement`.
+    let liens = Liens { plan: empreinte.as_deref(), ..Liens::default() };
     let Some(base) = pr else {
-        return mener_sur(&lieu, &plan, &base_du_depot(&depot)?, Liens::default(), None, Origine::Plan);
+        return mener_sur(&lieu, &plan, &base_du_depot(&depot)?, liens, None, Origine::Plan);
     };
     let proposition = publication::avant_la_vague(&gh, &dossier, &depot, &base)?;
     if let Some(ecart) = proposition.ecart_de_head() {
         eprintln!("{ecart}");
     }
-    mener_sur(&lieu, &plan, &proposition.base, Liens::default(), Some(&proposition), Origine::Plan)
+    mener_sur(&lieu, &plan, &proposition.base, liens, Some(&proposition), Origine::Plan)
 }
 
 /// Le plan du fichier, lu dans son mode, et les dépendances que Kraken y ajoute : ses octets, 1 Mo au plus et un de
-/// plus pour voir qu'il dépasse (un fichier plus gros ne se lit pas en entier), puis `Plan::lire_en`.
-fn lire_plan(fichier: &Path, mode: plan::Mode<'_>) -> Result<(Plan, Vec<plan::Attente>), Refus> {
+/// plus pour voir qu'il dépasse (un fichier plus gros ne se lit pas en entier), puis `Plan::lire_en`. Le troisième
+/// rendu est l'empreinte de ces octets, SHA-256 en 64 hexadécimaux minuscules : celle que `sha256sum <fichier>` donne.
+fn lire_plan(fichier: &Path, mode: plan::Mode<'_>) -> Result<(Plan, Vec<plan::Attente>, String), Refus> {
     use std::io::Read;
     let mut octets = Vec::new();
     let borne = plan::TAILLE_MAX as u64 + 1;
@@ -112,14 +145,15 @@ fn lire_plan(fichier: &Path, mode: plan::Mode<'_>) -> Result<(Plan, Vec<plan::At
                           starts from the current folder), then run again.";
         Refus::new(Code::EntreeSortie, preuve, correction)
     })?;
-    Plan::lire_en(&octets, mode)
+    let empreinte = hex(&sha256(&octets));
+    Plan::lire_en(&octets, mode).map(|(plan, attentes)| (plan, attentes, empreinte))
 }
 
 /// `lydite plan [--decoupe] <fichier>` : lit le plan et écrit sur stdout chaque dépendance que Kraken ajoute. Le mode
 /// découpé ne juge ni l'en-tête ni la casse, que seul le rejeu juge.
 fn plan_cmd(fichier: &Path, decoupe: bool) -> Result<ExitCode, Refus> {
     let mode = if decoupe { plan::Mode::Decoupe(None) } else { plan::Mode::Main };
-    let (plan, attentes) = lire_plan(fichier, mode)?;
+    let (plan, attentes, _) = lire_plan(fichier, mode)?;
     // Permis, et voulu : un plan sans tâche critique n'est pas relu. L'auteur doit le savoir ; rien sur stdout, où le
     // plugin Hermes lit une dépendance par ligne, et rien pour le découpeur.
     if !decoupe && !plan.taches.iter().any(|tache| tache.critique) {

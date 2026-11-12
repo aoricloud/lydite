@@ -220,6 +220,9 @@ fn un_second_lancement_pendant_un_premier_est_refuse_en_6032_sans_rien_ecrire_au
     assert!(!erreur.contains("6032 lancer.dossier_pris"), "{erreur}");
     let fil = fs::read_to_string(&fil).unwrap();
     assert_eq!(fil.matches(r#""type":"vague.ouverte""#).count(), 1, "{fil}");
+    // Le lancement refusé n'a ouvert aucune vague : le fil n'a que la fin du premier.
+    assert_eq!(fil.matches(r#""type":"vague.lancement""#).count(), 1, "{fil}");
+    assert_eq!(fil.matches(r#""type":"vague.fin""#).count(), 1, "{fil}");
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -260,6 +263,85 @@ fn un_lancement_tue_laisse_le_dossier_libre_et_le_suivant_part() {
     assert_eq!(suivant.status.code(), Some(1), "la tâche, sans claude, est classée : {erreur}");
     assert!(!erreur.contains("6032 lancer.dossier_pris"), "{erreur}");
     assert!(racine.join("lydite").join("fil.jsonl").is_file(), "le suivant a écrit son fil : {erreur}");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+/// La valeur du champ texte `champ` de la ligne `ligne` du fil, ou `None` si le champ n'y est pas en texte.
+fn champ_texte<'a>(ligne: &'a str, champ: &str) -> Option<&'a str> {
+    let (_, apres) = ligne.split_once(&format!(r#""{champ}":""#))?;
+    apres.split('"').next()
+}
+
+/// Les lignes du fil du dossier de Kraken de ce test, dont le `type` est `genre`.
+fn lignes_du_fil(racine: &Path, genre: &str) -> Vec<String> {
+    let fil = fs::read_to_string(racine.join("lydite").join("fil.jsonl")).unwrap();
+    fil.lines().filter(|ligne| ligne.contains(&format!(r#""type":"{genre}""#))).map(String::from).collect()
+}
+
+#[test]
+fn un_lancement_d_un_plan_mene_a_sa_fin_laisse_son_lancement_et_sa_fin_au_fil() {
+    let racine = racine("lancement-fin");
+    depot(&racine);
+    // Le SHA-256 des octets du plan, tel que `sha256sum <fichier>` le donne : le plan, puis le même d'un octet de plus.
+    const PLAN: &str = "6583aabda19b77577974f2f545649817a8a99343c678ce6c6bd4db83b3edf2e9";
+    const PLAN_PLUS_UN_OCTET: &str = "efea8c8dd2d0e7e26aebec8201c10c9a49efb205ff99d813bcdedb71c5c01182";
+    let rapide = plan_de_preuve(&racine, "rapide.txt", "git status");
+    let entete = ["plan 1", "objectif : o", "preuve : git status", "", "tache a", "    Écrire a.txt", ""];
+    let plus_long = plan(&racine, "plus-long.txt", &entete);
+    assert_eq!(fs::metadata(&plus_long).unwrap().len(), fs::metadata(&rapide).unwrap().len() + 1);
+    for (fichier, attendu) in [(&rapide, PLAN), (&rapide, PLAN), (&plus_long, PLAN_PLUS_UN_OCTET)] {
+        let sortie = lancer_le_plan(&racine, fichier);
+        let erreur = String::from_utf8_lossy(&sortie.stderr);
+        assert_eq!(sortie.status.code(), Some(1), "la tâche, sans claude, est classée : {erreur}");
+        let fil = fs::read_to_string(racine.join("lydite").join("fil.jsonl")).unwrap();
+        let lignes: Vec<&str> = fil.lines().collect();
+        // Le lancement de cette vague, le dernier du fil : la version de ce binaire et l'empreinte du fichier.
+        let lancements = lignes_du_fil(&racine, "vague.lancement");
+        let lancement = lancements.last().expect("un vague.lancement");
+        let vague = champ_texte(lancement, "vague").expect("sa vague");
+        let version = format!(r#""version":"{}""#, env!("CARGO_PKG_VERSION"));
+        assert!(lancement.contains(&version), "{lancement}");
+        assert_eq!(champ_texte(lancement, "plan"), Some(attendu), "{lancement}");
+        // Le fil ne garde qu'un seul `vague.lancement` pour cette vague, et qu'un seul `vague.fin`, sa dernière ligne :
+        // le code de sa sortie, après le sceau de fin.
+        let marque = format!(r#""vague":"{vague}""#);
+        let notes = |genre: &str| lignes.iter().filter(|l| l.contains(&marque) && l.contains(genre)).count();
+        assert_eq!(notes(r#""type":"vague.lancement""#), 1, "{fil}");
+        assert_eq!(notes(r#""type":"vague.fin""#), 1, "{fil}");
+        let derniere = lignes.last().unwrap();
+        assert!(derniere.contains(&format!(r#""type":"vague.fin","vague":"{vague}","code":1}}"#)), "{derniere}");
+        assert!(lignes[lignes.len() - 2].contains(r#""type":"vague.sceau""#), "{fil}");
+    }
+    // Trois lancements, trois fins ; le même fichier a donné la même empreinte, et l'octet de plus une autre.
+    let plans: Vec<String> = lignes_du_fil(&racine, "vague.lancement")
+        .iter()
+        .map(|ligne| champ_texte(ligne, "plan").unwrap().to_string())
+        .collect();
+    assert_eq!(plans, [PLAN, PLAN, PLAN_PLUS_UN_OCTET]);
+    assert_eq!(lignes_du_fil(&racine, "vague.fin").len(), 3);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn un_lancement_refuse_avant_sa_vague_et_lydite_etat_n_ajoutent_aucune_ligne_au_fil() {
+    let racine = racine("lancement-refuse");
+    depot(&racine);
+    let rapide = plan_de_preuve(&racine, "rapide.txt", "git status");
+    let sortie = lancer_le_plan(&racine, &rapide);
+    assert_eq!(sortie.status.code(), Some(1), "{}", String::from_utf8_lossy(&sortie.stderr));
+    let fil = racine.join("lydite").join("fil.jsonl");
+    let avant = fs::read(&fil).unwrap();
+    assert!(String::from_utf8_lossy(&avant).contains(r#""type":"vague.fin""#));
+    // Un plan faux est refusé avant sa vague (code 2) : rien n'est ouvert, rien ne se note.
+    let faux = plan(&racine, "faux.txt", &["plan 2", "objectif : o", "preuve : git status", "tache a", "    x"]);
+    lire_refus(&lancer_le_plan(&racine, &faux));
+    assert_eq!(fs::read(&fil).unwrap(), avant, "un plan refusé n'a rien écrit au fil");
+    // `lydite etat` lit le dossier, sans y écrire.
+    let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
+    commande.arg("etat").env("LYDITE_DOSSIER", racine.join("lydite"));
+    let etat = avec_leurres(&mut commande, &racine).output().unwrap();
+    assert_eq!(etat.status.code(), Some(1), "{}", String::from_utf8_lossy(&etat.stdout));
+    assert_eq!(fs::read(&fil).unwrap(), avant, "lydite etat n'a rien écrit au fil");
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -950,5 +1032,106 @@ fn un_mur_natif_qui_ne_tient_pas_refuse_en_6028_avant_toute_main_et_ne_laisse_ri
     assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "", "ni branche");
     assert_eq!(git(&depot, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "ni worktree");
     assert_eq!(git(&depot, &["status", "--porcelain"]), "");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+/// Joue `lydite etat` sur le dossier de Kraken de la racine : son code et sa sortie.
+#[cfg(unix)]
+fn etat_de_la_racine(racine: &Path) -> (Option<i32>, String) {
+    let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
+    commande.arg("etat").current_dir(racine).env("LYDITE_DOSSIER", racine.join("lydite"));
+    let sortie = avec_leurres(&mut commande, racine).output().unwrap();
+    (sortie.status.code(), String::from_utf8_lossy(&sortie.stdout).into_owned())
+}
+
+#[cfg(unix)]
+#[test]
+fn un_lancement_tue_pendant_que_sa_main_court_est_dit_interrompu_par_etat_et_pas_avant() {
+    let racine = racine("interrompu");
+    let depot = depot(&racine);
+    let (dossier, main) = (racine.join("lydite"), racine.join("main"));
+    fs::create_dir_all(dossier.join("profils")).unwrap();
+    fs::create_dir_all(&main).unwrap();
+    let (controle_jsonl, marques) = (main.join("controle.jsonl"), racine.join("marques"));
+    fs::create_dir_all(&marques).unwrap();
+    let (demarre, libre) = (marques.join("demarre"), marques.join("libre"));
+    // La fausse main : elle répond aux contrôles, pose `demarre`, puis attend que le test pose `libre` sans lire son
+    // entrée, et sort sans rien rendre. Son plafond (une minute) n'est qu'un garde-fou contre une main orpheline.
+    let lignes = [
+        "#!/bin/sh".to_string(),
+        r#"[ "$1" = --version ] && exit 0"#.to_string(),
+        format!(r#"sed "s|@BAC@|/$(pwd)|g" '{}'"#, controle_jsonl.display()),
+        format!("touch '{}'", demarre.display()),
+        "n=0".to_string(),
+        format!("while [ ! -f '{}' ]; do", libre.display()),
+        "  n=$((n + 1))".to_string(),
+        "  [ \"$n\" -ge 600 ] && exit 1".to_string(),
+        "  sleep 0.1".to_string(),
+        "done".to_string(),
+    ];
+    let fausse = faux_programme(&main, "fausse-claude.sh", &lignes);
+    let srt = faux_srt(&racine);
+    let preuve = "exit 0";
+    fs::write(&controle_jsonl, controle(&racine, &dossier, &depot, preuve)).unwrap();
+    let profil = format!(
+        "sorte = claude\nprogramme = {}\nmodele = haiku\nrelance = haiku\nmur = exige\ndelai_main = 120\n\
+         delai_preuve = 60\n",
+        fausse.display()
+    );
+    fs::write(dossier.join("profils").join("essai.profil"), profil).unwrap();
+    let kraken = || {
+        let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
+        commande
+            .current_dir(&racine)
+            .env("LYDITE_DOSSIER", &dossier)
+            .env("LYDITE_CLAUDE", racine.join("claude-absent"))
+            .env("LYDITE_SRT", &srt);
+        avec_leurres(&mut commande, &racine);
+        commande
+    };
+    let accepte = kraken().args(["accepter", "essai"]).output().unwrap();
+    assert_eq!(accepte.status.code(), Some(0), "{}", String::from_utf8_lossy(&accepte.stderr));
+    let lignes_du_plan = ["plan 1", "objectif : o", "preuve : exit 0", "", "tache a", "    Écrire a.txt"];
+    let chemin = plan(&racine, "plan.txt", &lignes_du_plan);
+    let mut lancement = kraken()
+        .args(["lancer", "essai", "--plan"])
+        .arg(&chemin)
+        .arg("--depot")
+        .arg(&depot)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    // La main court : la marque que sa fausse pose est la seule attente, son plafond n'est qu'un garde-fou.
+    let debut = Instant::now();
+    while !demarre.exists() {
+        if let Some(statut) = lancement.try_wait().unwrap() {
+            panic!("le lancement est sorti ({statut}) avant que sa main ne démarre");
+        }
+        assert!(debut.elapsed() < Duration::from_secs(60), "la main n'a jamais démarré");
+        thread::sleep(Duration::from_millis(20));
+    }
+    // Le lancement tient le dossier : sa vague court, rien n'est interrompu.
+    let (code, dit) = etat_de_la_racine(&racine);
+    assert_eq!(code, Some(1), "{dit}");
+    assert!(dit.contains("running, attempt 1") && !dit.contains("Interrupted:"), "{dit}");
+    // Le lancement est tué, sa main survit. Un enfant du lancement peut tenir le verrou un instant après sa mort :
+    // `etat` se rejoue jusqu'au 3, sans attente fixe.
+    lancement.kill().unwrap();
+    lancement.wait().unwrap();
+    let debut = Instant::now();
+    let (code, dit) = loop {
+        let (code, dit) = etat_de_la_racine(&racine);
+        if code == Some(3) || debut.elapsed() > Duration::from_secs(30) {
+            break (code, dit);
+        }
+    };
+    assert_eq!(code, Some(3), "{dit}");
+    assert!(dit.contains("interrupted, attempt 1") && !dit.contains("running"), "{dit}");
+    assert_eq!(dit.lines().last().map(|ligne| ligne.starts_with("Interrupted:")), Some(true), "{dit}");
+    // La fausse main survit à son lancement : elle finit quand le test la libère.
+    assert!(!libre.exists());
+    fs::write(&libre, "").unwrap();
     let _ = fs::remove_dir_all(&racine);
 }

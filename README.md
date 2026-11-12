@@ -408,7 +408,7 @@ Every command exits 2 when it refuses: the refusal says its code, its rule, what
 | Command | What it does | Exits |
 |---|---|---|
 | `lydite launch` | runs a wave from an objective, a plan file (`--plan <file>`) or an issue (`--issue <n>`, with `--split`); `lydite --help` prints every form (see [Try it](#try-it)) | 0 if every task was taken, its proof replayed green and, with `--pr`, the CI green; 1 otherwise |
-| `lydite status` | says the last wave, read from the thread | 0 if it was carried through and green, or there is none; 1 if it is running or red; it does not check that the wave was sealed (a killed launch can read green): `lydite wait` does; 2 if the thread cannot be read or a seal is broken |
+| `lydite status` | says the last wave, read from the thread | 0 if it was carried through and green, or there is none; 1 if it is running or red; 2 if the thread cannot be read or a seal is broken; 3 if the launch was interrupted (see [Waiting for a wave](#waiting-for-a-wave)): what it counted is partial. For a thread written by an earlier Lydite, it does not check that the wave was sealed (a killed launch can read green): `lydite wait` does |
 | `lydite wait` | waits for a running launch, then says the last wave | see [Waiting for a wave](#waiting-for-a-wave) |
 | `lydite doctor [<profile>]` | checks this machine, and the wall when a profile is named | 0 if ready, 1 if something is missing |
 | `lydite plan [--split] <file>` | reads a plan as `launch` would, and runs nothing | 0 |
@@ -427,23 +427,40 @@ The state folder (below) holds the thread, `fil.jsonl`, and the day's quota. One
 launch on the same folder is refused with 6032 (`lancer.dossier_pris`), and its correction says to wait for the other
 one or to take another folder (`LYDITE_DOSSIER`). The waves of one launch do not refuse each other. The hold is an
 operating-system file lock on `lancer.verrou` in the folder, never on the thread: a process that dies or is killed
-loses it and leaves nothing to clean. `lydite status` and `lydite accept` do not take it. A launch that meets the
-lock for an instant (the probe of `lydite wait`, below) retries for about 200 ms before it refuses.
+loses it and leaves nothing to clean. `lydite status` and `lydite accept` do not take it; `lydite status` probes it
+for an instant, without keeping it, when the last wave of the thread has no `vague.fin`. A launch that meets the
+lock for an instant (the probe of `lydite status` and `lydite wait`, below) retries for about 200 ms before it refuses.
 
 ### Waiting for a wave
 
-`lydite status` returns 1 for a wave still running as well as for a red one. `lydite wait`
-(no argument) waits while a launch holds the state folder (it probes the lock for an instant, every 2 seconds, and
-never keeps it), then, if the thread gained at least one note since it started, says the last wave like `lydite status`
-and exits 0 if it is carried through and green, 1 if it is red or its wave carries no seal at all (a launch killed
-before its first seal), 2 if the journal cannot be read or a seal is broken. Lydite seals a wave just before it writes
-the pull request, and at every exit once the wave has opened; a split alone is never sealed. So a launch killed after
-that first seal, or a `--split` launch killed or refused between its split and its wave, is not caught: `wait` then
-exits as `lydite status` would, possibly 0. If the folder was held and then freed with no new note (a launch refused
-before it opened its wave), it says so on stderr and exits 2; but if the last wave of the thread carries no seal and is
-not a split alone (an earlier launch killed before its first seal), it says that wave instead and exits 1. Run just
-before the launch takes the folder, it waits at most 60 seconds for a note; with no new note and no held folder it says
-so and exits 2.
+`lydite status` returns 1 for a wave still running as well as for a red one. A launch that opens a wave writes a
+`vague.lancement` line, and one that exits writes a `vague.fin` line on the last wave it opened. When the last wave of
+the thread has its `vague.lancement` and no `vague.fin`, and no launch holds the state folder (`lydite status` probes
+the lock for an instant, and reads the thread again if it is free: a launch that wrote its end and exited in between
+is not interrupted), the launch was interrupted: it was killed, or it died, after it opened its wave, in any phase
+(a hand running, the proof replayed, the CI awaited, a review, a correction, a CI relaunch). `lydite status` then says
+the wave as it stands, with every hand that would read `running, attempt <n>` or `no news since <time> (inferred)`
+reading `interrupted, attempt <n>`, and a last line `Interrupted: the launch ended without its closing line
+(vague.fin); what is counted above is partial.`; it exits 3, with or without a seal, a PR or a CI in the thread. While
+a launch holds the folder, nothing is called interrupted: the wave is running. A broken seal or an unreadable thread
+(2) is judged first.
+
+`lydite wait` (no argument) waits while a launch holds the state folder (it probes the lock for an instant, every 2
+seconds, and never keeps it), then, if the thread gained at least one note since it started, says the last wave like
+`lydite status` and exits 0 if it is carried through and green, 1 if it is red, 2 if the journal cannot be read or a
+seal is broken, and 3 if the launch it waited for was interrupted, as above, with or without a new note, and without
+the seal rule below. Lydite seals a wave just before it writes the pull request, and at every exit once the wave has
+opened. For a thread written by an earlier Lydite, which has no `vague.lancement`, `wait` keeps its older rule: it
+exits 1 if the last wave carries no seal at all (a launch killed before its first seal), and a launch killed after that
+first seal, or a `--split` launch killed or refused between its split and its wave, is not caught, so `wait` exits as
+`lydite status` would, possibly 0. A launch killed after it opened its wave is caught by the 3, except in the instant
+between the opening of the wave and the writing of its `vague.lancement`; a `--split` launch refused between its split
+and its wave wrote its `vague.fin` and is not interrupted. If the folder was held and then freed with no new note (a
+launch refused before it opened its wave), it says so on stderr and exits 2; but if the last wave of the thread carries
+no seal and is not a split alone (an earlier launch killed before its first seal, in a thread without
+`vague.lancement`), it says that wave instead and exits 1. Run just before the launch takes the folder, it waits at most
+60 seconds for a note; with no new note and no held folder it says so and exits 2, even if the last wave of the thread
+is interrupted: `lydite status` is the command that says so at any time.
 
 ### A profile
 
@@ -517,6 +534,13 @@ reviewer get the list of all lessons, one line each, the same way.
   the first one that no longer matches (its wave, its bytes) on stderr, and exits 2. A seal shows a line changed or
   removed before it. It does not show a line appended after it, nor a journal rewritten with its seals redone (the
   receipt in the PR, off the machine, keeps its own).
+- **A launch and its end.** When a launch opens a wave, it writes a `vague.lancement` line: the wave, the version of
+  Lydite, and the SHA-256 of the plan file (null for a wave with no plan file). When it exits, it writes a `vague.fin`
+  line on the last wave it opened: the exit code of the launch. A wave with a `vague.lancement` and no `vague.fin`, once
+  no launch holds the folder, is an interrupted launch (see [Waiting for a wave](#waiting-for-a-wave)).
+- **A killed proof is replayed once.** A proof killed from outside (signal 9 or 15, or exit code 137 or 143; never
+  on Windows) is not a red proof: Lydite replays it once, and the thread says so in the first line of its `verif`,
+  `proof killed (<status>), replayed once`.
 
 ### Memory (read-only)
 
