@@ -816,6 +816,24 @@ fn un_chemin_hors_de_la_forme_de_git_est_refuse() {
 }
 
 #[test]
+fn des_chemins_separes_par_des_virgules_sont_refuses() {
+    // Lydite lit chaque mot comme un chemin : `a.rs,` ou `a.rs,b.rs` serait un nom, et la main verrait 7013.
+    let cas = [("a.rs, b.rs", "a.rs,"), ("a.rs,b.rs", "a.rs,b.rs"), ("src/ a.rs,b.rs", "a.rs,b.rs")];
+    for (ecrit, mot) in cas {
+        let fichiers = format!("fichiers : {ecrit}");
+        for mode in [Mode::Main, Mode::Decoupe(None)] {
+            let suite = ["tache a", fichiers.as_str(), "modele : haiku", "    x"];
+            let refus = refuse_en(lire_en(&[&ENTETE[..], &suite].concat(), mode));
+            assert_eq!(refus.code, Code::PlanChemin, "{ecrit}");
+            let dit = format!("ligne 5 {} : le chemin {} porte une virgule", cite(&fichiers), cite(mot));
+            assert_eq!(refus.preuve, dit);
+            assert!(refus.correction.contains("sans virgule"), "{refus}");
+            assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
+        }
+    }
+}
+
+#[test]
 fn au_rejeu_un_chemin_porte_la_casse_que_git_lui_connait() {
     let base = ["src/main.rs", "src/plan.rs", "tests/contrat.rs", "README.md", "docs/Guide/intro.md"];
     let chemins: Vec<String> = base.map(String::from).into();

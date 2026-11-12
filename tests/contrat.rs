@@ -527,7 +527,10 @@ fn kraken_plan_dit_les_dependances_ajoutees_sans_rien_lancer() {
             .unwrap();
         let erreur = String::from_utf8_lossy(&sortie.stderr);
         assert_eq!(sortie.status.code(), Some(0), "{drapeaux:?} : {erreur}");
-        assert!(erreur.is_empty(), "{erreur}");
+        // Aucune tâche n'est critique : sans `--decoupe`, la ligne le dit ; le découpeur n'a pas à le savoir.
+        let avertit = "No task is critical: nothing in this plan is reviewed.\n";
+        let attendue = if drapeaux.is_empty() { avertit } else { "" };
+        assert_eq!(erreur, attendue, "{drapeaux:?}");
         assert_eq!(String::from_utf8_lossy(&sortie.stdout), "b attend a : elles partagent src/b.rs\n");
     }
     // Rien n'est posé à côté du plan.
@@ -540,7 +543,13 @@ fn kraken_plan_refuse_un_plan_faux_par_son_refus() {
     let dir = neuf("plan-faux");
     let entete = ["plan 1", "objectif : o", "preuve : cargo test"];
     // Chaque plan faux : ses drapeaux, ses tâches, le code de son refus et un bout de sa preuve.
-    let cas: [(&[&str], &[&str], &str, &str); 5] = [
+    let cas: [(&[&str], &[&str], &str, &str); 6] = [
+        (
+            &[],
+            &["tache a", "fichiers : a.rs, b.rs", "    x"],
+            "lydite : 6024 lancer.plan_chemin",
+            "le chemin « a.rs, » porte une virgule",
+        ),
         (
             &[],
             &["tache a", "fichiers : ../voisin/x", "    x"],
@@ -568,6 +577,14 @@ fn kraken_plan_refuse_un_plan_faux_par_son_refus() {
     let sans_cles = plan_dans(&dir, "sans-cles.txt", &[&entete[..], &["tache a", "    x"]].concat());
     assert_eq!(refus(kraken().args(["plan", "--decoupe"]).arg(&sans_cles)), "lydite : 6025 lancer.plan_borne");
     let sortie = kraken().arg("plan").arg(&sans_cles).output().unwrap();
+    let erreur = String::from_utf8_lossy(&sortie.stderr);
+    assert_eq!(
+        (sortie.status.code(), sortie.stdout.is_empty(), &*erreur),
+        (Some(0), true, "No task is critical: nothing in this plan is reviewed.\n")
+    );
+    // Le même plan, avec une tâche critique : rien à dire.
+    let critique = plan_dans(&dir, "critique.txt", &[&entete[..], &["tache a", "critique : oui", "    x"]].concat());
+    let sortie = kraken().arg("plan").arg(&critique).output().unwrap();
     assert_eq!((sortie.status.code(), sortie.stdout.is_empty(), sortie.stderr.is_empty()), (Some(0), true, true));
     // Un fichier absent : 6006, qui nomme son chemin.
     let absent = dir.join("absent.txt");
