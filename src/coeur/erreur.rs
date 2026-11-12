@@ -176,7 +176,7 @@ codes! {
          parenthesis, no `*`, `?`, `[`, `]`, `{`, `}`, no quote and no backslash.";
     PlanChemin = 6024, "lancer.plan_chemin",
         "A `fichiers` path is relative to the repository root, written with `/`, without `..`, outside `.git/` \
-         and `.claude/`; in a split plan, it has the case that git knows for it in the base.";
+         and `.claude/`, without a comma; in a split plan, it has the case that git knows for it in the base.";
     PlanBorne = 6025, "lancer.plan_borne",
         "A plan weighs 1 MB at most; a split plan has 12 tasks at most, and each has `fichiers` and `modele`, \
          with no `preuve` of its own (all play the wave's); a `fichiers` line has 100 paths at most.";
