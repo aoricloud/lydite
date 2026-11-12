@@ -778,8 +778,56 @@ fn ligne(seance: &str, seq: u64, origine: String, genre: &str, corps: Vec<(&'sta
 /// vague, dans l'ordre du fil. Chaque écart nomme `chemin` et sa ligne. Une ligne d'une autre version arrête la
 /// lecture : le refus 1002, qui nomme la ligne et les deux versions.
 pub(crate) fn lire_octets(chemin: &Path, octets: &[u8]) -> Result<Lu, Refus> {
+    lire_octets_avec_lignes(chemin, octets).map(|(lu, _)| lu)
+}
+
+/// Une ligne lue du fil, d'une note, d'une issue ou d'un sceau : de quoi la nommer et la retrouver dans les octets du
+/// fil, sans la copier. Une ligne sautée (1001, 1009), une ligne d'un type inconnu et ce qui suit le dernier `\n`
+/// n'en ont pas ; une ligne au `seq` rompu (1010) en a une.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LigneLue {
+    /// Sa séance.
+    pub(crate) seance: String,
+    pub(crate) seq: u64,
+    /// Son genre, le `type` de la ligne.
+    pub(crate) genre: String,
+    pub(crate) instant: String,
+    /// La foi que son corps affirme : `None` quand la ligne n'a pas de champ `foi`.
+    pub(crate) foi: Option<Foi>,
+    /// L'octet où la ligne commence dans les octets du fil.
+    pub(crate) debut: usize,
+    /// L'octet où elle finit : le `\n` qui la termine n'en est pas.
+    pub(crate) fin: usize,
+}
+
+impl LigneLue {
+    /// La ligne que `note` a prise dans `objet`, dont les octets vont de `debut` à `fin`. `None` si un champ de
+    /// l'enveloppe ne se lit pas : `note` les a lus, et il n'y en a pas de tel.
+    fn de(objet: &BTreeMap<String, Option<Valeur>>, debut: usize, fin: usize) -> Option<LigneLue> {
+        let valeur = |cle: &str| objet.get(cle).and_then(Option::as_ref);
+        let texte = |cle: &str| match valeur(cle) {
+            Some(Valeur::Texte(texte)) => Some(texte.clone()),
+            _ => None,
+        };
+        let Some(Valeur::Entier(seq)) = valeur("seq") else { return None };
+        let foi = texte("foi").and_then(|lue| Foi::TOUTES.into_iter().find(|foi| foi.mot() == lue));
+        Some(LigneLue {
+            seance: texte("seance")?,
+            seq: *seq,
+            genre: texte("type")?,
+            instant: texte("instant")?,
+            foi,
+            debut,
+            fin,
+        })
+    }
+}
+
+/// Ce que [`lire_octets`] rend, et de plus une [`LigneLue`] par note, issue ou sceau lu, dans l'ordre du fil.
+pub(crate) fn lire_octets_avec_lignes(chemin: &Path, octets: &[u8]) -> Result<(Lu, Vec<LigneLue>), Refus> {
     let mut issues = Vec::new();
     let mut sceaux = Vec::new();
+    let mut lues = Vec::new();
     // L'octet où commence la ligne en cours.
     let mut debut = 0usize;
     let mut lecture = Lecture::default();
@@ -844,14 +892,19 @@ pub(crate) fn lire_octets(chemin: &Path, octets: &[u8]) -> Result<Lu, Refus> {
             seances.insert(seance.clone(), *seq);
         }
         match note(&objet) {
-            Ok(Some(Lue::Note(note))) => lecture.notes.push(*note),
-            Ok(Some(Lue::Issue(issue))) => issues.push(issue),
-            Ok(Some(Lue::Sceau(sceau))) => sceaux.push(SceauLu { sceau, debut: ici }),
+            Ok(Some(lue)) => {
+                lues.extend(LigneLue::de(&objet, ici, ici + ligne.len()));
+                match lue {
+                    Lue::Note(note) => lecture.notes.push(*note),
+                    Lue::Issue(issue) => issues.push(issue),
+                    Lue::Sceau(sceau) => sceaux.push(SceauLu { sceau, debut: ici }),
+                }
+            }
             Ok(None) => {} // un type d'une autre pièce, ignoré au rejeu
             Err(raison) => lecture.ecarts.push(ecart(Code::EvenementMalForme, raison)),
         }
     }
-    Ok((lecture, issues, sceaux))
+    Ok(((lecture, issues, sceaux), lues))
 }
 
 /// Ce que [`lire_octets`] rend : les notes et écarts, les issues de vague, et les sceaux, dans l'ordre du fil.

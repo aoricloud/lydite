@@ -3635,3 +3635,118 @@ fn une_consigne_fausse_est_mal_formee_et_le_systeme_peut_etre_nul() {
     assert!(vagues[0].mains.is_empty());
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// Une ligne `vague.issue` bien formée, écrite à la main, de la séance `seance` au `seq` donné.
+fn issue_ecrite(seance: &str, seq: u64) -> String {
+    format!(
+        concat!(
+            r#"{{"v":2,"seance":"{seance}","seq":{seq},"instant":"2026-10-31T21:03:00.123Z","or"#,
+            r#"igine":"humain","origine_foi":"declare","type":"vague.issue","vague":"v","issue":4}}"#,
+        ),
+        seance = seance,
+        seq = seq,
+    )
+}
+
+/// Une ligne `vague.sceau` bien formée, écrite à la main, de la séance `seance` au `seq` donné.
+fn sceau_ecrit(seance: &str, seq: u64) -> String {
+    format!(
+        concat!(
+            r#"{{"v":2,"seance":"{seance}","seq":{seq},"instant":"2026-10-31T21:03:00.123Z","or"#,
+            r#"igine":"humain","origine_foi":"declare","type":"vague.sceau","vague":"v","octets":"#,
+            r#"5,"empreinte":"{EMPREINTE}"}}"#,
+        ),
+        seance = seance,
+        seq = seq,
+        EMPREINTE = EMPREINTE,
+    )
+}
+
+#[test]
+fn les_lignes_lues_disent_leur_place_dans_les_octets_du_fil() {
+    let gap = debut("s", 9);
+    let inconnue = debut("s", 3).replace("main.debut", "autre.chose");
+    let lignes = [
+        debut("s", 1),
+        String::new(),
+        "ceci n'est pas du JSON".to_string(),
+        constat("s", 2),
+        inconnue,
+        gap.clone(),
+        lancement("t", 1),
+        issue_ecrite("t", 2),
+        sceau_ecrit("t", 3),
+        debut("t", 4).replace(r#""main":1"#, r#""main":"x""#),
+    ];
+    // Le début de chaque ligne dans les octets : les longueurs des lignes avant elle, un `\n` chacune.
+    let mut reste = 0;
+    let debuts: Vec<usize> = lignes
+        .iter()
+        .map(|ligne| {
+            let ici = reste;
+            reste += ligne.len() + 1;
+            ici
+        })
+        .collect();
+    let mut octets: Vec<u8> = lignes.iter().map(|ligne| format!("{ligne}\n")).collect::<String>().into_bytes();
+    // Ce qui suit le dernier `\n` est en cours d'écriture, et n'est pas lu.
+    octets.extend_from_slice(debut("t", 5).as_bytes());
+    let instant = "2026-10-31T21:03:00.123Z".to_string();
+    let attendue = |rang: usize, seance: &str, seq: u64, genre: &str, foi: Option<Foi>| LigneLue {
+        seance: seance.into(),
+        seq,
+        genre: genre.into(),
+        instant: instant.clone(),
+        foi,
+        debut: debuts[rang],
+        fin: debuts[rang] + lignes[rang].len(),
+    };
+    let (lu, lues) = lire_octets_avec_lignes(Path::new("fil.jsonl"), &octets).unwrap();
+    // Ligne 2 : vide, sautée sans écart ; ligne 3 : illisible ; ligne 5 : un type inconnu, que `s` compte (le seq 3
+    // est celui qu'on attend) ; ligne 6 : un `seq` rompu (1010), lu ; ligne 10 : mal formée.
+    assert_eq!(codes(&lu.0.ecarts), [(3, 1001), (6, 1010), (10, 1009)]);
+    assert_eq!(
+        lues,
+        [
+            attendue(0, "s", 1, "main.debut", None),
+            attendue(3, "s", 2, "main.constat", Some(Foi::Constate)),
+            attendue(5, "s", 9, "main.debut", None),
+            attendue(6, "t", 1, "main.lancement", Some(Foi::Declare)),
+            attendue(7, "t", 2, "vague.issue", None),
+            attendue(8, "t", 3, "vague.sceau", None),
+        ]
+    );
+    // Chaque `debut..fin` est la ligne elle-même, sans son `\n`.
+    for lue in &lues {
+        let ligne = &octets[lue.debut..lue.fin];
+        assert!(!ligne.ends_with(b"\n") && octets[lue.fin] == b'\n', "{lue:?}");
+        let texte = str::from_utf8(ligne).unwrap();
+        assert!(texte.starts_with(r#"{"v":2,"#) && texte.ends_with('}'), "{texte}");
+    }
+    assert_eq!(&octets[lues[2].debut..lues[2].fin], gap.as_bytes());
+}
+
+#[test]
+fn la_lecture_avec_lignes_rend_celle_de_lire_octets_sur_les_exemples() {
+    let toutes: Vec<&str> =
+        include_str!("exemples.jsonl").lines().filter(|ligne| ligne.starts_with(r#"{"v":2,"#)).collect();
+    let mut texte: Vec<String> = toutes.iter().map(|ligne| ligne.to_string()).collect();
+    // Une issue de plus : les exemples n'en portent pas.
+    texte.push(issue_ecrite("1761902300000_16_1", 1));
+    let octets = texte.iter().map(|ligne| format!("{ligne}\n")).collect::<String>().into_bytes();
+    let chemin = Path::new("exemples.jsonl");
+    let seule = lire_octets(chemin, &octets).unwrap();
+    let (avec, lues) = lire_octets_avec_lignes(chemin, &octets).unwrap();
+    // Les mêmes notes, issues, sceaux et écarts.
+    assert_eq!(seule, avec);
+    assert!(!avec.0.notes.is_empty() && !avec.1.is_empty() && !avec.2.is_empty(), "des notes, une issue, des sceaux");
+    assert!(avec.0.ecarts.iter().any(|(_, refus)| refus.code == Code::SequenceRompue), "les trous voulus");
+    // Une ligne lue par note, issue et sceau, dans l'ordre du fil, et chacune est la ligne du texte.
+    assert_eq!(lues.len(), avec.0.notes.len() + avec.1.len() + avec.2.len());
+    assert_eq!(lues.len(), texte.len(), "chaque ligne d'exemple se lit");
+    for (lue, ligne) in lues.iter().zip(&texte) {
+        assert_eq!(&octets[lue.debut..lue.fin], ligne.as_bytes());
+        assert!(ligne.contains(&format!(r#""seance":"{}","seq":{},"#, lue.seance, lue.seq)), "{lue:?} : {ligne}");
+        assert!(ligne.contains(&format!(r#""type":"{}""#, lue.genre)), "{lue:?} : {ligne}");
+    }
+}

@@ -19,6 +19,7 @@ mod coeur {
     pub(crate) mod fil;
     pub(crate) mod json;
     pub(crate) mod lecons;
+    pub(crate) mod memoire;
     pub(crate) mod natif;
     pub(crate) mod plan;
     pub(crate) mod profil;
