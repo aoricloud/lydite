@@ -19,7 +19,9 @@
 //! modèles de la tâche (`modele` et `relance` du plan, à défaut ceux du profil) et à son effort (`effort` du plan, à
 //! défaut ceux du profil), que reçoivent sa main et son `main.lancement`. Avant toute main, un `effort` de tâche que le
 //! profil ne permet pas (`efforts_permis`) refuse la vague en 6033. Une tâche qui a des `fichiers` ne reste prise que
-//! si sa main n'a changé que ces chemins (7013), à la fin de sa tentative comme au gel.
+//! si sa main n'a changé que ces chemins (7013), à la fin de sa tentative comme au gel. Un fichier que le plan épingle
+//! par `sha256` n'est tenu que si git le garde sous cette empreinte, à la fin de la tentative (elle est rouge sinon)
+//! puis au gel (7022) ; la consigne de la main les lui dit.
 //!
 //! Une vague de découpage, de relecture ou de correction porte de plus ses [`Liens`] : le juge de sa main, ce que
 //! Kraken pose dans le bac de sa main avant qu'elle parte (le `DIFF.lydite` du relecteur), le découpage dont elle joue
@@ -42,7 +44,7 @@ use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::fil::{Base, Couleur, Evenement, Foi, IssueVague, LancementVague, Verdict};
 use crate::coeur::fil::{Role, instant, lot, maintenant, refus_en_clair};
 use crate::coeur::lecons::{self, Lecon};
-use crate::coeur::plan::{Plan, Tache};
+use crate::coeur::plan::{Plan, Tache, couvre};
 use crate::coeur::profil::{Prix, Profil, empreinte};
 use crate::coeur::protocole::{Constat, Jetons, Usage, UsageModele};
 use crate::conduite::assemblage::{self, Assemblage};
@@ -658,6 +660,9 @@ impl<'a> Vague<'a> {
         let juge = self.juge;
         // Une tâche de plan sans juge : sa main doit avoir changé un chemin. Les mains qui jugent ont leur contrôle.
         let plan_sans_juge = self.assemblage.is_some() && juge.is_none() && !self.corrige;
+        // Les épingles `sha256` de tout le plan : celles de la tâche, et celles d'une autre dont sa main change le
+        // fichier.
+        let epingles = assemblage::epingles_du_plan(plan);
         s.spawn(move || {
             // La pause d'une tentative qui repart sur une coupure de l'API se passe ici, hors de la vague.
             if !pause.is_zero() {
@@ -678,6 +683,11 @@ impl<'a> Vague<'a> {
                     dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris).map_err(Echec::Erreur)
                 });
                 let verdict = verdict.and_then(|pris| textes_exacts(&bac, tache, pris).map_err(Echec::Erreur));
+                let verdict = verdict.and_then(|pris| {
+                    assemblage::epingles_tenues(&bac, &depart, &tache.id, &epingles, profil.proteges())
+                        .map(|()| pris)
+                        .map_err(Echec::Erreur)
+                });
                 let verdict = match (plan_sans_juge, verdict) {
                     (true, Ok(pris)) => {
                         main_qui_change(&bac, &depart, profil.proteges()).map(|()| pris).map_err(Echec::Erreur)
@@ -875,6 +885,7 @@ impl<'a> Vague<'a> {
         let plan = self.plan;
         let tache = &plan.taches[k - 1];
         let (vague, fil) = (self.id.as_str(), &self.fil);
+        let epingles = assemblage::epingles_du_plan(plan);
         let Some(assemblage) = &mut self.assemblage else {
             self.taches[k - 1] = Etat::Finie(Ok(pris));
             return;
@@ -885,7 +896,11 @@ impl<'a> Vague<'a> {
             &tache.id,
             tache.fichiers.as_deref(),
             k,
+            &epingles,
             |sha| fil.noter(&Evenement::Gel { vague: vague.into(), main: k, sha: sha.into() }),
+            |sha, fichiers| {
+                fil.noter(&Evenement::Empreintes { vague: vague.into(), main: k, sha: sha.into(), fichiers })
+            },
             |sha, verif| {
                 fil.noter(&Evenement::Fusion { vague: vague.into(), main: k, sha: sha.into(), verif: verif.into() })
             },
@@ -999,7 +1014,18 @@ impl<'a> Vague<'a> {
     ) -> Result<String, Refus> {
         let juge = self.juge.is_some();
         let fichiers = tache.fichiers.as_deref();
-        let texte = consigne_de(profil, &tache.objectif, fichiers, &tache.exacts, verifier, precedente, juge);
+        // Ses épingles, puis celles des autres tâches que ses `fichiers` couvrent (toutes, sans `fichiers`).
+        let mut epingles = tache.empreintes.clone();
+        for autre in self.plan.taches.iter().filter(|autre| autre.id != tache.id) {
+            for (fichier, empreinte) in &autre.empreintes {
+                let couvert = fichiers.is_none_or(|fichiers| fichiers.iter().any(|entree| couvre(entree, fichier)));
+                if couvert && !epingles.iter().any(|(deja, _)| deja == fichier) {
+                    epingles.push((fichier.clone(), empreinte.clone()));
+                }
+            }
+        }
+        let objectif = &tache.objectif;
+        let texte = consigne_de(profil, objectif, fichiers, &tache.exacts, &epingles, verifier, precedente, juge);
         ecrire_consigne(self.fil.dossier(), &texte, ARRET)?;
         Ok(texte)
     }

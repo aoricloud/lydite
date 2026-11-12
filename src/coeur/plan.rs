@@ -14,6 +14,7 @@
 //! effort : <niveau des deux tentatives>
 //! fichiers : <chemin> <dossier>/
 //! critique : oui
+//! sha256 : <fichier> : <empreinte>
 //!     <objectif de la tâche, en lignes indentées>
 //! ```
 //!
@@ -29,7 +30,7 @@
 //!   ôtés autour du `:` ; une ligne indentée (espaces ou tabulations) est l'objectif de la tâche en cours. Il n'y a ni
 //!   commentaire ni continuation de ligne.
 //!
-//! Les clés sont fermées, et chacune se donne une fois au plus :
+//! Les clés sont fermées, et chacune se donne une fois au plus, hors `exact` et `sha256` :
 //!
 //! - dans l'en-tête, avant la première tâche : `objectif` et `preuve`, obligatoires l'une et l'autre ;
 //! - sous `tache <id>`, avant l'objectif, toutes facultatives : `depend`, des ids séparés par des blancs (aucun, si
@@ -38,7 +39,25 @@
 //!   prennent la place ; `effort`, l'effort de Claude Code des deux tentatives de la tâche, un de `low`, `medium`,
 //!   `high`, `xhigh`, `max`, qui prend la place des clés `effort` et `effort_relance` du profil, et que le profil doit
 //!   permettre (`efforts_permis`, refus 6033 au lancement) ; `fichiers`, les chemins que la tâche peut changer,
-//!   séparés par des blancs ; `critique`, de seule valeur `oui`, pour une tâche dont le travail va à la relecture.
+//!   séparés par des blancs ; `critique`, de seule valeur `oui`, pour une tâche dont le travail va à la relecture ;
+//!   `exact` et `sha256`, qui se répètent, une ligne par fichier (voir plus bas).
+//!
+//! Les deux clés de tâche qui se répètent :
+//!
+//! - `exact : <fichier> : <texte>` exige ce texte dans ce fichier, octet pour octet. Le fichier est un chemin de
+//!   fichier comme dans `fichiers`, que les `fichiers` de la tâche couvrent quand elle en a ; le texte n'est pas vide,
+//!   et garde ses blancs et ses ` : `. Une valeur qui n'a pas cette forme, un chemin hors de la forme, ou un fichier
+//!   que les `fichiers` ne couvrent pas est refusé en 6024 ;
+//! - `sha256 : <fichier> : <empreinte>` épingle un fichier entier par son SHA-256. La lecture ne calcule rien et
+//!   n'ouvre aucun fichier. Le fichier est un chemin de fichier comme dans `fichiers` (sans blanc, sans caractère de
+//!   contrôle, sans `/` final : un dossier ne s'épingle pas), que les `fichiers` de la tâche couvrent quand elle en
+//!   a ; l'empreinte est faite de 64 hexadécimaux minuscules. Un fichier n'est épinglé qu'une fois par tâche, et n'a
+//!   qu'une empreinte dans tout le plan (la même sous deux tâches se lit). Refusés : en 6024, une valeur qui n'est pas
+//!   `<fichier> : <empreinte>` (une empreinte vide comprise), un chemin hors de la forme, avec un blanc ou un
+//!   caractère de contrôle, ou fini par `/`, et un fichier que les `fichiers` ne couvrent pas ; en 6018, une empreinte
+//!   qui n'est pas de 64 hexadécimaux minuscules, un fichier épinglé deux fois dans la tâche, et un fichier épinglé
+//!   sous deux empreintes par deux tâches (refus à la fin de la lecture, sur la seconde ligne) ; en 6021, une valeur
+//!   blanche.
 //!
 //! Ce que le plan dit :
 //!
@@ -114,7 +133,8 @@ pub(crate) const FICHIERS_MAX: usize = 100;
 
 /// Les clés de l'en-tête, puis celles d'une tâche.
 const CLES_ENTETE: [&str; 2] = ["objectif", "preuve"];
-const CLES_TACHE: [&str; 8] = ["depend", "preuve", "modele", "relance", "effort", "fichiers", "critique", "exact"];
+const CLES_TACHE: [&str; 9] =
+    ["depend", "preuve", "modele", "relance", "effort", "fichiers", "critique", "exact", "sha256"];
 
 /// Les caractères d'une ligne qu'une preuve cite : au-delà, la citation est coupée.
 const CITE_MAX: usize = 200;
@@ -129,14 +149,21 @@ const REECRIRE: &str = concat!(
 const FORME: &str = concat!(
     "Une ligne de plan est vide, `tache <id>`, `<clé> : <valeur>`, ou indentée (l'objectif de la tâche qui la ",
     "précède). Avant la première tâche, les clés sont `objectif` et `preuve` ; sous `tache <id>`, `depend`, `preuve`, ",
-    "`modele`, `relance`, `effort`, `fichiers`, `critique` et `exact` (qui peut se répéter), puis l'objectif en ",
-    "lignes indentées ; chaque autre clé une fois."
+    "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact` et `sha256` (les deux dernières peuvent se ",
+    "répéter), puis l'objectif en lignes indentées ; chaque autre clé une fois."
 );
 
 /// La correction d'une ligne `exact` hors de sa forme.
 const EXACT: &str = concat!(
     "Écris `exact : <fichier> : <texte>` : le fichier comme dans `fichiers` (un chemin relatif à la racine du dépôt, ",
     "couvert par les `fichiers` de la tâche), puis ` : `, puis le texte, non vide, qui doit y paraître tel quel."
+);
+
+/// La correction d'une ligne `sha256` hors de sa forme.
+const SHA256: &str = concat!(
+    "Write `sha256 : <file> : <hash>`: the file as in `fichiers`, not a folder and with no blank, covered by the ",
+    "task's `fichiers`; then its SHA-256, 64 lowercase hexadecimal digits; each file once per task, and one hash per ",
+    "file in the whole plan."
 );
 
 /// La correction d'un modèle hors de son domaine.
@@ -203,6 +230,9 @@ pub(crate) struct Tache {
     pub(crate) fichiers: Option<Vec<String>>,
     /// Les textes que le plan exige dans ses fichiers, octet pour octet : un couple (fichier, texte) par ligne `exact`.
     pub(crate) exacts: Vec<(String, String)>,
+    /// Les fichiers que le plan épingle par leur SHA-256 : un couple (fichier, empreinte) par ligne `sha256`, dans
+    /// l'ordre du plan. La lecture ne calcule rien : l'empreinte est celle que le plan écrit.
+    pub(crate) empreintes: Vec<(String, String)>,
     /// Son travail va à la relecture.
     pub(crate) critique: bool,
 }
@@ -326,6 +356,8 @@ struct Brouillon<'a> {
     fichiers: Option<Vec<&'a str>>,
     /// Ses lignes `exact`, chacune avec son fichier et son texte.
     exacts: Vec<(Ligne<'a>, &'a str, &'a str)>,
+    /// Ses lignes `sha256`, chacune avec son fichier et son empreinte.
+    empreintes: Vec<(Ligne<'a>, &'a str, &'a str)>,
     critique: bool,
     /// Ses lignes indentées, chacune avec le nombre de retours à la ligne qui la séparent de la précédente : 0 pour la
     /// première, puis 1 de plus par ligne vide entre elles.
@@ -343,7 +375,7 @@ impl Brouillon<'_> {
             "relance" => self.relance.is_some(),
             "effort" => self.effort.is_some(),
             "fichiers" => self.fichiers.is_some(),
-            "exact" => false,
+            "exact" | "sha256" => false,
             _ => self.critique,
         }
     }
@@ -434,6 +466,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             effort: None,
             fichiers: None,
             exacts: Vec::new(),
+            empreintes: Vec::new(),
             critique: false,
             objectif: Vec::new(),
             vides: 0,
@@ -456,7 +489,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             (
                 &CLES_TACHE,
                 "d'une tâche",
-                "`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique` ou `exact`",
+                "`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact` ou `sha256`",
             )
         };
         if !permises.contains(&cle) {
@@ -560,6 +593,38 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                 }
                 tache.exacts.push((ligne, fichier, texte));
             }
+            "sha256" => {
+                let Some((fichier, empreinte)) =
+                    valeur.split_once(" : ").filter(|(_, empreinte)| !empreinte.is_empty())
+                else {
+                    let quoi = format!("the value {} is not `<file> : <hash>` with a hash", cite(valeur));
+                    return Err(refus(Code::PlanChemin, ligne, quoi, SHA256));
+                };
+                let (blanc, dossier) =
+                    (fichier.chars().any(|c| c.is_whitespace() || c.is_control()), fichier.ends_with('/'));
+                if blanc || dossier || hors_forme(fichier).is_some() {
+                    let quoi = format!(
+                        "the file {} is not a file path as `fichiers` writes it, or has a blank or a control \
+                         character, or is a folder",
+                        cite(fichier)
+                    );
+                    return Err(refus(Code::PlanChemin, ligne, quoi, SHA256));
+                }
+                let hexa = |c: u8| c.is_ascii_digit() || (b'a'..=b'f').contains(&c);
+                if empreinte.len() != 64 || !empreinte.bytes().all(hexa) {
+                    let quoi = format!("the hash {} is not 64 lowercase hexadecimal digits", cite(empreinte));
+                    return Err(refus(Code::PlanLigne, ligne, quoi, SHA256));
+                }
+                if let Some(&(avant, ..)) = tache.empreintes.iter().find(|&&(_, vu, _)| vu == fichier) {
+                    let quoi = format!(
+                        "the file {} is already pinned by the `sha256` line {} of this task",
+                        cite(fichier),
+                        avant.numero
+                    );
+                    return Err(refus(Code::PlanLigne, ligne, quoi, SHA256));
+                }
+                tache.empreintes.push((ligne, fichier, empreinte));
+            }
             _ if valeur != "oui" => {
                 let quoi = format!("la clé « critique » vaut {}, et sa seule valeur est `oui`", cite(valeur));
                 let correction =
@@ -587,6 +652,8 @@ impl<'a, 'd> Lecteur<'a, 'd> {
         }
         let mut taches = Vec::with_capacity(self.taches.len());
         let mut dependances = Vec::with_capacity(self.taches.len());
+        // Chaque fichier épinglé, avec la ligne, la tâche et l'empreinte de sa première mention.
+        let mut epingles: HashMap<&str, (usize, &str, &str)> = HashMap::new();
         for brouillon in &self.taches {
             if brouillon.objectif.is_empty() {
                 let quoi = format!(
@@ -615,6 +682,30 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                             cite(fichier)
                         );
                         return Err(refus(Code::PlanChemin, ligne, quoi, EXACT));
+                    }
+                }
+                for &(ligne, fichier, _) in &brouillon.empreintes {
+                    if !fichiers.iter().any(|entree| couvre(entree, fichier)) {
+                        let quoi =
+                            format!("the file {} is not covered by any path of the task's `fichiers`", cite(fichier));
+                        return Err(refus(Code::PlanChemin, ligne, quoi, SHA256));
+                    }
+                }
+            }
+            // Un fichier n'a qu'une empreinte dans tout le plan : la seconde ligne qui le dit autrement est refusée.
+            for &(ligne, fichier, empreinte) in &brouillon.empreintes {
+                match epingles.get(fichier) {
+                    Some(&(avant, tache, autre)) if autre != empreinte => {
+                        let quoi = format!(
+                            "the file {} is already pinned under another hash by the task {} (line {avant})",
+                            cite(fichier),
+                            cite(tache)
+                        );
+                        return Err(refus(Code::PlanLigne, ligne, quoi, SHA256));
+                    }
+                    Some(_) => {}
+                    None => {
+                        epingles.insert(fichier, (ligne.numero, brouillon.id, empreinte));
                     }
                 }
             }
@@ -652,6 +743,11 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                     .iter()
                     .map(|&(_, fichier, texte)| (fichier.to_string(), texte.to_string()))
                     .collect(),
+                empreintes: brouillon
+                    .empreintes
+                    .iter()
+                    .map(|&(_, fichier, empreinte)| (fichier.to_string(), empreinte.to_string()))
+                    .collect(),
                 critique: brouillon.critique,
             });
         }
@@ -683,6 +779,15 @@ fn blanche(entete: bool, cle: &str) -> String {
         (false, "effort") => format!("Écris le niveau après `effort :`, ou retire la ligne : {EFFORT}"),
         (false, "fichiers") => "Écris après `fichiers :` les chemins que la tâche peut changer, ou retire la ligne : \
                                 rien ne borne alors la tâche."
+            .into(),
+        (false, "exact") => {
+            "Write `exact : <file> : <text>` after the key, or remove the line: the task then requires \
+                             no text in that file."
+                .into()
+        }
+        (false, "sha256") => "Write `sha256 : <file> : <hash>` after the key (the file as in `fichiers`, then its \
+                              SHA-256, 64 lowercase hexadecimal digits), or remove the line: the task then pins \
+                              no file."
             .into(),
         (false, _) => "Écris `critique : oui`, ou retire la ligne : la tâche n'est alors pas critique.".into(),
     }

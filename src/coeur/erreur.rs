@@ -22,7 +22,7 @@
 //! donc pas.
 //!
 //! L'énumération ne tient que les codes que le programme construit : 1001, 1002, 1005, 1006, 1009 et 1010 du bloc
-//! 1000, 6001 à 6035 du bloc 6000, 7001 à 7021 du bloc 7000, 8001 à 8013 du bloc 8000. Les autres lignes du bloc 1000
+//! 1000, 6001 à 6035 du bloc 6000, 7001 à 7022 du bloc 7000, 8001 à 8013 du bloc 8000. Les autres lignes du bloc 1000
 //! de passerelle (1003, 1004, 1007, 1008 et 1011) n'y sont pas ; `tests::copie_du_bloc_1000` en garde la copie entière,
 //! sous `#[cfg(test)]` comme `Code::TOUS` : chaque code de 1000 à 5999 et de 9000 à 9999 en est une ligne, et ceux de
 //! ce dépôt vivent dans 6000 à 8999.
@@ -272,6 +272,9 @@ codes! {
     OuvertureExecutable = 7021, "vague.ouverture_executable",
         "A hand adds or changes no file that runs when the branch is next opened (.mcp.json, .vscode, .idea, a \
          shell or git configuration file); the freeze that carries one is refused before the merge.";
+    EmpreinteDifferente = 7022, "vague.empreinte_differente",
+        "A file that the plan pins by `sha256` has that SHA-256 in the commit Lydite freezes; otherwise the task is \
+         refused without a retry, and nothing of it is merged.";
     // --- 8000 : forge ---
     DistantIllisible = 8001, "forge.distant_illisible",
         "With `--pr`, the target repository has a remote `origin` whose URL names a host, an owner and a \

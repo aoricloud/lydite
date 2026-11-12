@@ -32,6 +32,12 @@
 //! Le découpeur et le relecteur, qui n'écrivent que leur
 //! fichier, sont tenus par `seul_change` (7014).
 //!
+//! Un fichier que le plan épingle par `sha256` se juge de même aux deux endroits, sur ce que git garde et non sur le
+//! disque (`git::empreinte_gardee`) : à la fin de chaque tentative (`epingles_tenues`), sur l'index du bac, pour les
+//! épingles de la tâche et celles d'une autre tâche dont la main a changé le fichier ; au gel (`epingles_gelees`),
+//! sur le commit gelé, pour les épingles de la tâche et celles d'une autre dont le gel a changé le fichier, quels que
+//! soient `fichiers` et `proteges`, juste avant la fusion. Au gel, un écart est le refus 7022.
+//!
 //! La base s'éprouve par la preuve de la vague (6022) à l'ouverture de l'assemblage, et, pour un découpage, avant le
 //! découpeur (`eprouver_la_base`), par la même épreuve mise à part (`eprouver`).
 //!
@@ -44,13 +50,14 @@ use std::path::{Path, PathBuf};
 use crate::branchements::bac::{
     CLAUDE, butees_du_bac, butees_protegees, exclusions_de_l_etat, poser, sans_claude, temporaire_de,
 };
-use crate::branchements::git::{faire, geste};
+use crate::branchements::git::{Arbre, BORNE_EMPREINTE, Gardee, empreinte_gardee, faire, geste};
 use crate::branchements::srt::rejouer;
 use crate::coeur::erreur::{Code, Refus, nommee};
 use crate::coeur::fil::lot;
 use crate::coeur::natif::TOUJOURS_REFUSES;
-use crate::coeur::plan::couvre;
+use crate::coeur::plan::{Plan, couvre};
 use crate::coeur::profil::Profil;
+use crate::coeur::texte::en_ligne;
 
 /// Les chemins qu'un refus 7013 cite au plus, pour ce que la main a changé comme pour les `fichiers` de sa tâche :
 /// au-delà, il dit le nombre des autres. Le refus tient dans l'erreur de la tentative, que le fil note et que la
@@ -93,6 +100,13 @@ const OUVERTURE_GELEE: &str = "The task is refused, and there is no automatic re
                                the agent or the shell runs when the branch is next opened (.mcp.json, .vscode, \
                                .idea, a shell or git configuration file) is set by the human, outside the wave; new \
                                work that writes none of them will start again from this head.";
+
+/// La correction d'un fichier épinglé par `sha256` que le gel ne porte pas sous l'empreinte du plan (7022) : la fusion
+/// n'a pas eu lieu, et la tâche est refusée sans relance automatique.
+const EMPREINTE_GELEE: &str = "The task is refused, and there is no automatic retry; the merge did not happen, and \
+                               nothing of it is merged. Run the task again in a fresh wave. The SHA-256 to pin is \
+                               that of the bytes git stores, which in a repository that normalizes line endings are \
+                               not those on the disk.";
 
 /// La correction d'un git qui ne dit pas ce que la main a changé (7009).
 const SANS_LISTE: &str = "Check that git runs and that the sandbox is a worktree of the target repository: without \
@@ -290,12 +304,15 @@ impl Assemblage<'_> {
         k: usize,
         noter: impl FnOnce(&str, &str) -> io::Result<()>,
     ) -> (Option<String>, Result<String, Refus>) {
-        self.fusionner_et_noter_le_gel(bac, depart, id, fichiers, k, |_| Ok(()), noter)
+        self.fusionner_et_noter_le_gel(bac, depart, id, fichiers, k, &[], |_| Ok(()), |_, _| Ok(()), noter)
     }
 
     /// `fusionner`, avec `noter_gel(gel)` appelé juste après le gel du bac (étape 3), avant tout jugement du gel et
     /// avant la fusion : le commit gelé est celui sur lequel porte le verdict de la main. Raté, 7012, comme la note
-    /// de la fusion.
+    /// de la fusion. `epingles` sont celles de tout le plan (voir [`epingles_du_plan`]) : celles de la tâche `id` et
+    /// celles des autres, que le gel contrôle aussi (étape 5 bis). Tous les jugements passés, et seulement si la tâche
+    /// a des épingles, `noter_empreintes(gel, fichiers)` se joue juste avant la fusion, `fichiers` étant un
+    /// `<fichier> <empreinte>` par épingle de la tâche ; raté, 7012.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn fusionner_et_noter_le_gel(
         &mut self,
@@ -304,7 +321,9 @@ impl Assemblage<'_> {
         id: &str,
         fichiers: Option<&[String]>,
         k: usize,
+        epingles: &[Epingle<'_>],
         noter_gel: impl FnOnce(&str) -> io::Result<()>,
+        noter_empreintes: impl FnOnce(&str, Vec<String>) -> io::Result<()>,
         noter: impl FnOnce(&str, &str) -> io::Result<()>,
     ) -> (Option<String>, Result<String, Refus>) {
         if let Some(fermeture) = &self.fermeture {
@@ -315,7 +334,7 @@ impl Assemblage<'_> {
         if let Err(refus) = sans_claude(bac, depart).and_then(|()| self.revenir(&format!("before the merge of {id}"))) {
             return (None, Err(refus));
         }
-        let (verif, issue) = self.assembler(bac, depart, id, fichiers, k, noter_gel, noter);
+        let (verif, issue) = self.assembler(bac, depart, id, fichiers, k, epingles, noter_gel, noter_empreintes, noter);
         let issue = match issue {
             Ok(sha) => {
                 self.tete.clone_from(&sha);
@@ -338,7 +357,9 @@ impl Assemblage<'_> {
         id: &str,
         fichiers: Option<&[String]>,
         k: usize,
+        epingles: &[Epingle<'_>],
         noter_gel: impl FnOnce(&str) -> io::Result<()>,
+        noter_empreintes: impl FnOnce(&str, Vec<String>) -> io::Result<()>,
         noter: impl FnOnce(&str, &str) -> io::Result<()>,
     ) -> (Option<String>, Result<String, Refus>) {
         let rate = |vu: String| Refus::new(Code::GitImpossible, vu, RATE);
@@ -375,6 +396,20 @@ impl Assemblage<'_> {
             {
                 return (None, Err(refus));
             }
+        }
+        // Les épingles `sha256` se jugent sur le commit gelé, que la tâche ait des `fichiers` ou non : le dernier
+        // jugement du gel, avant la fusion.
+        let lues = match epingles_gelees(bac, depart, id, &gel, epingles) {
+            Ok(lues) => lues,
+            Err(refus) => return (None, Err(refus)),
+        };
+        if !lues.is_empty()
+            && let Err(erreur) = noter_empreintes(&gel, lues)
+        {
+            let preuve = format!("the pins of {id} ({gel}) are not noted: {erreur}");
+            let correction = "Nothing is merged and the wave stops: make the thread writable, then run the \
+                              unassembled tasks again.";
+            return (None, Err(Refus::new(Code::FilInjoignable, preuve, correction)));
         }
         if let Err(vu) = faire(geste(&self.worktree, &["merge", "-q", "--no-ff", "--no-log", "-m", id, &gel])) {
             let en_conflit = faire(geste(&self.worktree, &["diff", "--name-only", "--diff-filter=U"]));
@@ -633,6 +668,125 @@ pub(crate) fn fichiers_tenus(
     proteges: &[String],
 ) -> Result<(), Refus> {
     hors_des_fichiers(chemins_changes(bac, depart, proteges)?, id, fichiers, HORS_FICHIERS)
+}
+
+/// Un fichier que le plan épingle par son SHA-256 : la tâche qui l'épingle, le fichier, et l'empreinte attendue, celle
+/// des octets que git garde (`git::empreinte_gardee`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Epingle<'a> {
+    pub(crate) tache: &'a str,
+    pub(crate) fichier: &'a str,
+    pub(crate) empreinte: &'a str,
+}
+
+/// Les épingles de tout le plan, dans l'ordre des tâches puis des lignes `sha256`.
+pub(crate) fn epingles_du_plan(plan: &Plan) -> Vec<Epingle<'_>> {
+    let mut epingles = Vec::new();
+    for tache in &plan.taches {
+        let (id, pins) = (tache.id.as_str(), &tache.empreintes);
+        epingles.extend(pins.iter().map(|(fichier, empreinte)| Epingle { tache: id, fichier, empreinte }));
+    }
+    epingles
+}
+
+/// Ce que git garde de l'épingle dans `arbre`, dit pour une erreur : `None` si c'est l'empreinte attendue, `Some(ce que
+/// git garde)` sinon ; un git qui échoue est l'erreur. L'empreinte vue n'est jamais celle d'un fichier du bac.
+fn ecart_d_epingle(bac: &Path, arbre: Arbre<'_>, epingle: &Epingle<'_>) -> Result<Option<String>, String> {
+    Ok(match empreinte_gardee(bac, arbre, epingle.fichier, BORNE_EMPREINTE)? {
+        Gardee::Empreinte(vue) if vue == epingle.empreinte => None,
+        Gardee::Empreinte(vue) => Some(format!("git stores the SHA-256 {vue}")),
+        Gardee::Absent => Some("git stores no such file".to_string()),
+        Gardee::PasOrdinaire(mode) => Some(format!("git stores it as mode {mode}, which is not an ordinary file")),
+        Gardee::TropLourd => Some(format!("git stores a file of more than {BORNE_EMPREINTE} bytes")),
+    })
+}
+
+/// Les épingles que le contrôle d'un bac juge : celles de la tâche `id`, puis celles d'une autre tâche du plan dont le
+/// fichier est dans `changes`, sans le fichier d'une épingle de `id` déjà prise. L'appelant n'a `changes` que s'il y a
+/// une épingle d'une autre tâche.
+fn epingles_a_juger<'a>(epingles: &[Epingle<'a>], id: &str, changes: &[String]) -> Vec<Epingle<'a>> {
+    let mut jugees: Vec<Epingle<'a>> = epingles.iter().filter(|e| e.tache == id).copied().collect();
+    for autre in epingles.iter().filter(|e| e.tache != id && changes.iter().any(|chemin| chemin == e.fichier)) {
+        if !jugees.iter().any(|vue| vue.fichier == autre.fichier) {
+            jugees.push(*autre);
+        }
+    }
+    jugees
+}
+
+/// À la fin d'une tentative de la tâche `id`, les épingles `sha256` du plan tiennent dans l'index du bac : chaque
+/// épingle de la tâche, puis chaque épingle d'une autre tâche dont la main a changé le fichier ([`chemins_changes`]).
+/// Le fichier s'ajoute d'abord à l'index (`git add`, comme le gel le ferait), puis git dit ce qu'il en garde
+/// (`git::empreinte_gardee`). Un fichier que git n'ajoute pas (absent, ignoré, derrière un lien symbolique), qui
+/// n'est pas ordinaire, trop lourd ou d'une autre empreinte est une erreur qui nomme le fichier, l'empreinte attendue
+/// et ce que git garde, que la relance reçoit ; un git qui échoue est une erreur de même.
+pub(crate) fn epingles_tenues(
+    bac: &Path,
+    depart: &str,
+    id: &str,
+    epingles: &[Epingle<'_>],
+    proteges: &[String],
+) -> Result<(), String> {
+    let changes = if epingles.iter().any(|e| e.tache != id) {
+        chemins_changes(bac, depart, proteges)
+            .map_err(|refus| format!("git does not say what the hand changed, to check the pins: {}", refus.preuve))?
+    } else {
+        Vec::new()
+    };
+    for epingle in epingles_a_juger(epingles, id, &changes) {
+        let fichier = en_ligne(epingle.fichier);
+        let qui = if epingle.tache == id { String::new() } else { format!(" (task {})", epingle.tache) };
+        let mut ajout = geste(bac, &["add", "--", &format!(":(literal){}", epingle.fichier)]);
+        ajout.args(exclusions_de_l_etat());
+        faire(ajout).map_err(|vu| {
+            format!("the file {fichier} that the plan pins by sha256{qui} is not added by git: {}", en_ligne(&vu))
+        })?;
+        let ecart = ecart_d_epingle(bac, Arbre::Index, &epingle)
+            .map_err(|vu| format!("git does not say what it stores of {fichier}, pinned by sha256{qui}: {vu}"))?;
+        if let Some(vu) = ecart {
+            return Err(format!(
+                "the file {fichier}, that the plan pins by sha256{qui} {}, is not as pinned: {vu}",
+                epingle.empreinte
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Au gel de la tâche `id`, les épingles `sha256` du plan tiennent dans le commit gelé `gel` : chaque épingle de la
+/// tâche, puis chaque épingle d'une autre tâche dont le gel a changé le fichier ([`chemins_geles`]). Rend les épingles
+/// de la tâche lues, un `<fichier> <empreinte>` chacune, que le fil note. Un fichier absent du commit, qui n'est pas
+/// ordinaire, trop lourd ou d'une autre empreinte est le refus 7022, qui nomme la tâche, le fichier et les deux
+/// empreintes (ou ce qui manque), et la fusion n'a pas lieu ; un git qui échoue est le refus 7009.
+fn epingles_gelees(
+    bac: &Path,
+    depart: &str,
+    id: &str,
+    gel: &str,
+    epingles: &[Epingle<'_>],
+) -> Result<Vec<String>, Refus> {
+    let changes = if epingles.iter().any(|e| e.tache != id) { chemins_geles(bac, depart, gel)? } else { Vec::new() };
+    let mut lues = Vec::new();
+    for epingle in epingles_a_juger(epingles, id, &changes) {
+        let fichier = en_ligne(epingle.fichier);
+        let ecart = ecart_d_epingle(bac, Arbre::Commit(gel), &epingle).map_err(|vu| {
+            let preuve = format!("{vu}\nthe file {fichier} is pinned by sha256, task {id}");
+            Refus::new(Code::GitImpossible, preuve, SANS_LISTE)
+        })?;
+        if let Some(vu) = ecart {
+            let qui = if epingle.tache == id { String::new() } else { format!(" of task {}", epingle.tache) };
+            let preuve = format!(
+                "the freeze of task {id} ({gel}) carries the file {fichier}, pinned by the plan{qui} under the \
+                 SHA-256 {}, but {vu}",
+                epingle.empreinte
+            );
+            return Err(Refus::new(Code::EmpreinteDifferente, preuve, EMPREINTE_GELEE));
+        }
+        if epingle.tache == id {
+            lues.push(format!("{} {}", epingle.fichier, epingle.empreinte));
+        }
+    }
+    Ok(lues)
 }
 
 /// Le bac d'une main qui n'écrit que son fichier, le découpeur ou le relecteur, parti de `depart` : `fichier` y est,

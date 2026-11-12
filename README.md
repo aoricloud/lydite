@@ -523,6 +523,13 @@ the way `modele` and `relance` replace its models. The profile must allow it (`e
 example `- Effort: hand: low, high; reviewer: Claude Code's default` (a role with no declared effort shows
 `Claude Code's default`).
 
+The repeatable task key `sha256 : <file> : <hash>` pins a whole file by the SHA-256 of the bytes git keeps of it (in a
+repository that normalizes line endings, these are not the bytes on disk); a file has one hash per plan. Lydite checks
+it itself, without a model, at the end of every attempt and on the commit it freezes, for the task that pins the file as
+for every task of the plan that touches it. The correction of a review and the retry of a red CI hold the pins of the
+tasks assembled in the wave. A difference at the freeze refuses the task (7022). The Receipt of the pull request says
+`Files verified by SHA-256: <n> of <m>`: the files checked on hands that were assembled, out of the files the plan pins.
+
 ### Lessons
 
 A lesson is a file of the target repository, `.agents/skills/<name>/SKILL.md`, in the open skills format.
@@ -546,7 +553,9 @@ reviewer get the list of all lessons, one line each, the same way.
 - **One thread of facts.** Everything that happens is appended to a journal outside the repository, and `lydite status`
   is read from it. A fact only declared by a hand is never shown as a fact Lydite observed. Before a hand leaves, a
   `main.consigne` line says what it received: its role, the SHA-256 of the exact text sent, the SHA-256 of its system
-  prompt file, and the lessons given and set aside. Both texts are kept in `consignes/<SHA-256>.txt`.
+  prompt file, and the lessons given and set aside. Both texts are kept in `consignes/<SHA-256>.txt`. For a task that
+  pins files, a `main.empreintes` line says which ones Lydite checked on the frozen commit, just before the merge;
+  `lydite status` counts them as `Files verified by SHA-256: <n>`.
 - **A sealed thread.** Before it builds the body of its PR, and again when it ends (on every exit, published or not),
   a wave writes a `vague.sceau` line: the journal's length in bytes and the SHA-256 of those bytes. The PR receipt
   repeats the first one (`Thread sealed at <bytes> bytes: sha256 <hash>.`). `lydite status` recomputes every seal, names

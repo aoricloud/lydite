@@ -1054,9 +1054,10 @@ fn un_lancement_tue_pendant_que_sa_main_court_est_dit_interrompu_par_etat_et_pas
     fs::create_dir_all(&main).unwrap();
     let (controle_jsonl, marques) = (main.join("controle.jsonl"), racine.join("marques"));
     fs::create_dir_all(&marques).unwrap();
-    let (demarre, libre) = (marques.join("demarre"), marques.join("libre"));
+    let (demarre, libre, sortie) = (marques.join("demarre"), marques.join("libre"), marques.join("sortie"));
     // La fausse main : elle répond aux contrôles, pose `demarre`, puis attend que le test pose `libre` sans lire son
-    // entrée, et sort sans rien rendre. Son plafond (une minute) n'est qu'un garde-fou contre une main orpheline.
+    // entrée, pose `sortie` et sort sans rien rendre. Son plafond (une minute) n'est qu'un garde-fou contre une main
+    // orpheline.
     let lignes = [
         "#!/bin/sh".to_string(),
         r#"[ "$1" = --version ] && exit 0"#.to_string(),
@@ -1068,6 +1069,7 @@ fn un_lancement_tue_pendant_que_sa_main_court_est_dit_interrompu_par_etat_et_pas
         "  [ \"$n\" -ge 600 ] && exit 1".to_string(),
         "  sleep 0.1".to_string(),
         "done".to_string(),
+        format!("touch '{}'", sortie.display()),
     ];
     let fausse = faux_programme(&main, "fausse-claude.sh", &lignes);
     let srt = faux_srt(&racine);
@@ -1133,5 +1135,11 @@ fn un_lancement_tue_pendant_que_sa_main_court_est_dit_interrompu_par_etat_et_pas
     // La fausse main survit à son lancement : elle finit quand le test la libère.
     assert!(!libre.exists());
     fs::write(&libre, "").unwrap();
+    // On efface la racine une fois la main sortie : sa fausse pose `sortie` juste avant de sortir.
+    let debut = Instant::now();
+    while !sortie.exists() && debut.elapsed() < Duration::from_secs(10) {
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(sortie.exists(), "la fausse main n'a pas posé `sortie` dans les dix secondes après `libre`");
     let _ = fs::remove_dir_all(&racine);
 }

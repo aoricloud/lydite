@@ -347,7 +347,8 @@ fn ligne_du_recu(vagues: &[Vague], notes: &[Note], id: &str) -> String {
     let recu = recu_de(vagues, notes, id);
     // L'effort de chaque rôle se dit sur une ligne à part sous le coût, puis les réglages de mesure, quand il y en a.
     let efforts = recu.ligne_d_effort();
-    std::iter::once(recu.ligne()).chain([efforts]).chain(recu.ligne_de_mesure()).collect::<Vec<_>>().join("\n")
+    let lignes = std::iter::once(recu.ligne()).chain([efforts]).chain(recu.ligne_de_mesure());
+    lignes.chain(recu.ligne_des_fichiers_verifies()).collect::<Vec<_>>().join("\n")
 }
 
 /// La ligne d'un relecteur que le fil lie à une vague, sans relecture prise : `Review: main-<id>-1 · set aside (7016)

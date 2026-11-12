@@ -1,5 +1,7 @@
 //! Les tests des gestes git.
 use super::*;
+#[cfg(unix)]
+use crate::essais::neuf;
 use crate::essais::{depot_neuf as depot, ecrire, git};
 use std::ffi::OsStr;
 use std::fs;
@@ -68,6 +70,136 @@ fn un_geste_ote_de_l_enfant_les_variables_qui_changent_la_lecture_des_pathspecs(
     for nom in noms {
         assert!(otees.contains(&OsStr::new(nom)), "{nom} passerait à git : {otees:?}");
     }
+}
+
+/// Le SHA-256 de ces octets, en hexadécimaux.
+fn sha(octets: &str) -> String {
+    hex(&sha256(octets.as_bytes()))
+}
+
+/// Commite l'index du dépôt et rend le sha du commit.
+fn commiter(dir: &Path) -> String {
+    git(dir, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x"]);
+    git(dir, &["rev-parse", "HEAD"])
+}
+
+#[test]
+fn la_lecture_d_un_fichier_epingle_dit_ce_que_git_garde_dans_l_index_et_dans_un_commit() {
+    let dir = depot("empreinte-lue");
+    ecrire(&dir, "a.txt", "a\n");
+    ecrire(&dir, "src/b.txt", "b\n");
+    git(&dir, &["add", "."]);
+    // Dans l'index, avant tout commit.
+    let lu = |arbre, chemin: &str| empreinte_gardee(&dir, arbre, chemin, BORNE_EMPREINTE);
+    assert_eq!(lu(Arbre::Index, "a.txt"), Ok(Gardee::Empreinte(sha("a\n"))));
+    assert_eq!(lu(Arbre::Index, "src/b.txt"), Ok(Gardee::Empreinte(sha("b\n"))));
+    assert_eq!(lu(Arbre::Index, "absent.txt"), Ok(Gardee::Absent));
+    // Un dossier n'est pas un fichier : l'index n'a pas d'entrée à son nom.
+    assert_eq!(lu(Arbre::Index, "src"), Ok(Gardee::Absent));
+    // Dans un commit, les mêmes réponses ; le fichier de l'index que le commit n'a pas encore est absent.
+    let commit = commiter(&dir);
+    assert_eq!(lu(Arbre::Commit(&commit), "a.txt"), Ok(Gardee::Empreinte(sha("a\n"))));
+    assert_eq!(lu(Arbre::Commit(&commit), "src/b.txt"), Ok(Gardee::Empreinte(sha("b\n"))));
+    assert_eq!(lu(Arbre::Commit(&commit), "absent.txt"), Ok(Gardee::Absent));
+    assert_eq!(lu(Arbre::Commit(&commit), "src"), Ok(Gardee::PasOrdinaire("040000".into())));
+    // Ce que git garde, pas le disque : le fichier du disque change, l'index et le commit gardent leurs octets.
+    ecrire(&dir, "a.txt", "changé\n");
+    assert_eq!(lu(Arbre::Index, "a.txt"), Ok(Gardee::Empreinte(sha("a\n"))));
+    assert_eq!(lu(Arbre::Commit(&commit), "a.txt"), Ok(Gardee::Empreinte(sha("a\n"))));
+    // Un fichier exécutable est ordinaire.
+    git(&dir, &["update-index", "--chmod=+x", "src/b.txt"]);
+    assert_eq!(lu(Arbre::Index, "src/b.txt"), Ok(Gardee::Empreinte(sha("b\n"))));
+    // Un sous-dépôt n'est pas un fichier ordinaire, et rien n'est lu de lui.
+    let objet = "1111111111111111111111111111111111111111";
+    git(&dir, &["update-index", "--add", "--cacheinfo", &format!("160000,{objet},sous")]);
+    assert_eq!(lu(Arbre::Index, "sous"), Ok(Gardee::PasOrdinaire("160000".into())));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+// Sous Unix seulement : git pour Windows refuse d'inscrire dans l'index une entrée nommée `:(icase)A.txt`
+// (« error: Invalid path »), car un `:` n'est pas un nom de fichier sous Windows.
+#[cfg(unix)]
+#[test]
+fn la_lecture_d_un_fichier_epingle_lit_le_chemin_a_la_lettre_meme_quand_il_ressemble_a_une_magie() {
+    let dir = depot("empreinte-lue-magie");
+    ecrire(&dir, "a.txt", "a\n");
+    ecrire(&dir, "motif.txt", "le motif\n");
+    git(&dir, &["add", "a.txt"]);
+    // Une entrée dont le nom est une magie de pathspec, posée dans l'index sans fichier du disque : lu comme magie,
+    // `:(icase)A.txt` désignerait `a.txt`.
+    let motif = git(&dir, &["hash-object", "-w", "motif.txt"]);
+    git(&dir, &["update-index", "--add", "--cacheinfo", &format!("100644,{motif},:(icase)A.txt")]);
+    let lu = |arbre, chemin: &str| empreinte_gardee(&dir, arbre, chemin, BORNE_EMPREINTE);
+    // Le chemin se lit à la lettre : `:(icase)A.txt` est le nom d'une entrée, pas une magie.
+    assert_eq!(lu(Arbre::Index, ":(icase)A.txt"), Ok(Gardee::Empreinte(sha("le motif\n"))));
+    assert_eq!(lu(Arbre::Index, ":(icase)a.txt"), Ok(Gardee::Absent));
+    // Dans un commit, les mêmes réponses.
+    let commit = commiter(&dir);
+    assert_eq!(lu(Arbre::Commit(&commit), ":(icase)A.txt"), Ok(Gardee::Empreinte(sha("le motif\n"))));
+    assert_eq!(lu(Arbre::Commit(&commit), ":(icase)a.txt"), Ok(Gardee::Absent));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn la_lecture_d_un_fichier_epingle_rend_trop_lourd_un_fichier_de_plus_que_la_borne() {
+    let dir = depot("empreinte-borne");
+    ecrire(&dir, "a.txt", "abcd\n");
+    git(&dir, &["add", "."]);
+    let commit = commiter(&dir);
+    for arbre in [Arbre::Index, Arbre::Commit(&commit)] {
+        // Cinq octets : la borne de quatre ne les prend pas, celle de cinq oui.
+        assert_eq!(empreinte_gardee(&dir, arbre, "a.txt", 4), Ok(Gardee::TropLourd), "{arbre:?}");
+        assert_eq!(empreinte_gardee(&dir, arbre, "a.txt", 5), Ok(Gardee::Empreinte(sha("abcd\n"))), "{arbre:?}");
+    }
+    assert_eq!(BORNE_EMPREINTE, 67_108_864);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_git_qui_echoue_n_est_pas_un_fichier_absent_pour_la_lecture_d_un_fichier_epingle() {
+    let dir = depot("empreinte-git-echoue");
+    ecrire(&dir, "a.txt", "a\n");
+    git(&dir, &["add", "."]);
+    commiter(&dir);
+    let inconnu = "0123456789abcdef0123456789abcdef01234567";
+    let vu = empreinte_gardee(&dir, Arbre::Commit(inconnu), "a.txt", BORNE_EMPREINTE);
+    assert!(vu.as_ref().is_err_and(|erreur| erreur.contains("ls-tree")), "{vu:?}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Un lien symbolique du bac vers `cible` : `false` si le système ne le permet pas (Windows sans le droit).
+#[cfg(unix)]
+fn lier(cible: &Path, lien: &Path) -> bool {
+    std::os::unix::fs::symlink(cible, lien).is_ok()
+}
+
+#[cfg(unix)]
+#[test]
+fn la_lecture_d_un_fichier_epingle_ne_lit_rien_hors_du_bac_par_un_lien_symbolique() {
+    let dir = depot("empreinte-liens");
+    // Hors du bac : un fichier dont l'empreinte ne doit paraître nulle part.
+    let dehors = neuf("empreinte-liens-dehors");
+    fs::create_dir_all(&dehors).unwrap();
+    ecrire(&dehors, "secret.txt", "secret\n");
+    let secret = sha("secret\n");
+    // Un lien symbolique à la place du fichier : git l'a en mode 120000, et rien n'est lu de ce qu'il vise.
+    assert!(lier(&dehors.join("secret.txt"), &dir.join("lien.txt")));
+    // Un fichier derrière un dossier qui est un lien vers un dossier hors du bac : git n'a aucune entrée à ce chemin.
+    assert!(lier(&dehors, &dir.join("dossier")));
+    git(&dir, &["add", "."]);
+    let commit = commiter(&dir);
+    for arbre in [Arbre::Index, Arbre::Commit(&commit)] {
+        let lien = empreinte_gardee(&dir, arbre, "lien.txt", BORNE_EMPREINTE);
+        assert_eq!(lien, Ok(Gardee::PasOrdinaire("120000".into())), "{arbre:?}");
+        let derriere = empreinte_gardee(&dir, arbre, "dossier/secret.txt", BORNE_EMPREINTE);
+        assert_eq!(derriere, Ok(Gardee::Absent), "{arbre:?}");
+        let dit = format!("{lien:?} {derriere:?}");
+        assert!(!dit.contains(&secret), "{dit}");
+    }
+    // Le fichier visé existe bien sur le disque, derrière le lien : la lecture par le disque l'aurait trouvé.
+    assert_eq!(fs::read_to_string(dir.join("dossier/secret.txt")).unwrap(), "secret\n");
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dehors);
 }
 
 // Les tests du dépôt visé (ses racines, le dossier de Kraken hors de lui), à part : `depot` y nomme l'aide des tests

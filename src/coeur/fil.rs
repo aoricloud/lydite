@@ -157,6 +157,11 @@
 //!   ce que Kraken a gelé du bac de la main prise, et c'est sur lui que porte son `main.verdict`. Noté juste après le
 //!   gel, avant la fusion ; une main classée ou impossible n'en note pas. Une note de Kraken, sans `foi`. Type neuf,
 //!   il ne change pas `v`. Au rejeu, la main garde le dernier `sha` noté.
+//! - `main.empreintes {vague, main, sha, fichiers}` : les épingles `sha256` de la tâche tiennent dans le commit gelé
+//!   `sha` (40 hexadécimaux minuscules, comme celui de `main.gel`). `fichiers` est une liste en chaîne, un élément
+//!   `<fichier> <empreinte>` par ligne : les épingles de la tâche, lues dans ce commit et égales à celles du plan.
+//!   Noté quand tous les jugements du gel sont passés, juste avant la fusion, et seulement pour une tâche qui a des
+//!   épingles. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`. Le rejeu n'en retient rien.
 //! - `vague.refus {vague, main, code, regle, preuve, correction, verif}` : Kraken a refusé la tâche. Une décision de
 //!   Kraken, sans `foi`. `code` est le numéro d'un code, un entier de 1000 à 9999 ; `regle`, `preuve` et `correction`
 //!   sont les trois textes de son refus (`erreur.rs`). `verif` est la fin de la sortie de la preuve de la vague, `null`
@@ -233,8 +238,9 @@
 //!   de la CI). Noté à l'ouverture, après les autres notes d'ouverture et avant tout départ de main. Une note de
 //!   Kraken, sans `foi`. Type neuf, il ne change pas `v`.
 //! - `vague.fin {vague, code}` : le lancement sort, et `vague` est la dernière vague qu'il a ouverte. `code` est le
-//!   code de sortie qu'il rend, un entier de 0 à 255. Noté une fois, par la séance du lancement, après le sceau de fin.
-//!   Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`.
+//!   code de sortie qu'il rend, un entier de 0 à 255. Noté une fois,
+//!   par une séance à lui, celle du processus qui sort, après le sceau de fin. Une note de Kraken, sans `foi`. Type
+//!   neuf, il ne change pas `v`.
 //!   Règle de lecture de ces deux lignes : un seul lancement tient le dossier à la fois, donc la dernière vague du fil
 //!   est la dernière qu'a ouverte le dernier lancement ; si elle porte un `vague.lancement` et aucun `vague.fin`, ce
 //!   lancement n'est pas sorti. Un fil d'avant, sans ces lignes, se lit comme avant.
@@ -445,6 +451,9 @@ pub(crate) enum Evenement {
     Fusion { vague: String, main: usize, sha: String, verif: String },
     /// `main.gel` : le commit `sha` que Kraken a gelé du bac de la main prise, celui sur lequel porte son verdict.
     Gel { vague: String, main: usize, sha: String },
+    /// `main.empreintes` : les épingles `sha256` de la tâche, lues dans le commit gelé `sha`, sont celles du plan ;
+    /// `fichiers` en liste un `<fichier> <empreinte>` par élément.
+    Empreintes { vague: String, main: usize, sha: String, fichiers: Vec<String> },
     /// `vague.refus` : Kraken refuse la tâche. `code` est le numéro d'un code (1000 à 9999), `verif` la fin de la
     /// sortie de la preuve de la vague, `None` si elle n'a pas tourné.
     Refus {
@@ -571,7 +580,7 @@ impl IssueVague {
 
 /// `vague.sceau` : le fil, à la longueur `octets`, avait pour SHA-256 `empreinte` (64 hexadécimaux minuscules). Un
 /// événement plat comme [`IssueVague`], hors de l'énumération d'[`Evenement`] : écrit par `Fil::sceller`, relu par
-/// [`lire_octets`], vérifié par [`premier_sceau_rompu`].
+/// `lire_octets`, vérifié par [`premier_sceau_rompu`].
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SceauVague {
     pub(crate) vague: String,
@@ -863,7 +872,7 @@ pub(crate) fn lire_octets(chemin: &Path, octets: &[u8]) -> Result<Lu, Refus> {
     lire_octets_avec_lignes(chemin, octets).map(|(lu, _)| lu)
 }
 
-/// Ce que [`lire_octets`] rend, et de plus les `vague.lancement` et `vague.fin` lus, dans l'ordre du fil : la dernière
+/// Ce que `lire_octets` rend, et de plus les `vague.lancement` et `vague.fin` lus, dans l'ordre du fil : la dernière
 /// vague du fil, si elle porte un lancement et aucune fin, n'est pas sortie.
 pub(crate) fn lire_octets_avec_lancements(chemin: &Path, octets: &[u8]) -> Result<(Lu, Vec<LancementLu>), Refus> {
     passer(chemin, octets).map(|(lu, _, lancements)| (lu, lancements))
@@ -911,13 +920,13 @@ impl LigneLue {
     }
 }
 
-/// Ce que [`lire_octets`] rend, et de plus une [`LigneLue`] par note, issue, sceau, lancement ou fin lu, dans l'ordre
+/// Ce que `lire_octets` rend, et de plus une [`LigneLue`] par note, issue, sceau, lancement ou fin lu, dans l'ordre
 /// du fil.
 pub(crate) fn lire_octets_avec_lignes(chemin: &Path, octets: &[u8]) -> Result<(Lu, Vec<LigneLue>), Refus> {
     passer(chemin, octets).map(|(lu, lignes, _)| (lu, lignes))
 }
 
-/// Ce que rend l'unique passage sur les octets du fil : ce que rend [`lire_octets`], une [`LigneLue`] par ligne lue, et
+/// Ce que rend l'unique passage sur les octets du fil : ce que rend `lire_octets`, une [`LigneLue`] par ligne lue, et
 /// les lancements et fins lus. Les lectures publiques en prennent chacune leur part.
 type Passage = (Lu, Vec<LigneLue>, Vec<LancementLu>);
 
@@ -1008,7 +1017,7 @@ fn passer(chemin: &Path, octets: &[u8]) -> Result<Passage, Refus> {
     Ok(((lecture, issues, sceaux), lues, lancements))
 }
 
-/// Ce que [`lire_octets`] rend : les notes et écarts, les issues de vague, et les sceaux, dans l'ordre du fil.
+/// Ce que `lire_octets` rend : les notes et écarts, les issues de vague, et les sceaux, dans l'ordre du fil.
 pub(crate) type Lu = (Lecture, Vec<IssueVague>, Vec<SceauLu>);
 
 /// Une ligne v2 lue en objet : sa note ou son issue, `None` pour un type inconnu dont l'enveloppe se lit, ou ce qui la
@@ -1261,6 +1270,12 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
             fusion
         }
         "main.gel" => Evenement::Gel { vague: texte("vague")?.into(), main: nombre("main")?, sha: sha("sha")? },
+        "main.empreintes" => Evenement::Empreintes {
+            vague: texte("vague")?.into(),
+            main: nombre("main")?,
+            sha: sha("sha")?,
+            fichiers: liste("fichiers")?,
+        },
         "vague.refus" => Evenement::Refus {
             vague: texte("vague")?.into(),
             main: nombre("main")?,
@@ -1716,6 +1731,7 @@ pub(crate) fn etat(evenements: &[Evenement]) -> Vec<Vague> {
             Evenement::Gel { main, sha, .. } => {
                 vague.mains.entry(*main).or_default().gel = Some(sha.clone());
             }
+            Evenement::Empreintes { .. } => {} // une note de Kraken, que le reçu lit dans les notes
             Evenement::Refus { main, code, regle, preuve, correction, .. } => {
                 let (regle, preuve, correction) = (regle.clone(), preuve.clone(), correction.clone());
                 vague.mains.entry(*main).or_default().issue =
@@ -1817,6 +1833,7 @@ impl Evenement {
             Evenement::Perimee { .. } => "main.perimee",
             Evenement::Fusion { .. } => "vague.fusion",
             Evenement::Gel { .. } => "main.gel",
+            Evenement::Empreintes { .. } => "main.empreintes",
             Evenement::Refus { .. } => "vague.refus",
             Evenement::Poussee { .. } => "forge.poussee",
             Evenement::Pr { .. } => "forge.pr",
@@ -1850,6 +1867,7 @@ impl Evenement {
         | Evenement::Verdict { vague, .. }
         | Evenement::Fusion { vague, .. }
         | Evenement::Gel { vague, .. }
+        | Evenement::Empreintes { vague, .. }
         | Evenement::Refus { vague, .. }
         | Evenement::Poussee { vague, .. }
         | Evenement::Pr { vague, .. }
@@ -1969,6 +1987,12 @@ impl Evenement {
             Evenement::Gel { vague, main, sha } => {
                 vec![("vague", texte(vague)), ("main", entier(*main)), ("sha", texte(sha))]
             }
+            Evenement::Empreintes { vague, main, sha, fichiers } => vec![
+                ("vague", texte(vague)),
+                ("main", entier(*main)),
+                ("sha", texte(sha)),
+                ("fichiers", texte(&fichiers.join("\n"))),
+            ],
             Evenement::Refus { vague, main, code, regle, preuve, correction, verif } => vec![
                 ("vague", texte(vague)),
                 ("main", entier(*main)),

@@ -559,6 +559,105 @@ fn le_corps_d_une_vague_decoupee_nomme_ses_taches_par_leur_id_et_dit_la_relectur
 }
 
 #[test]
+fn le_corps_dit_les_fichiers_verifies_par_sha256_sur_ceux_que_le_plan_epingle() {
+    let (v, c1) = ("1761901500000_11_0", "1761901600000_11_0");
+    let (ha, hb, hc) = (hache('a'), hache('b'), hache('c'));
+    let avec_epingles = format!(
+        "plan 1\nobjectif : Trois fichiers\npreuve : cargo test\n\n\
+         tache a\nsha256 : src/a.rs : {ha}\n    Ecrire a\n\
+         tache b\nsha256 : src/b.rs : {hb}\n    Ecrire b\n\
+         tache c\nsha256 : src/c.rs : {hc}\n    Ecrire c\n"
+    );
+    let plan = Plan::lire(avec_epingles.as_bytes()).unwrap();
+    let ouverte = Evenement::Vague {
+        vague: v.into(),
+        n: 3,
+        depot: "/srv/depot".into(),
+        verifier: None,
+        objectif: "Trois fichiers".into(),
+    };
+    let fusion =
+        |vague: &str, main| Evenement::Fusion { vague: vague.into(), main, sha: TETE.into(), verif: "v".into() };
+    let empreintes = |vague: &str, main, fichier: &str, h: &str| Evenement::Empreintes {
+        vague: vague.into(),
+        main,
+        sha: TETE.into(),
+        fichiers: vec![format!("{fichier} {h}")],
+    };
+    let refus = |main| Evenement::Refus {
+        vague: v.into(),
+        main,
+        code: Code::Conflit.numero(),
+        regle: "r".into(),
+        preuve: "p".into(),
+        correction: "c".into(),
+        verif: None,
+    };
+    let corps_de = |plan: &Plan, evenements: &[Evenement]| {
+        let notes: Vec<fil::Note> = (1..)
+            .zip(evenements)
+            .map(|(seq, evenement)| fil::Note {
+                seance: "s".into(),
+                seq,
+                instant: "2026-10-31T21:00:00.000Z".into(),
+                origine: "humain".into(),
+                origine_foi: Foi::Declare,
+                evenement: evenement.clone(),
+            })
+            .collect();
+        corps_sans_reglage(plan, &etat(evenements), v, None, None, &notes)
+    };
+    // a et b sont assemblées avec leurs empreintes ; c note la sienne, puis est refusée : son fichier n'est pas dans la
+    // branche, il ne compte pas. Deux fichiers vérifiés sur trois, à sa place : après l'effort, avant la preuve.
+    let notes = [
+        ouverte.clone(),
+        empreintes(v, 1, "src/a.rs", &ha),
+        fusion(v, 1),
+        empreintes(v, 2, "src/b.rs", &hb),
+        fusion(v, 2),
+        empreintes(v, 3, "src/c.rs", &hc),
+        refus(3),
+    ];
+    let texte = corps_de(&plan, &notes);
+    let recu = "Receipt\n- Cost: unknown\n- 0 hands, 0 retries, 0 set aside, 1 refused\n\
+                - Effort: Claude Code's default\n- Files verified by SHA-256: 2 of 3\n\
+                - Proof settings changed: none\n\nTrois fichiers\n\n";
+    assert!(texte.starts_with(recu), "{texte}");
+    // Le même fichier vérifié par la tâche, puis par sa correction, compte une fois ; un fichier de plus, une de plus.
+    let correction = Evenement::Correction { vague: c1.into(), corrige: v.into() };
+    let ouverte_c1 = Evenement::Vague {
+        vague: c1.into(),
+        n: 1,
+        depot: "/srv/depot".into(),
+        verifier: None,
+        objectif: "Corriger".into(),
+    };
+    let corrigee = [&notes[..], &[ouverte_c1, correction, empreintes(c1, 1, "src/a.rs", &ha), fusion(c1, 1)]].concat();
+    assert!(corps_de(&plan, &corrigee).contains("\n- Files verified by SHA-256: 2 of 3\n"));
+    let plus = [&corrigee[..], &[empreintes(c1, 1, "src/c.rs", &hc)]].concat();
+    assert!(corps_de(&plan, &plus).contains("\n- Files verified by SHA-256: 3 of 3\n"));
+    // Un plan sans épingle rend le corps d'aujourd'hui, à l'octet, quoi que le fil porte.
+    let sans =
+        Plan::lire(b"plan 1\nobjectif : Trois fichiers\npreuve : cargo test\n\ntache a\n    Ecrire a\n").unwrap();
+    let attendu = "Receipt\n- Cost: unknown\n- 0 hands, 0 retries, 0 set aside\n- Effort: Claude Code's default\n\
+                   - Proof settings changed: none\n\nTrois fichiers\n\nProof: cargo test → green\n\na: Ecrire a\n";
+    assert_eq!(corps_de(&sans, &[ouverte, empreintes(v, 1, "src/a.rs", &ha), fusion(v, 1)]), attendu);
+    // Le reçu d'une PR dit la ligne entre la mesure et le sceau ; sans épingle au plan, il n'en dit rien.
+    let scelle = Recu {
+        verifies: vec!["src/a.rs".into()],
+        mesure: vec![SANS_A1],
+        sceau: Some(SceauVague::sur(v, b"fil")),
+        ..Recu::default()
+    };
+    let lignes = scelle.lignes_de_pr(3);
+    let [.., mesure, fichiers, sceau] = &lignes[..] else { panic!("{lignes:?}") };
+    assert_eq!(mesure, "- Measurement: sans-a1.");
+    assert_eq!(fichiers, "- Files verified by SHA-256: 1 of 3");
+    assert!(sceau.starts_with("- Thread sealed at 3 bytes: sha256 "), "{sceau}");
+    assert!(!scelle.lignes_de_pr(0).iter().any(|ligne| ligne.contains("SHA-256: ")), "{lignes:?}");
+}
+
+#[test]
 fn le_recu_ferme_les_liens_de_proche_en_proche_et_s_arrete_sur_une_boucle() {
     let (v, c1, c2) = ("1761901100000_7_0", "1761901200000_7_0", "1761901300000_7_0");
     let ouvertes = [v, c1, c2].map(|id| crate::essais::ouverture(id, 1, "o"));
@@ -1404,6 +1503,75 @@ fn la_tache_ci_prend_l_union_des_exacts_des_taches_assemblees() {
     issues[0].1 = Err("set aside".into());
     issues[1].1 = Err("impossible".into());
     assert!(plan_de_relance(&plan, &issues, 12, "").taches[0].exacts.is_empty());
+}
+
+/// Une empreinte de 64 chiffres hexadécimaux, faite du seul chiffre `c`.
+fn hache(c: char) -> String {
+    c.to_string().repeat(64)
+}
+
+#[test]
+fn la_tache_ci_prend_les_exacts_et_les_epingles_des_taches_assemblees_avec_ou_sans_fichiers() {
+    let (h1, h2, h3, h4) = (hache('1'), hache('2'), hache('3'), hache('4'));
+    // a et b épinglent a.txt sous la même empreinte ; b a ses `fichiers`, ou n'en a pas quand `libre`.
+    let lignes = |libre: bool| {
+        let (a, b, c) =
+            (format!("sha256 : a.txt : {h1}"), format!("sha256 : b.txt : {h2}"), format!("sha256 : c.txt : {h3}"));
+        let d = format!("sha256 : d.txt : {h4}");
+        let mut lignes = vec!["plan 1", "objectif : Ecrire a, b et c", "preuve : exit 0"];
+        lignes.extend(["tache a", "fichiers : a.txt", "exact : a.txt : alpha", a.as_str(), "    Ecrire a"]);
+        lignes.push("tache b");
+        if !libre {
+            lignes.push("fichiers : a.txt b.txt");
+        }
+        lignes.extend(["exact : b.txt : beta", b.as_str(), a.as_str(), "    Ecrire b"]);
+        lignes.extend(["tache c", "fichiers : c.txt d.txt", "exact : c.txt : gamma", c.as_str(), d.as_str()]);
+        lignes.push("    Ecrire c");
+        plan(&lignes)
+    };
+    let paire = |fichier: &str, hache: &String| (fichier.to_string(), hache.clone());
+    for libre in [false, true] {
+        let plan = lignes(libre);
+        // Tout est assemblé : les épingles des trois tâches, dans leur ordre, a.txt une fois.
+        let attendues = vec![paire("a.txt", &h1), paire("b.txt", &h2), paire("c.txt", &h3), paire("d.txt", &h4)];
+        let relance = plan_de_relance(&plan, &assemblees(&plan), 12, "");
+        assert_eq!(relance.taches[0].empreintes, attendues, "libre : {libre}");
+        assert_eq!(relance.taches[0].fichiers.is_none(), libre);
+        // c est refusée : ni ses épingles ni ses exacts ne sont portés, même pour un fichier qu'une autre tâche pose.
+        let mut issues = assemblees(&plan);
+        issues[2].1 = Err("refusée (6022)".into());
+        let [ci] = &plan_de_relance(&plan, &issues, 12, "").taches[..] else { panic!() };
+        assert_eq!(ci.empreintes, attendues[..2].to_vec(), "libre : {libre}");
+        assert!(!ci.exacts.iter().any(|(fichier, _)| fichier == "c.txt"), "{:?}", ci.exacts);
+        // b est mise de côté, c redevient assemblée : b.txt n'est plus porté, a.txt l'est encore (a l'épingle aussi).
+        issues[2].1 = Ok(Pris { sortie: "fait".into(), prouve: true });
+        issues[1].1 = Err("set aside".into());
+        let [ci] = &plan_de_relance(&plan, &issues, 12, "").taches[..] else { panic!() };
+        assert_eq!(ci.empreintes, vec![paire("a.txt", &h1), paire("c.txt", &h3), paire("d.txt", &h4)]);
+        assert!(!ci.exacts.iter().any(|(fichier, _)| fichier == "b.txt"), "{:?}", ci.exacts);
+        // Aucune tâche assemblée : rien n'est porté.
+        for issue in &mut issues {
+            issue.1 = Err("impossible".into());
+        }
+        let [ci] = &plan_de_relance(&plan, &issues, 12, "").taches[..] else { panic!() };
+        assert!(ci.empreintes.is_empty() && ci.exacts.is_empty(), "{ci:?}");
+    }
+}
+
+#[test]
+fn un_plan_sans_exact_ni_epingle_rend_la_tache_ci_d_avant() {
+    let plan =
+        plan(&["plan 1", "objectif : Ecrire a", "preuve : cargo test", "tache a", "fichiers : a.txt", "    Ecrire a"]);
+    let relance = plan_de_relance(&plan, &assemblees(&plan), 7, "boom\n");
+    let tache = Tache {
+        id: "ci".into(),
+        objectif: format!("{CORRIGER}\nboom"),
+        fichiers: Some(vec!["a.txt".into()]),
+        ..Tache::default()
+    };
+    let attendu =
+        Plan { objectif: "Make the CI of PR 7 green".into(), preuve: Some("cargo test".into()), taches: vec![tache] };
+    assert_eq!(relance, attendu);
 }
 
 #[test]

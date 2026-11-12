@@ -1118,6 +1118,18 @@ fn chaque_type_fait_l_aller_retour() {
             ),
         ),
         (
+            Evenement::Empreintes {
+                vague: "v".into(),
+                main: 2,
+                sha: sha.into(),
+                fichiers: vec!["src/a.rs 11".into(), "b.txt 22".into()],
+            },
+            concat!(
+                r#""type":"main.empreintes","vague":"v","main":2,"sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a6"#,
+                r#"0d1c2b34","fichiers":"src/a.rs 11\nb.txt 22""#,
+            ),
+        ),
+        (
             poussee,
             concat!(
                 r#""type":"forge.poussee","vague":"v","branche":"kraken/vague-v","sha":"9f2c41a7d3b"#,
@@ -2521,6 +2533,10 @@ fn un_type_de_forge_aux_champs_faux_est_mal_forme() {
     );
     const GEL: &str =
         concat!(r#""type":"main.gel","vague":"v","main":2,"sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a6"#, r#"0d1c2b34""#,);
+    const EMPREINTES: &str = concat!(
+        r#""type":"main.empreintes","vague":"v","main":2,"sha":"9f2c41a7d3b85e60c1a49d27b8e3f5a6"#,
+        r#"0d1c2b34","fichiers":"src/a.rs 11""#,
+    );
     const REFUS: &str = r#""type":"forge.refus","vague":"v","code":8005,"regle":"r","preuve":"p","correction":"c""#;
     const RANGEMENT: &str = r#""type":"forge.rangement","vague":"v","retires":"a\nb""#;
     let en_trop = |corps: &str, cle: &str| format!(r#"{corps},"{cle}":1"#);
@@ -2556,6 +2572,15 @@ fn un_type_de_forge_aux_champs_faux_est_mal_forme() {
         (GEL.replace(r#""main":2"#, r#""main":"2""#), "« main » manque ou n'est pas".into()),
         (GEL.replace(r#""vague":"v","#, ""), "« vague » manque".to_string()),
         (en_trop(GEL, "foi"), "champ en trop pour main.gel : « foi »".to_string()),
+        // main.empreintes : le sha du commit gelé, et une liste en chaîne sans élément vide
+        (sans_sha(EMPREINTES), "« sha » manque".to_string()),
+        (avec_sha(EMPREINTES, "9f2c41a7"), format!("« sha » vaut \"9f2c41a7\", {hors_domaine}")),
+        (EMPREINTES.replace(r#","fichiers":"src/a.rs 11""#, ""), "« fichiers » manque".to_string()),
+        (
+            EMPREINTES.replace(r#""src/a.rs 11""#, r#""src/a.rs 11\n\nb.txt 22""#),
+            "« fichiers » est une liste d'un élément par ligne, sans élément vide".to_string(),
+        ),
+        (en_trop(EMPREINTES, "foi"), "champ en trop pour main.empreintes : « foi »".to_string()),
         // forge.pr : un numéro positif, une foi dans son domaine, tous ses champs
         (
             PR.replace(r#""numero":12"#, r#""numero":0"#),
