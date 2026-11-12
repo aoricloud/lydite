@@ -1,4 +1,6 @@
-# Lydite
+<h1 align="center">
+  <a href="https://aoricloud.github.io/lydite/"><img src="docs/assets/wave.svg" width="100%" alt="Lydite, a harness for coding agents, with independent verification. The agents’ word is never the proof. How a wave goes: you give an objective and the command that proves it; the hands work, their commands behind the wall; Lydite replays your proof itself; critical tasks are reviewed; what passed goes into a pull request with its receipt."></a>
+</h1>
 
 **Lydite runs coding agents (called *hands*) on your repository, each hand's commands behind a sandbox wall, replays
 your proof command itself, and opens a pull request only for what passed, with a receipt.** The agents' word is never
