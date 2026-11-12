@@ -731,21 +731,154 @@ fn jugement_du_mur(declare: &str, de: &str, en: &str) -> Result<(), String> {
 
 #[test]
 fn une_allow_write_de_l_humain_au_releve_d_une_vraie_main_est_un_ecart() {
-    // Le relevé d'une vraie main : l'`allowWrite` posée par l'humain dans userSettings arrive à l'effectif.
-    let releve = GET_SETTINGS
-        .replace(r#""denyRead":["~/","/srv/lydite"]"#, r#""allowWrite":["/srv/ecrit"],"denyRead":["~/","/srv/lydite"]"#)
-        .replace(
-            r#"{"source":"userSettings","settings":{}}"#,
-            r#"{"source":"userSettings","settings":{"sandbox":{"filesystem":{"allowWrite":["/srv/ecrit"]}}}}"#,
-        );
-    assert_ne!(releve, GET_SETTINGS);
+    // Le relevé réduit : l'`allowWrite` posée par l'humain dans userSettings arrive à l'effectif.
+    let fermes = r#""denyRead":["~/","/srv/lydite"]"#;
+    let avec_la_cle = GET_SETTINGS.replace(fermes, &format!(r#""allowWrite":["/srv/ecrit"],{fermes}"#));
+    assert_ne!(avec_la_cle, GET_SETTINGS);
+    let releve = avec_la_cle.replace(
+        r#"{"source":"userSettings","settings":{}}"#,
+        r#"{"source":"userSettings","settings":{"sandbox":{"filesystem":{"allowWrite":["/srv/ecrit"]}}}}"#,
+    );
+    assert_ne!(releve, avec_la_cle);
     let ecart = juger_reponses(&attendu(REGLAGES), &avec(&releve)).1.unwrap_err();
     assert_eq!(
         ecart,
         concat!(
             "hand: settings not applied: get_settings : ",
-            r#"effective.sandbox.filesystem.allowWrite : entry "/srv/ecrit" outside the declared list"#,
+            r#"effective.sandbox.filesystem.allowWrite : entry "/srv/ecrit" outside the declared list, "#,
+            r#"seen at "userSettings" : remove it from "#,
+            "~/.claude/settings.json (or the settings.json in the folder CLAUDE_CONFIG_DIR names) to launch Lydite",
         )
+    );
+}
+
+// Le `get_settings` d'une vraie main, tel quel : Claude Code 2.1.317, Linux, relevée le 11/11/2026, avec une
+// `sandbox.filesystem.allowWrite` posée par l'humain dans `~/.claude/settings.json`, chemins remplacés par `/srv/…`.
+// Une ligne en un seul morceau, que `concat!` recolle : aucune ligne du source ne passe 120 caractères.
+const RELEVE_2_1_317: &str = concat!(
+    r#"{"type":"control_response","response":{"subtype":"success","request_id":"get_settings","response":{"#,
+    r#""effective":{"sandbox":{"filesystem":{"allowWrite":["/srv/ecrit"],"denyRead":["~/","/srv/lydite"],"#,
+    r#""allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git","/srv/outils/lydite","#,
+    r#""~/.cargo","~/.rustup","~/outils"]},"credentials":{"envVars":["#,
+    r#"{"name":"ANTHROPIC_API_KEY","mode":"deny"},{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"},"#,
+    r#"{"name":"ANTHROPIC_API_KEY","mode":"deny"},{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]},"#,
+    r#""enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"#,
+    r#""network":{"allowedDomains":[],"strictAllowlist":true}},"permissions":{"#,
+    r#""allow":["Skill","Workflow","ExitPlanMode","Bash(test -f Cargo.toml)","PowerShell(test -f Cargo.toml)"],"#,
+    r#""deny":["CronCreate","CronDelete","CronList","ScheduleWakeup","RemoteTrigger","SendMessage","ListAgents","#,
+    r#""PushNotification","SendUserFile","Artifact","ArtifactComments","ArtifactData","ArtifactCheck","#,
+    r#""DesignSync","SendToProject","SendToProjectContext","ShareOnboardingGuide","AskUserQuestion","WebSearch","#,
+    r#""Edit(//srv/lydite/fil.jsonl)","Edit(//srv/lydite/profils/**)","Read(//srv/lydite/srt-*.json)","#,
+    r#""Edit(//srv/lydite/srt-*.json)","Read(//srv/claude/.credentials.json)","#,
+    r#""Edit(//srv/claude/.credentials.json)","Edit(//srv/depot/.git/**)","Bash(git commit:*)","#,
+    r#""Bash(git commit *)","PowerShell(git commit:*)","PowerShell(git commit *)","#,
+    r#""Edit(//srv/lydite/bacs/main-1/.agents/skills/**)"]},"disableAllHooks":true,"autoMemoryEnabled":false},"#,
+    r#""sources":[{"source":"userSettings","settings":{"sandbox":{"filesystem":{"allowWrite":["/srv/ecrit"]},"#,
+    r#""credentials":{"envVars":[{"name":"ANTHROPIC_API_KEY","mode":"deny"},"#,
+    r#"{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}}}},{"source":"flagSettings","settings":{"permissions":{"#,
+    r#""allow":["Skill","Workflow","ExitPlanMode","Bash(test -f Cargo.toml)","PowerShell(test -f Cargo.toml)"],"#,
+    r#""deny":["CronCreate","CronDelete","CronList","ScheduleWakeup","RemoteTrigger","SendMessage","ListAgents","#,
+    r#""PushNotification","SendUserFile","Artifact","ArtifactComments","ArtifactData","ArtifactCheck","#,
+    r#""DesignSync","SendToProject","SendToProjectContext","ShareOnboardingGuide","AskUserQuestion","WebSearch","#,
+    r#""Edit(//srv/lydite/fil.jsonl)","Edit(//srv/lydite/profils/**)","Read(//srv/lydite/srt-*.json)","#,
+    r#""Edit(//srv/lydite/srt-*.json)","Read(//srv/claude/.credentials.json)","#,
+    r#""Edit(//srv/claude/.credentials.json)","Edit(//srv/depot/.git/**)","Bash(git commit:*)","#,
+    r#""Bash(git commit *)","PowerShell(git commit:*)","PowerShell(git commit *)","#,
+    r#""Edit(//srv/lydite/bacs/main-1/.agents/skills/**)"]},"disableAllHooks":true,"sandbox":{"enabled":true,"#,
+    r#""failIfUnavailable":true,"allowUnsandboxedCommands":false,"#,
+    r#""network":{"allowedDomains":[],"strictAllowlist":true},"filesystem":{"denyRead":["~/","/srv/lydite"],"#,
+    r#""allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git","/srv/outils/lydite","#,
+    r#""~/.cargo","~/.rustup","~/outils"]},"credentials":{"envVars":["#,
+    r#"{"name":"ANTHROPIC_API_KEY","mode":"deny"},{"name":"ANTHROPIC_AUTH_TOKEN","mode":"deny"}]}},"#,
+    r#""autoMemoryEnabled":false}}],"applied":{"model":"claude-fable-5-2","effort":"medium","advisor":null,"#,
+    r#""ultracode":false,"ultracodeRequested":false,"ultracodeAvailable":true,"ultrathinkAvailable":false}}}}"#,
+);
+
+#[test]
+fn le_releve_d_une_vraie_main_ne_donne_qu_l_ecart_de_l_allow_write_de_l_humain() {
+    // Son `--settings` déclaré : les réglages de la source `flagSettings` du relevé, pris dans le relevé même.
+    let (_, fin) = RELEVE_2_1_317.split_once(r#"{"source":"flagSettings","settings":"#).unwrap();
+    // Après les réglages, la source se ferme (`}`), puis la liste des sources (`]`).
+    let (declare, _) = fin.split_once(r#"}],"applied""#).unwrap();
+    assert!(declare.starts_with(r#"{"permissions":"#), "{declare}");
+    assert!(declare.ends_with(r#""autoMemoryEnabled":false}"#), "{declare}");
+    let reponses = rangees(&[RELEVE_2_1_317]);
+    let corps = champ(&reponses["get_settings"], "response");
+    assert!(corps.is_some());
+    let declare = json::document(declare).unwrap();
+    // Le modèle `fable` est appliqué comme `claude-fable-5-2`.
+    let ecarts = reglages(corps, &declare, "fable", None);
+    assert_eq!(
+        ecarts,
+        [concat!(
+            r#"effective.sandbox.filesystem.allowWrite : entry "/srv/ecrit" outside the declared list, "#,
+            r#"seen at "userSettings" : remove it from "#,
+            "~/.claude/settings.json (or the settings.json in the folder CLAUDE_CONFIG_DIR names) to launch Lydite",
+        )]
+    );
+}
+
+#[test]
+fn l_ecart_d_une_entree_de_liste_ouvrante_dit_sa_source_et_ou_la_retirer() {
+    let lus = r#""allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git"]"#;
+    let effectif = r#""allowRead":["/srv/lydite/bacs/main-1","/srv/depot/.git","/srv/autre"]"#;
+    let entree = r#"effective.sandbox.filesystem.allowRead : entry "/srv/autre" outside the declared list"#;
+    let fichier = "~/.claude/settings.json (or the settings.json in the folder CLAUDE_CONFIG_DIR names)";
+    let prefixe = format!("hand: settings not applied: get_settings : {entree}");
+    // Les sources du relevé, `source` de plus à leur suite.
+    let juge = |source: &str| {
+        let sources = format!(r#""settings":{{}}}}{source}]"#);
+        let settings = GET_SETTINGS.replace(lus, effectif).replace(r#""settings":{}}]"#, &sources);
+        assert_ne!(settings, GET_SETTINGS);
+        juger_reponses(&attendu(REGLAGES), &avec(&settings)).1.unwrap_err()
+    };
+    let porte = |source: &str| {
+        format!(r#"{{"source":"{source}","settings":{{"sandbox":{{"filesystem":{{"allowRead":["/srv/autre"]}}}}}}}}"#)
+    };
+    // Sans source lisible : les sources ne portent pas l'entrée.
+    let sans = ": remove it from the settings of the source that adds it to launch Lydite";
+    assert_eq!(juge(""), format!("{prefixe}{sans}"));
+    // Une source qui la porte : son nom, et son fichier pour `userSettings`.
+    let de_l_utilisateur = format!(r#", seen at "userSettings" : remove it from {fichier} to launch Lydite"#);
+    assert_eq!(juge(&format!(",{}", porte("userSettings"))), format!("{prefixe}{de_l_utilisateur}"));
+    // Une autre source : son nom seul. Deux sources : toutes deux, dans l'ordre des sources.
+    let d_une_autre = concat!(
+        r#", seen at "projectSettings" : remove it from "#,
+        r#"the settings of "projectSettings" to launch Lydite"#,
+    );
+    assert_eq!(juge(&format!(",{}", porte("projectSettings"))), format!("{prefixe}{d_une_autre}"));
+    let de_deux = concat!(
+        r#", seen at "projectSettings", "localSettings" : remove it from "#,
+        r#"the settings of "projectSettings" and the settings of "localSettings" to launch Lydite"#,
+    );
+    let deux_sources = format!(",{},{}", porte("projectSettings"), porte("localSettings"));
+    assert_eq!(juge(&deux_sources), format!("{prefixe}{de_deux}"));
+}
+
+#[test]
+fn l_ecart_d_une_feuille_non_jugee_dit_sa_source_et_ou_la_retirer() {
+    let socle = r#""strictAllowlist":true}"#;
+    let feuille = r#"effective.sandbox.network.allowLocalBinding true, declared absent"#;
+    let fichier = "~/.claude/settings.json (or the settings.json in the folder CLAUDE_CONFIG_DIR names)";
+    let prefixe = format!("hand: settings not applied: get_settings : {feuille}");
+    // L'effectif porte la feuille ; `userSettings` porte `porte`.
+    let juge = |porte: &str| {
+        let settings = GET_SETTINGS.replace(socle, r#""strictAllowlist":true,"allowLocalBinding":true}"#);
+        let settings = settings.replace(
+            r#"{"source":"userSettings","settings":{}}"#,
+            &format!(r#"{{"source":"userSettings","settings":{porte}}}"#),
+        );
+        assert_ne!(settings, GET_SETTINGS);
+        juger_reponses(&attendu(REGLAGES), &avec(&settings)).1.unwrap_err()
+    };
+    // Sans source lisible : la source ne porte pas la valeur, ou porte une autre valeur.
+    let sans = format!("{prefixe}: remove it from the settings of the source that adds it to launch Lydite");
+    assert_eq!(juge("{}"), sans);
+    assert_eq!(juge(r#"{"sandbox":{"network":{"allowLocalBinding":false}}}"#), sans);
+    // La source qui porte la valeur : son nom, et son fichier pour `userSettings`.
+    assert_eq!(
+        juge(r#"{"sandbox":{"network":{"allowLocalBinding":true}}}"#),
+        format!(r#"{prefixe}, seen at "userSettings" : remove it from {fichier} to launch Lydite"#)
     );
 }
 
@@ -757,7 +890,10 @@ fn une_feuille_du_bac_qu_aucune_liste_ne_juge_est_un_ecart_sauf_vide_ou_fermante
         let ecart = reseau(ajout).unwrap_err();
         assert_eq!(
             ecart,
-            format!("hand: settings not applied: get_settings : effective.sandbox.{dit}, declared absent")
+            format!(
+                "hand: settings not applied: get_settings : effective.sandbox.{dit}, declared absent\
+                 : remove it from the settings of the source that adds it to launch Lydite"
+            )
         );
     };
     // Une clé inconnue posée : un écart qui dit son chemin et sa valeur.
@@ -776,6 +912,7 @@ fn une_feuille_du_bac_qu_aucune_liste_ne_juge_est_un_ecart_sauf_vide_ou_fermante
         Err(concat!(
             "hand: settings not applied: get_settings : ",
             "effective.sandbox.enableWeakerNestedSandbox true, declared absent",
+            ": remove it from the settings of the source that adds it to launch Lydite",
         )
         .to_string())
     );
@@ -809,6 +946,7 @@ fn les_listes_qui_ouvrent_le_mur_se_jugent_par_leurs_entrees_effectives() {
         concat!(
             "hand: settings not applied: get_settings : ",
             r#"effective.sandbox.filesystem.allowRead : entry "/srv/autre" outside the declared list"#,
+            ": remove it from the settings of the source that adds it to launch Lydite",
         )
     );
     // Une entrée de moins ferme davantage le mur, et une clé absente de l'effectif vaut une liste vide : pris.
