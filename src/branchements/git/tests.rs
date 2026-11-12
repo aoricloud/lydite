@@ -88,28 +88,18 @@ fn la_lecture_d_un_fichier_epingle_dit_ce_que_git_garde_dans_l_index_et_dans_un_
     let dir = depot("empreinte-lue");
     ecrire(&dir, "a.txt", "a\n");
     ecrire(&dir, "src/b.txt", "b\n");
-    ecrire(&dir, "motif.txt", "le motif\n");
     git(&dir, &["add", "."]);
-    // Une entrée dont le nom est une magie de pathspec, posée dans l'index sans fichier du disque (ce nom n'en serait
-    // pas un sous Windows) : lu comme magie, `:(icase)A.txt` désignerait `a.txt`.
-    let motif = git(&dir, &["hash-object", "-w", "motif.txt"]);
-    git(&dir, &["update-index", "--add", "--cacheinfo", &format!("100644,{motif},:(icase)A.txt")]);
     // Dans l'index, avant tout commit.
     let lu = |arbre, chemin: &str| empreinte_gardee(&dir, arbre, chemin, BORNE_EMPREINTE);
     assert_eq!(lu(Arbre::Index, "a.txt"), Ok(Gardee::Empreinte(sha("a\n"))));
     assert_eq!(lu(Arbre::Index, "src/b.txt"), Ok(Gardee::Empreinte(sha("b\n"))));
     assert_eq!(lu(Arbre::Index, "absent.txt"), Ok(Gardee::Absent));
-    // Le chemin se lit à la lettre : `:(icase)A.txt` est le nom d'une entrée, pas une magie.
-    assert_eq!(lu(Arbre::Index, ":(icase)A.txt"), Ok(Gardee::Empreinte(sha("le motif\n"))));
-    assert_eq!(lu(Arbre::Index, ":(icase)a.txt"), Ok(Gardee::Absent));
     // Un dossier n'est pas un fichier : l'index n'a pas d'entrée à son nom.
     assert_eq!(lu(Arbre::Index, "src"), Ok(Gardee::Absent));
     // Dans un commit, les mêmes réponses ; le fichier de l'index que le commit n'a pas encore est absent.
     let commit = commiter(&dir);
     assert_eq!(lu(Arbre::Commit(&commit), "a.txt"), Ok(Gardee::Empreinte(sha("a\n"))));
     assert_eq!(lu(Arbre::Commit(&commit), "src/b.txt"), Ok(Gardee::Empreinte(sha("b\n"))));
-    assert_eq!(lu(Arbre::Commit(&commit), ":(icase)A.txt"), Ok(Gardee::Empreinte(sha("le motif\n"))));
-    assert_eq!(lu(Arbre::Commit(&commit), ":(icase)a.txt"), Ok(Gardee::Absent));
     assert_eq!(lu(Arbre::Commit(&commit), "absent.txt"), Ok(Gardee::Absent));
     assert_eq!(lu(Arbre::Commit(&commit), "src"), Ok(Gardee::PasOrdinaire("040000".into())));
     // Ce que git garde, pas le disque : le fichier du disque change, l'index et le commit gardent leurs octets.
@@ -123,6 +113,30 @@ fn la_lecture_d_un_fichier_epingle_dit_ce_que_git_garde_dans_l_index_et_dans_un_
     let objet = "1111111111111111111111111111111111111111";
     git(&dir, &["update-index", "--add", "--cacheinfo", &format!("160000,{objet},sous")]);
     assert_eq!(lu(Arbre::Index, "sous"), Ok(Gardee::PasOrdinaire("160000".into())));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+// Sous Unix seulement : git pour Windows refuse d'inscrire dans l'index une entrée nommée `:(icase)A.txt`
+// (« error: Invalid path »), car un `:` n'est pas un nom de fichier sous Windows.
+#[cfg(unix)]
+#[test]
+fn la_lecture_d_un_fichier_epingle_lit_le_chemin_a_la_lettre_meme_quand_il_ressemble_a_une_magie() {
+    let dir = depot("empreinte-lue-magie");
+    ecrire(&dir, "a.txt", "a\n");
+    ecrire(&dir, "motif.txt", "le motif\n");
+    git(&dir, &["add", "a.txt"]);
+    // Une entrée dont le nom est une magie de pathspec, posée dans l'index sans fichier du disque : lu comme magie,
+    // `:(icase)A.txt` désignerait `a.txt`.
+    let motif = git(&dir, &["hash-object", "-w", "motif.txt"]);
+    git(&dir, &["update-index", "--add", "--cacheinfo", &format!("100644,{motif},:(icase)A.txt")]);
+    let lu = |arbre, chemin: &str| empreinte_gardee(&dir, arbre, chemin, BORNE_EMPREINTE);
+    // Le chemin se lit à la lettre : `:(icase)A.txt` est le nom d'une entrée, pas une magie.
+    assert_eq!(lu(Arbre::Index, ":(icase)A.txt"), Ok(Gardee::Empreinte(sha("le motif\n"))));
+    assert_eq!(lu(Arbre::Index, ":(icase)a.txt"), Ok(Gardee::Absent));
+    // Dans un commit, les mêmes réponses.
+    let commit = commiter(&dir);
+    assert_eq!(lu(Arbre::Commit(&commit), ":(icase)A.txt"), Ok(Gardee::Empreinte(sha("le motif\n"))));
+    assert_eq!(lu(Arbre::Commit(&commit), ":(icase)a.txt"), Ok(Gardee::Absent));
     let _ = fs::remove_dir_all(&dir);
 }
 
