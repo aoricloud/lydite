@@ -80,7 +80,8 @@ jobs:
           Copy-Item LICENSE, README.md "dist/$nom/"
           Compress-Archive -Path "dist/$nom" -DestinationPath "dist/$nom.zip"
           $hash = (Get-FileHash "dist/$nom.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $nom.zip" | Out-File -Encoding ascii "dist/$nom.zip.sha256"
+          # Un saut de ligne LF, comme `sha256sum` sous Linux : `sha256sum -c` lit ce fichier partout.
+          Set-Content -Path "dist/$nom.zip.sha256" -Value "$hash  $nom.zip`n" -NoNewline -Encoding ascii
           Remove-Item -Recurse -Force "dist/$nom"
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
