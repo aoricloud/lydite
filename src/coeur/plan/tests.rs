@@ -662,15 +662,12 @@ fn une_cle_de_m5_hors_de_son_domaine_blanche_ou_redite_est_refusee() {
         assert!(!refus.correction.trim().is_empty(), "{refus}");
         assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
     }
-    // Une clé inconnue d'une tâche nomme les huit qu'une tâche connaît, et la correction aussi.
+    // Une clé inconnue d'une tâche nomme les neuf qu'une tâche connaît, et la correction aussi.
     let refus = refuse_en(lire_en(&[&ENTETE[..], &["tache a", "role : critique", "    x"]].concat(), Mode::Main));
-    assert!(
-        refus
-            .preuve
-            .ends_with("(`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique` ou `exact`)"),
-        "{refus}"
-    );
-    assert!(refus.correction.contains("`modele`, `relance`, `effort`, `fichiers`, `critique` et `exact`"), "{refus}");
+    let liste = "(`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact` ou `sha256`)";
+    assert!(refus.preuve.ends_with(liste), "{refus}");
+    let forme = "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact` et `sha256` (les deux dernières";
+    assert!(refus.correction.contains(forme), "{refus}");
 }
 
 #[test]
@@ -768,6 +765,130 @@ fn la_cle_exact_hors_de_forme_hors_des_fichiers_ou_vide_est_refusee() {
     ));
     assert_eq!(refus.code, Code::PlanChemin);
     assert!(refus.preuve.contains("est sous `.git/`"), "{refus}");
+}
+
+/// Deux empreintes distinctes, de 64 hexadécimaux minuscules.
+const EMPREINTE_A: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const EMPREINTE_B: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+
+/// Une lecture de la suite d'un plan, dans un mode, et le numéro de ligne que chacune des lignes de la suite y a.
+struct Lue {
+    lecture: Result<(Plan, Vec<Attente>), Refus>,
+    lignes: Vec<String>,
+    numeros: Vec<usize>,
+}
+
+/// Lit la suite d'un plan (après l'en-tête) à la main, puis en plan découpé. Une tâche découpée porte `fichiers` et
+/// `modele` : à chaque `tache`, la lecture découpée ajoute `modele : haiku` et, si la tâche n'a pas de ligne
+/// `fichiers`, `fichiers : src/ README.md`, qui couvre les fichiers des cas ; les numéros de ligne s'en décalent.
+fn lire_aux_deux_modes(suite: &[&str]) -> [Lue; 2] {
+    let lire_ainsi = |ajouts: bool| {
+        let mut lignes: Vec<String> = ENTETE.iter().map(|ligne| ligne.to_string()).collect();
+        let mut numeros = Vec::new();
+        for (rang, ligne) in suite.iter().enumerate() {
+            if ajouts && ligne.starts_with("tache ") {
+                lignes.push(ligne.to_string());
+                numeros.push(lignes.len());
+                lignes.push("modele : haiku".into());
+                let mut corps = suite[rang + 1..].iter().take_while(|suivante| !suivante.starts_with("tache "));
+                if !corps.any(|suivante| suivante.starts_with("fichiers")) {
+                    lignes.push("fichiers : src/ README.md".into());
+                }
+                continue;
+            }
+            lignes.push(ligne.to_string());
+            numeros.push(lignes.len());
+        }
+        let vues: Vec<&str> = lignes.iter().map(String::as_str).collect();
+        let mode = if ajouts { Mode::Decoupe(None) } else { Mode::Main };
+        Lue { lecture: lire_en(&vues, mode), lignes, numeros }
+    };
+    [lire_ainsi(false), lire_ainsi(true)]
+}
+
+#[test]
+fn la_cle_sha256_se_lit_dans_l_ordre_apres_critique_et_se_repete() {
+    let a = format!("sha256 : src/a.rs : {EMPREINTE_A}");
+    let b = format!("sha256 : README.md : {EMPREINTE_B}");
+    let suite = ["tache a", "fichiers : src/ README.md", "critique : oui", &a, &b, "    x", "tache b", "    y"];
+    for lue in lire_aux_deux_modes(&suite[..]) {
+        let (plan, _) = lue.lecture.unwrap();
+        let [a, b] = &plan.taches[..] else { panic!("{plan:?}") };
+        let attendu = [("src/a.rs".to_string(), EMPREINTE_A.to_string()), ("README.md".into(), EMPREINTE_B.into())];
+        assert_eq!(a.empreintes, attendu);
+        assert!(a.critique);
+        // Une tâche sans ligne `sha256` n'a aucune épingle.
+        assert!(b.empreintes.is_empty(), "{b:?}");
+    }
+    assert!(Plan::copies("o", None, 2).taches.iter().all(|t| t.empreintes.is_empty()));
+}
+
+#[test]
+fn la_cle_sha256_refusee_dit_son_code_et_sa_ligne() {
+    let (ligne, chemin, blanc) = (Code::PlanLigne, Code::PlanChemin, Code::PlanBlanc);
+    let (a, b) = (EMPREINTE_A, EMPREINTE_B);
+    let (majuscules, courte) = (a.to_uppercase(), &a[..63]);
+    let ligne_a = format!("sha256 : src/a.rs : {a}");
+    let ligne_b = format!("sha256 : src/a.rs : {b}");
+    let sous = |fichier: &str, empreinte: &str| format!("sha256 : {fichier} : {empreinte}");
+    // Chaque cas : la suite du plan après l'en-tête, le code du refus, le rang dans la suite de la ligne qu'il cite.
+    let cas: Vec<(Vec<String>, Code, usize)> = vec![
+        (lignes(&["tache a", "fichiers : src/", "sha256 : src/a.rs", "    x"]), chemin, 2),
+        (lignes(&["tache a", "sha256 : src/a.rs :", "    x"]), chemin, 1),
+        (lignes(&["tache a", "sha256 : src/a.rs : ", "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("/src/a.rs", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("src/../a.rs", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("src/a rs", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("src/a\u{7}rs", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("src/", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", "fichiers : src/", &sous("doc/a.rs", a), "    x"]), chemin, 2),
+        (lignes(&["tache a", &sous("src/a.rs", &majuscules), "    x"]), ligne, 1),
+        (lignes(&["tache a", &sous("src/a.rs", courte), "    x"]), ligne, 1),
+        (lignes(&["tache a", &sous("src/a.rs", &format!("{a}0")), "    x"]), ligne, 1),
+        (lignes(&["tache a", &sous("src/a.rs", &format!("{}g", &a[..63])), "    x"]), ligne, 1),
+        (lignes(&["tache a", &ligne_a, &ligne_a, "    x"]), ligne, 2),
+        (lignes(&["tache a", &ligne_a, &ligne_b, "    x"]), ligne, 2),
+        (lignes(&["tache a", &ligne_a, "    x", "tache b", &ligne_b, "    y"]), ligne, 4),
+        (lignes(&["tache a", "sha256 :", "    x"]), blanc, 1),
+        (lignes(&["tache a", "sha256 :  \t", "    x"]), blanc, 1),
+    ];
+    for (suite, code, rang) in cas {
+        let suite: Vec<&str> = suite.iter().map(String::as_str).collect();
+        for lue in lire_aux_deux_modes(&suite) {
+            let refus = refuse_en(lue.lecture);
+            assert_eq!(refus.code, code, "{suite:?} : {refus}");
+            let (numero, texte) = (lue.numeros[rang], &lue.lignes[lue.numeros[rang] - 1]);
+            let debut = format!("ligne {numero} {} : ", cite(texte));
+            assert!(refus.preuve.starts_with(&debut), "la preuve devait citer la ligne {numero} : {refus}");
+            assert!(refus.correction.contains("`sha256 : <file> : <hash>`") || code == blanc, "{refus}");
+        }
+    }
+}
+
+/// Ces lignes, en `String`.
+fn lignes(ls: &[&str]) -> Vec<String> {
+    ls.iter().map(|l| l.to_string()).collect()
+}
+
+#[test]
+fn un_fichier_epingle_par_deux_taches_sous_la_meme_empreinte_se_lit() {
+    let ligne = format!("sha256 : src/a.rs : {EMPREINTE_A}");
+    let suite = ["tache a", &ligne, "    x", "tache b", &ligne, "    y"];
+    for lue in lire_aux_deux_modes(&suite[..]) {
+        let (plan, _) = lue.lecture.unwrap();
+        assert!(plan.taches.iter().all(|t| t.empreintes == [("src/a.rs".to_string(), EMPREINTE_A.to_string())]));
+    }
+}
+
+#[test]
+fn la_cle_sha256_blanche_a_une_correction_a_elle_comme_exact() {
+    for cle in ["sha256", "exact"] {
+        let ligne = format!("{cle} :");
+        let refus = refuse_en(lire_en(&[&ENTETE[..], &["tache a", &ligne, "    x"]].concat(), Mode::Main));
+        assert_eq!(refus.code, Code::PlanBlanc);
+        assert!(refus.correction.contains(&format!("Write `{cle} : <file> :")), "{refus}");
+        assert!(!refus.correction.contains("critique"), "{refus}");
+    }
 }
 
 #[test]
