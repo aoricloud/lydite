@@ -11,8 +11,8 @@ use std::sync::{Mutex, PoisonError};
 
 use crate::coeur::erreur::{Code, Refus, nommee};
 use crate::coeur::fil::{
-    Base, Evenement, IssueVague, Lecture, SceauLu, SceauVague, ligne_d_issue, ligne_de_note, ligne_de_sceau,
-    lire_octets, lot, origine_lue, premier_sceau_rompu,
+    Base, Evenement, IssueVague, Lecture, LigneLue, SceauLu, SceauVague, ligne_d_issue, ligne_de_note, ligne_de_sceau,
+    lire_octets, lire_octets_avec_lignes, lot, origine_lue, premier_sceau_rompu,
 };
 use crate::coeur::profil::{self, Profil, empreinte, integre};
 
@@ -312,6 +312,26 @@ pub(crate) fn lire_avec_sceaux(kraken: &Path) -> Result<FilScelle, Refus> {
     let (lecture, issues, sceaux) = lire_octets(&chemin, &octets)?;
     let rompu = premier_sceau_rompu(&octets, &sceaux).cloned();
     Ok((lecture, issues, sceaux, rompu))
+}
+
+/// Ce que [`lire_avec_lignes`] rend : ce que [`lire_avec_sceaux`] rend, les [`LigneLue`] du fil dans son ordre, et les
+/// octets lus, où chaque ligne se retrouve par son `debut` et sa `fin`.
+pub(crate) type FilAvecLignes = (FilScelle, Vec<LigneLue>, Vec<u8>);
+
+/// Le fil lu une fois, comme [`lire_avec_sceaux`], avec de plus ses [`LigneLue`] et les octets lus : la mémoire s'index
+/// sur eux. Un fil absent est un fil vide, sans ligne ni octet. Rien n'est écrit, ni créé.
+pub(crate) fn lire_avec_lignes(kraken: &Path) -> Result<FilAvecLignes, Refus> {
+    let chemin = kraken.join(FICHIER);
+    let octets = match fs::read(&chemin) {
+        Ok(octets) => octets,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return Ok(((Lecture::default(), Vec::new(), Vec::new(), None), Vec::new(), Vec::new()));
+        }
+        Err(e) => return Err(nommee(e, format!("reading the thread {}", chemin.display())).into()),
+    };
+    let ((lecture, issues, sceaux), lignes) = lire_octets_avec_lignes(&chemin, &octets)?;
+    let rompu = premier_sceau_rompu(&octets, &sceaux).cloned();
+    Ok(((lecture, issues, sceaux, rompu), lignes, octets))
 }
 
 /// Les sceaux du fil de `kraken`, dans l'ordre du fil, pour les essais.

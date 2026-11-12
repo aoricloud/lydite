@@ -16,9 +16,6 @@
 //!   ajoutée plus tard ne change jamais ce qu'une adresse rappelle. L'index les montre toutes les deux, et leur
 //!   empreinte les distingue.
 
-// raccourci : rien n'appelle encore `index` ni `rappeler` ; la commande de la tâche suivante les prendra
-#![cfg_attr(not(test), expect(dead_code))]
-
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::fil::{Foi, LigneLue};

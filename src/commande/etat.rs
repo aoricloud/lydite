@@ -8,7 +8,7 @@ use std::time::Duration;
 use crate::branchements::dossier::{lire, lire_avec_sceaux, sonder};
 use crate::coeur::erreur::Refus;
 use crate::coeur::fil::{
-    self, Evenement, Foi, Lecture, Main, Note, SceauLu, Vague, Verdict, correction_de, etat, relecture_de,
+    self, Evenement, Foi, Lecture, Main, Note, SceauLu, SceauVague, Vague, Verdict, correction_de, etat, relecture_de,
 };
 use crate::coeur::texte;
 use crate::conduite::publication::recu_de;
@@ -102,12 +102,7 @@ fn rendre_avec(
     }
     // Un sceau qui ne correspond plus : une ligne d'avant lui a changé ou disparu. Le fil ne se lit plus comme sûr.
     if let Some(sceau) = rompu {
-        let _ = writeln!(
-            erreur,
-            "the thread no longer matches the seal of wave {}, noted at {} bytes: a line before it changed or \
-             disappeared",
-            sceau.vague, sceau.octets
-        );
+        dire_le_sceau_rompu(erreur, &sceau);
         return Ok(ExitCode::from(2));
     }
     let evenements: Vec<Evenement> = notes.iter().map(|note| note.evenement.clone()).collect();
@@ -129,6 +124,17 @@ fn rendre_avec(
         return Ok(ExitCode::FAILURE);
     }
     Ok(if toutes_menees_a_bout(&montrees, &vagues) { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+}
+
+/// Ce que `lydite status`, `lydite memory` et `lydite memory recall` disent sur la sortie d'erreur du premier sceau
+/// qui ne tient plus : sa vague et ses octets. Les trois sortent alors en 2.
+pub(crate) fn dire_le_sceau_rompu(erreur: &mut dyn Write, sceau: &SceauVague) {
+    let _ = writeln!(
+        erreur,
+        "the thread no longer matches the seal of wave {}, noted at {} bytes: a line before it changed or \
+         disappeared",
+        sceau.vague, sceau.octets
+    );
 }
 
 /// Un lancement scelle la vague qu'il mène à chacune de ses sorties : aucune des vagues montrées n'a son sceau, c'est
