@@ -110,8 +110,8 @@ Giving both names of one argument is refused.
 
 ## Install and use
 
-Copy this `hermes/` folder to `~/.hermes/plugins/lydite`; once the plugin is in the Hermes catalog,
-`hermes plugins install lydite` does it for you. Then:
+The plugin is listed as a community plugin in the Hermes plugin catalog: `hermes plugins install lydite` installs
+the release the catalog pins. Or copy this `hermes/` folder to `~/.hermes/plugins/lydite`. Then:
 
 ```bash
 hermes plugins enable lydite
