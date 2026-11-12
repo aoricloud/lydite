@@ -39,6 +39,7 @@ use crate::conduite::relecture::Origine;
 pub(crate) mod doctor;
 pub(crate) mod etat;
 pub(crate) mod ligne;
+pub(crate) mod memoire;
 
 pub fn principal() -> ExitCode {
     executer().unwrap_or_else(|refus| {
@@ -67,6 +68,8 @@ fn executer() -> Result<ExitCode, Refus> {
         Commande::Doctor(nom) => return doctor::doctor_cmd(nom.as_deref()),
         Commande::Etat => return etat_cmd(),
         Commande::Attendre => return attendre_cmd(),
+        Commande::Memoire => return memoire::memoire_cmd(),
+        Commande::Rappel(texte) => return memoire::rappel_cmd(&texte),
         Commande::LirePlan { fichier, decoupe } => return plan_cmd(&fichier, decoupe),
         Commande::LireRemarques { fichier } => return remarques_cmd(&fichier),
         Commande::LireLecons { dossier } => return lecons_cmd(&dossier),

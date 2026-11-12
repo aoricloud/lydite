@@ -246,6 +246,40 @@ fn options_skill_seul() {
 }
 
 #[test]
+fn options_memory_seul_ou_avec_recall_et_une_adresse() {
+    assert_eq!(options(&args(&["memory"])), Ok(Commande::Memoire));
+    for adresse in ["s/1", &"a".repeat(64), "-x", "x y"] {
+        assert_eq!(options(&args(&["memory", "recall", adresse])), Ok(Commande::Rappel(adresse.to_string())));
+    }
+    // Tout autre mot, un mot de plus, une adresse qui manque : le refus 1006, qui nomme le mot vu.
+    for (mots, vu) in [
+        (&["memory", "x"][..], Some("x")),
+        (&["memory", "x", "y"], Some("x")),
+        (&["memory", "recall", "s/1", "y"], Some("y")),
+        (&["memory", "recall", "s/1", "y", "z"], Some("y")),
+        (&["memory", "--n", "1"], Some("--n")),
+        (&["memory", "rappel", "s/1"], Some("rappel")),
+        (&["memory", "recall"], None),
+    ] {
+        let refus = options(&args(mots)).unwrap_err();
+        assert_eq!(refus.code, Code::CommandeMalFormee, "{mots:?}");
+        match vu {
+            Some(vu) => assert!(refus.preuve.contains(&format!("« {vu} » follows it")), "{refus}"),
+            None => assert!(refus.preuve.contains("the address is missing"), "{refus}"),
+        }
+        assert!(refus.correction.contains(USAGE), "la correction donne l'usage : {refus}");
+    }
+    // Les mots sont anglais, sans double français : `memoire` n'est pas une commande.
+    assert_eq!(code(&["memoire"]), Code::CommandeInconnue);
+    // Une adresse qui n'est pas de l'UTF-8 est le refus 1006.
+    let refus = options(&ligne("memory recall ?")).unwrap_err();
+    assert_eq!(refus.code, Code::CommandeMalFormee, "{refus}");
+    assert!(refus.preuve.contains("the address must be UTF-8 text"), "{refus}");
+    // Les deux formes de l'usage, juste avant `lydite skill`, qui reste la dernière.
+    assert!(USAGE.contains(" or lydite --version or lydite memory or lydite memory recall <address> or lydite skill"));
+}
+
+#[test]
 fn options_etat_seul() {
     assert_eq!(options(&args(&["etat"])), Ok(Commande::Etat));
     // Ce qui valait None est le refus 1006 ; l'absence de commande aussi.

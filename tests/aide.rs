@@ -79,12 +79,14 @@ fn l_aide_ecrit_l_usage_une_forme_par_ligne_et_sort_en_0() {
         "lydite status",
         "lydite wait",
         "lydite --version",
+        "lydite memory",
+        "lydite memory recall <address>",
         "lydite skill",
     ] {
         let ligne = format!("  {forme}");
         assert!(lignes.contains(&ligne.as_str()), "pas de ligne « {ligne} » :\n{texte}");
     }
-    assert_eq!(lignes.len(), 15, "une ligne par forme, après `Usage:` :\n{texte}");
+    assert_eq!(lignes.len(), 17, "une ligne par forme, après `Usage:` :\n{texte}");
 }
 
 #[test]

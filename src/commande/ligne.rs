@@ -26,6 +26,8 @@ const USAGE: &str = concat!(
     " or lydite status",
     " or lydite wait",
     " or lydite --version",
+    " or lydite memory",
+    " or lydite memory recall <address>",
     " or lydite skill",
 );
 
@@ -102,6 +104,10 @@ pub(crate) enum Commande {
     /// Les leçons `.agents/skills/*/SKILL.md` du dépôt de ce dossier, lues sans rien lancer. Le chemin garde son
     /// `OsString`.
     LireLecons { dossier: PathBuf },
+    /// `lydite memory` : l'index du fil, une ligne par ligne lue, en lecture seule.
+    Memoire,
+    /// `lydite memory recall <address>` : la ligne du fil que l'adresse ou l'empreinte nomme, en lecture seule.
+    Rappel(String),
     /// `lydite skill` : écrit la skill de pilotage que ce binaire porte, sans rien lire ni écrire d'autre.
     Skill,
     /// `lydite --help` ou `lydite -h`, seul : écrit l'usage sur stdout, sans rien lire ni écrire d'autre.
@@ -118,6 +124,23 @@ fn est_aide(arg: &OsStr) -> bool {
 pub(crate) fn aide() -> String {
     let formes: Vec<String> = USAGE.split(" or ").map(|forme| format!("  {forme}\n")).collect();
     format!("Usage:\n{}", formes.concat())
+}
+
+/// Lit ce qui suit `memory` : rien, ou `recall <address>`. Tout autre mot, un mot de plus, une adresse qui manque ou
+/// qui n'est pas de l'UTF-8 est le refus 1006, qui nomme le mot vu. Ces mots n'ont pas de double français.
+fn options_memoire(args: &[OsString]) -> Result<Commande, Refus> {
+    let mal_formee = |preuve: String| refus_de_ligne(Code::CommandeMalFormee, preuve);
+    match args {
+        [] => Ok(Commande::Memoire),
+        [rappel, adresse] if rappel == "recall" => Ok(Commande::Rappel(texte(adresse, "the address")?)),
+        [rappel] if rappel == "recall" => Err(mal_formee("`memory recall`: the address is missing".into())),
+        [rappel, _, autre, ..] if rappel == "recall" => {
+            Err(mal_formee(format!("`memory recall` takes only `<address>`, and {} follows it", mot(autre))))
+        }
+        [autre, ..] => {
+            Err(mal_formee(format!("`memory` takes no argument but `recall <address>`, and {} follows it", mot(autre))))
+        }
+    }
 }
 
 /// Lit ce qui suit `lessons` : `<dossier>`, rien d'autre. Le dossier garde son `OsString`, et n'est pas un drapeau.
@@ -212,6 +235,7 @@ pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
             let preuve = format!("`skill` takes no argument, and {} follows it", mot(autre));
             Err(refus_de_ligne(Code::CommandeMalFormee, preuve))
         }
+        (Some("memory"), reste) => options_memoire(reste),
         (Some("plan"), reste) => options_lire_plan(reste),
         (Some("remarks"), reste) => options_lire_remarques(reste),
         (Some("lessons"), reste) => options_lire_lecons(reste),
