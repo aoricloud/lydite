@@ -4,10 +4,11 @@ name: garde
 # par ligne) et quelques motifs génériques dans les noms neufs des fichiers changés, les lignes ajoutées (par le diff
 # net et par chaque commit), les commits, la branche, le titre et le corps (.github/garde.py). Elle nomme le lieu,
 # jamais le mot. La PR d'un fork ne lit que les motifs : sa sortie est publique, et rougir sur un mot deviné le
-# confirmerait.
+# confirmerait. Un fichier binaire ne passe que si .github/binaires.txt porte son chemin et son empreinte.
 #
-# pull_request_target : le workflow et son script viennent de la branche de base, qu'une PR ne peut pas changer pour
-# elle-même. Le code de la PR n'est jamais extrait ni lancé ; il ne se lit que par l'API, comme du texte.
+# pull_request_target : le workflow, son script et la liste des binaires viennent de la branche de base, qu'une PR ne
+# peut pas changer pour elle-même. Le code de la PR n'est jamais extrait ni lancé ; il ne se lit que par l'API, comme
+# du texte.
 
 on:
   pull_request_target:
@@ -52,11 +53,17 @@ jobs:
               || echo pr >> "$d/erreur"
             gh api --paginate "$change/commits?per_page=100" --jq ".[] | $champs" > "$d/commits.jsonl" \
               || echo commits >> "$d/erreur"
+            # L'id de blob de la version finale de chaque fichier : la garde y reconnaît celle d'un binaire approuvé.
+            gh api --paginate "$change/files?per_page=100" --jq '.[] | {nom: .filename, sha} | @json' \
+              > "$d/fichiers.jsonl" || echo fichiers >> "$d/erreur"
           else
             change="repos/$DEPOT/compare/$AVANT...$APRES"
             attendus=$(gh api "$change?per_page=1" --jq .total_commits) || attendus=inconnu
             gh api --paginate "$change?per_page=100" --jq ".commits[] | $champs" > "$d/commits.jsonl" \
               || echo commits >> "$d/erreur"
+            # raccourci : la comparaison ne nomme que 300 fichiers ; un binaire au-delà ne se lit pas, et la garde rougit
+            gh api "$change" --jq '.files[]? | {nom: .filename, sha} | @json' > "$d/fichiers.jsonl" \
+              || echo fichiers >> "$d/erreur"
           fi
           # Autant de commits que l'API en annonce : celle d'une PR n'en rend que 250.
           [ "$(wc -l < "$d/commits.jsonl")" = "$attendus" ] || echo "commits: $attendus attendus" >> "$d/erreur"
