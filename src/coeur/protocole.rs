@@ -539,7 +539,8 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
             Some(Json::Liste(effectives)) => {
                 for entree in effectives {
                     if !matches!(entree, Json::Texte(texte) if declarees.contains(&texte.as_str())) {
-                        ecarts.push(format!("{cle} : entry {} outside the declared list", montre(Some(entree))));
+                        let ou = a_retirer(provenance(vu("sources"), chemin, entree));
+                        ecarts.push(format!("{cle} : entry {} outside the declared list{ou}", montre(Some(entree))));
                     }
                 }
             }
@@ -552,14 +553,8 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
         Some(Json::Liste(dossiers)) => {
             for dossier in dossiers {
                 let nom = montre(Some(dossier));
-                let (vu, ou) = match sources_du_dossier(vu("sources"), dossier).as_slice() {
-                    [] => (String::new(), lieu_de_source(None)),
-                    noms => {
-                        let lieux: Vec<String> = noms.iter().map(|source| lieu_de_source(Some(source))).collect();
-                        let dits: Vec<String> = noms.iter().map(|source| format!("{source:?}")).collect();
-                        (format!(", seen at {}", dits.join(", ")), lieux.join(" and "))
-                    }
-                };
+                let (vu, ou) = provenance(vu("sources"), DOSSIERS, dossier)
+                    .unwrap_or_else(|| (String::new(), lieu_de_source(None)));
                 ecarts.push(format!(
                     "effective.{DOSSIERS} : directory {nom} outside the declared list (none){vu} : \
                      remove this entry from {DOSSIERS} in {ou} to launch Lydite"
@@ -578,7 +573,7 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
         }
     }
     if let Some(bac) = vu("effective.sandbox") {
-        feuilles_non_jugees(bac, "sandbox", &mut ecarts);
+        feuilles_non_jugees(bac, "sandbox", vu("sources"), &mut ecarts);
     }
     let applique = vu("applied.model");
     let pris =
@@ -599,10 +594,10 @@ fn reglages(corps: Option<&Json>, declare: &Json, modele: &str, effort: Option<&
 /// Les écarts des feuilles de `effective.sandbox` qu'aucune liste ne juge : on descend dans les objets seulement, une
 /// clé jugée ([`MUR`], [`VARIABLES`], [`OUVRANT`], [`FERMANT`]) ou [`PASSANTES`] n'est pas reprise, et une valeur
 /// `false`, `[]` ou `{}` passe. Une clé que Claude Code ajoutera et que l'humain pose arrête la main : échec fermé.
-fn feuilles_non_jugees(json: &Json, chemin: &str, ecarts: &mut Vec<String>) {
+fn feuilles_non_jugees(json: &Json, chemin: &str, sources: Option<&Json>, ecarts: &mut Vec<String>) {
     if let Json::Objet(objet) = json {
         for (cle, valeur) in objet {
-            feuilles_non_jugees(valeur, &format!("{chemin}.{cle}"), ecarts);
+            feuilles_non_jugees(valeur, &format!("{chemin}.{cle}"), sources, ecarts);
         }
         return;
     }
@@ -617,7 +612,8 @@ fn feuilles_non_jugees(json: &Json, chemin: &str, ecarts: &mut Vec<String>) {
         _ => false,
     };
     if !jugee && !vide {
-        ecarts.push(format!("effective.{chemin} {}, declared absent", montre(Some(json))));
+        let ou = a_retirer(provenance(sources, chemin, json));
+        ecarts.push(format!("effective.{chemin} {}, declared absent{ou}", montre(Some(json))));
     }
 }
 
@@ -694,18 +690,34 @@ fn regles(corps: Option<&Json>, declare: &Json) -> Vec<String> {
     ecarts
 }
 
-/// Les sources de `get_settings` dont les réglages portent ce dossier dans `permissions.additionalDirectories`, dans
-/// l'ordre des sources. Vide si `sources` ne le dit pas : l'écart nomme alors le dossier sans source.
-fn sources_du_dossier<'a>(sources: Option<&'a Json>, dossier: &Json) -> Vec<&'a str> {
-    let Some(Json::Liste(sources)) = sources else { return Vec::new() };
-    sources
+/// D'où vient cette entrée (d'une liste) ou cette valeur (d'une feuille) de l'effectif, à ce `chemin` : les sources de
+/// `get_settings` dont les réglages la portent, dans l'ordre des sources. Rend `, seen at "userSettings"` (les sources
+/// nommées, séparées par une virgule) et le lieu où la retirer (les lieux de [`lieu_de_source`], séparés par `and`) ;
+/// `None` si `sources` ne le dit pas : l'écart dit alors la source qui l'ajoute, sans la nommer.
+fn provenance(sources: Option<&Json>, chemin: &str, valeur: &Json) -> Option<(String, String)> {
+    let Some(Json::Liste(sources)) = sources else { return None };
+    let noms: Vec<&str> = sources
         .iter()
         .filter(|source| {
-            let porte = champ(source, &format!("settings.{DOSSIERS}"));
-            matches!(porte, Some(Json::Liste(liste)) if liste.contains(dossier))
+            let porte = champ(source, &format!("settings.{chemin}"));
+            porte == Some(valeur) || matches!(porte, Some(Json::Liste(liste)) if liste.contains(valeur))
         })
         .filter_map(|source| texte_de(source, "source"))
-        .collect()
+        .collect();
+    if noms.is_empty() {
+        return None;
+    }
+    let lieux: Vec<String> = noms.iter().map(|source| lieu_de_source(Some(source))).collect();
+    let dits: Vec<String> = noms.iter().map(|source| format!("{source:?}")).collect();
+    Some((format!(", seen at {}", dits.join(", ")), lieux.join(" and ")))
+}
+
+/// La fin d'un écart d'entrée ou de feuille : où la retirer, d'après [`provenance`].
+fn a_retirer(provenance: Option<(String, String)>) -> String {
+    match provenance {
+        Some((vu, ou)) => format!("{vu} : remove it from {ou} to launch Lydite"),
+        None => format!(": remove it from {} to launch Lydite", lieu_de_source(None)),
+    }
 }
 
 /// Vrai si la règle vise `Bash` ou `PowerShell`, nus ou avec un motif entre parenthèses. Sous un mur exigé, ces
