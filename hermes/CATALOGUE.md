@@ -14,26 +14,18 @@ repo: https://github.com/aoricloud/lydite
 sha: <sha>
 subdir: hermes
 description: >-
-  Hand a GitHub issue and the command that proves it done to Lydite from the chat. Claude Code workers do the
-  job (under a required wall, `exige` or `natif`, their commands run in Claude Code's sandbox), Lydite replays your proof itself, and a pull request comes back with a receipt (cost, workers, retries,
-  the commit that was reviewed and replayed, and what was not replayed). Also hands Hermes the lessons Lydite keeps
-  for a repository, read-only, and has Lydite check a plan file before a launch. It also turns a hermes-security
-  findings export into one Lydite plan per finding you choose: prove it by a failing test, then fix it. Disclosure:
-  after your approval of each launch, starts the already-installed `lydite` binary (argument list, no shell) as a
-  detached background process; Lydite runs git, gh and the claude process on your host, with your GitHub login, and
-  reaches GitHub and the model provider of its profile; only the commands of a worker run in Claude Code's sandbox,
-  and your proof is replayed in the wall (by srt under `mur = exige`, by Lydite's native wall under `mur = natif`);
-  under a profile accepted with `mur = demande`, a worker's commands may run outside the sandbox and see the provider
-  key if there is one, and the proof is replayed on the host, outside the wall; a required wall (`exige`, the
-  default, or `natif`) is required for `--issue` and for a plan written from a report. The approval request shows
-  the repository, the work, the exact proof command (for a plan: its name, its number of tasks, its header proof, cut if long, and
-  its SHA-256), then the profile and the target branch; a value with a control or formatting character, and a plan
-  whose task carries its own proof, are refused before any request; "always" covers that exact request only
-  (repository, profile, issue or objective, target branch, dry run or launch, proof or plan bytes). The child
-  environment is a closed list (no Hermes key, no YOLO setting), plus the provider key if you set one. For a report's plan, the wall check
-  (`lydite profil`) before the request is read-only and needs no approval. Reads the plan file, the lesson files and
-  the findings report you name, and writes the plans of the findings you choose under the plugin's data folder; no
-  telemetry.
+  Hand a GitHub issue and the command that proves it done to Lydite from the chat. Lydite runs the job in Claude
+  Code sessions, on the model and provider of its profile, replays your proof itself and opens a pull request with
+  a receipt. Also reads the lessons Lydite keeps for a repository, checks a plan file, and turns a hermes-security
+  findings export into one plan per finding you choose: prove it by a failing test, then fix it. Disclosure: after
+  your approval of each launch (it shows the repository, the work, the proof or the plan's SHA-256, the profile and
+  the target branch; "always" covers that exact request only), starts the installed `lydite` binary (argument list,
+  no shell) as a detached background process, with a closed environment list plus the provider key you set; Lydite
+  runs git, gh and Claude Code on the host with your GitHub login and reaches GitHub and its profile's provider;
+  under a required wall (`mur = exige`, the default, or `natif`) the sessions' commands run in Claude Code's sandbox
+  and your proof is replayed inside the wall; under a profile you accepted with `mur = demande` they may run outside
+  it and the proof is replayed on the host. The status, lessons and plan checks are read-only and ask no approval.
+  Writes plans only under the plugin's data folder; no telemetry. The full list is in the README.
 maintainer: aoricloud
 tier: community
 category: automation
@@ -47,8 +39,8 @@ screenshots:
 platforms: [linux]
 known_issues:
   - "Linux only: Lydite's sandbox wall holds there."
-  - "Needs the lydite binary of the same release as this plugin, which lives in github.com/aoricloud/lydite (attested release), Claude Code, gh and srt installed, and a Lydite profile accepted by a human; `mur = natif` needs bubblewrap and lydite-reseau instead of srt."
-  - "Some names are still French: three tool names (lydite_lancer, lydite_etat, lydite_lecons), the plugin settings (binaire, profil, cle_nom, cle) and a few lines Lydite writes, such as impossible (déclarée). From Lydite 0.4, Lydite's commands have English words, and its usage and the lines about the pull request and CI are in English; pull request receipts are in English. The progress lines of a launch (such as pris, assemblée, refusée, découpage pris) are still in French."
+  - "Needs the lydite binary of the same release as this plugin (attested release of github.com/aoricloud/lydite), Claude Code, gh and srt installed (bubblewrap and lydite-reseau instead of srt under mur = natif), and a Lydite profile accepted by a human."
+  - "Some names are still French: three tool names (lydite_lancer, lydite_etat, lydite_lecons), the plugin settings (binaire, profil, cle_nom, cle) and a few lines Lydite writes, such as impossible (déclarée). Lydite's commands have English words, and its usage and the lines about the pull request and CI are in English; pull request receipts are in English. The progress lines of a launch are still in French."
 capabilities:
   provides_tools: [lydite_lancer, lydite_etat, lydite_lecons, lydite_plan, lydite_findings]
   provides_hooks: [pre_tool_call]
