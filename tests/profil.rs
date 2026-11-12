@@ -1355,12 +1355,12 @@ fn le_fil_inscrit_le_lancement_et_le_constat_de_chaque_tentative() {
     let fil = essai.fil();
     let genres: Vec<&str> = fil.lines().map(genre).collect();
     let tentative = ["main.bail", "main.debut", "main.lancement", "main.consigne", "main.constat", "main.fin"];
-    // Puis le sceau de fin, sans PR à qui le citer.
-    let attendu: Vec<&str> = ["vague.ouverte"]
+    // Puis le sceau de fin, sans PR à qui le citer, et la fin du lancement. Le lancement de la vague suit l'ouverture.
+    let attendu: Vec<&str> = ["vague.ouverte", "vague.lancement"]
         .into_iter()
         .chain(tentative)
         .chain(tentative)
-        .chain(["main.verdict", "vague.sceau"])
+        .chain(["main.verdict", "vague.sceau", "vague.fin"])
         .collect();
     assert_eq!(genres, attendu, "{fil}");
     // Un lancement par tentative : l'empreinte acceptée, le modèle de la tentative, le mur demandé, et les réglages
@@ -1530,8 +1530,9 @@ fn un_reglage_illisible_arrete_la_vague_avant_la_main() {
     assert!(essai.note("args.txt").is_none(), "la fausse claude est partie");
     let fil = essai.fil();
     let genres: Vec<&str> = fil.lines().map(genre).collect();
-    // Le sceau de fin suit, car la vague arrêtée a quand même une sortie.
-    assert_eq!(genres, ["vague.ouverte", "main.bail", "main.debut", "vague.sceau"], "{fil}");
+    // Le sceau de fin suit, car la vague arrêtée a quand même une sortie, puis la fin du lancement.
+    let attendu = ["vague.ouverte", "vague.lancement", "main.bail", "main.debut", "vague.sceau", "vague.fin"];
+    assert_eq!(genres, attendu, "{fil}");
     let bacs = fs::read_dir(essai.dossier.join("bacs")).unwrap();
     let tmp: Vec<_> =
         bacs.map(|e| e.unwrap().file_name()).filter(|nom| nom.to_string_lossy().ends_with(".tmp")).collect();
@@ -1811,11 +1812,11 @@ fn la_main_d_un_fournisseur_recoit_son_url_et_sa_cle_et_sa_preuve_ne_les_recoit_
     let genres: Vec<&str> = fil.lines().map(genre).collect();
     let tentative =
         ["main.bail", "main.debut", "main.lancement", "main.fournisseur", "main.consigne", "main.constat", "main.fin"];
-    let attendu: Vec<&str> = ["vague.ouverte"]
+    let attendu: Vec<&str> = ["vague.ouverte", "vague.lancement"]
         .into_iter()
         .chain(tentative)
         .chain(tentative)
-        .chain(["main.verdict", "vague.sceau"])
+        .chain(["main.verdict", "vague.sceau", "vague.fin"])
         .collect();
     assert_eq!(genres, attendu, "{fil}");
     let fournisseurs = lignes_de(&fil, "main.fournisseur");

@@ -35,11 +35,11 @@ use std::thread::{self, Scope};
 use std::time::{Duration, Instant};
 
 use crate::branchements::bac::{bac, reglages_du_bac, sans_claude};
-use crate::branchements::dossier::{Fil, depense_du_jour, ecrire_consigne, lire_quota, tenir};
+use crate::branchements::dossier::{Fil, depense_du_jour, ecrire_consigne, lire_quota, retenir_la_vague, tenir};
 use crate::branchements::git::{faire, geste, lecons_du_commit};
 use crate::coeur::bail::Baux;
 use crate::coeur::erreur::{Code, Refus};
-use crate::coeur::fil::{Base, Couleur, Evenement, Foi, IssueVague, Verdict};
+use crate::coeur::fil::{Base, Couleur, Evenement, Foi, IssueVague, LancementVague, Verdict};
 use crate::coeur::fil::{Role, instant, lot, maintenant, refus_en_clair};
 use crate::coeur::lecons::{self, Lecon};
 use crate::coeur::plan::{Plan, Tache};
@@ -73,6 +73,9 @@ pub(crate) struct Liens<'a> {
     /// Le numéro de l'issue dont elle joue le plan : son `vague.issue` se note à son ouverture, après ses autres notes
     /// d'ouverture et avant tout départ.
     pub(crate) issue: Option<u64>,
+    /// L'empreinte (SHA-256, 64 hexadécimaux minuscules) des octets du fichier que `--plan` a donné à cette vague : son
+    /// `vague.lancement` la porte ; `None` pour toute autre vague.
+    pub(crate) plan: Option<&'a str>,
     /// Vrai pour la vague de relance de la CI, qui a son propre contrôle (« n'a rien changé à la tête poussée ») :
     /// ses mains ne passent pas par `main_qui_change`.
     pub(crate) relance_ci: bool,
@@ -179,10 +182,21 @@ pub(crate) fn lancer_avec(
     };
     let fil = Fil::seance(dossier, "humain");
     let notes = ouverture(&id, depot, plan, base, assemblage.as_ref(), liens);
-    let notees = notes.iter().try_for_each(|note| fil.noter(note)).and_then(|()| match liens.issue {
-        Some(issue) => fil.noter_issue(&IssueVague { vague: id.clone(), issue }),
-        None => Ok(()),
-    });
+    let notees = notes
+        .iter()
+        .try_for_each(|note| fil.noter(note))
+        .and_then(|()| match liens.issue {
+            Some(issue) => fil.noter_issue(&IssueVague { vague: id.clone(), issue }),
+            None => Ok(()),
+        })
+        .and_then(|()| {
+            let version = env!("CARGO_PKG_VERSION").to_string();
+            fil.noter_lancement(&LancementVague { vague: id.clone(), version, plan: liens.plan.map(str::to_string) })
+        });
+    if notees.is_ok() {
+        // Le processus retient sa dernière vague ouverte : sa sortie en note la fin.
+        retenir_la_vague(dossier, &id);
+    }
     if let Err(erreur) = notees {
         let mut refus = Refus::from(erreur);
         if let Some(Err(echec)) = assemblage.map(Assemblage::retirer) {

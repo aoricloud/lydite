@@ -223,6 +223,18 @@
 //!   sortie est 2. Un sceau dont les `octets` dépassent le début de sa propre ligne ne correspond pas.
 //!   Ce que le sceau montre : une ligne changée ou retirée avant lui. Ce qu'il ne montre pas : une ligne ajoutée après
 //!   lui, ni un fil réécrit avec des sceaux refaits (le reçu de la PR, hors de la machine, garde le sien).
+//! - `vague.lancement {vague, version, plan}` : un lancement vient d'ouvrir la vague `vague`. `version` est la version
+//!   du Lydite qui lance, celle que `lydite --version` dit, un jeton (de l'ASCII sans blanc, non vide). `plan` est le
+//!   SHA-256 des octets du fichier que `--plan` a donné à cette vague, en 64 hexadécimaux minuscules, ou `null` pour
+//!   toute autre vague (des copies, un découpage, la vague d'un plan découpé, un relecteur, une correction, une relance
+//!   de la CI). Noté à l'ouverture, après les autres notes d'ouverture et avant tout départ de main. Une note de
+//!   Kraken, sans `foi`. Type neuf, il ne change pas `v`.
+//! - `vague.fin {vague, code}` : le lancement sort, et `vague` est la dernière vague qu'il a ouverte. `code` est le
+//!   code de sortie qu'il rend, un entier de 0 à 255. Noté une fois, par la séance du lancement, après le sceau de fin.
+//!   Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`.
+//!   Règle de lecture de ces deux lignes : un seul lancement tient le dossier à la fois, donc la dernière vague du fil
+//!   est la dernière qu'a ouverte le dernier lancement ; si elle porte un `vague.lancement` et aucun `vague.fin`, ce
+//!   lancement n'est pas sorti. Un fil d'avant, sans ces lignes, se lit comme avant.
 //!
 //! Au rejeu d'une vague à plan, `lydite etat` ne garde que ce qu'il dit, le reste vit au fil :
 //!
@@ -590,6 +602,56 @@ impl SceauVague {
     }
 }
 
+/// `vague.lancement` : un lancement vient d'ouvrir la vague `vague`. Un événement plat comme [`IssueVague`], hors de
+/// l'énumération d'[`Evenement`] : écrit par `Fil::noter_lancement`, relu par [`lire_octets_avec_lancements`].
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LancementVague {
+    pub(crate) vague: String,
+    /// La version du Lydite qui lance (`CARGO_PKG_VERSION`), un jeton.
+    pub(crate) version: String,
+    /// Le SHA-256 des octets du fichier de `--plan`, en 64 hexadécimaux minuscules ; `None` pour toute autre vague.
+    pub(crate) plan: Option<String>,
+}
+
+impl LancementVague {
+    /// Son nom, le `type` de sa ligne.
+    const GENRE: &'static str = "vague.lancement";
+
+    /// Les champs de son corps, dans l'ordre de l'en-tête.
+    fn champs(&self) -> Vec<(&'static str, Valeur)> {
+        vec![
+            ("vague", Valeur::Texte(self.vague.clone())),
+            ("version", Valeur::Texte(self.version.clone())),
+            ("plan", self.plan.clone().map_or(Valeur::Nul, Valeur::Texte)),
+        ]
+    }
+}
+
+/// `vague.fin` : le lancement sort, et `vague` est la dernière vague qu'il a ouverte ; `code` est son code de sortie.
+/// Un événement plat comme [`LancementVague`].
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FinVague {
+    pub(crate) vague: String,
+    pub(crate) code: u8,
+}
+
+impl FinVague {
+    /// Son nom, le `type` de sa ligne.
+    const GENRE: &'static str = "vague.fin";
+
+    /// Les champs de son corps, dans l'ordre de l'en-tête.
+    fn champs(&self) -> Vec<(&'static str, Valeur)> {
+        vec![("vague", Valeur::Texte(self.vague.clone())), ("code", Valeur::Entier(u64::from(self.code)))]
+    }
+}
+
+/// Une ligne `vague.lancement` ou `vague.fin` lue, dans l'ordre du fil.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum LancementLu {
+    Ouvert(LancementVague),
+    Sorti(FinVague),
+}
+
 /// Un sceau lu, avec l'octet où sa ligne commence.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SceauLu {
@@ -603,11 +665,14 @@ pub(crate) fn premier_sceau_rompu<'a>(fil: &[u8], sceaux: &'a [SceauLu]) -> Opti
     sceaux.iter().find(|lu| !lu.sceau.tient(lu.debut, fil)).map(|lu| &lu.sceau)
 }
 
-/// Ce qu'une ligne d'un type connu donne : une note d'[`Evenement`], l'issue d'une vague, ou son sceau.
+/// Ce qu'une ligne d'un type connu donne : une note d'[`Evenement`], l'issue d'une vague, son sceau, ou le lancement
+/// qui l'ouvre ou sa fin.
 enum Lue {
     Note(Box<Note>),
     Issue(IssueVague),
     Sceau(SceauVague),
+    Lancement(LancementVague),
+    Fin(FinVague),
 }
 
 /// Comment une tentative finit.
@@ -757,6 +822,16 @@ pub(crate) fn ligne_de_sceau(seance: &str, seq: u64, origine: &str, sceau: &Scea
     ligne(seance, seq, origine.into(), SceauVague::GENRE, sceau.champs())
 }
 
+/// La ligne du `vague.lancement` d'une vague, comme [`ligne_d_issue`] : à l'origine de la séance.
+pub(crate) fn ligne_de_lancement(seance: &str, seq: u64, origine: &str, lancement: &LancementVague) -> String {
+    ligne(seance, seq, origine.into(), LancementVague::GENRE, lancement.champs())
+}
+
+/// La ligne du `vague.fin` d'un lancement, comme [`ligne_d_issue`] : à l'origine de la séance.
+pub(crate) fn ligne_de_fin(seance: &str, seq: u64, origine: &str, fin: &FinVague) -> String {
+    ligne(seance, seq, origine.into(), FinVague::GENRE, fin.champs())
+}
+
 /// Une ligne, son enveloppe puis son corps.
 fn ligne(seance: &str, seq: u64, origine: String, genre: &str, corps: Vec<(&'static str, Valeur)>) -> String {
     debug_assert!(origine_lue(&origine), "une origine que le fil lit : {origine}");
@@ -777,8 +852,18 @@ fn ligne(seance: &str, seq: u64, origine: String, genre: &str, corps: Vec<(&'sta
 /// Les octets du fil `chemin`, lus selon la recette de l'en-tête : ses notes de Kraken et ses écarts, et ses issues de
 /// vague, dans l'ordre du fil. Chaque écart nomme `chemin` et sa ligne. Une ligne d'une autre version arrête la
 /// lecture : le refus 1002, qui nomme la ligne et les deux versions.
+///
+/// Le dossier lit par [`lire_octets_avec_lancements`] ou [`lire_octets_avec_lignes`], qui passent par le même passage
+/// que celle-ci : elle ne sert plus qu'aux essais.
+#[cfg(test)]
 pub(crate) fn lire_octets(chemin: &Path, octets: &[u8]) -> Result<Lu, Refus> {
     lire_octets_avec_lignes(chemin, octets).map(|(lu, _)| lu)
+}
+
+/// Ce que [`lire_octets`] rend, et de plus les `vague.lancement` et `vague.fin` lus, dans l'ordre du fil : la dernière
+/// vague du fil, si elle porte un lancement et aucune fin, n'est pas sortie.
+pub(crate) fn lire_octets_avec_lancements(chemin: &Path, octets: &[u8]) -> Result<(Lu, Vec<LancementLu>), Refus> {
+    passer(chemin, octets).map(|(lu, _, lancements)| (lu, lancements))
 }
 
 /// Une ligne lue du fil, d'une note, d'une issue ou d'un sceau : de quoi la nommer et la retrouver dans les octets du
@@ -823,10 +908,21 @@ impl LigneLue {
     }
 }
 
-/// Ce que [`lire_octets`] rend, et de plus une [`LigneLue`] par note, issue ou sceau lu, dans l'ordre du fil.
+/// Ce que [`lire_octets`] rend, et de plus une [`LigneLue`] par note, issue, sceau, lancement ou fin lu, dans l'ordre
+/// du fil.
 pub(crate) fn lire_octets_avec_lignes(chemin: &Path, octets: &[u8]) -> Result<(Lu, Vec<LigneLue>), Refus> {
+    passer(chemin, octets).map(|(lu, lignes, _)| (lu, lignes))
+}
+
+/// Ce que rend l'unique passage sur les octets du fil : ce que rend [`lire_octets`], une [`LigneLue`] par ligne lue, et
+/// les lancements et fins lus. Les lectures publiques en prennent chacune leur part.
+type Passage = (Lu, Vec<LigneLue>, Vec<LancementLu>);
+
+/// Le passage unique sur les octets du fil, que toutes les lectures publiques partagent.
+fn passer(chemin: &Path, octets: &[u8]) -> Result<Passage, Refus> {
     let mut issues = Vec::new();
     let mut sceaux = Vec::new();
+    let mut lancements = Vec::new();
     let mut lues = Vec::new();
     // L'octet où commence la ligne en cours.
     let mut debut = 0usize;
@@ -898,13 +994,15 @@ pub(crate) fn lire_octets_avec_lignes(chemin: &Path, octets: &[u8]) -> Result<(L
                     Lue::Note(note) => lecture.notes.push(*note),
                     Lue::Issue(issue) => issues.push(issue),
                     Lue::Sceau(sceau) => sceaux.push(SceauLu { sceau, debut: ici }),
+                    Lue::Lancement(lancement) => lancements.push(LancementLu::Ouvert(lancement)),
+                    Lue::Fin(fin) => lancements.push(LancementLu::Sorti(fin)),
                 }
             }
             Ok(None) => {} // un type d'une autre pièce, ignoré au rejeu
             Err(raison) => lecture.ecarts.push(ecart(Code::EvenementMalForme, raison)),
         }
     }
-    Ok(((lecture, issues, sceaux), lues))
+    Ok(((lecture, issues, sceaux), lues, lancements))
 }
 
 /// Ce que [`lire_octets`] rend : les notes et écarts, les issues de vague, et les sceaux, dans l'ordre du fil.
@@ -1265,6 +1363,21 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
             let issue = IssueVague { vague: texte("vague")?.into(), issue: numero_de_pr("issue")? };
             en_trop(&issue.champs())?;
             return Ok(Some(Lue::Issue(issue)));
+        }
+        LancementVague::GENRE => {
+            let plan = if matches!(valeur("plan"), Some(Valeur::Nul)) { None } else { Some(sha256("plan")?) };
+            let lancement = LancementVague { vague: texte("vague")?.into(), version: jeton_ascii("version")?, plan };
+            en_trop(&lancement.champs())?;
+            return Ok(Some(Lue::Lancement(lancement)));
+        }
+        FinVague::GENRE => {
+            let lu = entier("code")?;
+            let Ok(code) = u8::try_from(lu) else {
+                return Err(format!("« code » vaut {lu}, hors de son domaine : un entier de 0 à 255"));
+            };
+            let fin = FinVague { vague: texte("vague")?.into(), code };
+            en_trop(&fin.champs())?;
+            return Ok(Some(Lue::Fin(fin)));
         }
         SceauVague::GENRE => {
             let empreinte = texte("empreinte")?;
