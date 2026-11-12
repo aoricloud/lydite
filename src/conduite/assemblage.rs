@@ -27,7 +27,9 @@
 //! qu'il porte est refusé sans relance, et la fusion n'a pas lieu. Le gel est jugé aussi contre tout dossier `.claude`
 //! (7006), que la tâche ait des `fichiers` ou non : `sans_claude` juge le bac avant le gel, et un `.claude` écrit ou
 //! commité dans le bac après lui, même ôté avant le gel, entrerait dans la branche sans ce second jugement ; un tel
-//! chemin est refusé sans relance, et la fusion n'a pas lieu. Le découpeur et le relecteur, qui n'écrivent que leur
+//! chemin est refusé sans relance, et la fusion n'a pas lieu. Il l'est de même contre les noms de `TOUJOURS_REFUSES`
+//! (`.mcp.json`, `.vscode`...), que le mur ne ferme que s'ils existent déjà : un tel fichier neuf est le refus 7021.
+//! Le découpeur et le relecteur, qui n'écrivent que leur
 //! fichier, sont tenus par `seul_change` (7014).
 //!
 //! La base s'éprouve par la preuve de la vague (6022) à l'ouverture de l'assemblage, et, pour un découpage, avant le
@@ -46,6 +48,7 @@ use crate::branchements::git::{faire, geste};
 use crate::branchements::srt::rejouer;
 use crate::coeur::erreur::{Code, Refus, nommee};
 use crate::coeur::fil::lot;
+use crate::coeur::natif::TOUJOURS_REFUSES;
 use crate::coeur::plan::couvre;
 use crate::coeur::profil::Profil;
 
@@ -82,6 +85,14 @@ const CLAUDE_GELE: &str = "The task is refused, and there is no automatic retry;
                            wave branch and the wave's worktree stay at their head. A setting, a hook, a command, a \
                            skill, an agent or a project memory is set by the human, outside the wave; new work that \
                            writes in no .claude folder will start again from this head.";
+
+/// La correction d'un fichier d'ouverture que le gel porterait (7021) : la fusion n'a pas eu lieu, et la tâche est
+/// refusée sans relance automatique.
+const OUVERTURE_GELEE: &str = "The task is refused, and there is no automatic retry; the merge did not happen, and \
+                               the wave branch and the wave's worktree stay at their head. A file that the editor, \
+                               the agent or the shell runs when the branch is next opened (.mcp.json, .vscode, \
+                               .idea, a shell or git configuration file) is set by the human, outside the wave; new \
+                               work that writes none of them will start again from this head.";
 
 /// La correction d'un git qui ne dit pas ce que la main a changé (7009).
 const SANS_LISTE: &str = "Check that git runs and that the sandbox is a worktree of the target repository: without \
@@ -345,7 +356,7 @@ impl Assemblage<'_> {
         // `sans_claude` a jugé le bac avant le gel : ce qu'un processus resté derrière la main y écrit ou y commite
         // après lui, sous un dossier `.claude`, entrerait dans la branche sans ce second jugement, que la tâche ait des
         // `fichiers` ou non (une vague sans plan reste ouverte à 7013).
-        if let Err(refus) = claude_gele(bac, depart, id, &gel) {
+        if let Err(refus) = claude_gele(bac, depart, id, &gel).and_then(|()| ouverture_gelee(bac, depart, id, &gel)) {
             return (None, Err(refus));
         }
         // Le gel est ce que la branche recevra : ses chemins sont jugés contre les `fichiers` de la tâche, même si le
@@ -455,6 +466,50 @@ fn geler(bac: &Path, depart: &str, proteges: &[String], titre: &str) -> Result<S
 /// refus 7006, qui les nomme, et la fusion n'a pas lieu ; un échec de git est le refus 7009, comme pour
 /// [`chemins_geles`] : une liste vide ne vaut « rien sous `.claude` » que si git a réussi.
 fn claude_gele(bac: &Path, depart: &str, id: &str, gel: &str) -> Result<(), Refus> {
+    let vus = vus_au_gel(bac, depart, gel, &CLAUDE)?;
+    if vus.is_empty() {
+        return Ok(());
+    }
+    Err(Refus::new(
+        Code::ClaudeTouche,
+        format!(
+            "the freeze of task {id} would carry, under a .claude folder, paths that the merge would bring into the \
+             wave branch: {}",
+            citer(&vus)
+        ),
+        CLAUDE_GELE,
+    ))
+}
+
+/// Les chemins que le gel ferait entrer dans la branche de la vague sous un nom de [`TOUJOURS_REFUSES`] (`.mcp.json`,
+/// `.vscode`, `.idea`, les fichiers de shell et de git de la racine) : ce que l'éditeur, l'agent ou le shell exécute à
+/// la prochaine ouverture de la branche. Le mur de la preuve ne ferme que ceux qui existent déjà : un fichier neuf,
+/// que `add -A` commite, ne passerait que par ce jugement. Les noms valent à la racine du bac, en toute casse, que la
+/// tâche ait des `fichiers` ou non et même s'ils les couvrent ; comme [`claude_gele`], il voit l'arbre du gel et
+/// l'histoire de `depart..gel`. Un nom vu est le refus 7021, qui les nomme, et la fusion n'a pas lieu ; un échec de
+/// git est le refus 7009.
+fn ouverture_gelee(bac: &Path, depart: &str, id: &str, gel: &str) -> Result<(), Refus> {
+    let noms: Vec<String> = TOUJOURS_REFUSES.iter().map(|nom| format!(":(icase,literal){nom}")).collect();
+    let vus = vus_au_gel(bac, depart, gel, &noms)?;
+    if vus.is_empty() {
+        return Ok(());
+    }
+    Err(Refus::new(
+        Code::OuvertureExecutable,
+        format!(
+            "the freeze of task {id} would carry paths that run when the branch is next opened, and that the merge \
+             would bring into the wave branch: {}",
+            citer(&vus)
+        ),
+        OUVERTURE_GELEE,
+    ))
+}
+
+/// Les chemins, sous `pathspecs`, que le gel apporte à la branche : le diff des arbres entre `depart` et `gel`, qui
+/// voit ce qui est encore là au gel, et le journal de `depart..gel`, qui voit ce qui fut commité puis ôté, que l'arbre
+/// ne porte plus mais dont la fusion apporterait le commit. Triés, chacun une fois ; un échec de git est le refus
+/// 7009 : une liste vide ne vaut « rien » que si git a réussi.
+fn vus_au_gel(bac: &Path, depart: &str, gel: &str, pathspecs: &[impl AsRef<str>]) -> Result<Vec<String>, Refus> {
     let diff = geste(bac, &["diff", "--name-only", "-z", "--no-renames", depart, gel, "--"]);
     // `-m` : une fusion dit ses fichiers, que `--name-only` taît sans lui. `--full-history` : git n'élague aucun côté
     // d'une fusion. `--no-show-signature` : le `log.showSignature` du dépôt visé lancerait son `gpg.program` hors du
@@ -466,24 +521,13 @@ fn claude_gele(bac: &Path, depart: &str, id: &str, gel: &str) -> Result<(), Refu
     );
     let mut vus = Vec::new();
     for mut commande in [diff, journal] {
-        commande.args(CLAUDE);
+        commande.args(pathspecs.iter().map(AsRef::as_ref));
         let sortie = faire(commande).map_err(|vu| Refus::new(Code::GitImpossible, vu, SANS_LISTE))?;
         vus.extend(sortie.split('\0').filter(|entree| !entree.is_empty()).map(String::from));
     }
-    if vus.is_empty() {
-        return Ok(());
-    }
     vus.sort();
     vus.dedup();
-    Err(Refus::new(
-        Code::ClaudeTouche,
-        format!(
-            "the freeze of task {id} would carry, under a .claude folder, paths that the merge would bring into the \
-             wave branch: {}",
-            citer(&vus)
-        ),
-        CLAUDE_GELE,
-    ))
+    Ok(vus)
 }
 
 /// Les chemins que la main a changés dans son bac depuis `depart`, triés, chacun une fois : ce que le gel et la fusion

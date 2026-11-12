@@ -1086,3 +1086,36 @@ fn un_chemin_protege_au_gel_refuse_la_tache_et_rien_n_est_fusionne() {
     assert!(assemblage.fusionner(&propre, &sha, "d", None, 4, |_, _| Ok(())).1.is_ok());
     let _ = fs::remove_dir_all(&racine);
 }
+
+#[test]
+fn un_fichier_qui_s_execute_a_l_ouverture_au_gel_est_le_refus_7021_et_la_branche_ne_bouge_pas() {
+    let (racine, depot, kraken, base) = vise("ouverture-au-gel");
+    let profil = profil();
+    let assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+    // La main écrit, à la racine de son bac, un fichier que l'éditeur ou l'agent lit à la prochaine ouverture ; la
+    // tâche a ou non des `fichiers`, qui couvrent même le chemin : le gel est refusé de même, et rien ne se fusionne.
+    let permis = chemins(&["src/", ".vscode/", ".mcp.json"]);
+    let cas: [(&str, Option<&[String]>, &str, bool); 4] = [
+        ("a", Some(&permis), ".vscode/tasks.json", false),
+        ("b", None, ".mcp.json", false),
+        ("c", None, ".vscode/tasks.json", true),
+        ("d", Some(&permis), ".mcp.json", true),
+    ];
+    for (k, (id, fichiers, chemin, commite_puis_ote)) in cas.into_iter().enumerate() {
+        let bac = prise(&depot, &kraken, id, &base, &[("src/a.txt", "a\n"), (chemin, "{}")]);
+        if commite_puis_ote {
+            // Commité puis ôté : l'arbre du gel n'en dit rien, mais la fusion apporterait le commit.
+            commiter(&bac);
+            fs::remove_file(bac.join(chemin)).unwrap();
+        }
+        let (verif, issue) =
+            assemblage.assembler(&bac, &base, id, fichiers, k + 1, |_| Ok(()), |_, _| panic!("rien ne se note"));
+        let refus = issue.unwrap_err();
+        assert_eq!((refus.code.numero(), verif), (7021, None), "{refus}");
+        assert!(refus.preuve.contains(chemin), "{refus}");
+        assert!(refus.correction.contains("the merge did not happen"), "{refus}");
+        assert_eq!((assemblage.tete(), git(&depot, &["rev-parse", "lydite/vague-v"])), (base.as_str(), base.clone()));
+        a_sa_tete(&kraken, &base);
+    }
+    let _ = fs::remove_dir_all(&racine);
+}
