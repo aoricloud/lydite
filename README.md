@@ -6,6 +6,25 @@
 your proof command itself, and opens a pull request only for what passed, with a receipt.** The agents' word is never
 the proof.
 
+- **Only what passed reaches the pull request.** Lydite replays your proof itself, for each task and after every
+  merge; a task still red after its retry is set aside, not merged.
+- **The hands' commands run behind a wall**, a sandbox that limits what they read, write and reach on the network.
+  By default, if the wall does not start, no hand starts.
+- **Each pull request opens with a receipt**: the hands, their retries, the tasks set aside, the seal of the run's
+  journal. After a review, the body also lists what the reviewer says was not replayed.
+
+**Install** on Linux x86-64 (or WSL2), then check your setup:
+
+```bash
+gh release download --repo aoricloud/lydite --pattern 'lydite-*-linux-x86_64.tar.gz*'
+gh attestation verify lydite-*-linux-x86_64.tar.gz --repo aoricloud/lydite    # or: sha256sum -c lydite-*.tar.gz.sha256
+tar -xzf lydite-*-linux-x86_64.tar.gz && mkdir -p ~/.local/bin && install -m 755 lydite-*-linux-x86_64/lydite ~/.local/bin/
+lydite doctor
+```
+
+A wave also needs `git`, `gh`, Claude Code and the wall's `srt`: `lydite doctor` says what is missing, and
+[Try it](#try-it) goes on from there to your first pull request.
+
 <p>
   <a href="https://aoricloud.github.io/givre-lab/"><img src="https://raw.githubusercontent.com/aoricloud/givre-lab/main/apercus/etape-3-planche.png" alt="Nine simulated snow crystals, from Givre Lab" height="240"></a>
   <a href="https://aoricloud.github.io/mycelium-lab/"><img src="https://raw.githubusercontent.com/aoricloud/mycelium-lab/main/apercus/etape-3-colonie.png" alt="A simulated mycelium colony, from Mycelium Lab" height="240"></a>
@@ -44,7 +63,7 @@ French, and Lydite still instructs its reviewer in French.
 
 ```text
 Receipt
-- Cost: subscription, ≈ $1.18
+[…]
 - 2 hands, 0 retries, 0 set aside
 - Effort: hand: high; reviewer: high
 - Thread sealed at 527750 bytes: sha256 434c57d7[…].

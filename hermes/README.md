@@ -178,7 +178,7 @@ hermes config set tools.tool_search.enabled off
 - The pull request body opens with a receipt written when the pull request is opened: the cost so far, the hands, the
   retries, the set-aside tasks and the proof-setting files the diff changed; then the proof result and the review
   outcome. `lydite_etat` returns what `lydite etat` prints, which has the same cost and hands line plus the wave's
-  duration. The cost is an estimate, a flat-rate approximation or `inconnu` (unknown), never an invoice.
+  duration. The cost is an estimate, a flat-rate approximation or `unknown`, never an invoice.
 - The wall check of a plan from a report goes by the plan's place: a plan copied out of the plugin's `findings/` data
   folder is launched like a plan written by hand, without that check. Until Lydite itself knows where a plan comes
   from, the human's reading of the plan before approving is what holds.
