@@ -148,12 +148,14 @@ fn a_memory_index_does_not_write_the_thread() {
     // Ni verrou, ni fichier, ni dossier de plus : le dossier ne contient que le fil.
     assert_eq!(noms(&dossier), ["fil.jsonl"]);
     // Un dossier qui n'existe pas encore reste absent : l'index est vide, en 0.
-    let absent = neuf("absent").join("pas-encore");
+    let dossier_absent = neuf("absent");
+    let absent = dossier_absent.join("pas-encore");
     let sortie = jouer(kraken(&absent).arg("memory"));
     assert_eq!(sortie.status.code(), Some(0), "{}", texte(&sortie.stderr));
     assert!(sortie.stdout.is_empty() && sortie.stderr.is_empty());
     assert!(!absent.exists(), "{} a été créé", absent.display());
     let _ = fs::remove_dir_all(&dossier);
+    let _ = fs::remove_dir_all(&dossier_absent);
 }
 
 #[test]
