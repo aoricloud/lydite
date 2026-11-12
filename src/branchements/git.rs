@@ -82,10 +82,25 @@ pub(crate) const VARIABLES_DE_DEPOT: [&str; 10] = [
     "GIT_EXEC_PATH",
 ];
 
+/// Les variables de git qui changent la lecture des pathspecs : `geste` les ôte de l'enfant. Les refus 7006 (un
+/// `.claude/` ajouté par une main) et 7021 (un fichier qui s'exécute à l'ouverture de la branche) lisent les chemins
+/// par des pathspecs à magie (`:(icase,glob)…`, `:(exclude,icase,glob)…`, `:(icase,literal)…`) : avec
+/// `GIT_LITERAL_PATHSPECS=1` dans l'environnement de Kraken, git les lirait mot pour mot, ne trouverait rien, et ces
+/// deux refus se tairaient. Elles ne nomment pas de dépôt : elles ne vont pas dans `VARIABLES_DE_DEPOT`, que
+/// `retire_de_l_env` (processus.rs) retire aussi pour la main.
+#[rustfmt::skip]
+pub(crate) const VARIABLES_DE_PATHSPEC: [&str; 4] = [
+    "GIT_LITERAL_PATHSPECS",
+    "GIT_GLOB_PATHSPECS",
+    "GIT_NOGLOB_PATHSPECS",
+    "GIT_ICASE_PATHSPECS",
+];
+
 /// Un geste git de Kraken dans `dir`, le dépôt visé ou un de ses worktrees : la seule façon dont Kraken y lance git
 /// (ses racines, le bac, `sans_claude`, l'assemblage, la branche de la vague). Chaque commande porte les `REGLAGES` et
 /// l'`IDENTITE`, qui ne servent qu'aux commits et aux fusions mais, posés partout, laissent une seule façon de faire et
-/// nomment Kraken dans les reflogs. Aucune ne reçoit les `VARIABLES_DE_DEPOT` de l'environnement de Kraken. Rien ne
+/// nomment Kraken dans les reflogs. Aucune ne reçoit les `VARIABLES_DE_DEPOT` ni les `VARIABLES_DE_PATHSPEC` de
+/// l'environnement de Kraken (un appelant qui veut une lecture des chemins mot pour mot la pose après coup). Rien ne
 /// s'écrit dans la configuration de git. Dans un worktree que Kraken a posé ([`crate::branchements::bac::poser`]), le
 /// geste porte `--git-dir` et `--work-tree` lus à la pose, et ne suit pas le `.git` du worktree, qu'une main peut
 /// réécrire vers un autre dépôt ; un geste dans le dépôt visé lui-même suit son dossier.
@@ -97,6 +112,9 @@ pub(crate) fn geste(dir: &Path, args: &[&str]) -> Command {
     }
     git.args(args).envs(IDENTITE);
     for nom in VARIABLES_DE_DEPOT {
+        git.env_remove(nom);
+    }
+    for nom in VARIABLES_DE_PATHSPEC {
         git.env_remove(nom);
     }
     git
