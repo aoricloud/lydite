@@ -72,7 +72,7 @@ fn refus(commande: &mut Command) -> String {
 fn neuf(nom: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("lydite-contrat-{nom}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
+    fs::create_dir(&dir).unwrap();
     dir
 }
 

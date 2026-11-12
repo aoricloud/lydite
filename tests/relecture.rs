@@ -190,7 +190,7 @@ fn neuf(nom: &str) -> PathBuf {
     // temporaire>/claude-http-<16 hex>.sock`), et un chemin de socket tient en 107 octets.
     let dir = std::env::temp_dir().join(format!("kr-{nom}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
+    fs::create_dir(&dir).unwrap();
     dir
 }
 

@@ -8,12 +8,14 @@ use std::process::{Child, Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+// raccourci : create_dir refuse un dossier laissé là, sans vérifier son propriétaire ; monter (un nom au hasard) si
+// deux tests du même pid prennent le même nom
 /// Une racine neuve et vide, à ce test, dans le dossier temporaire du système : le dépôt visé (`depot`), le dossier de
 /// Kraken (`kraken`, que rien ne crée avant un plan juste) et les plans y vivent côte à côte, hors de ce dépôt-ci.
 fn racine(nom: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("lydite-vague-{nom}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
+    fs::create_dir(&dir).unwrap();
     dir
 }
 
@@ -691,7 +693,7 @@ fn une_main_qui_reecrit_le_git_de_son_bac_ne_detourne_aucun_geste_de_la_vague() 
 fn racine_courte(suffixe: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("n{}{suffixe}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
+    fs::create_dir(&dir).unwrap();
     dir
 }
 

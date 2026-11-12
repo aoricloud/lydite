@@ -66,7 +66,7 @@ fn chauffer(chemin: &Path) {
 fn neuf(nom: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("lydite-doctor-{nom}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
+    fs::create_dir(&dir).unwrap();
     dir
 }
 
@@ -80,13 +80,13 @@ fn dossier_de_lydite(nom: &str) -> (PathBuf, bool) {
         let dir = candidat.join(&nom);
         let _ = fs::remove_dir_all(&dir);
         let court = cfg!(windows) || dir.as_os_str().as_encoded_bytes().len() <= 51;
-        if court && fs::create_dir_all(&dir).is_ok() {
+        if court && fs::create_dir(&dir).is_ok() {
             return (dir, true);
         }
     }
     let dir = std::env::temp_dir().join(nom);
     let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
+    fs::create_dir(&dir).unwrap();
     (dir, false)
 }
 
