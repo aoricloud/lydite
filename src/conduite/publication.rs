@@ -149,7 +149,12 @@ pub(crate) fn corps(
         }
         noms.join(", ")
     };
-    let lignes = recu.lignes_de_pr().join("\n");
+    // Les fichiers distincts que le plan épingle : un fichier n'a qu'une empreinte par plan.
+    let mut epingles: Vec<&str> =
+        plan.taches.iter().flat_map(|tache| &tache.empreintes).map(|(f, _)| f.as_str()).collect();
+    epingles.sort_unstable();
+    epingles.dedup();
+    let lignes = recu.lignes_de_pr(epingles.len()).join("\n");
     let recu = format!("Receipt\n{lignes}\n- Proof settings changed: {changes}");
     let a_justifier = if points.is_empty() {
         String::new()
@@ -798,6 +803,10 @@ pub(crate) struct Recu {
     /// L'effort déclaré (`main.lancement`) des tentatives de chaque rôle de ces vagues (`main.consigne`), sans doublon,
     /// dans l'ordre où le fil les note ; `EFFORT_PAR_DEFAUT` pour une tentative qui n'en déclare aucun.
     efforts: Vec<(Role, Vec<String>)>,
+    /// Les fichiers distincts que portent les `main.empreintes` des mains assemblées de ces vagues, dans l'ordre où le
+    /// fil les note. Une main dont la dernière issue n'est pas l'assemblage (refusée après sa note, par un conflit ou
+    /// une preuve rouge) n'y compte pas : son fichier n'est pas dans la branche.
+    verifies: Vec<String>,
 }
 
 /// Le reçu de la vague `id` parmi `vagues` : elle, son découpage, ses relectures, ses corrections et ses relances, et
@@ -869,6 +878,18 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
             for reglage in [SANS_LECTURE, SANS_A1] {
                 if mesure.lines().any(|ligne| ligne == reglage) && !recu.mesure.contains(&reglage) {
                     recu.mesure.push(reglage);
+                }
+            }
+        }
+        if let Evenement::Empreintes { vague, main, fichiers, .. } = &note.evenement {
+            let assemblee = vagues.iter().find(|autre| autre.id == *vague).and_then(|autre| autre.mains.get(main));
+            if assemblee.is_some_and(|main| matches!(main.issue, Some(fil::Issue::Assemblee))) {
+                for ligne in fichiers {
+                    // Un élément est `<fichier> <empreinte>` : l'empreinte n'a pas d'espace, le fichier peut en avoir.
+                    let fichier = ligne.rsplit_once(' ').map_or(ligne.as_str(), |(fichier, _)| fichier);
+                    if !recu.verifies.iter().any(|vu| vu == fichier) {
+                        recu.verifies.push(fichier.to_string());
+                    }
                 }
             }
         }
@@ -965,16 +986,42 @@ impl Recu {
         format!("Effort: {}", roles.join("; "))
     }
 
+    /// Le nombre de fichiers distincts que les mains assemblées de ces vagues ont vérifiés par leur SHA-256
+    /// (`main.empreintes`, voir [`Recu::verifies`]).
+    pub(crate) fn fichiers_verifies(&self) -> usize {
+        self.verifies.len()
+    }
+
+    /// La ligne à part qui dit les fichiers vérifiés par SHA-256 : `Files verified by SHA-256: 2 of 3` quand on
+    /// connaît le nombre `epingles` de fichiers que le plan épingle, `Files verified by SHA-256: 2` sans lui ; `None`
+    /// quand le plan n'en épingle aucun (`Some(0)`), ou quand `lydite status` n'en a vérifié aucun (`None`).
+    fn ligne_des_empreintes(&self, epingles: Option<usize>) -> Option<String> {
+        let verifies = self.fichiers_verifies();
+        match epingles {
+            Some(0) => None,
+            Some(total) => Some(format!("Files verified by SHA-256: {verifies} of {total}")),
+            None => (verifies > 0).then(|| format!("Files verified by SHA-256: {verifies}")),
+        }
+    }
+
+    /// La ligne de `lydite status` qui dit les fichiers vérifiés, sans « of <m> » : le fil ne garde pas le plan.
+    /// `None` quand aucun fichier n'est vérifié.
+    pub(crate) fn ligne_des_fichiers_verifies(&self) -> Option<String> {
+        self.ligne_des_empreintes(None)
+    }
+
     /// Les lignes du bloc « Receipt » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la
     /// durée ; puis `- Effort: <efforts>` ; puis, si des réglages de mesure sont posés, `- Measurement: <réglages>.` ;
+    /// puis, si le plan épingle `epingles` fichiers (au moins un), `- Files verified by SHA-256: <n> of <epingles>` ;
     /// puis, si le reçu porte un sceau, `- Thread sealed at <octets> bytes: sha256 <empreinte>.`
-    pub(crate) fn lignes_de_pr(&self) -> Vec<String> {
+    pub(crate) fn lignes_de_pr(&self, epingles: usize) -> Vec<String> {
         let mut lignes = vec![
             format!("- Cost: {}", self.cout_de_pr()),
             format!("- {}", self.mains_de_pr()),
             format!("- {}", self.ligne_d_effort()),
         ];
         lignes.extend(self.ligne_de_mesure().map(|ligne| format!("- {ligne}")));
+        lignes.extend(self.ligne_des_empreintes(Some(epingles)).map(|ligne| format!("- {ligne}")));
         lignes.extend(
             self.sceau.iter().map(|s| format!("- Thread sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)),
         );

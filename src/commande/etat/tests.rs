@@ -1441,6 +1441,32 @@ fn le_recu_de_kraken_etat_dit_la_mesure_sur_une_ligne_a_part_quand_un_reglage_es
     assert!(hostile.ends_with("\nMeasurement: sans-lecture."), "{hostile}");
 }
 
+#[test]
+fn le_recu_de_kraken_etat_dit_les_fichiers_verifies_par_sha256_sans_le_plan() {
+    let empreinte = "ab".repeat(32);
+    let empreintes = |main| Evenement::Empreintes {
+        vague: V2.into(),
+        main,
+        sha: BASE.into(),
+        fichiers: vec![format!("src/a.rs {empreinte}"), format!("docs/un nom.md {empreinte}")],
+    };
+    let tete = [ouverture(V2, 1, "Une tâche"), assemblage(V2), tache(V2, 1, "t", &[])];
+    let rendu_de = |suite: &[Evenement]| {
+        let evenements = [&tete[..], suite].concat();
+        let notes = notes_de(&evenements, "2026-10-31T21:00:00.000Z", "2026-10-31T21:00:30.000Z");
+        rendu_avec(&etat(&evenements), &notes, MAINTENANT)
+    };
+    // Sans la note, le texte est celui d'aujourd'hui, et ne parle pas de SHA-256.
+    let sans = rendu_de(&[fusion(V2, 1)]);
+    assert!(!sans.contains("SHA-256"), "{sans}");
+    // Une main assemblée qui porte la note de deux fichiers : une ligne de plus, après l'effort, sans « of <m> ».
+    let avec = rendu_de(&[empreintes(1), fusion(V2, 1)]);
+    assert_eq!(avec, format!("{sans}\nFiles verified by SHA-256: 2"), "{avec}");
+    // Une main refusée après sa note n'est pas dans la branche : son fichier ne compte pas.
+    let refusee = rendu_de(&[empreintes(1), refus(V2, 1, Code::Conflit)]);
+    assert!(!refusee.contains("SHA-256"), "{refusee}");
+}
+
 // `attendre` : les tests posent le fil et le verrou à la main, et la pause est une fonction qui joue la fin du
 // lancement ; aucun ne dépend d'un fil d'exécution, et la pause qui lâche le verrou attend que le système l'ait
 // lâché pour de bon (`lacher`), puisque fermer le fichier ne suffit pas quand un processus né à cet instant en garde
