@@ -82,8 +82,8 @@
 //!   `depend` ;
 //! - 6021 : un objectif ou une preuve blancs ou absents, une autre clé blanche (hors `depend`), un plan sans tâche, une
 //!   tâche sans objectif ;
-//! - 6024 : un chemin de `fichiers` hors de cette forme, ou, au rejeu d'un découpage, sous une autre casse que dans la
-//!   base, que la correction donne ;
+//! - 6024 : un chemin de `fichiers` hors de cette forme, ou qui porte une virgule, ou, au rejeu d'un découpage, sous
+//!   une autre casse que dans la base, que la correction donne ;
 //! - 6025 : un plan de plus de 1 Mo ; un plan découpé de plus de 12 tâches, ou dont une tâche n'a pas `fichiers` ou
 //!   `modele`, porte une `preuve`, ou nomme plus de 100 chemins dans `fichiers` ;
 //! - 6026 : au rejeu d'un découpage, un en-tête autre que celui que Kraken a demandé.
@@ -524,6 +524,14 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                     return Err(refus(Code::PlanBorne, ligne, quoi, correction));
                 }
                 for &chemin in &chemins {
+                    // raccourci : un fichier dont le nom porte une virgule ne se nomme pas dans fichiers ; monter
+                    // (l'accepter s'il est dans la base) quand un dépôt en a besoin
+                    if chemin.contains(',') {
+                        let quoi = format!("le chemin {} porte une virgule", cite(chemin));
+                        let correction = "Sépare les chemins de `fichiers` par des blancs, sans virgule : Lydite lit \
+                                          chaque mot comme un chemin, et `a.rs,` ou `a.rs,b.rs` serait un nom.";
+                        return Err(refus(Code::PlanChemin, ligne, quoi, correction));
+                    }
                     if let Some(faute) = hors_forme(chemin) {
                         let quoi = format!("le chemin {} {faute}", cite(chemin));
                         return Err(refus(Code::PlanChemin, ligne, quoi, CHEMIN));

@@ -38,7 +38,7 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 6021 | `lancer.plan_blanc` | A plan has an objective, a proof and at least one task; each task has an objective, and a written `preuve`, `modele`, `relance` or `critique` is not blank (only `depend` may be). |
 | 6022 | `lancer.base_rouge` | The wave's proof passes on the base before any hand, so that a green assembly is owed only to the tasks. |
 | 6023 | `lancer.dossier_chemin_refuse` | A path that Lydite writes into a permission rule, its folder or a Claude connection folder, is absolute and is written as is: on Windows it starts with a drive letter, and its names carry no parenthesis, no `*`, `?`, `[`, `]`, `{`, `}`, no quote and no backslash. |
-| 6024 | `lancer.plan_chemin` | A `fichiers` path is relative to the repository root, written with `/`, without `..`, outside `.git/` and `.claude/`; in a split plan, it has the case that git knows for it in the base. |
+| 6024 | `lancer.plan_chemin` | A `fichiers` path is relative to the repository root, written with `/`, without `..`, outside `.git/` and `.claude/`, without a comma; in a split plan, it has the case that git knows for it in the base. |
 | 6025 | `lancer.plan_borne` | A plan weighs 1 MB at most; a split plan has 12 tasks at most, and each has `fichiers` and `modele`, with no `preuve` of its own (all play the wave's); a `fichiers` line has 100 paths at most. |
 | 6026 | `lancer.plan_entete` | A split plan carries the header that Lydite asked for: the human's objective and proof, as they are. |
 | 6027 | `lancer.fournisseur` | A profile that names a provider gives `api`, an https URL, and `cle`, the name of an environment variable that is set and not empty, never the key itself. |

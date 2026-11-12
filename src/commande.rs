@@ -119,7 +119,13 @@ fn lire_plan(fichier: &Path, mode: plan::Mode<'_>) -> Result<(Plan, Vec<plan::At
 /// découpé ne juge ni l'en-tête ni la casse, que seul le rejeu juge.
 fn plan_cmd(fichier: &Path, decoupe: bool) -> Result<ExitCode, Refus> {
     let mode = if decoupe { plan::Mode::Decoupe(None) } else { plan::Mode::Main };
-    for attente in lire_plan(fichier, mode)?.1 {
+    let (plan, attentes) = lire_plan(fichier, mode)?;
+    // Permis, et voulu : un plan sans tâche critique n'est pas relu. L'auteur doit le savoir ; rien sur stdout, où le
+    // plugin Hermes lit une dépendance par ligne, et rien pour le découpeur.
+    if !decoupe && !plan.taches.iter().any(|tache| tache.critique) {
+        eprintln!("No task is critical: nothing in this plan is reviewed.");
+    }
+    for attente in attentes {
         println!("{attente}");
     }
     Ok(ExitCode::SUCCESS)
