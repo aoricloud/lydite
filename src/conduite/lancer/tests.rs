@@ -686,7 +686,7 @@ fn une_main_qui_declare_l_impossible_est_classee_sans_rejeu_ni_relance_ni_assemb
         let plan = plan(&["plan 1", "objectif : Écrire a", "preuve : exit 0", "tache a", "    Écrire a"]);
         let (branche, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
         let erreur = issues[0].1.as_ref().unwrap_err();
-        assert_eq!(erreur, "impossible (déclarée) : le test se contredit");
+        assert_eq!(erreur, "impossible (declared): le test se contredit");
         // Une seule main est partie : pas de relance.
         let departs = fs::read_to_string(racine.join("departs")).unwrap();
         assert_eq!(departs.lines().count(), 1, "{departs}");
@@ -714,7 +714,7 @@ fn une_main_qui_declare_l_impossible_est_classee_sans_rejeu_ni_relance_ni_assemb
         let notes = notes(&kraken);
         let vagues = etat(&evenements);
         let dit = crate::commande::etat::rendu_avec(&vagues, &notes, "2099-01-01T00:00:00.000Z");
-        assert!(dit.contains("impossible (déclarée) : le test se contredit"), "{dit}");
+        assert!(dit.contains("impossible (declared): le test se contredit"), "{dit}");
         assert!(dit.contains("1 impossible"), "{dit}");
         let _ = fs::remove_dir_all(&racine);
     }
@@ -763,7 +763,7 @@ fn une_erreur_qui_commence_comme_une_declaration_est_relancee_puis_classee_const
     let menee = lancer_avec(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL, &base, liens).unwrap();
     let departs = fs::read_to_string(racine.join("departs")).unwrap().lines().count();
     assert_eq!(departs, 2, "relancée une fois");
-    assert_eq!(menee.issues[0].1.as_ref().unwrap_err(), "impossible (déclarée) : x");
+    assert_eq!(menee.issues[0].1.as_ref().unwrap_err(), "impossible (declared): x");
     let vagues = etat(&fil(&kraken));
     assert_eq!(vagues[0].mains[&1].verdict, Some((Verdict::Classee, Foi::Constate)));
     let _ = fs::remove_dir_all(&racine);
@@ -1225,7 +1225,7 @@ fn un_resume_de_main_peut_faire_baisser_la_confiance() {
     let (departs, issue, verdict, foi) =
         une_main_finie_par("resume-impossible", "echo 'IMPOSSIBLE: contradiction'", Some("exit 0"));
     assert_eq!(departs, 1, "sans relance");
-    assert_eq!(issue.unwrap_err(), "impossible (déclarée) : contradiction");
+    assert_eq!(issue.unwrap_err(), "impossible (declared): contradiction");
     assert_eq!((verdict, foi), (Verdict::Impossible, Foi::Declare));
 }
 

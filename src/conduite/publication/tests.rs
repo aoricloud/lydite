@@ -72,8 +72,50 @@ fn le_corps_ne_cite_pas_la_raison_d_une_main_impossible() {
         .collect();
     let texte = corps_sans_reglage(&plan, &vagues, v, None, None, &notes);
     assert!(!texte.contains("le test se contredit"), "{texte}");
-    assert!(texte.contains("\na: set aside\n"), "{texte}");
+    // La ligne de la tâche dit le verdict, sans la raison. Le reçu garde ses mots (`0 set aside, 1 impossible`).
+    assert!(texte.lines().any(|ligne| ligne == "a: impossible (declared)"), "{texte}");
+    assert!(!texte.lines().any(|ligne| ligne == "a: set aside"), "{texte}");
     assert!(texte.contains("1 impossible"), "{texte}");
+}
+
+#[test]
+fn le_corps_garde_set_aside_pour_une_tache_classee_rouge_apres_sa_relance() {
+    let plan = Plan::lire(b"plan 1\nobjectif : Un test\npreuve : cargo test\n\ntache a\n    Ecrire a.txt\n").unwrap();
+    let v = "1761901500000_11_0";
+    let fin = |tentative| Evenement::Fin {
+        vague: v.into(),
+        main: 1,
+        tentative,
+        couleur: Couleur::Rouge,
+        foi: Foi::Constate,
+        texte: "le test reste rouge".into(),
+        verif: None,
+    };
+    let evenements = [
+        Evenement::Vague { vague: v.into(), n: 1, depot: "depot".into(), verifier: None, objectif: "Un test".into() },
+        Evenement::Debut { vague: v.into(), main: 1, tentative: 1 },
+        fin(1),
+        Evenement::Debut { vague: v.into(), main: 1, tentative: 2 },
+        fin(2),
+        Evenement::Verdict { vague: v.into(), main: 1, verdict: Verdict::Classee, foi: Foi::Constate },
+    ];
+    let vagues = etat(&evenements);
+    let notes: Vec<fil::Note> = evenements
+        .iter()
+        .zip(1..)
+        .map(|(evenement, seq)| fil::Note {
+            seance: "s".into(),
+            seq,
+            instant: "2026-10-31T21:00:00.000Z".into(),
+            origine: "humain".into(),
+            origine_foi: Foi::Declare,
+            evenement: evenement.clone(),
+        })
+        .collect();
+    let texte = corps_sans_reglage(&plan, &vagues, v, None, None, &notes);
+    assert!(texte.lines().any(|ligne| ligne == "a: set aside"), "{texte}");
+    assert!(!texte.contains("impossible (declared)"), "{texte}");
+    assert!(!texte.contains("le test reste rouge"), "{texte}");
 }
 
 #[test]
