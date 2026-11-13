@@ -17,9 +17,14 @@ the proof.
 **Install** on Linux x86-64 (or WSL2), then check your setup:
 
 ```bash
-gh release download --repo aoricloud/lydite --pattern 'lydite-*-linux-x86_64.tar.gz*'
-gh attestation verify lydite-*-linux-x86_64.tar.gz --repo aoricloud/lydite    # or: sha256sum -c lydite-*.tar.gz.sha256
-tar -xzf lydite-*-linux-x86_64.tar.gz && mkdir -p ~/.local/bin && install -m 755 lydite-*-linux-x86_64/lydite ~/.local/bin/
+# with gh logged in, instead: gh release download --repo aoricloud/lydite --pattern 'lydite-*-linux-x86_64.tar.gz*'
+curl -fsSLO https://github.com/aoricloud/lydite/releases/download/v0.4.0/lydite-v0.4.0-linux-x86_64.tar.gz
+curl -fsSLO https://github.com/aoricloud/lydite/releases/download/v0.4.0/lydite-v0.4.0-linux-x86_64.tar.gz.sha256
+sha256sum -c lydite-*.tar.gz.sha256    # integrity only: the file is intact
+# provenance, with gh 2.67 or later, logged in: gh attestation verify lydite-*-linux-x86_64.tar.gz --repo aoricloud/lydite
+tar -xzf lydite-*-linux-x86_64.tar.gz
+mkdir -p ~/.local/bin && install -m 755 lydite-*-linux-x86_64/lydite lydite-*-linux-x86_64/lydite-reseau ~/.local/bin/
+export PATH="$HOME/.local/bin:$PATH"    # if ~/.local/bin is not on your PATH yet
 lydite doctor
 ```
 
@@ -97,13 +102,14 @@ unless its head's files are those of a commit named as replayed after a review, 
 into its branch; a pull request from any other branch passes it unchecked. And the last block is what the review could
 **not** see replayed. Lydite prints it.
 
-As of 11 November 2026, on our own repositories:
+As of 11 November 2026, 23:40 UTC, on our own repositories:
 
 | Repository | Pull requests by Lydite with a receipt, merged | Hands | Retries | Tasks set aside |
 |---|---|---|---|---|
-| [lydite](https://github.com/aoricloud/lydite/pulls?q=is%3Apr+is%3Amerged) (it builds itself) | 69 | 212 | 7 | 0 |
-| [mycelium-lab](https://github.com/aoricloud/mycelium-lab/pulls?q=is%3Apr+is%3Amerged) | 30 | 140 | 1 | 0 |
-| [givre-lab](https://github.com/aoricloud/givre-lab/pulls?q=is%3Apr+is%3Amerged) | 37 | 204 | 7 | 1 |
+| [lydite](https://github.com/aoricloud/lydite/pulls?q=is%3Apr+is%3Amerged) (it builds itself) | 82 | 240 | 7 | 0 |
+| [mycelium-lab](https://github.com/aoricloud/mycelium-lab/pulls?q=is%3Apr+is%3Amerged) | 37 | 159 | 1 | 0 |
+| [givre-lab](https://github.com/aoricloud/givre-lab/pulls?q=is%3Apr+is%3Amerged) | 38 | 208 | 7 | 1 |
+| [physarum-lab](https://github.com/aoricloud/physarum-lab/pulls?q=is%3Apr+is%3Amerged) | 12 | 83 | 0 | 0 |
 
 These figures are read from the receipts in the pull request bodies. The hands ran on Claude models and on DeepSeek.
 
@@ -127,7 +133,7 @@ Each refusal has a number, says what it saw, and says what to do.
   lesson (7018), or to a `.claude/` folder (7006) is refused; a hand does not run `git commit` (Lydite commits).
 - **It does not push a hand to cheat.** A hand that finds a test no honest code can pass says `IMPOSSIBLE: <reason>`;
   Lydite sets the task aside, replays nothing, retries nothing and merges nothing from it. The reason is the hand's
-  word, shown as `impossible (declared)` and never checked: a task set aside this way does not show that the test is
+  word, shown as `impossible (declared)` (`impossible (déclarée)` in 0.4.0) and never checked: a task set aside this way does not show that the test is
   wrong, and a finding that comes back not proved does not show that there is no flaw.
 - **It does not publish** a change under `.github/`, a path of your machine, or a line of your `garde` file (8005),
   nor take a pull request whose CI stays silent (8008). The `garde` file, in the state folder, holds one word or name
@@ -150,7 +156,8 @@ rule.
    filtered network exit.
 4. When a hand says it is done, Lydite replays your proof itself, in a new sandboxed process. Green: the work is
    merged into the wave's branch, and the proof is replayed after every merge. Red: one retry, with the error given to
-   the hand, then the task is set aside.
+   the hand, then the task is set aside. A task is set aside without a retry when its hand declares it impossible,
+   reaches its spending ceiling or its timeout, or when its merge conflicts or turns the proof red.
 5. The tasks a plan marks critical are reviewed by another hand, which gets the diff and the replayed proof, and must
    say what was replayed and what was not.
 6. Lydite pushes the branch, opens the pull request with its receipt, and reads the CI. If the CI is red and no task
@@ -169,7 +176,7 @@ your own account or provider key: even looking at a plan runs one hand.
 |---|---|---|
 | `git`, and `gh` logged in | the pull request | `gh auth status`. To verify the download you need `gh` 2.67 or later; Debian 13's packaged 2.46 has no `gh attestation` (use the `.sha256` file instead) |
 | [Claude Code](https://claude.com/claude-code), signed in | the hands | Lydite reads Claude Code's output in a precise form, checked on 2.1.312 to 2.1.317; another version may break it |
-| Node and npm; `srt` | the wall | `sudo apt install bubblewrap socat ripgrep`, then `sudo npm install -g @anthropic-ai/sandbox-runtime`. Its current version (0.0.81) needs Node 22.12 or later; with Debian 13's Node 20, install `@anthropic-ai/sandbox-runtime@0.0.78`, the version we run. Install it outside your home folder: the wall closes your home, and an `srt` under it fails with 6028 unless a `lecture` line of the profile opens its folder. `LYDITE_SRT` names an `srt` that is not on your `PATH`. On Ubuntu 24.04 and later, see the sandbox runtime's note on AppArmor and user namespaces. With `mur = natif`, Lydite neither looks for nor runs `srt`, but the hands' commands still run in Claude Code's sandbox, which needs bubblewrap and socat according to its [sandboxing page](https://code.claude.com/docs/en/sandboxing): keep the `apt install` above, with which we ran it (Debian 13, Claude Code 2.1.317; see [Native wall](#native-wall-optional)) |
+| Node and npm; `srt` | the wall | `sudo apt install bubblewrap socat ripgrep`, then `sudo npm install -g @anthropic-ai/sandbox-runtime`. Its versions since 0.0.79 need Node 22.12 or later; with Debian 13's Node 20, install `@anthropic-ai/sandbox-runtime@0.0.78`, the version we run. Install it outside your home folder: the wall closes your home, and an `srt` under it fails with 6028 unless a `lecture` line of the profile opens its folder. `LYDITE_SRT` names an `srt` that is not on your `PATH`. On Ubuntu 24.04 and later, see the sandbox runtime's note on AppArmor and user namespaces. With `mur = natif`, Lydite neither looks for nor runs `srt`, but the hands' commands still run in Claude Code's sandbox, which needs bubblewrap and socat according to its [sandboxing page](https://code.claude.com/docs/en/sandboxing): keep the `apt install` above, with which we ran it (Debian 13, Claude Code 2.1.317; see [Native wall](#native-wall-optional)) |
 | a target repository | the work | on GitHub, with a branch you may push to, a CI that runs on pull requests, and a proof command that is green today |
 
 **Install.** Download the archive, verify it was built by this repository's GitHub Actions, and put the binary on your
@@ -177,7 +184,7 @@ your own account or provider key: even looking at a plan runs one hand.
 
 ```bash
 gh release download --repo aoricloud/lydite --pattern 'lydite-*-linux-x86_64.tar.gz*'
-gh attestation verify lydite-*-linux-x86_64.tar.gz --repo aoricloud/lydite    # or: sha256sum -c lydite-*.tar.gz.sha256
+gh attestation verify lydite-*-linux-x86_64.tar.gz --repo aoricloud/lydite    # gh 2.67 or later; or, integrity only: sha256sum -c lydite-*.tar.gz.sha256
 tar -xzf lydite-*-linux-x86_64.tar.gz
 mkdir -p ~/.local/bin && install -m 755 lydite-*-linux-x86_64/lydite lydite-*-linux-x86_64/lydite-reseau ~/.local/bin/
 ```
@@ -321,7 +328,7 @@ with its `.sha256` file), unzip it, and put `lydite.exe` on your `PATH`.
 - The native wall (`mur = natif`), Linux only: it holds the wall check and the replay of your proof, not yet the
   hands' commands, which stay under Claude Code's sandbox. srt stays the default.
 - Providers: we run Claude and DeepSeek. The format allows others; we have not run them.
-- Anyone but us: Lydite has only run on our own three repositories.
+- Anyone but us: Lydite has only run on our own four repositories.
 
 **Not there yet:** a start guide replayed on a fresh machine; reference pages for profiles, plans and the thread;
 binaries for macOS and ARM; a judge for tests that prove nothing.
@@ -417,6 +424,9 @@ never Hermes agents. Install and settings:
 
 ## Reference
 
+This README describes `main`. The latest release is [0.4.0](https://github.com/aoricloud/lydite/releases/tag/v0.4.0);
+what it does not have yet is marked *(not in 0.4.0)*.
+
 Every refusal code, with its rule, is in
 [docs/refusals.md](https://github.com/aoricloud/lydite/blob/main/docs/refusals.md). Until the other reference pages
 exist, the full format of profiles, plans and the thread is at the top of `src/coeur/profil.rs`, `src/coeur/plan.rs`
@@ -429,7 +439,7 @@ Every command exits 2 when it refuses: the refusal says its code, its rule, what
 | Command | What it does | Exits |
 |---|---|---|
 | `lydite launch` | runs a wave from an objective, a plan file (`--plan <file>`) or an issue (`--issue <n>`, with `--split`); `lydite --help` prints every form (see [Try it](#try-it)) | 0 if every task was taken, its proof replayed green and, with `--pr`, the CI green; 1 otherwise |
-| `lydite status` | says the last wave, read from the thread | 0 if it was carried through and green, or there is none; 1 if it is running or red; 2 if the thread cannot be read or a seal is broken; 3 if the launch was interrupted (see [Waiting for a wave](#waiting-for-a-wave)): what it counted is partial. For a thread written by an earlier Lydite, it does not check that the wave was sealed (a killed launch can read green): `lydite wait` does |
+| `lydite status` | says the last wave, read from the thread | 0 if it was carried through and green, or there is none; 1 if it is running or red; 2 if the thread cannot be read or a seal is broken; 3 if the launch was interrupted *(not in 0.4.0)* (see [Waiting for a wave](#waiting-for-a-wave)): what it counted is partial. For a thread written by an earlier Lydite, it does not check that the wave was sealed (a killed launch can read green): `lydite wait` does |
 | `lydite wait` | waits for a running launch, then says the last wave | see [Waiting for a wave](#waiting-for-a-wave) |
 | `lydite doctor [<profile>]` | checks this machine, and the wall when a profile is named | 0 if ready, 1 if something is missing |
 | `lydite plan [--split] <file>` | reads a plan as `launch` would, and runs nothing | 0 |
@@ -449,12 +459,13 @@ launch on the same folder is refused with 6032 (`lancer.dossier_pris`), and its 
 one or to take another folder (`LYDITE_DOSSIER`). The waves of one launch do not refuse each other. The hold is an
 operating-system file lock on `lancer.verrou` in the folder, never on the thread: a process that dies or is killed
 loses it and leaves nothing to clean. `lydite status` and `lydite accept` do not take it; `lydite status` probes it
-for an instant, without keeping it, when the last wave of the thread has no `vague.fin`. A launch that meets the
+for an instant, without keeping it, when the last wave of the thread has no `vague.fin` *(not in 0.4.0)*. A launch that meets the
 lock for an instant (the probe of `lydite status` and `lydite wait`, below) retries for about 200 ms before it refuses.
 
 ### Waiting for a wave
 
-`lydite status` returns 1 for a wave still running as well as for a red one. A launch that opens a wave writes a
+`lydite status` returns 1 for a wave still running as well as for a red one. *(Not in 0.4.0: from here to the end
+of this paragraph, and the exit 3 of `lydite wait` below.)* A launch that opens a wave writes a
 `vague.lancement` line, and one that exits writes a `vague.fin` line on the last wave it opened. When the last wave of
 the thread has its `vague.lancement` and no `vague.fin`, and no launch holds the state folder (`lydite status` probes
 the lock for an instant, and reads the thread again if it is free: a launch that wrote its end and exited in between
@@ -525,7 +536,7 @@ the way `modele` and `relance` replace its models. The profile must allow it (`e
 example `- Effort: hand: low, high; reviewer: Claude Code's default` (a role with no declared effort shows
 `Claude Code's default`).
 
-The repeatable task key `sha256 : <file> : <hash>` pins a whole file by the SHA-256 of the bytes git keeps of it (in a
+*(Not in 0.4.0.)* The repeatable task key `sha256 : <file> : <hash>` pins a whole file by the SHA-256 of the bytes git keeps of it (in a
 repository that normalizes line endings, these are not the bytes on disk); a file has one hash per plan. Lydite checks
 it itself, without a model, at the end of every attempt and on the commit it freezes, for the task that pins the file as
 for every task of the plan that touches it. The correction of a review and the retry of a red CI hold the pins of the
@@ -556,7 +567,7 @@ reviewer get the list of all lessons, one line each, the same way.
   is read from it. A fact only declared by a hand is never shown as a fact Lydite observed. Before a hand leaves, a
   `main.consigne` line says what it received: its role, the SHA-256 of the exact text sent, the SHA-256 of its system
   prompt file, and the lessons given and set aside. Both texts are kept in `consignes/<SHA-256>.txt`. For a task that
-  pins files, a `main.empreintes` line says which ones Lydite checked on the frozen commit, just before the merge;
+  pins files *(not in 0.4.0)*, a `main.empreintes` line says which ones Lydite checked on the frozen commit, just before the merge;
   `lydite status` counts them as `Files verified by SHA-256: <n>`.
 - **A sealed thread.** Before it builds the body of its PR, and again when it ends (on every exit, published or not),
   a wave writes a `vague.sceau` line: the journal's length in bytes and the SHA-256 of those bytes. The PR receipt
@@ -564,17 +575,17 @@ reviewer get the list of all lessons, one line each, the same way.
   the first one that no longer matches (its wave, its bytes) on stderr, and exits 2. A seal shows a line changed or
   removed before it. It does not show a line appended after it, nor a journal rewritten with its seals redone (the
   receipt in the PR, off the machine, keeps its own).
-- **A launch and its end.** When a launch opens a wave, it writes a `vague.lancement` line: the wave, the version of
+- **A launch and its end** *(not in 0.4.0)*. When a launch opens a wave, it writes a `vague.lancement` line: the wave, the version of
   Lydite, and the SHA-256 of the plan file (null for a wave with no plan file). When it exits, it writes a `vague.fin`
   line on the last wave it opened: the exit code of the launch. A wave with a `vague.lancement` and no `vague.fin`, once
   no launch holds the folder, is an interrupted launch (see [Waiting for a wave](#waiting-for-a-wave)).
-- **A killed proof is replayed once.** A proof killed from outside (signal 9 or 15, or exit code 137 or 143; never
+- **A killed proof is replayed once** *(not in 0.4.0)*. A proof killed from outside (signal 9 or 15, or exit code 137 or 143; never
   on Windows) is not a red proof: Lydite replays it once, and the thread says so in the first line of its `verif`,
   `proof killed (<status>), replayed once`.
 
 ### Memory (read-only)
 
-Two commands read the thread and write nothing: no file or folder is created, the lock of the state folder is not
+*(Not in 0.4.0.)* Two commands read the thread and write nothing: no file or folder is created, the lock of the state folder is not
 taken (like `lydite status`), and no hand is launched.
 
 - `lydite memory` prints an index, one line per line the reader took from the thread, in the order of the thread, and
@@ -602,7 +613,8 @@ printed on stdout, and the exit is 2. As for `lydite status`, a seal does not co
   to the diff, `PREUVE.lydite`: the wave's proof command, the commit where Lydite replayed it green, and its output
   as the journal keeps it. Its file (`remarques 2`) ends with two mandatory blocks, `rejoue` (what the replayed proof
   shows) and `non rejoue` (what the work claims and nothing replayed here shows: another platform, the network, a path
-  no test plays); the pull request body repeats the lines of the second under `Not replayed (from the review):`.
+  no test plays); the pull request body repeats the lines of the second under `Not replayed (from the review):`,
+  ten lines at most, each cut to 200 characters.
 
 ## Develop
 
