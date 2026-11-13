@@ -350,9 +350,6 @@ fn entrees_du_chemin<'a>(sortie: &'a str, chemin: &'a str, index: bool) -> impl 
 /// [`empreinte_gardee`] : `ls-files -s -z` par [`geste`], sans les remplacements d'objets que le dépôt déclare
 /// (`GIT_FORGE`), le chemin donné à git à la lettre (`GIT_LITERAL_PATHSPECS`), jamais un fichier du bac ouvert par
 /// Lydite. Elle ne juge pas le mode, que l'appelant juge.
-// raccourci : rien ne l'appelle encore hors des tests ; la tâche qui constate le rouge sur la base l'appelle, et
-// retirera l'attente
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn entree_de_l_index(bac: &Path, chemin: &str) -> Result<Option<(String, String)>, String> {
     let mut entrees = geste(bac, &["ls-files", "-s", "-z", "--", chemin]);
     entrees.envs(GIT_FORGE).env("GIT_LITERAL_PATHSPECS", "1");

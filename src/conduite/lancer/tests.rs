@@ -1852,9 +1852,10 @@ fn une_main_qui_touche_claude_n_est_pas_relancee() {
 }
 
 #[test]
-fn le_bail_couvre_la_main_ses_deux_jeux_de_preuve_et_une_marge() {
+fn le_bail_couvre_la_main_ses_quatre_jeux_de_preuve_et_une_marge() {
+    // La preuve et le rouge, chacun rejoué une fois s'il est tué.
     let profil = Profil::faux(vec!["x".into()], Duration::from_secs(30));
-    assert_eq!(duree_du_bail(&profil), profil.delai_main() + Duration::from_secs(30 + 30 + 60));
+    assert_eq!(duree_du_bail(&profil), profil.delai_main() + Duration::from_secs(4 * 30 + 60));
 }
 
 #[test]
@@ -1927,20 +1928,20 @@ fn une_main_sans_programme_est_classee_sans_faire_tomber_la_vague() {
 
 #[test]
 fn une_panique_de_main_devient_son_message() {
-    let (constat, verif, verdict) = en_message(|| panic!("boum"));
+    let (constat, verif, verdict, rouge) = en_message(|| panic!("boum"));
     assert_eq!(
-        (constat, verif, verdict.unwrap_err()),
-        (None, None, Echec::Erreur("the hand panicked: boum".to_string()))
+        (constat, verif, verdict.unwrap_err(), rouge),
+        (None, None, Echec::Erreur("the hand panicked: boum".to_string()), None)
     );
-    let (_, _, verdict) = en_message(|| panic!("boum {}", 2));
+    let (_, _, verdict, _) = en_message(|| panic!("boum {}", 2));
     assert_eq!(verdict.unwrap_err(), Echec::Erreur("the hand panicked: boum 2".to_string()));
     // Une charge ni `&str` ni `String` n'a pas de message lisible : le repli le dit, en anglais.
-    let (_, _, verdict) = en_message(|| std::panic::panic_any(1));
+    let (_, _, verdict, _) = en_message(|| std::panic::panic_any(1));
     assert_eq!(verdict.unwrap_err(), Echec::Erreur("the hand panicked: no message".to_string()));
     // Sans panique, ce que la main rend passe tel quel, son constat compris.
     let lu = Constat { version: Some("2.1.312".into()), mur_actif: Some(false), ..Constat::default() };
     let pris = Ok(Pris { sortie: "fait".into(), prouve: true });
-    let (constat, verif, verdict) = en_message(|| (Some(lu.clone()), Some("vert".into()), pris));
+    let (constat, verif, verdict, _) = en_message(|| (Some(lu.clone()), Some("vert".into()), pris, None));
     let pris = verdict.unwrap();
     assert_eq!(constat, Some(lu));
     assert_eq!((verif.as_deref(), pris.sortie.as_str(), pris.prouve), (Some("vert"), "fait", true));
@@ -3912,7 +3913,7 @@ mod quota {
         let modele = modele_de("deepseek-flash", jeton, 0, None);
         let constat = constat_de(Some("ANTHROPIC_API_KEY"), jeton, 0, vec![modele]);
         let pris = Pris { sortie: "PREUVE: vert".into(), prouve: true };
-        let message = Message { main: 1, tentative: 1, rendu: (Some(constat), None, Ok(pris)) };
+        let message = Message { main: 1, tentative: 1, rendu: (Some(constat), None, Ok(pris), None) };
         let (envoi, _recu) = mpsc::channel();
         thread::scope(|s| vague.recevoir(s, &envoi, message));
         let evenements = fil(&kraken);
@@ -4473,5 +4474,267 @@ mod coupure {
         let joue = jouer("erreur-erreur", vec![rouge(), rouge()]);
         assert_eq!(joue.issue.unwrap_err(), "la preuve est rouge");
         assert_eq!(joue.recu, "2 hands, 1 retry, 1 set aside");
+    }
+}
+
+/// Le rouge d'abord : Lydite rejoue la preuve sur la base plus les seuls fichiers du test (`main.rouge`). Les mains y
+/// sont des scripts `sh`, donc seulement sous Unix, comme leurs voisines.
+#[cfg(unix)]
+mod rouge {
+    use super::*;
+
+    /// La preuve de tâche des tests du rouge : elle note dans `<racine>/rejeux` le nom du bac où elle joue, puis
+    /// réussit si `condition` tient. `condition` est une commande de `sh`.
+    fn preuve_notee(racine: &Path, condition: &str) -> String {
+        format!("echo \"$(basename \"$PWD\")\" >> '{}'; {condition}", pour_sh(&racine.join("rejeux")))
+    }
+
+    /// Les bacs où la preuve a joué, dans l'ordre.
+    fn rejeux(racine: &Path) -> Vec<String> {
+        fs::read_to_string(racine.join("rejeux")).unwrap_or_default().lines().map(str::to_string).collect()
+    }
+
+    /// La condition d'une preuve qui échoue tant que `fichier` manque, et le dit.
+    fn exige(fichier: &str) -> String {
+        format!("[ -f {fichier} ] || {{ echo '{fichier} is missing'; exit 1; }}")
+    }
+
+    /// Une fausse main qui, à chaque tentative, garde sa consigne dans `<dir>/consigne-<n>.txt` (`n` vaut 1 à la
+    /// première, 2 ensuite), écrit ces fichiers (chemin, contenu d'une ligne) dans son bac, puis joue `fin`, des lignes
+    /// de `sh` qui disent ce qu'elle répond, et finit sur `PREUVE: vert`.
+    fn main_qui_ecrit(dir: &Path, fichiers: &[(&str, &str)], fin: &str) -> Vec<String> {
+        let ecrits: String = fichiers
+            .iter()
+            .map(|(chemin, contenu)| format!("mkdir -p \"$(dirname '{chemin}')\"\necho '{contenu}' > '{chemin}'\n"))
+            .collect();
+        let corps = format!(
+            "d='{}'\nn=1\nif [ -f \"$d/marque\" ]; then n=2; fi\ncat > \"$d/consigne-$n.txt\"\n: > \"$d/marque\"\n\
+             {ecrits}{fin}\necho 'PREUVE: vert'\n",
+            pour_sh(dir)
+        );
+        let script = dir.join("ecrit.sh");
+        fs::write(&script, corps).unwrap();
+        vec!["sh".into(), script.to_string_lossy().into_owned()]
+    }
+
+    /// Le plan d'une tâche `a` qui porte ces lignes `red`, sous cette preuve de tâche. La preuve de la vague passe sur
+    /// la base, comme elle le doit : `exit 0`.
+    fn plan_rouge(preuve: &str, rouges: &[&str]) -> Plan {
+        let preuve = format!("preuve : {preuve}");
+        let mut lignes = vec!["plan 1", "objectif : Corriger", "preuve : exit 0", "tache a", preuve.as_str()];
+        lignes.extend_from_slice(rouges);
+        lignes.push("    Écrire le test et le correctif");
+        plan(&lignes)
+    }
+
+    /// Les bacs et dossiers temporaires du dossier de Kraken dont le nom dit le rouge.
+    fn bacs_du_rouge(kraken: &Path) -> Vec<String> {
+        noms(&kraken.join("bacs")).into_iter().filter(|nom| nom.contains("-rouge-")).collect()
+    }
+
+    #[test]
+    fn un_test_dans_son_fichier_et_un_correctif_a_part_sont_pris_avec_leur_main_rouge() {
+        let racine = racine("rouge-pris");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let base = git(&depot, &["rev-parse", "HEAD"]);
+        let main = main_qui_ecrit(&racine, &[("test.txt", "le test"), ("fix.txt", "le correctif")], "");
+        let profil = Profil::faux(main, DELAI);
+        let plan = plan_rouge(&preuve_notee(&racine, &exige("fix.txt")), &["red : test.txt"]);
+        let (branche, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+        assemblee(&issues[0].0, &issues[0].1);
+        let branche = branche.expect("la branche d'une vague à plan");
+        let evenements = fil(&kraken);
+        // Le constat suit la fin de la tentative, dans la même suite de notes, et précède son verdict.
+        let attendu =
+            ["tâche a", "bail 1", "début 1", "fin 1 Vert Constate", "rouge", "verdict Prise Constate", "gel", "fusion"];
+        assert_eq!(histoire_de(&evenements, 1), attendu);
+        let rouges: Vec<&Evenement> = evenements.iter().filter(|e| matches!(e, Evenement::Rouge { .. })).collect();
+        let [Evenement::Rouge { vague, main, tentative, base: constatee, fichiers: du_test, verif }] = rouges[..]
+        else {
+            panic!("un seul main.rouge : {rouges:?}")
+        };
+        assert_eq!((vague.as_str(), *main, *tentative), (vague_du_fil(&kraken).as_str(), 1, 1));
+        assert_eq!(constatee, &base);
+        assert_eq!(du_test, &[format!("test.txt {}", sha_de("le test\n"))]);
+        assert!(verif.contains("fix.txt is missing"), "la fin de la sortie du rejeu rouge : {verif}");
+        // La preuve de la tâche a joué dans le bac de la main, puis dans le bac du rouge.
+        let id = vague_du_fil(&kraken);
+        let bac = format!("main-{id}-1");
+        assert_eq!(rejeux(&racine), [bac.clone(), format!("{bac}-rouge-1")]);
+        // Le bac du rouge est retiré, son dossier temporaire avec lui, et la branche de la vague a les deux fichiers.
+        assert_eq!(bacs_du_rouge(&kraken), Vec::<String>::new());
+        assert!(!temporaire_de(&kraken.join("bacs").join(format!("{bac}-rouge-1"))).unwrap().exists());
+        let worktrees = git(&depot, &["worktree", "list", "--porcelain"]);
+        assert!(worktrees.contains(&format!("{bac}\n")), "le bac de la main est encore un worktree : {worktrees}");
+        assert!(!worktrees.contains(&format!("{bac}-rouge-1")), "{worktrees}");
+        assert_eq!(fichiers(&depot, &branche), ["fix.txt", "test.txt"]);
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[test]
+    fn un_test_qui_passe_deja_sur_la_base_rougit_la_tentative_et_la_relance_recoit_le_texte() {
+        let racine = racine("rouge-vert-sur-la-base");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let profil = Profil::faux(main_qui_ecrit(&racine, &[("test.txt", "le test")], ""), DELAI);
+        let plan = plan_rouge(&preuve_notee(&racine, &exige("test.txt")), &["red : test.txt"]);
+        let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+        let attendu = "red first: the proof passes on the base plus only test.txt: this test does not fail there (a \
+                       test in the file of the fix, or in a file that the base does not compile or collect, cannot \
+                       fail on the base)";
+        assert_eq!(issues[0].1.as_ref().unwrap_err(), attendu);
+        let evenements = fil(&kraken);
+        let histoire = [
+            "tâche a",
+            "bail 1",
+            "début 1",
+            "fin 1 Rouge Constate",
+            "bail 2",
+            "début 2",
+            "fin 2 Rouge Constate",
+            "verdict Classee Constate",
+        ];
+        assert_eq!(histoire_de(&evenements, 1), histoire);
+        assert_eq!(fin_de(&evenements, 1), attendu);
+        assert!(!evenements.iter().any(|e| matches!(e, Evenement::Rouge { .. })), "rien n'a rougi : pas de note");
+        let relance = fs::read_to_string(racine.join("consigne-2.txt")).unwrap();
+        assert!(relance.contains(&format!("Tentative précédente échouée :\n{attendu}")), "{relance}");
+        assert_eq!(bacs_du_rouge(&kraken), Vec::<String>::new());
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[test]
+    fn un_test_dans_le_fichier_meme_du_correctif_ne_rougit_pas_sur_la_base_et_rougit_la_tentative() {
+        let racine = racine("rouge-meme-fichier");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        // La main écrit le test et le correctif dans un seul fichier, `fix.txt`, que le plan nomme comme son test :
+        // la base plus ce fichier fait déjà passer la preuve.
+        let profil = Profil::faux(main_qui_ecrit(&racine, &[("fix.txt", "le test et le correctif")], ""), DELAI);
+        let plan = plan_rouge(&preuve_notee(&racine, &exige("fix.txt")), &["red : fix.txt"]);
+        let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+        let erreur = issues[0].1.as_ref().unwrap_err();
+        assert!(erreur.starts_with("red first: the proof passes on the base plus only fix.txt: "), "{erreur}");
+        let evenements = fil(&kraken);
+        assert_eq!(fin_de(&evenements, 1), *erreur);
+        assert!(!evenements.iter().any(|e| matches!(e, Evenement::Rouge { .. })));
+        let relance = fs::read_to_string(racine.join("consigne-2.txt")).unwrap();
+        assert!(relance.contains(&format!("Tentative précédente échouée :\n{erreur}")), "{relance}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[test]
+    fn une_preuve_qui_depasse_son_delai_sur_la_base_rougit_la_tentative_sans_main_rouge() {
+        let racine = racine("rouge-delai");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let main = main_qui_ecrit(&racine, &[("test.txt", "le test"), ("fix.txt", "le correctif")], "");
+        let profil = Profil::faux(main, Duration::from_secs(1));
+        // Verte tout de suite dans le bac de la main, où `fix.txt` est ; sur la base, elle dort bien au-delà du délai.
+        let plan = plan_rouge("[ -f fix.txt ] || sleep 20", &["red : test.txt"]);
+        let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+        let erreur = issues[0].1.as_ref().unwrap_err();
+        let debut = "red first: the proof replayed on the base plus only test.txt did not end red by itself";
+        assert!(erreur.starts_with(debut) && erreur.contains("temps dépassé"), "{erreur}");
+        let evenements = fil(&kraken);
+        assert_eq!(fin_de(&evenements, 1), *erreur);
+        assert!(!evenements.iter().any(|e| matches!(e, Evenement::Rouge { .. })), "un délai n'est pas un rouge");
+        assert_eq!(bacs_du_rouge(&kraken), Vec::<String>::new());
+        effacer(&racine);
+    }
+
+    #[test]
+    fn declared_sans_ligne_red_rougit_la_tentative_et_rien_ne_se_rejoue_sur_la_base() {
+        let racine = racine("rouge-declared-sans-ligne");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let main =
+            main_qui_ecrit(&racine, &[("test.txt", "le test"), ("fix.txt", "le correctif")], "echo 'RED test.txt'");
+        let profil = Profil::faux(main, DELAI);
+        let plan = plan_rouge(&preuve_notee(&racine, &exige("fix.txt")), &["red : declared"]);
+        let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+        let attendu = "the plan asks red first, and the hand named no test file (`RED: <file>`)";
+        assert_eq!(issues[0].1.as_ref().unwrap_err(), attendu);
+        let evenements = fil(&kraken);
+        assert_eq!(fin_de(&evenements, 1), attendu);
+        assert!(!evenements.iter().any(|e| matches!(e, Evenement::Rouge { .. })));
+        // La preuve n'a joué que dans le bac de la main, aux deux tentatives : jamais dans un bac du rouge.
+        let id = vague_du_fil(&kraken);
+        assert_eq!(rejeux(&racine), [format!("main-{id}-1"), format!("main-{id}-1")]);
+        let consigne = fs::read_to_string(racine.join("consigne-1.txt")).unwrap();
+        assert!(consigne.contains("Name each test file at the end of your answer, one line `RED: <file>` each."));
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[test]
+    fn un_fichier_declare_au_milieu_de_la_reponse_est_pris_comme_un_fichier_nomme() {
+        let racine = racine("rouge-declared-pris");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let base = git(&depot, &["rev-parse", "HEAD"]);
+        let fin = "echo 'Voici mon travail.'\necho '  RED:  tests/test.txt '\necho 'Et la suite de ma réponse.'";
+        let main = main_qui_ecrit(&racine, &[("tests/test.txt", "le test"), ("fix.txt", "le correctif")], fin);
+        let profil = Profil::faux(main, DELAI);
+        let plan = plan_rouge(&preuve_notee(&racine, &exige("fix.txt")), &["red : declared"]);
+        let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+        assemblee(&issues[0].0, &issues[0].1);
+        let evenements = fil(&kraken);
+        let rouges: Vec<&Evenement> = evenements.iter().filter(|e| matches!(e, Evenement::Rouge { .. })).collect();
+        let [Evenement::Rouge { base: constatee, fichiers: du_test, .. }] = rouges[..] else {
+            panic!("un seul main.rouge : {rouges:?}")
+        };
+        assert_eq!((constatee, du_test), (&base, &vec![format!("tests/test.txt {}", sha_de("le test\n"))]));
+        let id = vague_du_fil(&kraken);
+        assert_eq!(rejeux(&racine), [format!("main-{id}-1"), format!("main-{id}-1-rouge-1")]);
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[test]
+    fn un_fichier_declare_hors_de_la_forme_hors_des_fichiers_ou_inchange_rougit_en_le_nommant() {
+        let cas = [
+            ("RED: /etc/hosts", "/etc/hosts", "is not a file path as `fichiers` writes it"),
+            ("RED: ../test.txt", "../test.txt", "is not a file path as `fichiers` writes it"),
+            ("RED: dehors.txt", "dehors.txt", "is outside the `fichiers` of the task"),
+            ("RED: ancien.txt", "ancien.txt", "is not a file that the hand changed"),
+        ];
+        for (ligne, fichier, quoi) in cas {
+            let attendu = format!("the test file {fichier} that the hand names (`RED: <file>`) {quoi}");
+            let attendu = attendu.as_str();
+            let racine = racine("rouge-declared-refuse");
+            let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+            // `ancien.txt` est dans la base, et la main n'y touche pas ; `dehors.txt` est hors des `fichiers` du plan.
+            ecrire(&depot, "ancien.txt", "d'avant\n");
+            git(&depot, &["add", "ancien.txt"]);
+            git(&depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ancien"]);
+            let fin = format!("echo '{ligne}'");
+            let profil = Profil::faux(main_qui_ecrit(&racine, &[("fix.txt", "le correctif")], &fin), DELAI);
+            let plan = {
+                let preuve = format!("preuve : {}", preuve_notee(&racine, &exige("fix.txt")));
+                let lignes = ["plan 1", "objectif : Corriger", "preuve : exit 0", "tache a", preuve.as_str()];
+                let suite = ["fichiers : fix.txt ancien.txt", "red : declared", "    Écrire le correctif"];
+                plan(&[&lignes[..], &suite[..]].concat())
+            };
+            let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+            assert_eq!(issues[0].1.as_ref().unwrap_err(), attendu, "{ligne}");
+            let evenements = fil(&kraken);
+            assert_eq!(fin_de(&evenements, 1), attendu, "{ligne}");
+            assert!(!evenements.iter().any(|e| matches!(e, Evenement::Rouge { .. })), "{ligne}");
+            assert_eq!(bacs_du_rouge(&kraken), Vec::<String>::new(), "{ligne}");
+            let _ = fs::remove_dir_all(&racine);
+        }
+    }
+
+    #[test]
+    fn une_tache_sans_red_ne_note_aucun_main_rouge_et_ne_rejoue_sa_preuve_qu_une_fois() {
+        let racine = racine("rouge-sans-red");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let profil = Profil::faux(main_qui_ecrit(&racine, &[("fix.txt", "le correctif")], ""), DELAI);
+        let plan = plan_rouge(&preuve_notee(&racine, &exige("fix.txt")), &[]);
+        let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+        assemblee(&issues[0].0, &issues[0].1);
+        let evenements = fil(&kraken);
+        let attendu =
+            ["tâche a", "bail 1", "début 1", "fin 1 Vert Constate", "verdict Prise Constate", "gel", "fusion"];
+        assert_eq!(histoire_de(&evenements, 1), attendu);
+        assert_eq!(rejeux(&racine), [format!("main-{}-1", vague_du_fil(&kraken))]);
+        // Sa consigne ne dit rien du rouge.
+        let consigne = fs::read_to_string(racine.join("consigne-1.txt")).unwrap();
+        assert!(!consigne.contains("Red first") && !consigne.contains("RED:"), "{consigne}");
+        let _ = fs::remove_dir_all(&racine);
     }
 }
