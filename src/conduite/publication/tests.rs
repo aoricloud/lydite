@@ -1,11 +1,13 @@
 use super::*;
+use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::fil::Verdict;
+use crate::coeur::plan::Rouge as RougeDuPlan;
 use crate::coeur::profil::Profil;
 use crate::conduite::lancer::Issues;
 use crate::conduite::tentative::Pris;
 use crate::essais::forge::{Lieu, PR, TETE, lieu, pr_vue, rendre_ci, run, statuts_du_commit, sur, tour_de_ci, vue_pr};
+use crate::essais::{depot, git, main_de_vague, main_qui_echoue, main_qui_ecrit_la_ci, ouverture, racine};
 use crate::essais::{ecrire, lancer_sur, pour_sh, script};
-use crate::essais::{git, main_de_vague, main_qui_echoue, main_qui_ecrit_la_ci, racine};
 use std::env;
 use std::fs::{self, File};
 
@@ -2050,4 +2052,215 @@ fn le_corps_porte_le_bloc_non_rejoue_de_la_relecture_dix_lignes_de_200_caractere
     assert!(non_rejoue_de_la_relecture(&notes, "autre").is_empty());
     assert!(non_rejoue_de_la_relecture(&[relecture("v", "remarques 1\n".into())], "v").is_empty());
     assert!(non_rejoue_de_la_relecture(&[relecture("v", "n'importe quoi".into())], "v").is_empty());
+}
+
+/// L'empreinte SHA-256 de ce contenu, en 64 hexadécimaux minuscules.
+fn empreinte_de(contenu: &str) -> String {
+    hex(&sha256(contenu.as_bytes()))
+}
+
+/// Un `main.rouge` de la main `main` de la vague `vague`, qui nomme ces fichiers (nom, contenu) sous l'empreinte de
+/// leur contenu ; sa sortie dit la main.
+fn rouge_de(vague: &str, main: usize, fichiers: &[(&str, &str)]) -> Evenement {
+    Evenement::Rouge {
+        vague: vague.into(),
+        main,
+        tentative: 1,
+        base: "0".repeat(40),
+        fichiers: fichiers.iter().map(|(fichier, contenu)| format!("{fichier} {}", empreinte_de(contenu))).collect(),
+        verif: format!("sortie du rejeu de la main {main}"),
+    }
+}
+
+#[test]
+fn le_rouge_tenu_garde_la_derniere_empreinte_d_un_fichier_et_lache_un_fichier_change() {
+    let racine = racine("rouge-tenu");
+    let depot = depot(&racine);
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    let t1 = sur(&depot, &base, &[("tests/t.rs", "deux"), ("sous/x.txt", "x"), ("autre.rs", "autre")], "t1");
+    let v = "1761901500000_11_0";
+    let mauvais = Evenement::Rouge {
+        vague: v.into(),
+        main: 4,
+        tentative: 1,
+        base: "0".repeat(40),
+        fichiers: vec!["autre.rs pas-une-empreinte".into()],
+        verif: String::new(),
+    };
+    let evenements = [
+        // Un premier constat de la main 2, que son dernier remplace : `vieux.rs` ne compte pas.
+        rouge_de(v, 2, &[("vieux.rs", "vieux")]),
+        rouge_de(v, 1, &[("tests/t.rs", "un")]),
+        rouge_de(v, 2, &[("tests/t.rs", "deux")]),
+        // Une main qui n'est pas assemblée, une autre vague, et une ligne qui n'est pas `<fichier> <empreinte>`.
+        rouge_de(v, 3, &[("autre.rs", "autre")]),
+        rouge_de("1761901600000_11_0", 1, &[("autre.rs", "autre")]),
+        mauvais,
+    ];
+    let assemblees = [1, 2, 4];
+    let tenus = rouges_tenus(&depot, &evenements, v, &assemblees, &t1).unwrap();
+    // Deux mains nomment `tests/t.rs` : il n'a qu'une empreinte, celle de la dernière, que git garde.
+    assert_eq!(tenus.couples, [("tests/t.rs".to_string(), empreinte_de("deux"))]);
+    // La main 1 l'a vu sous une autre empreinte que celle que git garde, et la main 4 n'a pas écrit de couple : seule
+    // la tâche 2 tient.
+    let taches: Vec<usize> = tenus.taches.iter().map(|rouge| rouge.tache).collect();
+    assert_eq!(taches, [2]);
+    assert_eq!(tenus.taches[0].fichiers, ["tests/t.rs"]);
+    assert_eq!(tenus.taches[0].verif, "sortie du rejeu de la main 2");
+    // Le dépôt visé peut être un sous-dossier de la racine : les chemins du plan restent relatifs à elle.
+    let sous = depot.join("sous");
+    assert_eq!(rouges_tenus(&sous, &evenements, v, &assemblees, &t1).unwrap(), tenus);
+    // Le fichier change après son `main.rouge` : à la tête suivante, aucun rouge ne tient plus.
+    let t2 = sur(&depot, &t1, &[("tests/t.rs", "trois")], "t2");
+    assert_eq!(rouges_tenus(&depot, &evenements, v, &assemblees, &t2).unwrap(), RougesTenus::default());
+    // Un git qui échoue est une erreur, jamais un rouge tenu : un commit inconnu, un dossier qui n'est pas un dépôt.
+    assert!(rouges_tenus(&depot, &evenements, v, &assemblees, &"0".repeat(40)).is_err());
+    let hors = racine.join("hors");
+    fs::create_dir_all(&hors).unwrap();
+    assert!(rouges_tenus(&hors, &evenements, v, &assemblees, &t1).is_err());
+    // Sans `main.rouge` à lire, git ne part pas.
+    assert_eq!(rouges_tenus(&hors, &evenements, v, &[], &t1).unwrap(), RougesTenus::default());
+    assert_eq!(rouges_tenus(&hors, &[], v, &assemblees, &t1).unwrap(), RougesTenus::default());
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn le_recu_dit_le_rouge_d_abord_avant_le_sceau_et_rien_sans_red() {
+    let v = "1761901500000_11_0";
+    let avec = Recu {
+        verifies: vec!["src/a.rs".into()],
+        rouge: Some((1, 2)),
+        sceau: Some(SceauVague::sur(v, b"fil")),
+        ..Recu::default()
+    };
+    let lignes = avec.lignes_de_pr(3);
+    let [cout, mains, effort, fichiers, rouge, sceau] = &lignes[..] else { panic!("{lignes:?}") };
+    assert_eq!((cout.as_str(), mains.as_str()), ("- Cost: unknown", "- 0 hands, 0 retries, 0 set aside"));
+    assert_eq!(effort, "- Effort: Claude Code's default");
+    assert_eq!(fichiers, "- Files verified by SHA-256: 1 of 3");
+    assert_eq!(rouge, "- Red first: 1 of 2 tasks (the proof failed on the base plus only their test files)");
+    assert!(sceau.starts_with("- Thread sealed at 3 bytes: sha256 "), "{sceau}");
+    // Sans épingle au plan, la ligne du rouge garde sa place, après l'effort.
+    let [.., effort, rouge] = &Recu { rouge: Some((0, 1)), ..Recu::default() }.lignes_de_pr(0)[..] else { panic!() };
+    assert_eq!(effort, "- Effort: Claude Code's default");
+    assert_eq!(rouge, "- Red first: 0 of 1 tasks (the proof failed on the base plus only their test files)");
+    // Un plan sans `red` garde ses lignes d'aujourd'hui, à l'octet.
+    let sans = Recu { sceau: None, ..Recu::default() }.lignes_de_pr(0);
+    assert_eq!(sans, ["- Cost: unknown", "- 0 hands, 0 retries, 0 set aside", "- Effort: Claude Code's default"]);
+    let mut recu = Recu::default();
+    recu.selon_le_plan(&plan_de_a(), &RougesTenus::default());
+    assert_eq!(recu.rouge, None);
+}
+
+#[test]
+fn les_epingles_du_rouge_d_une_correction_ne_comptent_pas_dans_les_fichiers_verifies() {
+    let (v, c1) = ("1761901500000_11_0", "1761901600000_11_0");
+    let (ha, hb) = (hache('a'), hache('b'));
+    // a épingle `src/a.rs` ; b demande son test `tests/b.rs` d'abord, que le plan n'épingle pas.
+    let texte = format!(
+        "plan 1\nobjectif : Deux fichiers\npreuve : cargo test\n\n\
+         tache a\nsha256 : src/a.rs : {ha}\n    Ecrire a\n\
+         tache b\nred : tests/b.rs\n    Ecrire b\n"
+    );
+    let plan = Plan::lire(texte.as_bytes()).unwrap();
+    let ouverte = |vague: &str, n| ouverture(vague, n, "Deux fichiers");
+    let fusion =
+        |vague: &str, main| Evenement::Fusion { vague: vague.into(), main, sha: TETE.into(), verif: "v".into() };
+    // La correction de v porte l'épingle du plan et celle du test de b, et les deux sont vérifiées sur son gel.
+    let empreintes = Evenement::Empreintes {
+        vague: c1.into(),
+        main: 1,
+        sha: TETE.into(),
+        fichiers: vec![format!("src/a.rs {ha}"), format!("tests/b.rs {hb}")],
+    };
+    let evenements = [
+        ouverte(v, 2),
+        fusion(v, 1),
+        fusion(v, 2),
+        ouverte(c1, 1),
+        Evenement::Correction { vague: c1.into(), corrige: v.into() },
+        empreintes,
+        fusion(c1, 1),
+    ];
+    let notes: Vec<fil::Note> = (1..)
+        .zip(&evenements)
+        .map(|(seq, evenement)| fil::Note {
+            seance: "s".into(),
+            seq,
+            instant: "2026-10-31T21:00:00.000Z".into(),
+            origine: "humain".into(),
+            origine_foi: Foi::Declare,
+            evenement: evenement.clone(),
+        })
+        .collect();
+    let vagues = etat(&evenements);
+    let vague = vagues.iter().find(|vague| vague.id == v).unwrap();
+    let mut recu = recu_de(&vagues, &notes, v);
+    // Avant que le plan ne parle, les deux fichiers de la correction comptent.
+    assert_eq!(recu.fichiers_verifies(), 2);
+    let tient = RougeTenu { tache: 2, fichiers: vec!["tests/b.rs".into()], verif: String::new() };
+    recu.selon_le_plan(&plan, &RougesTenus { couples: vec![("tests/b.rs".into(), hb)], taches: vec![tient] });
+    let corps_du_recu = |recu: &Recu| corps(&plan, vague, None, None, recu, &[], &[]);
+    let attendu = "\n- Files verified by SHA-256: 1 of 1\n\
+                   - Red first: 1 of 1 tasks (the proof failed on the base plus only their test files)\n\
+                   - Proof settings changed: none\n";
+    let texte = corps_du_recu(&recu);
+    assert!(texte.contains(attendu), "{texte}");
+    // Un rouge qui ne tient plus à la tête publiée ne compte pas dans `<n>`, et `<m>` reste celui du plan.
+    recu.selon_le_plan(&plan, &RougesTenus::default());
+    assert!(corps_du_recu(&recu).contains("\n- Red first: 0 of 1 tasks (the proof"), "{recu:?}");
+}
+
+#[test]
+fn la_tache_ci_porte_l_epingle_du_test_d_un_rouge_qui_tient_a_la_tete_poussee() {
+    let lieu = lieu("forge-relance-rouge");
+    let proposition = lieu.proposition();
+    let plan = plan(&[
+        "plan 1",
+        "objectif : Ecrire a et b",
+        "preuve : exit 0",
+        "tache a",
+        "    Ecrire a",
+        "tache b",
+        "depend : a",
+        "    Ecrire b",
+    ]);
+    let menee = lieu.vague_rouge(&proposition, &plan);
+    let tete = menee.tete.clone().unwrap();
+    // Lydite a constaté le rouge de a sur son fichier `main-<vague>-1.txt`, que la tête poussée garde sous cette
+    // empreinte ; le plan lu dit que a demande son test d'abord.
+    let fichier = format!("main-{}-1.txt", menee.id);
+    let Ok(Gardee::Empreinte(empreinte)) =
+        empreinte_gardee(&lieu.depot, Arbre::Commit(&tete), &fichier, BORNE_EMPREINTE)
+    else {
+        panic!("la tête garde {fichier}")
+    };
+    let rouge = Evenement::Rouge {
+        vague: menee.id.clone(),
+        main: 1,
+        tentative: 1,
+        base: lieu.base(),
+        fichiers: vec![format!("{fichier} {empreinte}")],
+        verif: "boom".into(),
+    };
+    Fil::seance(&lieu.kraken, "humain").noter(&rouge).unwrap();
+    let mut avec_red = plan.clone();
+    avec_red.taches[0].rouge = Some(RougeDuPlan::Nommes(vec![fichier.clone()]));
+    let lancee = std::cell::RefCell::new(Vec::new());
+    let verte = lieu.relance(main_de_vague(&lieu.racine), 9, vec![run("test (windows)", "completed", "success")]);
+    let relancer = |plan: &Plan, base: &str| {
+        lancee.borrow_mut().push(plan.clone());
+        verte(plan, base)
+    };
+    assert_eq!(lieu.apres_avec(&proposition, &avec_red, &menee, &relancer, Duration::from_secs(60)), ExitCode::SUCCESS);
+    // La tâche ci de la relance porte l'épingle du test, et elle n'a que celle-là.
+    let lancees = lancee.into_inner();
+    let [relance] = &lancees[..] else { panic!("une seule relance : {lancees:?}") };
+    assert_eq!(relance.taches[0].empreintes, [(fichier, empreinte)]);
+    // Le corps de la PR, lu avant la relance, dit le rouge d'abord ; le plan n'épingle rien, la ligne des fichiers
+    // vérifiés n'y est pas.
+    let corps = lieu.gh.entree(2).replace("\r\n", "\n");
+    let ligne = "- Red first: 1 of 1 tasks (the proof failed on the base plus only their test files)\n";
+    assert!(corps.contains(ligne) && !corps.contains("Files verified by SHA-256"), "{corps}");
+    let _ = fs::remove_dir_all(&lieu.racine);
 }
