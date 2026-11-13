@@ -65,7 +65,7 @@ pub(crate) struct Lieu<'a> {
 /// 4. le dossier est hors du dépôt visé (6015) ;
 /// 5. le profil : son nom (6007), son fichier (6008, 6009, 6010) ou le profil intégré du même nom, sinon inconnu
 ///    (6001) ;
-/// 6. son empreinte est celle qu'a acceptée `lydite accepter` (6011, 6012) ;
+/// 6. son empreinte est celle qu'a acceptée `lydite accepter`, le profil intégré comme un fichier (6011, 6012) ;
 /// 7. le dossier et les dossiers de connexion de Claude (`CLAUDE_CONFIG_DIR` s'il est posé, puis le `.claude` du
 ///    dossier personnel), et le dossier de configuration de gh s'il est hors du défaut (`GH_CONFIG_DIR`, sinon
 ///    `XDG_CONFIG_HOME`), s'écrivent dans une règle de permission (6023), et aucune `lecture` ne recouvre l'un d'eux

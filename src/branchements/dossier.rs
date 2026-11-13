@@ -450,39 +450,39 @@ pub(crate) fn depense_du_jour(kraken: &Path, jour: &str) -> Result<u64, Refus> {
 }
 
 /// Le profil `nom` du dossier de Kraken : son fichier, `<dossier>/profils/<nom>.profil`, lu par [`profil::lire`] avec
-/// `LYDITE_CLAUDE` ; s'il est absent, le profil intégré du même nom ; sinon le refus 6001. Un nom hors de
-/// `[A-Za-z0-9_-]` est le refus 6007, un fichier qui ne se lit pas en UTF-8 le refus 6008. Rien n'est écrit.
+/// `LYDITE_CLAUDE` ; s'il est absent, le profil intégré du même nom, dont l'empreinte acceptée se garde au même chemin
+/// que celle d'un fichier ([`Profil::avec_garde`]) ; sinon le refus 6001. Un nom hors de `[A-Za-z0-9_-]` est le refus
+/// 6007, un fichier qui ne se lit pas en UTF-8 le refus 6008. Rien n'est écrit.
 pub(crate) fn charger_dans(nom: &str, dossier: &Path) -> Result<Profil, Refus> {
     let chemin = fichier(nom, dossier)?;
     let kraken_claude = env::var("LYDITE_CLAUDE").ok();
     match (lire_fichier(nom, &chemin)?, integre(nom)) {
         (Some(texte), _) => profil::lire(nom, &texte, Some(&chemin), kraken_claude.as_deref()),
-        (None, Some(texte)) => profil::lire(nom, texte, None, kraken_claude.as_deref()),
+        (None, Some(texte)) => profil::lire(nom, texte, None, kraken_claude.as_deref())
+            .map(|profil| profil.avec_garde(chemin.with_extension("empreinte"))),
         (None, None) => Err(inconnu(nom, &chemin)),
     }
 }
 
-/// `lydite accepter <nom>` : lit et valide le fichier du profil, puis écrit son empreinte dans
-/// `<dossier>/profils/<nom>.empreinte`. Rend le texte du profil et son empreinte, que l'humain voit. C'est la fin du
-/// geste d'écrire le profil, que tout processus du compte peut faire. Refus : le nom (6007), le fichier (6008, 6009,
-/// 6010), un profil sans fichier (6013 s'il est intégré, 6001 sinon), l'écriture de l'empreinte (6006).
+/// `lydite accepter <nom>` : lit et valide le fichier du profil, ou prend le texte du profil intégré s'il n'a pas de
+/// fichier, puis écrit son empreinte dans `<dossier>/profils/<nom>.empreinte`, que le dossier `profils` manque ou
+/// non. Rend le texte du profil et son empreinte, que l'humain voit. C'est la fin du geste d'écrire le profil, que
+/// tout processus du compte peut faire. Refus : le nom (6007), le fichier (6008, 6009, 6010), un profil sans fichier
+/// ni profil intégré (6001), l'écriture de l'empreinte (6006).
 pub(crate) fn accepter(nom: &str, dossier: &Path) -> Result<(String, String), Refus> {
     let chemin = fichier(nom, dossier)?;
-    let Some(texte) = lire_fichier(nom, &chemin)? else {
-        return Err(match integre(nom) {
-            Some(_) => Refus::new(
-                Code::ProfilSansFichier,
-                format!(
-                    "the profile \"{nom}\" has no file, {} is absent: it is the built-in profile",
-                    chemin.display()
-                ),
-                format!("Run the built-in profile as it is; to change it, write {} then accept it.", chemin.display()),
-            ),
-            None => inconnu(nom, &chemin),
-        });
+    let texte = match (lire_fichier(nom, &chemin)?, integre(nom)) {
+        (Some(texte), _) => {
+            profil::lire(nom, &texte, Some(&chemin), None)?;
+            texte
+        }
+        (None, Some(texte)) => texte.to_string(),
+        (None, None) => return Err(inconnu(nom, &chemin)),
     };
-    profil::lire(nom, &texte, Some(&chemin), None)?;
     let (garde, empreinte) = (chemin.with_extension("empreinte"), empreinte(&texte));
+    if let Some(profils) = garde.parent() {
+        fs::create_dir_all(profils).map_err(|e| nommee(e, format!("creating the folder {}", profils.display())))?;
+    }
     fs::write(&garde, &empreinte).map_err(|e| nommee(e, format!("writing the fingerprint {}", garde.display())))?;
     Ok((texte, empreinte))
 }
@@ -542,7 +542,8 @@ fn inconnu(nom: &str, chemin: &Path) -> Refus {
         Code::ProfilInconnu,
         format!("unknown profile \"{nom}\": {} is absent, and no built-in profile has this name", chemin.display()),
         format!(
-            "Write {} then accept it (lydite accept {nom}), or name the built-in profile: claude.",
+            "Write {} then accept it (lydite accept {nom}), or accept the built-in profile and name it: lydite \
+             accept claude.",
             chemin.display()
         ),
     )

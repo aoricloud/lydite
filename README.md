@@ -229,6 +229,8 @@ lydite accept first       # shows the profile and accepts its fingerprint; a cha
 lydite profile first      # read-only: what Lydite understood (models, efforts, wall, ceiling, timeouts)
 ```
 
+The built-in `claude` profile (Sonnet, the wall required) needs no file, but it is accepted like the others: run `lydite accept claude` once, and again when a new Lydite version changes the built-in profile. It is your gesture as the human, never an agent's.
+
 **Look at a plan first.** Run this from your repository: it checks the wall, checks that your proof passes on the
 base, runs one hand that splits the objective into tasks, prints the plan, and stops.
 

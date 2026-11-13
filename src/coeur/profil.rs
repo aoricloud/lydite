@@ -87,8 +87,10 @@
 //!     l'humain. Une valeur nulle, négative ou mal formée est un refus de profil.
 //! - L'empreinte d'un profil est le SHA-256 des octets de son fichier. `lydite accepter <nom>` l'écrit dans
 //!   `<dossier de Kraken>/profils/<nom>.empreinte`, en 64 hexadécimaux minuscules ; `lydite lancer` refuse un profil
-//!   dont l'empreinte n'est pas celle-là. Le profil intégré a l'empreinte de son texte : elle s'inscrit au fil, sans
-//!   être gardée. Le programme désigné n'est pas empreint, pas plus que le mur : ce sont des briques externes.
+//!   dont l'empreinte n'est pas celle-là. Le profil intégré a l'empreinte de son texte, et s'accepte comme un fichier :
+//!   `lydite accepter claude` l'écrit au même chemin, et le lancement le refuse sans cet accord (6011) ou si le texte
+//!   intégré de ce binaire a changé depuis (6012). Le programme désigné n'est pas empreint, pas plus que le mur : ce
+//!   sont des briques externes.
 //!
 //! ```text
 //! # La main des corrections : Opus, Sonnet à la relance, le mur exigé.
@@ -301,6 +303,9 @@ struct Claude {
     nom: String,
     /// Le fichier du profil, `None` pour le profil intégré.
     fichier: Option<PathBuf>,
+    /// Le fichier de l'empreinte acceptée du profil intégré, `<dossier de Kraken>/profils/<nom>.empreinte` : posé par
+    /// [`Profil::avec_garde`], jamais par `lire`. `None` pour un profil en fichier, qui garde la sienne à côté de lui.
+    garde_integree: Option<PathBuf>,
     /// Le SHA-256 du fichier, ou du texte intégré, en 64 hexadécimaux minuscules.
     empreinte: String,
     programme: String,
@@ -717,13 +722,25 @@ impl Profil {
         }
     }
 
+    /// Pose le chemin de l'empreinte acceptée d'un profil intégré : `charger_dans` le tient du dossier de Kraken, où
+    /// `lydite accept` l'écrit. Sans effet sur un profil en fichier ni sur une main brute, qui gardent la leur.
+    pub(crate) fn avec_garde(mut self, garde: PathBuf) -> Profil {
+        if let Sorte::Claude(claude) = &mut self.sorte
+            && claude.fichier.is_none()
+        {
+            claude.garde_integree = Some(garde);
+        }
+        self
+    }
+
     /// Le profil a l'empreinte que l'humain a acceptée : celle de `<nom>.empreinte`, à côté de son fichier, que `lire`
-    /// lit (`None` s'il est absent), comme `preparer_dans` la lit dans le dossier de Kraken. Absente, c'est le refus
-    /// 6011 ; autre, le refus 6012, qui dit l'acceptée et la lue ; illisible, le refus 6006, que `lire` rend. Le profil
-    /// intégré et une main brute n'ont rien à garder : `lire` n'est pas appelée.
+    /// lit (`None` s'il est absent), comme `preparer_dans` la lit dans le dossier de Kraken. Le profil intégré se garde
+    /// de même, dans le fichier que [`Profil::avec_garde`] lui a posé ; sans ce chemin, il est refusé en 6011, jamais
+    /// passé en silence. Absente, c'est le refus 6011 ; autre, le refus 6012, qui dit l'acceptée et la lue ; illisible,
+    /// le refus 6006, que `lire` rend. Une main brute n'a rien à garder : `lire` n'est pas appelée.
     pub(crate) fn garder_selon(&self, lire: impl Fn(&Path) -> Result<Option<String>, Refus>) -> Result<(), Refus> {
         let Sorte::Claude(claude) = &self.sorte else { return Ok(()) };
-        let Some(fichier) = &claude.fichier else { return Ok(()) };
+        let Some(fichier) = &claude.fichier else { return self.garder_l_integre(claude, lire) };
         let (garde, nom, lue) = (fichier.with_extension("empreinte"), &claude.nom, &claude.empreinte);
         let Some(acceptee) = lire(&garde)? else {
             return Err(Refus::new(
@@ -738,6 +755,38 @@ impl Profil {
                 format!("{} a changé : empreinte acceptée « {acceptee} », empreinte lue « {lue} »", fichier.display()),
                 format!("Relis {}, puis réaccepte-le : lydite accepter {nom}.", fichier.display()),
             ));
+        }
+        Ok(())
+    }
+
+    /// [`Profil::garder_selon`] du profil intégré : son empreinte est celle de son texte, dans ce binaire ; l'accord
+    /// est celui que `lydite accept` a écrit à `garde_integree`. Sans ce chemin, le refus 6011.
+    fn garder_l_integre(
+        &self,
+        claude: &Claude,
+        lire: impl Fn(&Path) -> Result<Option<String>, Refus>,
+    ) -> Result<(), Refus> {
+        let (nom, lue) = (&claude.nom, &claude.empreinte);
+        let correction = format!(
+            "Run `lydite accept {nom}`: it shows the built-in profile and accepts it. Accept it again when a new \
+             Lydite version changes it."
+        );
+        let Some(garde) = &claude.garde_integree else {
+            let preuve = format!("the built-in profile \"{nom}\" has no known path for its accepted fingerprint");
+            return Err(Refus::new(Code::ProfilNonAccepte, preuve, correction));
+        };
+        let Some(acceptee) = lire(garde)? else {
+            let preuve =
+                format!("the built-in profile \"{nom}\" has no accepted fingerprint: {} is absent", garde.display());
+            return Err(Refus::new(Code::ProfilNonAccepte, preuve, correction));
+        };
+        if acceptee != *lue {
+            let preuve = format!(
+                "the built-in profile \"{nom}\" has changed: accepted fingerprint « {acceptee} » ({}), built-in \
+                 fingerprint « {lue} »",
+                garde.display()
+            );
+            return Err(Refus::new(Code::ProfilChange, preuve, correction));
         }
         Ok(())
     }
@@ -1268,6 +1317,7 @@ pub(crate) fn lire(
     let mut claude = Claude {
         nom: nom.into(),
         fichier: chemin.map(Path::to_path_buf),
+        garde_integree: None,
         empreinte: empreinte(texte),
         programme: kraken_claude.unwrap_or("claude").into(),
         modele: "sonnet".into(),
