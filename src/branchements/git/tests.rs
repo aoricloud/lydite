@@ -202,6 +202,94 @@ fn la_lecture_d_un_fichier_epingle_ne_lit_rien_hors_du_bac_par_un_lien_symboliqu
     let _ = fs::remove_dir_all(&dehors);
 }
 
+#[test]
+fn l_entree_de_l_index_dit_le_mode_et_l_objet_d_un_fichier_ordinaire_et_rien_d_un_absent() {
+    let dir = depot("entree-index");
+    ecrire(&dir, "a.txt", "a\n");
+    ecrire(&dir, "src/b.txt", "b\n");
+    git(&dir, &["add", "."]);
+    let objet = git(&dir, &["hash-object", "a.txt"]);
+    assert_eq!(entree_de_l_index(&dir, "a.txt"), Ok(Some(("100644".to_string(), objet.clone()))));
+    assert_eq!(objet.len(), 40, "un objet git : {objet}");
+    // Un chemin sous un dossier se lit à son nom entier ; absent, un dossier, un préfixe : aucune entrée.
+    let objet_b = git(&dir, &["hash-object", "src/b.txt"]);
+    assert_eq!(entree_de_l_index(&dir, "src/b.txt"), Ok(Some(("100644".to_string(), objet_b))));
+    for chemin in ["absent.txt", "src", "a.tx", "a.txt/b"] {
+        assert_eq!(entree_de_l_index(&dir, chemin), Ok(None), "{chemin}");
+    }
+    // Ce que git garde, pas le disque : le fichier du disque change, l'entrée de l'index reste.
+    ecrire(&dir, "a.txt", "changé\n");
+    assert_eq!(entree_de_l_index(&dir, "a.txt").unwrap().map(|(_, objet)| objet), Some(objet));
+    // Un sous-dépôt a son mode, que l'appelant juge : elle ne le juge pas.
+    let sous = "1111111111111111111111111111111111111111";
+    git(&dir, &["update-index", "--add", "--cacheinfo", &format!("160000,{sous},sous")]);
+    assert_eq!(entree_de_l_index(&dir, "sous"), Ok(Some(("160000".to_string(), sous.to_string()))));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn l_entree_de_l_index_dit_le_mode_d_un_executable_et_d_un_lien_symbolique() {
+    let dir = depot("entree-index-modes");
+    ecrire(&dir, "outil.sh", "echo\n");
+    assert!(lier(Path::new("outil.sh"), &dir.join("lien.sh")));
+    git(&dir, &["add", "."]);
+    git(&dir, &["update-index", "--chmod=+x", "outil.sh"]);
+    let objet = git(&dir, &["hash-object", "outil.sh"]);
+    assert_eq!(entree_de_l_index(&dir, "outil.sh"), Ok(Some(("100755".to_string(), objet))));
+    // Le lien : git garde le texte de sa cible, en mode 120000, et rien n'est lu de ce qu'il vise.
+    let (mode, cible) = entree_de_l_index(&dir, "lien.sh").unwrap().unwrap();
+    assert_eq!(mode, "120000");
+    assert_eq!(git(&dir, &["cat-file", "blob", &cible]), "outil.sh");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+// Sous Unix seulement, comme `la_lecture_d_un_fichier_epingle_lit_le_chemin_a_la_lettre_…` : un nom à magie de pathspec
+// ne s'inscrit pas dans l'index sous Windows.
+#[cfg(unix)]
+#[test]
+fn l_entree_de_l_index_lit_le_chemin_a_la_lettre_meme_quand_il_ressemble_a_une_magie() {
+    let dir = depot("entree-index-magie");
+    ecrire(&dir, "a.txt", "a\n");
+    ecrire(&dir, "motif.txt", "le motif\n");
+    git(&dir, &["add", "a.txt"]);
+    let motif = git(&dir, &["hash-object", "-w", "motif.txt"]);
+    git(&dir, &["update-index", "--add", "--cacheinfo", &format!("100644,{motif},:(icase)A.txt")]);
+    assert_eq!(entree_de_l_index(&dir, ":(icase)A.txt"), Ok(Some(("100644".to_string(), motif))));
+    assert_eq!(entree_de_l_index(&dir, ":(icase)a.txt"), Ok(None));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn l_entree_de_l_index_refuse_un_git_qui_echoue_ou_un_conflit() {
+    let dir = depot("entree-index-erreurs");
+    ecrire(&dir, "a.txt", "base\n");
+    git(&dir, &["add", "."]);
+    commiter(&dir);
+    // Un bac que git ne lit pas : une erreur, jamais une absence.
+    let erreur = entree_de_l_index(&dir.join("absent"), "a.txt").unwrap_err();
+    assert!(erreur.contains("ls-files"), "{erreur}");
+    // Un conflit : trois entrées (une par étape) au même chemin.
+    git(&dir, &["checkout", "-q", "-b", "autre"]);
+    ecrire(&dir, "a.txt", "autre\n");
+    commiter_tout(&dir);
+    git(&dir, &["checkout", "-q", "-"]);
+    ecrire(&dir, "a.txt", "ici\n");
+    commiter_tout(&dir);
+    let fusion = geste(&dir, &["merge", "-q", "autre"]).output().unwrap();
+    assert!(!fusion.status.success(), "la fusion devait buter sur un conflit");
+    let stages = git(&dir, &["ls-files", "-s", "a.txt"]);
+    assert_eq!(stages.lines().count(), 3, "le conflit a trois étapes : {stages}");
+    let erreur = entree_de_l_index(&dir, "a.txt").unwrap_err();
+    assert!(erreur.contains("more than one entry") && erreur.contains("\"a.txt\""), "{erreur}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Commite tout ce que le dépôt suit.
+fn commiter_tout(dir: &Path) {
+    git(dir, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-a", "-m", "x"]);
+}
+
 // Les tests du dépôt visé (ses racines, le dossier de Kraken hors de lui), à part : `depot` y nomme l'aide des tests
 // qui pose un dépôt sous une racine, pas `depot_neuf`.
 mod racines;

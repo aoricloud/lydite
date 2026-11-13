@@ -181,6 +181,89 @@ fn une_preuve_rouge_ou_plantee_ou_trop_lente_n_est_jouee_qu_une_fois() {
 }
 
 #[test]
+fn une_commande_blanche_ou_qui_ne_part_pas_finit_autre_et_une_verte_ou_rouge_finit_de_son_statut() {
+    let dir = dossier("fin-autre");
+    let profil = Profil::faux(vec!["x".into()], DELAI);
+    // Blanche : rien ne part, pas de journal, la fin est `Autre`.
+    for commande in ["", " ", "\t \r\n"] {
+        let journal = dir.join("journal.tmp");
+        let ((verif, rejeu), fin) = rejouer_et_finir(&profil, commande, &dir, &journal);
+        assert_eq!((verif, fin), (None, FinDuRejeu::Autre), "{commande:?}");
+        assert!(rejeu.unwrap_err().contains("blanche"), "{commande:?}");
+        assert!(!journal.exists(), "{commande:?} n'a pas de journal");
+    }
+    // Qui ne part pas : un bac absent, ou un journal posé sous un fichier.
+    let fichier = dir.join("fichier");
+    fs::write(&fichier, "x").unwrap();
+    for (bac, journal) in [(dir.join("absent"), dir.join("journal.tmp")), (dir.clone(), fichier.join("journal.tmp"))] {
+        let ((verif, rejeu), fin) = rejouer_et_finir(&profil, "exit 0", &bac, &journal);
+        assert_eq!((verif, fin), (None, FinDuRejeu::Autre));
+        assert!(rejeu.unwrap_err().contains("impossible"));
+    }
+    // Qui a fini d'elle-même : verte sur 0, rouge sinon, sous tous les systèmes.
+    let journal = dir.join("journal.tmp");
+    let (rejeu, fin) = rejouer_et_finir(&profil, "exit 0", &dir, &journal);
+    assert_eq!((rejeu, fin), ((Some(String::new()), Ok(())), FinDuRejeu::Verte));
+    let ((verif, rejeu), fin) = rejouer_et_finir(&profil, "exit 3", &dir, &journal);
+    assert_eq!((verif, fin), (Some(String::new()), FinDuRejeu::Rouge));
+    assert!(rejeu.unwrap_err().starts_with("vérification « exit 3 » rouge ("));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Rejoue `commande` par `rejouer_et_finir` dans un bac jetable : son rejeu, sa fin, le nombre de jeux qu'elle a
+/// comptés, et le dossier à effacer.
+#[cfg(unix)]
+fn fin_comptee(nom: &str, commande: &str, delai: Duration) -> (Rejeu, FinDuRejeu, usize, PathBuf) {
+    let (dir, bac) = bac_jetable(nom);
+    let profil = Profil::faux(vec!["x".into()], delai);
+    let (rejeu, fin) = rejouer_et_finir(&profil, commande, &bac, &dir.join("journal.tmp"));
+    let jeux = fs::read_to_string(bac.join("jeux")).unwrap_or_default().lines().count();
+    (rejeu, fin, jeux, dir)
+}
+
+#[cfg(unix)]
+#[test]
+fn le_rejeu_dit_sa_fin_par_un_type_et_rejouer_rend_ce_qu_il_rendait() {
+    // Plus de 5000 caractères : `queue` n'en garde que 4000, la fin ne se lit pas dans le texte coupé.
+    let longue = "i=0; while [ $i -lt 600 ]; do echo 0123456789; i=$((i+1)); done; exit 3";
+    let lent = Duration::from_secs(3);
+    let cas = [
+        ("fin-verte", "exit 0", DELAI, FinDuRejeu::Verte, 1),
+        ("fin-rouge", "exit 3", DELAI, FinDuRejeu::Rouge, 1),
+        ("fin-longue", longue, DELAI, FinDuRejeu::Rouge, 1),
+        ("fin-delai", "sleep 30", lent, FinDuRejeu::Delai, 1),
+    ];
+    for (nom, suite, delai, attendue, jeux_attendus) in cas {
+        let commande = commande_comptee(suite, false);
+        let (rejeu, fin, jeux, dir) = fin_comptee(nom, &commande, delai);
+        assert_eq!(fin, attendue, "{nom} : {rejeu:?}");
+        assert_eq!(jeux, jeux_attendus, "{nom}");
+        // `rejouer` rend le même rejeu que sa voisine, au texte près.
+        let (le_meme, _, autre_dir) = rejeu_compte(&format!("{nom}-rejouer"), &commande, delai);
+        assert_eq!(le_meme, rejeu, "{nom}");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&autre_dir);
+    }
+    // Le rouge long : son texte est coupé aux 4000 derniers caractères, et sa fin reste `Rouge`.
+    let (rejeu, fin, _, dir) = fin_comptee("fin-longue-texte", longue, DELAI);
+    let erreur = rejeu.1.unwrap_err();
+    assert_eq!(erreur.chars().count(), 4000, "le texte est coupé");
+    assert!(!erreur.starts_with("vérification"), "l'en-tête est coupé : {}", &erreur[..40]);
+    assert_eq!(fin, FinDuRejeu::Rouge);
+    let _ = fs::remove_dir_all(&dir);
+    // Tuée deux fois : jouée deux fois, et la fin est celle du second jeu, `Tuee`, jamais `Rouge`.
+    let (rejeu, fin, jeux, dir) = fin_comptee("fin-tuee", &commande_comptee("kill -9 $$", false), DELAI);
+    assert!(matches!(fin, FinDuRejeu::Tuee(statut) if est_tuee(&statut)), "{fin:?}");
+    assert_eq!(jeux, 2, "jouée deux fois");
+    assert!(rejeu.1.unwrap_err().contains("rouge (signal: 9"));
+    let _ = fs::remove_dir_all(&dir);
+    // Tuée puis verte au second jeu : `Verte`, la fin du second jeu.
+    let (rejeu, fin, jeux, dir) = fin_comptee("fin-tuee-verte", &commande_comptee("kill -9 $$", true), DELAI);
+    assert_eq!((rejeu.1, fin, jeux), (Ok(()), FinDuRejeu::Verte, 2));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn le_code_137_n_est_dit_tue_que_sous_unix() {
     let statut = coquille("exit 137").status().unwrap();
     assert_eq!(est_tuee(&statut), cfg!(unix));
