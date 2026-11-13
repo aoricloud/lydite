@@ -662,11 +662,17 @@ fn une_cle_de_m5_hors_de_son_domaine_blanche_ou_redite_est_refusee() {
         assert!(!refus.correction.trim().is_empty(), "{refus}");
         assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
     }
-    // Une clé inconnue d'une tâche nomme les neuf qu'une tâche connaît, et la correction aussi.
+    // Une clé inconnue d'une tâche nomme les dix qu'une tâche connaît, et la correction aussi.
     let refus = refuse_en(lire_en(&[&ENTETE[..], &["tache a", "role : critique", "    x"]].concat(), Mode::Main));
-    let liste = "(`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact` ou `sha256`)";
+    let liste = concat!(
+        "(`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256` ",
+        "ou `red`)"
+    );
     assert!(refus.preuve.ends_with(liste), "{refus}");
-    let forme = "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact` et `sha256` (les deux dernières";
+    let forme = concat!(
+        "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256` et `red` ",
+        "(les trois dernières"
+    );
     assert!(refus.correction.contains(forme), "{refus}");
 }
 
@@ -888,6 +894,108 @@ fn la_cle_sha256_blanche_a_une_correction_a_elle_comme_exact() {
         assert_eq!(refus.code, Code::PlanBlanc);
         assert!(refus.correction.contains(&format!("Write `{cle} : <file> :")), "{refus}");
         assert!(!refus.correction.contains("critique"), "{refus}");
+    }
+}
+
+#[test]
+fn la_cle_red_se_lit_dans_l_ordre_apres_critique_et_se_repete() {
+    let suite = [
+        "tache a",
+        "fichiers : src/ README.md",
+        "critique : oui",
+        "red : src/a.rs",
+        "red : README.md",
+        "    x",
+        "tache b",
+        "    y",
+    ];
+    for lue in lire_aux_deux_modes(&suite[..]) {
+        let (plan, _) = lue.lecture.unwrap();
+        let [a, b] = &plan.taches[..] else { panic!("{plan:?}") };
+        let attendu = Rouge::Nommes(vec!["src/a.rs".to_string(), "README.md".to_string()]);
+        assert_eq!(a.rouge, Some(attendu));
+        assert!(a.critique);
+        // Une tâche sans ligne `red` n'a aucun rouge.
+        assert_eq!(b.rouge, None);
+    }
+    // Sans `fichiers`, rien ne borne la tâche : le fichier se lit à la main.
+    let plan = lire_apres_entete(&["tache a", "red : tests/a.rs", "    x"]).unwrap();
+    assert_eq!(plan.taches[0].rouge, Some(Rouge::Nommes(vec!["tests/a.rs".to_string()])));
+    assert!(Plan::copies("o", None, 2).taches.iter().all(|t| t.rouge.is_none()));
+}
+
+#[test]
+fn red_declared_seule_se_lit() {
+    let suite = ["tache a", "fichiers : src/", "red : declared", "    x", "tache b", "red : src/b.rs", "    y"];
+    for lue in lire_aux_deux_modes(&suite[..]) {
+        let (plan, _) = lue.lecture.unwrap();
+        let [a, b] = &plan.taches[..] else { panic!("{plan:?}") };
+        assert_eq!(a.rouge, Some(Rouge::Declare));
+        assert_eq!(b.rouge, Some(Rouge::Nommes(vec!["src/b.rs".to_string()])));
+    }
+}
+
+#[test]
+fn la_cle_red_refusee_dit_son_code_et_sa_ligne() {
+    let (ligne, chemin, blanc) = (Code::PlanLigne, Code::PlanChemin, Code::PlanBlanc);
+    // Chaque cas : la suite du plan après l'en-tête, le code du refus, le rang dans la suite de la ligne qu'il cite.
+    let cas: Vec<(Vec<String>, Code, usize)> = vec![
+        (lignes(&["tache a", "red : src/", "    x"]), chemin, 1),
+        (lignes(&["tache a", "red : /src/a.rs", "    x"]), chemin, 1),
+        (lignes(&["tache a", "red : src/../a.rs", "    x"]), chemin, 1),
+        (lignes(&["tache a", "red : src/a rs", "    x"]), chemin, 1),
+        (lignes(&["tache a", "red : src/a.rs src/b.rs", "    x"]), chemin, 1),
+        (lignes(&["tache a", "red : src/a,rs", "    x"]), chemin, 1),
+        (lignes(&["tache a", "red : src/a\u{7}rs", "    x"]), chemin, 1),
+        (lignes(&["tache a", "red : src/.git/x", "    x"]), chemin, 1),
+        (lignes(&["tache a", "fichiers : src/", "red : doc/a.rs", "    x"]), chemin, 2),
+        (lignes(&["tache a", "fichiers : src/a.rs", "red : src/b.rs", "    x"]), chemin, 2),
+        (lignes(&["tache a", "red : src/a.rs", "red : src/a.rs", "    x"]), ligne, 2),
+        (lignes(&["tache a", "red : src/a.rs", "red : declared", "    x"]), ligne, 2),
+        (lignes(&["tache a", "red : declared", "red : src/a.rs", "    x"]), ligne, 2),
+        (lignes(&["tache a", "red : declared", "red : declared", "    x"]), ligne, 2),
+        (lignes(&["tache a", "red :", "    x"]), blanc, 1),
+        (lignes(&["tache a", "red :  \t", "    x"]), blanc, 1),
+    ];
+    let correction = "Write `red : <file>` for each test file Lydite replays alone on the base (a file as in \
+                      `fichiers`, covered by them, not a folder), or one line `red : declared` if the hand names \
+                      its test.";
+    for (suite, code, rang) in cas {
+        let suite: Vec<&str> = suite.iter().map(String::as_str).collect();
+        for lue in lire_aux_deux_modes(&suite) {
+            let refus = refuse_en(lue.lecture);
+            assert_eq!(refus.code, code, "{suite:?} : {refus}");
+            let (numero, texte) = (lue.numeros[rang], &lue.lignes[lue.numeros[rang] - 1]);
+            let debut = format!("ligne {numero} {} : ", cite(texte));
+            assert!(refus.preuve.starts_with(&debut), "la preuve devait citer la ligne {numero} : {refus}");
+            if code == blanc {
+                assert!(refus.correction.contains("Write `red : <file>`"), "{refus}");
+                assert!(refus.correction.contains("or remove the line"), "{refus}");
+                assert!(!refus.correction.contains("critique"), "{refus}");
+            } else {
+                assert_eq!(refus.correction, correction, "{refus}");
+            }
+        }
+    }
+}
+
+#[test]
+fn red_declared_avec_une_autre_ligne_red_est_refusee_dans_les_deux_ordres() {
+    // Le refus du second ordre ne vient pas du fichier : il dit que `declared` est seul.
+    for suite in [["red : src/a.rs", "red : declared"], ["red : declared", "red : src/a.rs"]] {
+        let lignes = [&ENTETE[..], &["tache a"], &suite[..], &["    x"]].concat();
+        let refus = refuse_en(lire_en(&lignes, Mode::Main));
+        assert_eq!(refus.code, Code::PlanLigne, "{refus}");
+        assert!(refus.preuve.contains("declared"), "{refus}");
+    }
+}
+
+#[test]
+fn un_fichier_red_deux_fois_dans_deux_taches_se_lit() {
+    let suite = ["tache a", "red : src/a.rs", "    x", "tache b", "red : src/a.rs", "    y"];
+    for lue in lire_aux_deux_modes(&suite[..]) {
+        let (plan, _) = lue.lecture.unwrap();
+        assert!(plan.taches.iter().all(|t| t.rouge == Some(Rouge::Nommes(vec!["src/a.rs".to_string()]))));
     }
 }
 
