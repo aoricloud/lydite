@@ -928,26 +928,38 @@ fn un_dossier_hors_git_est_refuse() {
 }
 
 #[test]
-fn accepter_un_nom_inconnu_ou_integre_est_refuse() {
+fn accepter_un_nom_inconnu_est_refuse_et_le_profil_integre_s_accepte() {
     let essai = Essai::nouveau("accepter");
     let accepter = |nom: &str| lire_refus(essai.kraken().args(["accepter", nom]));
-    // Le profil intégré n'a pas d'empreinte à garder : 6013. Un nom sans fichier ni profil intégré est inconnu : 6001.
-    let integre = accepter("claude");
-    assert_eq!(integre.code, "lydite : 6013 lancer.profil_sans_fichier");
-    assert_regle(&integre);
-    assert!(integre.preuve.contains("claude.profil") && integre.preuve.contains("built-in profile"), "{integre:?}");
+    // Un nom sans fichier ni profil intégré est inconnu : 6001, dont la correction nomme le profil intégré avec son
+    // accord.
     let inconnu = accepter("hermes");
     assert_eq!(inconnu.code, "lydite : 6001 lancer.profil_inconnu");
     assert_regle(&inconnu);
     assert!(inconnu.preuve.contains("hermes.profil"), "{inconnu:?}");
     assert!(inconnu.correction.contains("lydite accept hermes"), "{inconnu:?}");
+    assert!(
+        inconnu.correction.ends_with("or accept the built-in profile and name it: lydite accept claude."),
+        "{inconnu:?}"
+    );
     // Un nom qui sortirait de `profils` est refusé (6007) ; un dossier de Kraken qui n'est pas absolu l'est aussi
     // (6004).
     assert_eq!(accepter("../x").code, "lydite : 6007 lancer.profil_nom_refuse");
     let relatif = lire_refus(essai.kraken().args(["accepter", "claude"]).env("LYDITE_DOSSIER", "relatif"));
     assert_eq!(relatif.code, "lydite : 6004 lancer.dossier_relatif");
-    // Accepter n'écrit que l'empreinte d'un fichier qui existe : ici, rien, pas même le dossier de Kraken.
+    // Ces refus n'écrivent rien, pas même le dossier de Kraken.
     assert!(!essai.dossier.exists(), "{}", essai.dossier.display());
+    // Le profil intégré s'accepte sans fichier : le texte intégré puis son empreinte, dans la forme d'un fichier ; le
+    // dossier `profils/` neuf ne porte que cette empreinte.
+    let sortie = essai.accepter("claude");
+    assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
+    assert!(sortie.stderr.is_empty(), "{}", dit(&sortie));
+    let affiche = String::from_utf8_lossy(&sortie.stdout).into_owned();
+    let (corps, empreinte) = affiche.trim_end().rsplit_once("\nfingerprint: ").expect("l'empreinte est dite");
+    assert_eq!(empreinte, EMPREINTE_INTEGREE);
+    assert!(corps.starts_with("sorte = claude\n") && corps.ends_with("delai_preuve = 300"), "{corps}");
+    assert_eq!(noms(&essai.dossier.join("profils")), ["claude.empreinte"], "aucun fichier de profil n'est écrit");
+    assert_eq!(fs::read_to_string(essai.dossier.join("profils").join("claude.empreinte")).unwrap(), empreinte);
     essai.nettoyer();
 }
 
@@ -1017,7 +1029,9 @@ fn un_dossier_de_kraken_au_chemin_refuse_ne_lance_rien() {
     for dossier in dossiers {
         essai.dossier = dossier.clone();
         essai.profil_accepte("veille", "");
-        // Le profil de fichier, accepté, comme le profil intégré : aucun ne part.
+        let accord = essai.accepter("claude");
+        assert_eq!(accord.status.code(), Some(0), "{}", dit(&accord));
+        // Le profil de fichier, accepté, comme le profil intégré, accepté aussi : aucun ne part.
         for profil in ["veille", "claude"] {
             let refus = lire_refus(essai.kraken().args(["lancer", profil, OBJECTIF, "--verifier", VERIFIER]));
             assert_eq!(refus.code, "lydite : 6023 lancer.dossier_chemin_refuse", "{profil} dans {}", dossier.display());
@@ -1059,8 +1073,12 @@ fn rangees_du_profil(essai: &Essai, nom: &str) -> Vec<String> {
 }
 
 #[test]
-fn lydite_profil_dit_le_profil_integre_sans_rien_ecrire() {
+fn lydite_profil_dit_le_profil_integre_accepte_sans_rien_ecrire() {
     let essai = Essai::nouveau("profil-integre");
+    // Le profil intégré se dit comme tout profil : une fois accepté (`lydite accept claude`), pas avant.
+    let accord = essai.accepter("claude");
+    assert_eq!(accord.status.code(), Some(0), "{}", dit(&accord));
+    let garde = essai.dossier.join("profils").join("claude.empreinte");
     let attendu = [
         "profile: claude (built-in)",
         "fingerprint: 7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5",
@@ -1075,8 +1093,11 @@ fn lydite_profil_dit_le_profil_integre_sans_rien_ecrire() {
         "proof timeout: 300 s",
     ];
     assert_eq!(rangees_du_profil(&essai, "claude"), attendu);
-    // Lecture seule : le dossier de Kraken, que l'essai n'a pas créé, n'existe toujours pas (ni profil, ni fil).
-    assert!(!essai.dossier.exists(), "lydite profil a créé {}", essai.dossier.display());
+    // Lecture seule : le dossier de Kraken ne porte que `profils/`, que l'accord y a posé, avec la seule empreinte
+    // acceptée, telle que l'accord l'a écrite (ni profil, ni fil).
+    assert_eq!(noms(&essai.dossier), ["profils"], "lydite profil a écrit dans {}", essai.dossier.display());
+    assert_eq!(noms(&essai.dossier.join("profils")), ["claude.empreinte"]);
+    assert_eq!(fs::read_to_string(&garde).unwrap(), EMPREINTE_INTEGREE);
     essai.nettoyer();
 }
 
@@ -1227,6 +1248,31 @@ fn un_profil_non_accepte_ne_part_pas_puis_part_une_fois_accepte() {
     assert_eq!(essai.lancer_et_verifier("veille").status.code(), Some(0));
     assert_eq!(essai.argv_recus().len(), 4, "deux tentatives de plus");
     assert!(essai.fil().contains(&format!(r#""empreinte":"{lue}""#)));
+    essai.nettoyer();
+}
+
+#[test]
+fn le_profil_integre_sans_accord_ne_part_pas_meme_a_blanc() {
+    let essai = Essai::nouveau("integre-sans-accord");
+    let garde = essai.dossier.join("profils").join("claude.empreinte");
+    // La fausse claude est le programme du profil intégré : si une main, ou le moindre appel, partait, elle écrirait
+    // `args.txt`. Sans accord, le lancement, `--split --dry-run` compris, et `lydite profile` sont refusés en 6011 à
+    // l'étape du profil, avant tout bac, tout fil et toute main.
+    let lancements: [&[&str]; 3] = [
+        &["lancer", "claude", OBJECTIF, "--verifier", VERIFIER],
+        &["lancer", "claude", OBJECTIF, "--decouper", "--observer", "--verifier", VERIFIER],
+        &["profil", "claude"],
+    ];
+    for args in lancements {
+        let refus = lire_refus(essai.kraken().env("LYDITE_CLAUDE", essai.fausse_claude()).args(args));
+        assert_eq!(refus.code, "lydite : 6011 lancer.profil_non_accepte", "{args:?} : {refus:?}");
+        assert_regle(&refus);
+        assert!(refus.preuve.contains("built-in") && refus.preuve.contains(&garde.display().to_string()), "{refus:?}");
+        assert!(refus.correction.contains("Run `lydite accept claude`"), "{refus:?}");
+        assert!(refus.correction.contains("Accept it again when a new Lydite version changes it."), "{refus:?}");
+        essai.rien_ne_part();
+        assert!(!essai.dossier.exists(), "un refus n'écrit rien : {}", essai.dossier.display());
+    }
     essai.nettoyer();
 }
 
@@ -2009,11 +2055,13 @@ fn kraken_etat_dit_le_mur() {
 const EMPREINTE_INTEGREE: &str = "7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5";
 
 #[test]
-fn le_profil_integre_part_sur_sonnet_et_s_inscrit_sans_etre_garde() {
+fn le_profil_integre_accepte_part_sur_sonnet_et_s_inscrit_avec_l_empreinte_acceptee() {
     let essai = Essai::nouveau("integre");
-    // Sans fichier, `claude` est le profil intégré, dont le programme est `LYDITE_CLAUDE` : ici la fausse claude. La
-    // main par défaut part sur Sonnet, non sur le modèle par défaut du compte (Opus), à ses deux tentatives, sans
-    // réseau.
+    // Sans fichier, `claude` est le profil intégré, dont le programme est `LYDITE_CLAUDE` : ici la fausse claude. Il
+    // part une fois accepté. La main par défaut part sur Sonnet, non sur le modèle par défaut du compte (Opus), à ses
+    // deux tentatives, sans réseau.
+    let accord = essai.accepter("claude");
+    assert_eq!(accord.status.code(), Some(0), "{}", dit(&accord));
     let (allow, deny) = regles(&essai, &[], &[], &PRET);
     for (n, resultat) in [(1, ECHEC), (2, REUSSITE)] {
         essai.repondre(n, &reponses(&essai, "claude-sonnet-5-5", true, &[], true, &allow, &deny));
@@ -2024,7 +2072,8 @@ fn le_profil_integre_part_sur_sonnet_et_s_inscrit_sans_etre_garde() {
     assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
     let reglages = essai.reglages_attendus(true, &[], &[], &allow, &deny);
     assert_eq!(essai.argv_recus(), [argv_attendu("sonnet", None, &reglages), argv_attendu("sonnet", None, &reglages)]);
-    // Le lancement inscrit le profil intégré avec l'empreinte de son texte, jamais gardée : aucun profil n'a été écrit.
+    // Le lancement inscrit le profil intégré avec l'empreinte de son texte, celle que l'accord a gardée : aucun fichier
+    // de profil n'a été écrit.
     let fil = essai.fil();
     let lancements = lignes_de(&fil, "main.lancement");
     assert_eq!(lancements.len(), 2);
@@ -2032,11 +2081,8 @@ fn le_profil_integre_part_sur_sonnet_et_s_inscrit_sans_etre_garde() {
     for ligne in lancements {
         assert!(ligne.contains(&integre), "{ligne}");
     }
-    assert_eq!(
-        noms(&essai.dossier),
-        ["bacs", "consignes", "fil.jsonl", "lancer.verrou"],
-        "ni profil ni empreinte n'est écrit"
-    );
+    assert_eq!(noms(&essai.dossier), ["bacs", "consignes", "fil.jsonl", "lancer.verrou", "profils"]);
+    assert_eq!(noms(&essai.dossier.join("profils")), ["claude.empreinte"], "aucun fichier de profil n'est écrit");
     essai.nettoyer();
 }
 

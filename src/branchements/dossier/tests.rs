@@ -207,13 +207,9 @@ fn l_empreinte_garde_le_profil() {
     assert_eq!(charger_dans("veille", &dossier).unwrap().garder(), Ok(()));
     fs::write(&garde, format!("{lue}\n")).unwrap();
     assert_eq!(charger_dans("veille", &dossier).unwrap().garder(), Ok(()));
-    // L'intégré n'en demande pas, et ne s'accepte pas (6013) ; un nom sans fichier ni intégré est inconnu (6001).
-    assert_eq!(charger_dans("claude", &dossier).unwrap().garder(), Ok(()));
-    let refus = accepter("claude", &dossier).unwrap_err();
-    assert_eq!(refus.code, Code::ProfilSansFichier);
-    assert!(refus.preuve.contains("claude.profil"), "{refus}");
+    // Un nom sans fichier ni intégré est inconnu (6001), et rien n'est écrit pour lui.
     assert_eq!(accepter("absent", &dossier).unwrap_err().code, Code::ProfilInconnu);
-    assert!(!dossier.join("profils").join("claude.empreinte").exists());
+    assert!(!dossier.join("profils").join("absent.empreinte").exists());
     // Un profil faux, ou un nom faux, ne s'accepte pas, et rien n'est écrit.
     fs::write(dossier.join("profils").join("faux.profil"), "sorte = claude\nbudget = 5\n").unwrap();
     assert_eq!(accepter("faux", &dossier).unwrap_err().code, Code::ProfilLigneRefusee);
@@ -231,6 +227,72 @@ fn l_empreinte_garde_le_profil() {
         assert!(refus.preuve.contains(&garde.display().to_string()), "{refus}");
     }
     let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn le_profil_integre_s_accepte_comme_un_fichier_dans_un_dossier_neuf() {
+    let parent = racine("integre-accord");
+    // Un dossier d'état neuf : ni lui ni `profils/` n'existent.
+    let dossier = parent.join("kraken");
+    let garde = dossier.join("profils").join("claude.empreinte");
+    let texte_integre = integre("claude").unwrap();
+    let attendue = hex(&sha256(texte_integre.as_bytes()));
+    // Avant l'accord : 6011, dont la preuve nomme le profil intégré et le chemin de l'empreinte, et rien n'est écrit.
+    let refus = charger_dans("claude", &dossier).unwrap().garder().unwrap_err();
+    assert_eq!(refus.code, Code::ProfilNonAccepte);
+    assert!(refus.preuve.contains("built-in profile"), "{refus}");
+    assert!(refus.preuve.contains(&garde.display().to_string()), "{refus}");
+    assert_eq!(
+        refus.correction,
+        "Run `lydite accept claude`: it shows the built-in profile and accepts it. Accept it again when a new Lydite \
+         version changes it."
+    );
+    assert!(!dossier.exists(), "charger et garder n'écrivent rien : {}", dossier.display());
+    // L'accord rend le texte intégré et son empreinte, crée `profils/` et y écrit l'empreinte, comme pour un fichier.
+    let (texte, empreinte_acceptee) = accepter("claude", &dossier).unwrap();
+    assert_eq!((texte.as_str(), &empreinte_acceptee), (texte_integre, &attendue));
+    assert_eq!(fs::read_to_string(&garde).unwrap(), attendue);
+    assert!(dossier.join("profils").is_dir());
+    assert!(!dossier.join("profils").join("claude.profil").exists(), "aucun fichier de profil n'est écrit");
+    // Il passe, et garde sa provenance : le profil intégré, non un fichier.
+    let profil = charger_dans("claude", &dossier).unwrap();
+    assert_eq!(profil.garder(), Ok(()));
+    assert_eq!(profil.rangees()[0], "profile: claude (built-in)");
+    // Une empreinte gardée autre que celle du texte intégré de ce binaire : 6012, qui dit les deux.
+    fs::write(&garde, "0".repeat(64)).unwrap();
+    let refus = charger_dans("claude", &dossier).unwrap().garder().unwrap_err();
+    assert_eq!(refus.code, Code::ProfilChange);
+    assert!(refus.preuve.contains(&"0".repeat(64)) && refus.preuve.contains(&attendue), "{refus}");
+    assert!(refus.preuve.contains(&garde.display().to_string()), "{refus}");
+    assert!(refus.correction.starts_with("Run `lydite accept claude`"), "{refus}");
+    // Réaccepté, il repasse.
+    accepter("claude", &dossier).unwrap();
+    assert_eq!(charger_dans("claude", &dossier).unwrap().garder(), Ok(()));
+    // Un `claude.profil` présent reprend la règle d'un fichier : son texte, son empreinte, la correction d'un fichier.
+    let fichier_claude = dossier.join("profils").join("claude.profil");
+    fs::write(&fichier_claude, "sorte = claude\nmodele = haiku\n").unwrap();
+    let refus = charger_dans("claude", &dossier).unwrap().garder().unwrap_err();
+    assert_eq!(refus.code, Code::ProfilChange, "l'empreinte gardée est celle de l'intégré, non du fichier");
+    assert!(refus.preuve.contains("claude.profil"), "{refus}");
+    assert!(refus.correction.contains("lydite accepter claude") && !refus.correction.contains("built-in"), "{refus}");
+    let (texte, fichier_empreinte) = accepter("claude", &dossier).unwrap();
+    assert_eq!(texte, "sorte = claude\nmodele = haiku\n");
+    assert_ne!(fichier_empreinte, attendue);
+    assert_eq!(charger_dans("claude", &dossier).unwrap().garder(), Ok(()));
+    effacer(&parent);
+}
+
+#[test]
+fn accepter_le_profil_integre_dont_l_ecriture_rate_est_le_refus_6006() {
+    let parent = racine("integre-ecriture");
+    // `profils` est un fichier : le dossier ne se crée pas, et l'empreinte ne s'écrit pas.
+    let dossier = parent.join("kraken");
+    fs::create_dir_all(&dossier).unwrap();
+    fs::write(dossier.join("profils"), "pas un dossier").unwrap();
+    let refus = accepter("claude", &dossier).unwrap_err();
+    assert_eq!(refus.code, Code::EntreeSortie);
+    assert!(refus.preuve.contains(&dossier.join("profils").display().to_string()), "{refus}");
+    effacer(&parent);
 }
 
 #[test]

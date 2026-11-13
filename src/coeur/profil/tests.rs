@@ -2050,14 +2050,41 @@ fn le_programme_du_fichier_l_emporte_sur_kraken_claude() {
 #[test]
 fn l_empreinte_du_profil_integre_est_celle_de_son_texte_ecrite_a_la_main() {
     // Le SHA-256 du texte intégré, calculé hors du code : printf 'sorte = claude\nmodele = sonnet\nrelance = sonnet\n
-    // mur = exige\ndelai_main = 3600\ndelai_preuve = 300\n' | sha256sum. Elle s'inscrit au fil, jamais gardée.
+    // mur = exige\ndelai_main = 3600\ndelai_preuve = 300\n' | sha256sum. Elle s'inscrit au fil, et l'accord de l'humain
+    // porte sur elle.
     let dossier = kraken("integre-empreinte");
     let profil = charger_dans("claude", &dossier).unwrap();
     let attendue = "7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5";
     assert_eq!(claude(&profil).empreinte, attendue);
-    assert_eq!(profil.garder(), Ok(()), "le profil intégré n'a rien à garder");
+    // Sans accord : refusé en 6011, et la lecture seule n'écrit rien.
+    assert_eq!(profil.garder().unwrap_err().code, Code::ProfilNonAccepte);
     assert!(!dossier.join("profils").join("claude.empreinte").exists());
+    // Avec l'empreinte écrite à la main, celle de l'attendue, le profil passe ; une autre est le refus 6012.
+    fs::create_dir_all(dossier.join("profils")).unwrap();
+    let garde = dossier.join("profils").join("claude.empreinte");
+    fs::write(&garde, format!("{attendue}\n")).unwrap();
+    assert_eq!(profil.garder(), Ok(()));
+    fs::write(&garde, "0".repeat(64)).unwrap();
+    assert_eq!(profil.garder().unwrap_err().code, Code::ProfilChange);
     let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn un_profil_integre_dont_le_chemin_de_l_empreinte_est_inconnu_est_refuse_en_6011() {
+    // Lu sans `avec_garde` : même si la lecture rendait l'empreinte exacte du texte intégré, le profil ne passe pas en
+    // silence, et la lecture n'est pas même demandée.
+    let profil = lire("claude", integre("claude").unwrap(), None, None).unwrap();
+    let exacte = claude(&profil).empreinte.clone();
+    let refus = profil.garder_selon(|_| panic!("aucun chemin à lire")).unwrap_err();
+    assert_eq!(refus.code, Code::ProfilNonAccepte);
+    assert!(refus.preuve.contains("built-in") && refus.preuve.contains("claude"), "{refus}");
+    // Le chemin posé, la même lecture exacte passe : le refus tenait bien au chemin.
+    let garde = profil.avec_garde(PathBuf::from("/srv/profils/claude.empreinte"));
+    let lue = |chemin: &Path| {
+        assert_eq!(chemin, Path::new("/srv/profils/claude.empreinte"));
+        Ok(Some(exacte.clone()))
+    };
+    assert_eq!(garde.garder_selon(lue), Ok(()));
 }
 
 #[test]

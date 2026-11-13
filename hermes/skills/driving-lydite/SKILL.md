@@ -39,8 +39,10 @@ Have all of these. If one is missing, ask the user for it; do not invent it.
 3. **The proof**: the command that shows the work done, for example `cargo test && cargo clippy -- -D warnings`.
    It is the user's command, not yours. It must pass on the untouched base, or Lydite starts nothing. A plan carries
    its own `preuve :` line, so no proof is given with a plan.
-4. **The profile** is optional: the default is the plugin's setting. A profile works only after a human accepted it
-   with `lydite accept <name>`. You cannot accept one, so do not try. Never ask for an API key in the chat.
+4. **The profile** is optional: the default is the plugin's setting. Any profile, the built-in `claude` included, works
+   only after a human accepted it with `lydite accept <name>` (`lydite accept claude` for the built-in one, and again
+   when a new Lydite version changes it). You cannot accept one, so do not try: on a refusal 6011 or 6012, quote the
+   refusal and ask the human to run that command. Never ask for an API key in the chat.
 
 ## Launch
 

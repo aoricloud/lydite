@@ -36,7 +36,8 @@ workflow, which is why GitHub shows it merged by `github-actions[bot]`.
 - **`git`, `gh` signed in** (2.67 or later for `gh attestation`), **Claude Code signed in**, and **`srt`** for the
   wall: [the table in Lydite's README](https://github.com/aoricloud/lydite#try-it) says how to install each.
 - **A Lydite profile, written and accepted by a human** ([A profile](https://github.com/aoricloud/lydite#a-profile),
-  then `lydite accept <name>`). The plugin never accepts one.
+  then `lydite accept <name>`; the built-in `claude` profile is accepted too, by `lydite accept claude`). The plugin
+  never accepts one.
 - Hermes `>= 0.23.0`.
 
 Without the binary, an accepted profile or `srt`, a launch is refused before anything starts, and the answer says
@@ -165,7 +166,7 @@ hermes config set tools.tool_search.enabled off
 | Setting | Meaning |
 | --- | --- |
 | `binaire` | Absolute path of the Lydite binary. Empty: the first `lydite` on PATH. |
-| `profil` | Default Lydite profile (default `claude`, Claude Code's own login). |
+| `profil` | Default Lydite profile (default `claude`, Claude Code's own login; the built-in profile is accepted too, by `lydite accept claude`). |
 | `cle_nom` | Name of the environment variable the profile's `cle` line names (e.g. a provider key). Empty: no key is passed. |
 | `cle` (secret `LYDITE_CLE_FOURNISSEUR`) | The provider key itself, set through Hermes. Read with `agent.secret_scope.get_secret`, handed only to the Lydite process. |
 

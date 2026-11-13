@@ -344,30 +344,28 @@ fn le_dossier_de_kraken_est_hors_du_depot_et_s_ecrit_dans_une_regle() {
     assert!(refus.correction.contains("LYDITE_DOSSIER"), "{refus:?}");
     assert_eq!(noms(&depot), [".git"]);
     // Hors du dépôt, mais à un chemin qu'une règle de permission ne sait pas écrire (une parenthèse) : le refus 6023,
-    // qui nomme le chemin, avant tout bac.
+    // qui nomme le chemin, avant tout bac. Il vient après l'accord du profil intégré : sans lui, c'est le refus 6011.
     let parent = neuf("regle-parent");
     let rare = parent.join("k(1)");
+    assert_eq!(lire_refus(kraken_dans(&rare, &depot).args(ligne)).code, "lydite : 6011 lancer.profil_non_accepte");
+    let accord = kraken_dans(&rare, &depot).args(["accept", "claude"]).output().unwrap();
+    assert_eq!(accord.status.code(), Some(0), "{accord:?}");
     let refus = lire_refus(kraken_dans(&rare, &depot).args(ligne));
     assert_eq!(refus.code, "lydite : 6023 lancer.dossier_chemin_refuse");
     assert_regle(&refus);
     assert!(refus.preuve.contains("k(1)"), "la preuve nomme le chemin : {refus:?}");
     assert!(refus.correction.contains("LYDITE_DOSSIER"), "{refus:?}");
-    assert_eq!(noms(&parent), Vec::<String>::new(), "rien n'est posé");
+    assert_eq!(noms(&rare), ["profils"], "rien n'est posé que l'accord : ni bac, ni fil");
     for dir in [&depot, &parent] {
         let _ = fs::remove_dir_all(dir);
     }
 }
 
 #[test]
-fn accepter_refuse_ce_qui_n_a_pas_de_fichier() {
+fn accepter_refuse_ce_qui_n_a_ni_fichier_ni_profil_integre_et_accepte_le_profil_integre() {
     let (depot, dossier) = (depot_git("sans-fichier-depot"), neuf("sans-fichier-lydite"));
     let accepter = |nom: &str| lire_refus(kraken_dans(&dossier, &depot).args(["accepter", nom]));
-    // Le profil intégré n'a pas d'empreinte à garder (6013) ; un nom sans fichier ni profil intégré est inconnu (6001)
-    // ; un nom qui sortirait de `profils` est refusé (6007).
-    let integre = accepter("claude");
-    assert_eq!(integre.code, "lydite : 6013 lancer.profil_sans_fichier");
-    assert_regle(&integre);
-    assert!(integre.preuve.contains("claude.profil"), "la preuve nomme le fichier attendu : {integre:?}");
+    // Un nom sans fichier ni profil intégré est inconnu (6001) ; un nom qui sortirait de `profils` est refusé (6007).
     assert_eq!(accepter("hermes").code, "lydite : 6001 lancer.profil_inconnu");
     assert_eq!(accepter("../x").code, "lydite : 6007 lancer.profil_nom_refuse");
     // Une ligne mal formée : un nom, rien d'autre ; un dossier de Kraken relatif est refusé avant de lire quoi que ce
@@ -377,8 +375,20 @@ fn accepter_refuse_ce_qui_n_a_pas_de_fichier() {
     assert_usage(&lire_refus(kraken().args(["accepter", "a", "b"])));
     let relatif = refus(kraken().args(["accepter", "claude"]).env("LYDITE_DOSSIER", "relatif"));
     assert_eq!(relatif, "lydite : 6004 lancer.dossier_relatif");
-    // Rien n'est créé : accepter ne pose que l'empreinte d'un fichier qui existe.
+    // Rien n'est créé par ces refus.
     assert_eq!(noms(&dossier), Vec::<String>::new());
+    // Le profil intégré s'accepte comme un fichier, sans fichier : il montre son texte et son empreinte, dans la forme
+    // d'un fichier, crée `profils/` et y écrit l'empreinte, que le SHA-256 du texte intégré donne : celui de
+    // `printf '<le texte, fin de ligne comprise>' | sha256sum`.
+    let texte = "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = exige\ndelai_main = 3600\ndelai_preuve = 300";
+    let empreinte = "7f53bd77a8516da1e12af702da88b79f0caa1807316b0a5352e29b190b5eb3b5";
+    let sortie = kraken_dans(&dossier, &depot).args(["accepter", "claude"]).output().unwrap();
+    assert_eq!(sortie.status.code(), Some(0), "{sortie:?}");
+    assert!(sortie.stderr.is_empty(), "{sortie:?}");
+    assert_eq!(String::from_utf8_lossy(&sortie.stdout), format!("{texte}\nfingerprint: {empreinte}\n"));
+    assert_eq!(noms(&dossier), ["profils"]);
+    assert_eq!(noms(&dossier.join("profils")), ["claude.empreinte"], "aucun fichier de profil n'est écrit");
+    assert_eq!(fs::read_to_string(dossier.join("profils").join("claude.empreinte")).unwrap(), empreinte);
     for dir in [&depot, &dossier] {
         let _ = fs::remove_dir_all(dir);
     }

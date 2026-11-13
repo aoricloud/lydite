@@ -124,8 +124,11 @@ fn kraken(racine: &Path, args: &[&str]) -> Output {
         .unwrap()
 }
 
-/// `lydite lancer claude --plan plan.txt --depot depot --pr <branche>`, joué dans la racine.
+/// `lydite lancer claude --plan plan.txt --depot depot --pr <branche>`, joué dans la racine, une fois le profil intégré
+/// accepté (`lydite accept claude`, le geste de l'humain) : ces essais portent sur ce qui vient après l'accord.
 fn lancer_la_pr(racine: &Path, branche: &str) -> Output {
+    let accord = kraken(racine, &["accept", "claude"]);
+    assert_eq!(accord.status.code(), Some(0), "{}", String::from_utf8_lossy(&accord.stderr));
     kraken(racine, &["lancer", "claude", "--plan", "plan.txt", "--depot", "depot", "--pr", branche])
 }
 
@@ -151,8 +154,9 @@ fn rien_n_est_parti(racine: &Path) {
     let restes: Vec<_> = fs::read_dir(&kraken)
         .map(|entrees| entrees.map(|entree| entree.unwrap().file_name()).collect())
         .unwrap_or_default();
-    // Le dossier `bacs/` vide que laisse l'épreuve du mur est toléré.
-    assert!(restes.is_empty() || restes == ["bacs"], "le dossier de Lydite reste vide : {restes:?}");
+    // Le dossier `bacs/` vide que laisse l'épreuve du mur est toléré, et `profils/`, où l'accord du profil intégré a
+    // écrit son empreinte avant le lancement : ni fil ni autre chose.
+    assert!(restes.iter().all(|reste| reste == "bacs" || reste == "profils"), "rien d'autre : {restes:?}");
     let bacs = fs::read_dir(kraken.join("bacs")).map_or(0, Iterator::count);
     assert_eq!(bacs, 0, "aucun bac ne reste");
     assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "", "ni branche");

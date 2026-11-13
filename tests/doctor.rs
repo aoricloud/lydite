@@ -190,6 +190,45 @@ fn doctor_d_un_profil_dit_le_refus_avant_accepter_et_sort_en_0_apres() {
     }
 }
 
+#[test]
+fn doctor_du_profil_integre_dit_le_refus_et_la_commande_avant_accepter_claude() {
+    let (dir, (dossier, court)) = (neuf("integre"), dossier_de_lydite("integre"));
+    let depot = dir.join("depot");
+    fs::create_dir_all(&depot).unwrap();
+    git(&depot, &["init", "-q"]);
+    git(&depot, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    let doctor = || {
+        let mut commande = kraken();
+        avec_les_faux(commande.current_dir(&depot).env("LYDITE_DOSSIER", &dossier), &dir);
+        commande
+    };
+    // Sans `claude.profil`, le profil intégré se lit, mais son empreinte n'est pas acceptée : comme un fichier, le
+    // refus 6011, dont la correction donne la commande à jouer.
+    let (lignes, code) = jouer(doctor().args(["doctor", "claude"]));
+    assert_eq!(code, 1, "{lignes:?}");
+    assert!(lignes.contains(&"missing profile: claude, refusal 6011".to_string()), "{lignes:?}");
+    assert!(
+        lignes.iter().any(|ligne| ligne.trim_start().starts_with("fix: Run `lydite accept claude`: ")),
+        "{lignes:?}"
+    );
+    let verdict = format!("not ready: {} missing", 1 + usize::from(!court));
+    assert_eq!(lignes.last(), Some(&verdict), "{lignes:?}");
+    // `doctor` n'écrit rien : le dossier `profils` n'existe toujours pas.
+    assert!(!dossier.join("profils").exists(), "doctor a écrit dans {}", dossier.display());
+    // Accepté, ce n'est plus le refus 6011 ; sous Linux, rien d'autre ne manque au profil, et `doctor` le dit prêt.
+    let accepter = doctor().args(["accepter", "claude"]).output().unwrap();
+    assert!(accepter.status.success(), "{}", String::from_utf8_lossy(&accepter.stderr));
+    let (lignes, _) = jouer(doctor().args(["doctor", "claude"]));
+    assert!(!lignes.iter().any(|ligne| ligne.starts_with("missing profile: claude, refusal 6011")), "{lignes:?}");
+    if cfg!(unix) {
+        let pret = "ok profile: claude accepted, ready to launch here, wall checked".to_string();
+        assert!(lignes.contains(&pret), "{lignes:?}");
+    }
+    for dir in [&dir, &dossier] {
+        fs::remove_dir_all(dir).unwrap();
+    }
+}
+
 // Le mur natif n'existe que sous Linux, et srt n'y tient pas sous Windows : `doctor` y dit « skipped srt » pour tout
 // profil. Ce test, qui attend `missing srt` pour le profil `mur = exige`, ne se joue que là où le mur existe.
 #[cfg(unix)]

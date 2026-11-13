@@ -70,13 +70,16 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
     assert_eq!(code("veille", &depot, &kraken), Code::ProfilChange);
     dossier::accepter("veille", &kraken).unwrap();
     // Puis `borner` : un dossier qu'une règle de permission ne sait pas écrire (6023), et une lecture qui recouvre
-    // le dossier de Kraken (6009). Le profil intégré n'a pas d'empreinte à garder, mais le chemin le refuse aussi.
+    // le dossier de Kraken (6009). Le profil intégré s'accepte comme un fichier : sans accord il est refusé en 6011,
+    // avant le chemin ; une fois accepté, le chemin le refuse aussi.
     let rare = racine.join("k(1)");
     fs::create_dir_all(rare.join("profils")).unwrap();
     fs::write(rare.join("profils").join("veille.profil"), "sorte = claude\n").unwrap();
     assert_eq!(code("veille", &depot, &rare), Code::ProfilNonAccepte, "l'empreinte se garde avant le chemin");
     dossier::accepter("veille", &rare).unwrap();
     assert_eq!(code("veille", &depot, &rare), Code::DossierCheminRefuse);
+    assert_eq!(code("claude", &depot, &rare), Code::ProfilNonAccepte, "l'intégré aussi se garde avant le chemin");
+    dossier::accepter("claude", &rare).unwrap();
     assert_eq!(code("claude", &depot, &rare), Code::DossierCheminRefuse);
     // Un dossier de connexion de Claude aussi : `CLAUDE_CONFIG_DIR` relatif ou à un chemin refusé, ou un dossier
     // personnel à un chemin refusé qui garde un fichier de connexion. Sans lui, `CLAUDE_CONFIG_DIR` posé, ce dossier
@@ -97,6 +100,8 @@ fn preparer_rend_le_premier_refus_dans_son_ordre() {
     dossier::accepter("lecteur", &kraken).unwrap();
     assert_eq!(code("lecteur", &depot, &kraken), Code::ProfilLigneRefusee);
     // Aucun refus : le profil, le dépôt en chemin absolu et le dossier, tels quels ; le profil est borné, sa main part.
+    // Le profil intégré passe une fois accepté.
+    dossier::accepter("claude", &kraken).unwrap();
     for nom in ["claude", "veille"] {
         let pret = preparer_dans(nom, Some(&depot), kraken.clone(), Some(&config), None, Some(&personnel), None);
         let Ok((profil, visee, dossier)) = pret else { panic!("{nom} devait passer") };
@@ -141,6 +146,7 @@ fn le_dossier_de_gh_tire_de_xdg_config_home_est_ferme_a_la_main() {
     fs::create_dir_all(kraken.join("profils")).unwrap();
     let gh = dossier_de_gh(|nom| (nom == "XDG_CONFIG_HOME").then(|| xdg.clone().into_os_string()));
     assert_eq!(gh, Some(xdg.join("gh")));
+    dossier::accepter("claude", &kraken).unwrap();
     let pret =
         preparer_dans("claude", Some(&depot), kraken.clone(), Some(&config), gh.as_deref(), Some(&personnel), None);
     let Ok((profil, _, _)) = pret else { panic!("le profil intégré devait passer") };
