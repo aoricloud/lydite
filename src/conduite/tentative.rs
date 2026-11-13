@@ -4,6 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::branchements::claude::{ErreurMain, jouer, temporaire};
 use crate::branchements::srt::rejouer;
 use crate::coeur::erreur::queue;
+use crate::coeur::plan::Rouge;
 use crate::coeur::profil::{Demande, Profil};
 use crate::coeur::protocole::{Attendu, Constat};
 use crate::conduite::socle::socle;
@@ -12,9 +13,10 @@ const PREUVE: &str = "\n\nQuand tu as fini, joue toi-même le test qui prouve to
 de ta réponse est exactement PREUVE: vert si le test passe, sinon PREUVE: rouge.";
 
 /// Le plafond, en caractères, de la couche fixe d'une main de tâche, mesurée sur [`consigne`] aux pièces vides, pour
-/// chaque variante de la preuve : la plus grande, arrondie au 500 supérieur.
+/// chaque variante de la preuve et du rouge d'abord (sans `red`, fichiers nommés, `declared`) : la plus grande,
+/// arrondie au 500 supérieur.
 #[cfg(test)]
-pub(crate) const PLAFOND: usize = 1000;
+pub(crate) const PLAFOND: usize = 1500;
 
 /// Les lignes fixes que la consigne d'une main de tâche porte après l'objectif : la sortie honnête, quand aucun code
 /// honnête ne passe le test, et le périmètre des fichiers.
@@ -58,6 +60,49 @@ fn declare_impossible(texte: &str) -> Option<&str> {
     Some(reste.trim_start().strip_prefix(':')?.trim())
 }
 
+/// Les fichiers de test que la main nomme dans sa réponse, dans l'ordre, chacun une fois : une ligne par fichier,
+/// dont le début, blancs ôtés, est `RED:` ; le chemin est le reste de la ligne, blancs ôtés. Une ligne `RED:` sans
+/// chemin nomme le chemin vide, que l'appelant refuse comme tout chemin hors de la forme de `fichiers`. Une ligne
+/// qui n'est pas ainsi, ou qui a `RED:` ailleurs que dans son début, ne compte pas.
+pub(crate) fn declare_rouge(texte: &str) -> Vec<&str> {
+    let mut fichiers: Vec<&str> = Vec::new();
+    for fichier in texte.lines().filter_map(|ligne| ligne.trim().strip_prefix("RED:")).map(str::trim) {
+        if !fichiers.contains(&fichier) {
+            fichiers.push(fichier);
+        }
+    }
+    fichiers
+}
+
+/// Les lignes que la consigne d'une tâche à `red` ajoute après les épingles : ce que Lydite rejoue, sur la base plus
+/// les seuls fichiers du test, et où écrire le test pour qu'il puisse rougir.
+fn lignes_du_rouge(rouge: &Rouge) -> Vec<String> {
+    let ou_ecrire = "Write the test in its own file, apart from the fix, in a file that the base already compiles or \
+                     collects (in Rust: a module that the base declares, or a file under `tests/`): a test in the \
+                     file of the fix, or in a file that the base does not run, cannot fail on the base.";
+    let mut lignes = Vec::new();
+    match rouge {
+        Rouge::Nommes(fichiers) => {
+            lignes.push(
+                "Red first: Lydite replays the proof on the base plus only these files, and it must fail there; \
+                 then it must pass with your whole change:"
+                    .to_string(),
+            );
+            lignes.extend(fichiers.iter().cloned());
+        }
+        Rouge::Declare => {
+            lignes.push(
+                "Red first: Lydite replays the proof on the base plus only the test files you name, and it must \
+                 fail there; then it must pass with your whole change."
+                    .to_string(),
+            );
+            lignes.push("Name each test file at the end of your answer, one line `RED: <file>` each.".to_string());
+        }
+    }
+    lignes.push(ou_ecrire.to_string());
+    lignes
+}
+
 /// Un résultat pris ; `prouve` est faux quand aucune commande de vérification ne l'a rejoué.
 #[derive(Debug)]
 pub(crate) struct Pris {
@@ -79,14 +124,17 @@ pub(crate) type Juge<'a> = &'a (dyn Fn(&Path) -> Result<(), String> + Sync);
 /// Windows, sans bac à sable, Claude Code ne laisse passer un morceau prêté que seul et tel quel (`excludedCommands`),
 /// et refuse une commande qui l'enrobe.
 ///
+/// `rouge` (la clé `red` de la tâche) ajoute, après les épingles, les lignes du rouge d'abord ([`lignes_du_rouge`]).
+///
 /// `sans_a1` (le réglage `sans-a1` de la clé `mesure`, d'un banc de mesure) retire `HONNETETE` et `PERIMETRE`, et rien
-/// d'autre : la liste des fichiers, les textes exacts, `COMMIT` et la preuve restent.
+/// d'autre : la liste des fichiers, les textes exacts, le rouge, `COMMIT` et la preuve restent.
 #[allow(clippy::too_many_arguments)]
 fn consigne(
     objectif: &str,
     fichiers: Option<&[String]>,
     exacts: &[(String, String)],
     epingles: &[(String, String)],
+    rouge: Option<&Rouge>,
     verifier: Option<&str>,
     precedente: Option<&str>,
     pretee: bool,
@@ -111,6 +159,7 @@ fn consigne(
         lignes.push("These files must have exactly this SHA-256, as git stores them:".to_string());
         lignes.extend(epingles.iter().map(|(fichier, empreinte)| format!("{fichier}: {empreinte}")));
     }
+    lignes.extend(rouge.into_iter().flat_map(lignes_du_rouge));
     lignes.push(COMMIT.to_string());
     let perimetre = lignes.join("\n");
     let honnetete = if sans_a1 { String::new() } else { format!("{HONNETETE}\n\n") };
@@ -146,7 +195,8 @@ fn avec_precedente(objectif: &str, precedente: Option<&str>) -> String {
 /// l'empreinte (`main.consigne`) et les envoie à [`tenter`]. Le socle porte l'heure où la main s'arrête : son départ,
 /// pris ici, et son délai. Avec `juge`, la main est le découpeur ou le relecteur : son objectif, puis l'erreur
 /// d'avant ; sinon c'est une main de tâche, avec ses fichiers, ses textes exacts, ses épingles `sha256` (un couple
-/// fichier et empreinte chacune : celles de sa tâche, puis celles des autres tâches que ses `fichiers` couvrent) et sa
+/// fichier et empreinte chacune : celles de sa tâche, puis celles des autres tâches que ses `fichiers` couvrent), son
+/// `rouge` (les lignes du rouge d'abord, après les épingles ; sans `red`, la consigne ne change pas d'un octet) et sa
 /// preuve.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn consigne_de(
@@ -155,6 +205,7 @@ pub(crate) fn consigne_de(
     fichiers: Option<&[String]>,
     exacts: &[(String, String)],
     epingles: &[(String, String)],
+    rouge: Option<&Rouge>,
     verifier: Option<&str>,
     precedente: Option<&str>,
     juge: bool,
@@ -165,7 +216,8 @@ pub(crate) fn consigne_de(
         format!("{socle}\n\n{}", avec_precedente(objectif, precedente))
     } else {
         let sans_a1 = profil.mesure().sans_a1;
-        consigne(objectif, fichiers, exacts, epingles, verifier, precedente, profil.prete(verifier), &socle, sans_a1)
+        let pretee = profil.prete(verifier);
+        consigne(objectif, fichiers, exacts, epingles, rouge, verifier, precedente, pretee, &socle, sans_a1)
     }
 }
 

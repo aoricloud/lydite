@@ -73,9 +73,6 @@ pub(crate) fn retirer(
 /// ([`geste`] et [`faire`]), qui l'efface même avec un changement ou un fichier non suivi ; puis son dossier temporaire
 /// ([`temporaire_de`]), s'il existe. Aucune branche n'est touchée. Rend le premier pas raté, qui se nomme. [`retirer`]
 /// ne force pas : il garde un travail qui ne serait nulle part ailleurs.
-// raccourci : rien ne l'appelle encore hors des tests ; la tâche qui constate le rouge sur la base l'appelle, et
-// retirera l'attente
-#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn retirer_de_force(depot: &Path, worktree: &Path) -> Result<(), String> {
     let mut retrait = geste(depot, &["worktree", "remove", "--force"]);
     retrait.arg(worktree);
