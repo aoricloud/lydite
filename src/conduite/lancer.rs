@@ -36,19 +36,22 @@ use std::sync::mpsc::{self, Sender};
 use std::thread::{self, Scope};
 use std::time::{Duration, Instant};
 
-use crate::branchements::bac::{bac, reglages_du_bac, sans_claude};
+use crate::branchements::bac::{bac, exclusions_de_l_etat, poser, reglages_du_bac, retirer_de_force, sans_claude};
 use crate::branchements::dossier::{Fil, depense_du_jour, ecrire_consigne, lire_quota, retenir_la_vague, tenir};
+use crate::branchements::git::{Arbre, BORNE_EMPREINTE, Gardee, empreinte_gardee, entree_de_l_index};
 use crate::branchements::git::{faire, geste, lecons_du_commit};
+use crate::branchements::srt::{FinDuRejeu, rejouer_et_finir};
 use crate::coeur::bail::Baux;
 use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::fil::{Base, Couleur, Evenement, Foi, IssueVague, LancementVague, Verdict};
 use crate::coeur::fil::{Role, instant, lot, maintenant, refus_en_clair};
 use crate::coeur::lecons::{self, Lecon};
-use crate::coeur::plan::{Plan, Tache, couvre};
+use crate::coeur::plan::{Plan, Rouge, Tache, couvre, hors_forme};
 use crate::coeur::profil::{Prix, Profil, empreinte};
 use crate::coeur::protocole::{Constat, Jetons, Usage, UsageModele};
+use crate::coeur::texte::en_ligne;
 use crate::conduite::assemblage::{self, Assemblage};
-use crate::conduite::tentative::{Echec, IMPOSSIBLE, Juge, Pris, consigne_de, tenter};
+use crate::conduite::tentative::{Echec, IMPOSSIBLE, Juge, Pris, consigne_de, declare_rouge, tenter};
 
 /// Ce que devient chaque tâche d'une vague, dans l'ordre du plan : l'id de sa main, `main-<vague>-<k>`, qui nomme aussi
 /// son bac, et son issue.
@@ -104,9 +107,10 @@ pub(crate) struct Menee {
 }
 
 /// Ce qu'une tentative rend, tel que `tenter` le rend : le constat de la main (`None` pour une main brute, qui ne
-/// déclare rien), la fin de la sortie de sa preuve (`None` si elle n'a pas tourné), et son verdict. Seule la vague
-/// note.
-type Rendu = (Option<Constat>, Option<String>, Result<Pris, Echec>);
+/// déclare rien), la fin de la sortie de sa preuve (`None` si elle n'a pas tourné), et son verdict ; puis le
+/// `main.rouge` que Lydite a constaté à la fin d'une tentative verte de tâche à `red` (`None` sans constat). Seule la
+/// vague note.
+type Rendu = (Option<Constat>, Option<String>, Result<Pris, Echec>, Option<Evenement>);
 
 /// Les mains qui tournent en même temps, au plus, copies de `--n` comprises ; les autres attendent leur tour, dans
 /// l'ordre du plan. Une relance garde la place de la tentative qu'elle suit : elle part quand le message de celle-ci
@@ -129,11 +133,13 @@ const ARRET: &str = "The wave stops: no more notes, starts or merges, and its ru
                      writable, or the settings that the proof names readable, then run again in a fresh wave the \
                      tasks that are not assembled.";
 
-/// La durée du bail de chaque main de la vague : le délai de la main, deux délais de preuve (une preuve tuée se rejoue
-/// une fois), et une minute de marge. Une tentative conclut donc avant son échéance, qui ne tombe que sur une main qui
-/// n'a rien rendu.
+/// La durée du bail de chaque main de la vague : le délai de la main, quatre délais de preuve (la preuve et le rouge,
+/// chacun rejoué une fois s'il est tué), et une minute de marge. Une tentative conclut donc avant son échéance, qui ne
+/// tombe que sur une main qui n'a rien rendu.
+// raccourci : toute tâche reçoit le bail du rouge, même sans clé red ; monter (un bail par tâche) si une vague longue
+// en souffre
 pub(crate) fn duree_du_bail(profil: &Profil) -> Duration {
-    profil.delai_main() + 2 * profil.delai_preuve() + MARGE
+    profil.delai_main() + 4 * profil.delai_preuve() + MARGE
 }
 
 /// La base d'une vague sans `--pr` : le `HEAD` du dépôt visé, en sha. Un dépôt qui n'est pas un dossier est le refus
@@ -313,7 +319,7 @@ fn en_message(main: impl FnOnce() -> Rendu) -> Rendu {
             .map(|quoi| (*quoi).to_string())
             .or_else(|| panique.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "no message".into());
-        (None, None, Err(Echec::Erreur(format!("the hand panicked: {quoi}"))))
+        (None, None, Err(Echec::Erreur(format!("the hand panicked: {quoi}"))), None)
     })
 }
 
@@ -371,8 +377,154 @@ fn textes_exacts(bac: &Path, tache: &Tache, pris: Pris) -> Result<Pris, String> 
     Ok(pris)
 }
 
+/// Ce que le constat du rouge d'une tentative prend de sa vague et de son bac.
+struct Constatation<'a> {
+    profil: &'a Profil,
+    /// Le dépôt visé, où se pose le bac du rouge.
+    depot: &'a Path,
+    /// Le dossier de Lydite, où vivent les bacs.
+    dossier: &'a Path,
+    /// L'id de la main, `main-<vague>-<k>`, que le nom du bac du rouge reprend.
+    main: &'a str,
+    tentative: usize,
+    /// Le bac de la main, parti de `depart`.
+    bac: &'a Path,
+    depart: &'a str,
+    tache: &'a Tache,
+    /// La preuve de la tâche, que le rouge rejoue.
+    commande: &'a str,
+    /// Le journal de la sortie du rejeu sur la base.
+    journal: &'a Path,
+}
+
+/// Les fichiers du test d'une tâche à `red`, dans l'ordre : ceux du plan, ou ceux que la main nomme dans sa `reponse`
+/// (`RED: <file>`, voir [`declare_rouge`]). Sans aucune ligne `RED:`, la tentative rougit ; un fichier déclaré qui n'a
+/// pas la forme d'un chemin de `fichiers` ([`hors_forme`]), que les `fichiers` de la tâche ne couvrent pas, ou que la
+/// main n'a pas changé depuis le départ ([`assemblage::chemins_changes`]) la rougit, en le nommant.
+fn fichiers_du_test(jeu: &Constatation<'_>, rouge: &Rouge, reponse: &str) -> Result<Vec<String>, String> {
+    let declares = match rouge {
+        Rouge::Nommes(fichiers) => return Ok(fichiers.clone()),
+        Rouge::Declare => declare_rouge(reponse),
+    };
+    if declares.is_empty() {
+        return Err("the plan asks red first, and the hand named no test file (`RED: <file>`)".to_string());
+    }
+    let changes = assemblage::chemins_changes(jeu.bac, jeu.depart, jeu.profil.proteges()).map_err(|refus| {
+        format!("git does not say what the hand changed, to check its test files: {}", refus.preuve)
+    })?;
+    for fichier in &declares {
+        let nom = en_ligne(fichier);
+        if hors_forme(fichier).is_some() {
+            return Err(format!(
+                "the test file {nom} that the hand names (`RED: <file>`) is not a file path as `fichiers` writes it"
+            ));
+        }
+        let couvert = jeu.tache.fichiers.as_ref().is_none_or(|fichiers| fichiers.iter().any(|e| couvre(e, fichier)));
+        if !couvert {
+            return Err(format!(
+                "the test file {nom} that the hand names (`RED: <file>`) is outside the `fichiers` of the task"
+            ));
+        }
+        if !changes.iter().any(|change| change == fichier) {
+            return Err(format!(
+                "the test file {nom} that the hand names (`RED: <file>`) is not a file that the hand changed"
+            ));
+        }
+    }
+    Ok(declares.into_iter().map(str::to_string).collect())
+}
+
+/// Constate le rouge d'une tentative verte de tâche à `red` : la preuve de la tâche, rejouée sur la base plus les seuls
+/// fichiers du test, finit rouge. Pour chaque fichier du test : `git add` dans le bac de la main, son entrée de
+/// l'index (un mode 100644 ou 100755), son empreinte. Puis un bac neuf, `<main>-rouge-<tentative>`, posé détaché sur
+/// `depart`, où chaque fichier entre par `git update-index --add --cacheinfo` et `git checkout-index -f` : seuls les
+/// octets que git garde du bac de la main. La preuve s'y rejoue ([`rejouer_et_finir`], le même mur et le même délai),
+/// puis le bac du rouge se retire de force, que le rejeu ait réussi ou non ; un retrait raté se dit sur la sortie
+/// d'erreur et ne change pas le verdict.
+///
+/// Rend les `<fichier> <empreinte>` du test et la fin de la sortie du rejeu rouge. Toute autre issue est une erreur,
+/// dite en anglais, que la relance reçoit : un test qui passe sur la base (`FinDuRejeu::Verte`), ou un rejeu qui n'a
+/// pas fini rouge de lui-même (délai, preuve tuée, rejeu impossible), qui n'est pas le rouge d'un test.
+fn constater_le_rouge(jeu: &Constatation<'_>, rouge: &Rouge, reponse: &str) -> Result<(Vec<String>, String), String> {
+    let fichiers = fichiers_du_test(jeu, rouge, reponse)?;
+    let mut entrees = Vec::new();
+    for fichier in &fichiers {
+        let nom = en_ligne(fichier);
+        let mut ajout = geste(jeu.bac, &["add", "--", &format!(":(literal){fichier}")]);
+        ajout.args(exclusions_de_l_etat());
+        faire(ajout).map_err(|vu| format!("red first: the test file {nom} is not added by git: {}", en_ligne(&vu)))?;
+        let entree = entree_de_l_index(jeu.bac, fichier).map_err(|vu| {
+            format!("red first: git does not say what it stores of the test file {nom}: {}", en_ligne(&vu))
+        })?;
+        let Some((mode, objet)) = entree else {
+            return Err(format!("red first: git keeps no entry for the test file {nom}"));
+        };
+        if mode != "100644" && mode != "100755" {
+            return Err(format!("red first: the test file {nom} is not an ordinary file for git (mode {mode})"));
+        }
+        let empreinte = match empreinte_gardee(jeu.bac, Arbre::Index, fichier, BORNE_EMPREINTE) {
+            Ok(Gardee::Empreinte(empreinte)) => empreinte,
+            Ok(Gardee::TropLourd) => {
+                return Err(format!("red first: the test file {nom} is larger than {BORNE_EMPREINTE} bytes"));
+            }
+            Ok(Gardee::Absent | Gardee::PasOrdinaire(_)) => {
+                return Err(format!("red first: git keeps no ordinary file at the test file {nom}"));
+            }
+            Err(vu) => {
+                return Err(format!(
+                    "red first: git does not say what it stores of the test file {nom}: {}",
+                    en_ligne(&vu)
+                ));
+            }
+        };
+        entrees.push((fichier.clone(), mode, objet, empreinte));
+    }
+    let nommes = || fichiers.iter().map(|fichier| en_ligne(fichier)).collect::<Vec<_>>().join(", ");
+    let bac_du_rouge = jeu.dossier.join("bacs").join(format!("{}-rouge-{}", jeu.main, jeu.tentative));
+    let pose = poser(jeu.depot, &bac_du_rouge, &["--detach"], jeu.depart)
+        .map_err(|vu| format!("red first: the sandbox of the red replay is not made: {}", en_ligne(&vu)));
+    let jeu_du_rouge = pose.and_then(|()| {
+        for (fichier, mode, objet, _) in &entrees {
+            let nom = en_ligne(fichier);
+            let inscrire =
+                geste(&bac_du_rouge, &["update-index", "--add", "--cacheinfo", &format!("{mode},{objet},{fichier}")]);
+            faire(inscrire).map_err(|vu| {
+                format!("red first: the test file {nom} does not enter the red sandbox: {}", en_ligne(&vu))
+            })?;
+            faire(geste(&bac_du_rouge, &["checkout-index", "-f", "--", fichier])).map_err(|vu| {
+                format!("red first: the test file {nom} is not written in the red sandbox: {}", en_ligne(&vu))
+            })?;
+        }
+        Ok(rejouer_et_finir(jeu.profil, jeu.commande, &bac_du_rouge, jeu.journal))
+    });
+    // Le bac du rouge se retire dans tous les cas, de force ; un bac qui n'a pas pu se poser n'a rien à retirer.
+    if bac_du_rouge.exists()
+        && let Err(vu) = retirer_de_force(jeu.depot, &bac_du_rouge)
+    {
+        eprintln!("lydite: cannot remove the red sandbox {}: {vu}", bac_du_rouge.display());
+    }
+    let ((verif, rejeu), fin) = jeu_du_rouge?;
+    match fin {
+        FinDuRejeu::Rouge => {
+            let fichiers = entrees.into_iter().map(|(fichier, _, _, empreinte)| format!("{fichier} {empreinte}"));
+            Ok((fichiers.collect(), verif.unwrap_or_default()))
+        }
+        FinDuRejeu::Verte => Err(format!(
+            "red first: the proof passes on the base plus only {}: this test does not fail there (a test in the file \
+             of the fix, or in a file that the base does not compile or collect, cannot fail on the base)",
+            nommes()
+        )),
+        FinDuRejeu::Delai | FinDuRejeu::Tuee(_) | FinDuRejeu::Autre => Err(format!(
+            "red first: the proof replayed on the base plus only {} did not end red by itself, which is not the red \
+             of a test: {}",
+            nommes(),
+            rejeu.err().unwrap_or_default()
+        )),
+    }
+}
+
 /// Le seul message qu'une main envoie à la vague : sa tâche, la tentative de son bail (le jeton que son résultat
-/// porte), et ce qu'elle a rendu.
+/// porte), et ce qu'elle a rendu, le `main.rouge` constaté compris.
 struct Message {
     main: usize,
     tentative: usize,
@@ -663,6 +815,12 @@ impl<'a> Vague<'a> {
         // Les épingles `sha256` de tout le plan : celles de la tâche, et celles d'une autre dont sa main change le
         // fichier.
         let epingles = assemblage::epingles_du_plan(plan);
+        // Le rouge d'abord : une tâche à `red` qui a une preuve, hors d'un juge. Le dossier de Lydite et le dépôt se
+        // prennent ici, comme `journal` : le fil d'exécution de la main ne touche pas à la vague.
+        let rouge = if juge.is_none() { verifier.zip(tache.rouge.as_ref()) } else { None };
+        let (depot, dossier, main_id, vague) =
+            (self.depot, self.fil.dossier().to_path_buf(), self.main(k), self.id.clone());
+        let journal_du_rouge = self.fil.dossier().join(format!("verif-{}-{k}-{tentative}-rouge.tmp", self.id));
         s.spawn(move || {
             // La pause d'une tentative qui repart sur une coupure de l'API se passe ici, hors de la vague.
             if !pause.is_zero() {
@@ -694,7 +852,33 @@ impl<'a> Vague<'a> {
                     }
                     (_, verdict) => verdict,
                 };
-                (constat, verif, verdict)
+                // Au bout de la chaîne, quand tout le reste est vert : le rouge constaté ; la note est celle de la
+                // vague.
+                let (verdict, rouge) = match (rouge, verdict) {
+                    (Some((commande, demande)), Ok(pris)) => {
+                        let jeu = Constatation {
+                            profil: &profil,
+                            depot,
+                            dossier: &dossier,
+                            main: &main_id,
+                            tentative,
+                            bac: &bac,
+                            depart: &depart,
+                            tache,
+                            commande,
+                            journal: &journal_du_rouge,
+                        };
+                        match constater_le_rouge(&jeu, demande, &pris.sortie) {
+                            Ok((fichiers, verif)) => {
+                                let base = depart.clone();
+                                (Ok(pris), Some(Evenement::Rouge { vague, main: k, tentative, base, fichiers, verif }))
+                            }
+                            Err(erreur) => (Err(Echec::Erreur(erreur)), None),
+                        }
+                    }
+                    (_, verdict) => (verdict, None),
+                };
+                (constat, verif, verdict, rouge)
             });
             // La vague lit le canal jusqu'au dernier message qu'elle attend : celui-ci ne se perd pas.
             let _ = envoi.send(Message { main: k, tentative, rendu });
@@ -708,7 +892,7 @@ impl<'a> Vague<'a> {
     where
         'a: 's,
     {
-        let Message { main: k, tentative, rendu: (constat, verif, verdict) } = message;
+        let Message { main: k, tentative, rendu: (constat, verif, verdict, rouge) } = message;
         self.en_vol.retain(|&vol| vol != (k, tentative));
         let (couleur, foi, texte) = match &verdict {
             Ok(Pris { sortie, prouve: true }) => (Couleur::Vert, Foi::Constate, sortie.clone()),
@@ -759,7 +943,9 @@ impl<'a> Vague<'a> {
             }
             _ => None,
         };
-        let notes: Vec<Evenement> = constat.into_iter().chain(usages).chain(iter::once(fin)).chain(coupure).collect();
+        // Le `main.rouge` suit la fin dans la même suite : seule la vague note, et un résultat périmé n'en note pas.
+        let notes: Vec<Evenement> =
+            constat.into_iter().chain(usages).chain(iter::once(fin)).chain(rouge).chain(coupure).collect();
         if !notes.iter().all(|note| self.noter(note)) {
             let issue = self.hors_du_fil(&texte);
             self.taches[k - 1] = Etat::Finie(Err(issue));
@@ -1025,7 +1211,9 @@ impl<'a> Vague<'a> {
             }
         }
         let objectif = &tache.objectif;
-        let texte = consigne_de(profil, objectif, fichiers, &tache.exacts, &epingles, verifier, precedente, juge);
+        let rouge = tache.rouge.as_ref();
+        let texte =
+            consigne_de(profil, objectif, fichiers, &tache.exacts, &epingles, rouge, verifier, precedente, juge);
         ecrire_consigne(self.fil.dossier(), &texte, ARRET)?;
         Ok(texte)
     }

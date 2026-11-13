@@ -4,6 +4,8 @@
 // (les refus d'avant le lancement) se joue partout.
 #![cfg_attr(not(unix), allow(dead_code))]
 use super::*;
+#[cfg(unix)]
+use crate::branchements::srt::est_tuee;
 use crate::essais::mains::{dossier, profil_borne};
 use std::collections::BTreeSet;
 
@@ -80,6 +82,18 @@ impl Decor {
     ) -> (Option<String>, Result<(), String>) {
         let journal = self.dir.join("journal.tmp");
         rejouer_avec(programme, &self.maison, profil, commande, &self.bac, &journal, reglage)
+    }
+
+    /// [`Decor::rejouer_avec`], avec la fin du rejeu.
+    fn rejouer_et_finir_avec(
+        &self,
+        programme: &OsStr,
+        profil: &Profil,
+        commande: &str,
+        reglage: &Reglage,
+    ) -> (Rejeu, FinDuRejeu) {
+        let journal = self.dir.join("journal.tmp");
+        rejouer_et_finir_avec(programme, &self.maison, profil, commande, &self.bac, &journal, reglage)
     }
 }
 
@@ -534,6 +548,112 @@ fn apres_un_delai_depasse_le_filtre_est_arrete_et_son_dossier_retire() {
     assert!(meurt(pid), "le petit-enfant {pid} survit à la preuve tuée");
     assert_eq!(notes_du_faux_reseau(&d, "ordre.txt"), ["pret", "relais", "entree-fermee"]);
     plus_de_filtre(&d, &filtre_lance(&d));
+    effacer(&d.dir);
+}
+
+#[test]
+fn une_commande_blanche_finit_autre_sans_rien_lancer_ni_creer() {
+    let d = decor("natif-fin-blanche");
+    let avant = Decor::contenu(&d.dir);
+    let profil = d.profil("reseau = exemple.test\n");
+    let reglage = Reglage { filtre: Err("LYDITE_RESEAU is not set".into()), pret: ATTENTE, arret: ATTENTE };
+    for commande in ["", " ", "\t \r\n"] {
+        let ((verif, rejeu), fin) =
+            d.rejouer_et_finir_avec(d.dir.join("pas-de-bwrap").as_os_str(), &profil, commande, &reglage);
+        assert_eq!((verif, fin), (None, FinDuRejeu::Autre), "{commande:?}");
+        assert!(rejeu.unwrap_err().contains("blanche : rien ne se rejoue, rien n'est prouvé"), "{commande:?}");
+    }
+    // Un filtre absent, ou un `bwrap` qui ne part pas : la commande ne part pas non plus, `Autre`.
+    let ((verif, _), fin) = d.rejouer_et_finir_avec(d.dir.join("pas-de-bwrap").as_os_str(), &profil, "true", &reglage);
+    assert_eq!((verif, fin), (None, FinDuRejeu::Autre));
+    assert_eq!(Decor::contenu(&d.dir), avant);
+    let _ = fs::remove_dir_all(&d.dir);
+}
+
+/// La commande qui compte ses jeux dans `jeux` du bac, puis joue `suite`.
+#[cfg(unix)]
+fn comptee(suite: &str) -> String {
+    format!("echo j >> jeux; {suite}")
+}
+
+/// Le nombre de jeux qu'une commande de [`comptee`] a comptés dans le bac du décor.
+#[cfg(unix)]
+fn jeux(d: &Decor) -> usize {
+    fs::read_to_string(d.bac.join("jeux")).unwrap_or_default().lines().count()
+}
+
+/// Fait que le faux `lydite-reseau` du décor remplace le dossier de son socket par un fichier : à chaque arrêt, le
+/// dossier ne se retire pas, et l'arrêt du filtre échoue.
+#[cfg(unix)]
+fn filtre_qui_ne_s_arrete_pas(d: &Decor) {
+    fs::write(d.dir.join("reseau").join("fichier"), "").unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn sous_le_mur_natif_le_rejeu_finit_rouge_ou_verte_si_le_filtre_s_arrete_et_autre_sinon() {
+    let d = decor_court();
+    let (faux, reglage) = (d.faux(), reglage_du_faux(&d));
+    let profil = d.profil("reseau = exemple.test\n");
+    // Le filtre s'arrête sans erreur : la commande rouge finit `Rouge`, la verte `Verte`.
+    let ((verif, rejeu), fin) = d.rejouer_et_finir_avec(&faux, &profil, "echo ROUGE; exit 3", &reglage);
+    assert_eq!((verif.as_deref(), fin), (Some("ROUGE\n"), FinDuRejeu::Rouge));
+    assert!(rejeu.unwrap_err().contains("rouge (exit status: 3)"));
+    let ((_, rejeu), fin) = d.rejouer_et_finir_avec(&faux, &profil, "true", &reglage);
+    assert_eq!((rejeu, fin), (Ok(()), FinDuRejeu::Verte));
+    // Le filtre ne s'arrête pas : la commande a fini d'elle-même, mais la fin est `Autre`, rouge comme verte.
+    filtre_qui_ne_s_arrete_pas(&d);
+    let ((_, rejeu), fin) = d.rejouer_et_finir_avec(&faux, &profil, "exit 3", &reglage);
+    assert_eq!(fin, FinDuRejeu::Autre);
+    let erreur = rejeu.unwrap_err();
+    assert!(erreur.contains("rouge (exit status: 3)") && erreur.contains("cannot remove the network filter folder"));
+    let ((_, rejeu), fin) = d.rejouer_et_finir_avec(&faux, &profil, "true", &reglage);
+    assert_eq!(fin, FinDuRejeu::Autre);
+    assert!(rejeu.unwrap_err().contains("cannot remove the network filter folder"));
+    // Le rejeu que `rejouer_avec` rend est celui de sa voisine, au texte près.
+    // Le dossier du socket change d'un jeu à l'autre, et son nom est dans le texte : on compare ce qui le précède.
+    let sans_dossier = |(verif, rejeu): Rejeu| {
+        let erreur = rejeu.unwrap_err();
+        (verif, erreur.split("folder ").next().unwrap().to_string())
+    };
+    let seul = sans_dossier(d.rejouer_avec(&faux, &profil, "exit 3", &reglage));
+    assert_eq!(seul, sans_dossier(d.rejouer_et_finir_avec(&faux, &profil, "exit 3", &reglage).0));
+    assert!(seul.1.ends_with("cannot remove the network filter "), "{seul:?}");
+    let _ = fs::remove_dir_all(&d.dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn sous_le_mur_natif_une_preuve_tuee_deux_fois_finit_tuee_meme_si_le_filtre_ne_s_arrete_pas() {
+    let d = decor_court();
+    let (faux, reglage) = (d.faux(), reglage_du_faux(&d));
+    let profil = d.profil("reseau = exemple.test\n");
+    filtre_qui_ne_s_arrete_pas(&d);
+    let ((verif, rejeu), fin) = d.rejouer_et_finir_avec(&faux, &profil, &comptee("kill -9 $$"), &reglage);
+    assert!(matches!(fin, FinDuRejeu::Tuee(statut) if est_tuee(&statut)), "{fin:?}");
+    assert_eq!(jeux(&d), 2, "tuée au premier jeu, rejouée une fois, pas trois");
+    assert!(verif.unwrap().starts_with("proof killed ("));
+    // Le texte garde l'échec d'arrêt du filtre.
+    let erreur = rejeu.unwrap_err();
+    assert!(
+        erreur.contains("rouge (signal: 9") && erreur.contains("cannot remove the network filter folder"),
+        "{erreur}"
+    );
+    let _ = fs::remove_dir_all(&d.dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn sous_le_mur_natif_un_delai_depasse_finit_delai_meme_si_le_filtre_ne_s_arrete_pas() {
+    use crate::essais::{ARBRE, LENTE, effacer};
+    let d = decor_court();
+    let (faux, reglage) = (d.faux(), reglage_du_faux(&d));
+    let profil = d.profil(&format!("reseau = exemple.test\ndelai_preuve = {}\n", ARBRE.as_secs()));
+    filtre_qui_ne_s_arrete_pas(&d);
+    let ((_, rejeu), fin) = d.rejouer_et_finir_avec(&faux, &profil, LENTE, &reglage);
+    assert_eq!(fin, FinDuRejeu::Delai);
+    let erreur = rejeu.unwrap_err();
+    assert!(erreur.contains("temps dépassé") && erreur.contains("cannot remove the network filter folder"), "{erreur}");
     effacer(&d.dir);
 }
 

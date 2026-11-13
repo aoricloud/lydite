@@ -15,6 +15,7 @@
 //! fichiers : <chemin> <dossier>/
 //! critique : oui
 //! sha256 : <fichier> : <empreinte>
+//! red : <fichier>
 //!     <objectif de la tâche, en lignes indentées>
 //! ```
 //!
@@ -30,7 +31,7 @@
 //!   ôtés autour du `:` ; une ligne indentée (espaces ou tabulations) est l'objectif de la tâche en cours. Il n'y a ni
 //!   commentaire ni continuation de ligne.
 //!
-//! Les clés sont fermées, et chacune se donne une fois au plus, hors `exact` et `sha256` :
+//! Les clés sont fermées, et chacune se donne une fois au plus, hors `exact`, `sha256` et `red` :
 //!
 //! - dans l'en-tête, avant la première tâche : `objectif` et `preuve`, obligatoires l'une et l'autre ;
 //! - sous `tache <id>`, avant l'objectif, toutes facultatives : `depend`, des ids séparés par des blancs (aucun, si
@@ -40,9 +41,9 @@
 //!   `high`, `xhigh`, `max`, qui prend la place des clés `effort` et `effort_relance` du profil, et que le profil doit
 //!   permettre (`efforts_permis`, refus 6033 au lancement) ; `fichiers`, les chemins que la tâche peut changer,
 //!   séparés par des blancs ; `critique`, de seule valeur `oui`, pour une tâche dont le travail va à la relecture ;
-//!   `exact` et `sha256`, qui se répètent, une ligne par fichier (voir plus bas).
+//!   `exact`, `sha256` et `red`, qui se répètent, une ligne par fichier (voir plus bas).
 //!
-//! Les deux clés de tâche qui se répètent :
+//! Les trois clés de tâche qui se répètent :
 //!
 //! - `exact : <fichier> : <texte>` exige ce texte dans ce fichier, octet pour octet. Le fichier est un chemin de
 //!   fichier comme dans `fichiers`, que les `fichiers` de la tâche couvrent quand elle en a ; le texte n'est pas vide,
@@ -57,7 +58,16 @@
 //!   caractère de contrôle, ou fini par `/`, et un fichier que les `fichiers` ne couvrent pas ; en 6018, une empreinte
 //!   qui n'est pas de 64 hexadécimaux minuscules, un fichier épinglé deux fois dans la tâche, et un fichier épinglé
 //!   sous deux empreintes par deux tâches (refus à la fin de la lecture, sur la seconde ligne) ; en 6021, une valeur
-//!   blanche.
+//!   blanche ;
+//! - `red : <fichier>` nomme le fichier du test que Lydite rejouera seul sur la base ; `red : declared` dit que le plan
+//!   ne le connaît pas, et que la main le nommera elle-même à la fin de sa réponse (une tâche suivante le vérifie). La
+//!   lecture ne calcule rien et n'ouvre aucun fichier. `red : <fichier>` se répète, une ligne par fichier : le fichier
+//!   est un chemin de fichier comme dans `fichiers` (sans blanc, sans virgule, sans caractère de contrôle, sans `/`
+//!   final : un dossier ne se nomme pas), que les `fichiers` de la tâche couvrent quand elle en a. `red : declared` est
+//!   seule dans sa tâche. Refusés : en 6024, un chemin hors de la forme, avec un blanc, une virgule ou un caractère de
+//!   contrôle, ou fini par `/`, et un fichier que les `fichiers` ne couvrent pas (refus à la fin de la lecture, sur la
+//!   ligne du fichier) ; en 6018, un fichier nommé deux fois dans la tâche, et `declared` avec une autre ligne `red`
+//!   (sur la seconde ligne) ; en 6021, une valeur blanche. Un fichier nommé `declared` ne se nomme donc pas.
 //!
 //! Ce que le plan dit :
 //!
@@ -133,8 +143,8 @@ pub(crate) const FICHIERS_MAX: usize = 100;
 
 /// Les clés de l'en-tête, puis celles d'une tâche.
 const CLES_ENTETE: [&str; 2] = ["objectif", "preuve"];
-const CLES_TACHE: [&str; 9] =
-    ["depend", "preuve", "modele", "relance", "effort", "fichiers", "critique", "exact", "sha256"];
+const CLES_TACHE: [&str; 10] =
+    ["depend", "preuve", "modele", "relance", "effort", "fichiers", "critique", "exact", "sha256", "red"];
 
 /// Les caractères d'une ligne qu'une preuve cite : au-delà, la citation est coupée.
 const CITE_MAX: usize = 200;
@@ -149,8 +159,8 @@ const REECRIRE: &str = concat!(
 const FORME: &str = concat!(
     "Une ligne de plan est vide, `tache <id>`, `<clé> : <valeur>`, ou indentée (l'objectif de la tâche qui la ",
     "précède). Avant la première tâche, les clés sont `objectif` et `preuve` ; sous `tache <id>`, `depend`, `preuve`, ",
-    "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact` et `sha256` (les deux dernières peuvent se ",
-    "répéter), puis l'objectif en lignes indentées ; chaque autre clé une fois."
+    "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256` et `red` (les trois dernières peuvent ",
+    "se répéter), puis l'objectif en lignes indentées ; chaque autre clé une fois."
 );
 
 /// La correction d'une ligne `exact` hors de sa forme.
@@ -165,6 +175,15 @@ const SHA256: &str = concat!(
     "task's `fichiers`; then its SHA-256, 64 lowercase hexadecimal digits; each file once per task, and one hash per ",
     "file in the whole plan."
 );
+
+/// La correction d'une ligne `red` hors de sa forme.
+const ROUGE: &str = concat!(
+    "Write `red : <file>` for each test file Lydite replays alone on the base (a file as in `fichiers`, covered by ",
+    "them, not a folder), or one line `red : declared` if the hand names its test."
+);
+
+/// La valeur de `red` qui dit que le plan ne connaît pas le fichier du test.
+const DECLARE: &str = "declared";
 
 /// La correction d'un modèle hors de son domaine.
 const MODELE: &str = concat!(
@@ -233,8 +252,20 @@ pub(crate) struct Tache {
     /// Les fichiers que le plan épingle par leur SHA-256 : un couple (fichier, empreinte) par ligne `sha256`, dans
     /// l'ordre du plan. La lecture ne calcule rien : l'empreinte est celle que le plan écrit.
     pub(crate) empreintes: Vec<(String, String)>,
+    /// Le test qui doit rougir sur la base : `None` sans ligne `red`. La lecture ne calcule rien et n'ouvre aucun
+    /// fichier. Une copie de `Plan::copies` n'en a aucun.
+    pub(crate) rouge: Option<Rouge>,
     /// Son travail va à la relecture.
     pub(crate) critique: bool,
+}
+
+/// Ce que les lignes `red` d'une tâche disent du test qui rougit sur la base.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Rouge {
+    /// Les fichiers de test que Lydite rejouera seuls sur la base, dans l'ordre du plan.
+    Nommes(Vec<String>),
+    /// Le plan ne connaît pas le fichier : la main le nommera elle-même à la fin de sa réponse.
+    Declare,
 }
 
 /// Le mode d'une lecture : qui a écrit le plan, et ce que Kraken sait de ce qu'il devait être.
@@ -358,6 +389,8 @@ struct Brouillon<'a> {
     exacts: Vec<(Ligne<'a>, &'a str, &'a str)>,
     /// Ses lignes `sha256`, chacune avec son fichier et son empreinte.
     empreintes: Vec<(Ligne<'a>, &'a str, &'a str)>,
+    /// Ses lignes `red`, chacune avec sa valeur : un fichier, ou `declared`.
+    rouges: Vec<(Ligne<'a>, &'a str)>,
     critique: bool,
     /// Ses lignes indentées, chacune avec le nombre de retours à la ligne qui la séparent de la précédente : 0 pour la
     /// première, puis 1 de plus par ligne vide entre elles.
@@ -375,7 +408,7 @@ impl Brouillon<'_> {
             "relance" => self.relance.is_some(),
             "effort" => self.effort.is_some(),
             "fichiers" => self.fichiers.is_some(),
-            "exact" | "sha256" => false,
+            "exact" | "sha256" | "red" => false,
             _ => self.critique,
         }
     }
@@ -467,6 +500,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             fichiers: None,
             exacts: Vec::new(),
             empreintes: Vec::new(),
+            rouges: Vec::new(),
             critique: false,
             objectif: Vec::new(),
             vides: 0,
@@ -489,7 +523,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             (
                 &CLES_TACHE,
                 "d'une tâche",
-                "`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact` ou `sha256`",
+                "`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256` ou `red`",
             )
         };
         if !permises.contains(&cle) {
@@ -625,6 +659,41 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                 }
                 tache.empreintes.push((ligne, fichier, empreinte));
             }
+            "red" if valeur == DECLARE => {
+                // `declared` est seule dans sa tâche : une autre ligne `red`, avant elle, la rend double.
+                if let Some(&(avant, _)) = tache.rouges.first() {
+                    let quoi = format!(
+                        "`red : declared` is not alone in its task: the `red` line {} is already there",
+                        avant.numero
+                    );
+                    return Err(refus(Code::PlanLigne, ligne, quoi, ROUGE));
+                }
+                tache.rouges.push((ligne, valeur));
+            }
+            "red" => {
+                let (blanc, dossier) =
+                    (valeur.chars().any(|c| c.is_whitespace() || c.is_control()), valeur.ends_with('/'));
+                if blanc || dossier || valeur.contains(',') || hors_forme(valeur).is_some() {
+                    let quoi = format!(
+                        "the file {} is not a file path as `fichiers` writes it, or has a blank, a comma or a \
+                         control character, or is a folder",
+                        cite(valeur)
+                    );
+                    return Err(refus(Code::PlanChemin, ligne, quoi, ROUGE));
+                }
+                // Soit `declared` est déjà là (seule dans sa tâche), soit ce fichier l'est.
+                let vue = tache.rouges.iter().find(|&&(_, vu)| vu == DECLARE || vu == valeur);
+                if let Some(&(avant, vu)) = vue {
+                    let quoi = if vu == DECLARE {
+                        format!("the task already says `red : declared` on line {}, which stands alone", avant.numero)
+                    } else {
+                        let nom = cite(valeur);
+                        format!("the file {nom} is already named by the `red` line {} of this task", avant.numero)
+                    };
+                    return Err(refus(Code::PlanLigne, ligne, quoi, ROUGE));
+                }
+                tache.rouges.push((ligne, valeur));
+            }
             _ if valeur != "oui" => {
                 let quoi = format!("la clé « critique » vaut {}, et sa seule valeur est `oui`", cite(valeur));
                 let correction =
@@ -691,6 +760,13 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                         return Err(refus(Code::PlanChemin, ligne, quoi, SHA256));
                     }
                 }
+                for &(ligne, fichier) in &brouillon.rouges {
+                    if fichier != DECLARE && !fichiers.iter().any(|entree| couvre(entree, fichier)) {
+                        let quoi =
+                            format!("the file {} is not covered by any path of the task's `fichiers`", cite(fichier));
+                        return Err(refus(Code::PlanChemin, ligne, quoi, ROUGE));
+                    }
+                }
             }
             // Un fichier n'a qu'une empreinte dans tout le plan : la seconde ligne qui le dit autrement est refusée.
             for &(ligne, fichier, empreinte) in &brouillon.empreintes {
@@ -748,6 +824,11 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                     .iter()
                     .map(|&(_, fichier, empreinte)| (fichier.to_string(), empreinte.to_string()))
                     .collect(),
+                rouge: match brouillon.rouges.first() {
+                    None => None,
+                    Some(&(_, DECLARE)) => Some(Rouge::Declare),
+                    Some(_) => Some(Rouge::Nommes(brouillon.rouges.iter().map(|&(_, f)| f.to_string()).collect())),
+                },
                 critique: brouillon.critique,
             });
         }
@@ -789,6 +870,11 @@ fn blanche(entete: bool, cle: &str) -> String {
                               SHA-256, 64 lowercase hexadecimal digits), or remove the line: the task then pins \
                               no file."
             .into(),
+        (false, "red") => {
+            "Write `red : <file>` after the key (a test file as in `fichiers`), or `red : declared` if the hand \
+             names its test, or remove the line: the task then names no test."
+                .into()
+        }
         (false, _) => "Écris `critique : oui`, ou retire la ligne : la tâche n'est alors pas critique.".into(),
     }
 }

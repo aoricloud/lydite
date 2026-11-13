@@ -2681,6 +2681,124 @@ fn un_type_de_forge_aux_champs_faux_est_mal_forme() {
 }
 
 #[test]
+fn main_rouge_s_ecrit_et_se_relit_a_l_identique_un_fichier_a_blanc_compris() {
+    const BASE: &str = "9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34";
+    let (h1, h2) = (hex(&sha256(b"a")), hex(&sha256(b"b")));
+    let verif = "test x ... FAILED\né « ç »\t\"q\"\n";
+    let rouge = |fichiers: Vec<String>| Evenement::Rouge {
+        vague: "v".into(),
+        main: 2,
+        tentative: 1,
+        base: BASE.into(),
+        fichiers,
+        verif: verif.into(),
+    };
+    let evenements = [rouge(vec![format!("tests/un fichier.rs {h1}"), format!("b.txt {h2}")]), rouge(vec![])];
+    let dir = dossier("rouge-aller-retour");
+    let fil = Fil::seance(&dir, "humain");
+    for evenement in &evenements {
+        fil.noter(evenement).unwrap();
+    }
+    let brut = fs::read_to_string(dir.join(FICHIER)).unwrap();
+    let corps = |fichiers: &str| {
+        format!(
+            concat!(
+                r#""type":"main.rouge","vague":"v","main":2,"tentative":1,"base":"{base}","fichiers":"{fichiers}","#,
+                r#""verif":"test x ... FAILED\né « ç »\t\"q\"\n"}}"#,
+            ),
+            base = BASE,
+            fichiers = fichiers,
+        )
+    };
+    let attendus = [corps(&format!(r"tests/un fichier.rs {h1}\nb.txt {h2}")), corps("")];
+    assert_eq!(brut.lines().count(), 2);
+    for (ligne, corps) in brut.lines().zip(&attendus) {
+        assert!(ligne.ends_with(&format!(r#","origine_foi":"declare",{corps}"#)), "{ligne}");
+    }
+    // L'en-tête du module dit le type, avec les champs de son corps dans l'ordre où il s'écrit.
+    let en_tete: String = include_str!("../fil.rs")
+        .lines()
+        .map_while(|ligne| ligne.strip_prefix("//!"))
+        .map(|ligne| format!("{} ", ligne.trim_start()))
+        .collect();
+    let cles: Vec<&str> = evenements[0].champs().iter().map(|(cle, _)| *cle).collect();
+    assert_eq!(cles, ["vague", "main", "tentative", "base", "fichiers", "verif"]);
+    assert!(en_tete.contains("- `main.rouge {vague, main, tentative, base, fichiers, verif}`"), "l'en-tête le dit");
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(ecarts.is_empty(), "{ecarts:?}");
+    assert_eq!(notes.into_iter().map(|note| note.evenement).collect::<Vec<_>>(), evenements);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn main_rouge_aux_champs_faux_est_mal_forme() {
+    const SHA: &str = "9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34";
+    let h = hex(&sha256(b"a"));
+    let rouge = |base: &str, fichiers: &str| {
+        format!(
+            concat!(
+                r#""type":"main.rouge","vague":"v","main":2,"tentative":1,"base":"{base}","fichiers":"{fichiers}","#,
+                r#""verif":"x""#,
+            ),
+            base = base,
+            fichiers = fichiers,
+        )
+    };
+    let juste = rouge(SHA, &format!("src/a b.rs {h}"));
+    let hors_domaine = "hors de son domaine : 40 hexadécimaux minuscules";
+    let element = "« fichiers » a un élément qui n'est pas « <fichier> <empreinte> » (un fichier non vide, puis 64 \
+                   hexadécimaux minuscules)";
+    let (h63, h65) = (&h[..63], format!("{h}0"));
+    let majuscule = h.to_uppercase();
+    let non_hexa = h.replacen('a', "g", 1);
+    // Chaque ligne fausse, et un bout de ce que sa preuve dit d'elle.
+    let cas: Vec<(String, String)> = vec![
+        (rouge("9f2c41a7", ""), format!("« base » vaut \"9f2c41a7\", {hors_domaine}")),
+        (rouge(&SHA.to_uppercase(), ""), hors_domaine.to_string()),
+        (rouge(&format!("{SHA}0"), ""), hors_domaine.to_string()),
+        (rouge(&SHA.replacen('9', "g", 1), ""), hors_domaine.to_string()),
+        (juste.replace(&format!(r#","base":"{SHA}""#), ""), "« base » manque".to_string()),
+        (rouge(SHA, "src/a.rs"), format!("{element} : \"src/a.rs\"")),
+        (rouge(SHA, &format!("src/a.rs {h63}")), format!("{element} : \"src/a.rs {h63}\"")),
+        (rouge(SHA, &format!("src/a.rs {h65}")), element.to_string()),
+        (rouge(SHA, &format!("src/a.rs {majuscule}")), format!("{element} : \"src/a.rs {majuscule}\"")),
+        (rouge(SHA, &format!("src/a.rs {non_hexa}")), element.to_string()),
+        (rouge(SHA, &format!(" {h}")), element.to_string()),
+        (rouge(SHA, &format!("src/a.rs {h}\\nb.rs")), format!("{element} : \"b.rs\"")),
+        // Un caractère de contrôle de l'élément fautif s'écrit : la preuve ne le porte pas tel quel.
+        (rouge(SHA, &format!("a\\tb\\u0001 {h63}")), format!("{element} : \"a\\tb\\u{{1}} {h63}\"")),
+        (
+            rouge(SHA, &format!("src/a.rs {h}\\n\\nb.rs {h}")),
+            "« fichiers » est une liste d'un élément par ligne, sans élément vide".to_string(),
+        ),
+        (juste.replace(r#","tentative":1"#, ""), "« tentative » manque".to_string()),
+        (juste.replace(r#","verif":"x""#, ""), "« verif » manque".to_string()),
+        (juste.replace(r#""verif":"x""#, r#""verif":null"#), "« verif » manque ou n'est pas une chaîne".to_string()),
+        (format!(r#"{juste},"foi":"constate""#), "champ en trop pour main.rouge : « foi »".to_string()),
+    ];
+    // Chaque ligne fausse est suivie d'une ligne juste : la séance n'a aucun trou.
+    let mut lignes = Vec::new();
+    for (i, (faux, _)) in cas.iter().enumerate() {
+        lignes.push(ligne_s(2 * i as u64 + 1, faux));
+        lignes.push(ligne_s(2 * i as u64 + 2, &juste));
+    }
+    let dir = dossier("rouge-faux");
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert_eq!(codes(&ecarts), (0..cas.len()).map(|i| (2 * i + 1, 1009)).collect::<Vec<_>>(), "et aucun 1010");
+    for ((_, refus), (_, bout)) in ecarts.iter().zip(&cas) {
+        assert!(refus.preuve.contains(bout.as_str()), "la preuve devait dire « {bout} » : {refus}");
+    }
+    assert!(notes.iter().all(|note| note.evenement.genre() == "main.rouge"), "les lignes justes se lisent");
+    assert_eq!(notes.len(), cas.len());
+    // Une ligne juste se lit : un fichier à blanc compris, deux éléments.
+    poser(&dir, &[&ligne_s(1, &rouge(SHA, &format!("src/a b.rs {h}\\n{h} {h}")))]);
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert_eq!((notes.len(), ecarts.len()), (1, 0), "{ecarts:?}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn un_verdict_de_relecture_aux_champs_faux_est_mal_forme() {
     const SHA: &str = "9f2c41a7d3b85e60c1a49d27b8e3f5a60d1c2b34";
     let verdict = |sha: &str, profil: &str| {

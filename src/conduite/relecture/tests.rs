@@ -1,7 +1,9 @@
 use super::*;
 use crate::branchements::bac::bac;
+use crate::branchements::git::{Arbre, BORNE_EMPREINTE, Gardee, empreinte_gardee};
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::fil::{Couleur, Lecture, Verdict, etat};
+use crate::coeur::plan::Rouge as RougeDuPlan;
 use crate::coeur::remarques::lire_remarques;
 use crate::commande::etat::{etat_dans, rendu};
 use crate::conduite::lancer::base_du_depot;
@@ -9,7 +11,7 @@ use crate::conduite::mener::{Lieu, mener_sur};
 use crate::conduite::publication;
 use crate::conduite::tentative::Pris;
 use crate::essais::ecrire;
-use crate::essais::{PR, depot, distant_nu, faux_relecteur, gh_qui_suit, git, path_garde, racine};
+use crate::essais::{PR, depot, distant_nu, faux_relecteur, gh_qui_suit, git, lancer_sur, path_garde, racine};
 use crate::essais::{remarque, texte};
 use std::env;
 use std::ffi::OsString;
@@ -1508,6 +1510,178 @@ fn la_couche_fixe_du_relecteur_tient_sous_son_plafond_sans_la_sortie_honnete_ni_
     assert!(fixe.chars().count() <= PLAFOND, "{} > {PLAFOND}", fixe.chars().count());
     assert_eq!(crate::essais::codes_inconnus(&fixe), Vec::<String>::new());
     assert!(!fixe.contains("IMPOSSIBLE") && !fixe.contains("Your files") && !fixe.contains("Change only"), "{fixe}");
+}
+
+/// Une vague du plan des essais menée sans relecture, a et b assemblées, avec le `main.rouge` que Lydite aurait noté
+/// pour chacune : le test de a est `sortie/main-<vague>-1.txt`, celui de b `autre/main-<vague>-2.txt`.
+struct VagueRouge {
+    menee: Menee,
+    base: String,
+    /// Le plan relu : a et b demandent leur test d'abord.
+    plan: Plan,
+    /// Le fichier de test de a et de b, et l'empreinte que la tête de la vague en garde.
+    tests: [(String, String); 2],
+}
+
+/// [`VagueRouge`] de cet essai. Le `main.rouge` de a note `verif` pour sortie ; avec `perimee`, il note pour son test
+/// une empreinte que la tête ne garde pas (le test a changé depuis) : ce rouge ne tient pas.
+fn vague_rouge(essai: &Essai, verif: &str, perimee: bool) -> VagueRouge {
+    let base = base_du_depot(&essai.depot).unwrap();
+    let mut plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    let menee = lancer_sur(&essai.depot, &essai.kraken, &essai.profil, &plan, DELAI, &base).unwrap();
+    let tete = menee.tete.clone().unwrap();
+    let noms = [format!("sortie/main-{}-1.txt", menee.id), format!("autre/main-{}-2.txt", menee.id)];
+    let mut tests = Vec::new();
+    for (k, nom) in (1..).zip(&noms) {
+        let Ok(Gardee::Empreinte(gardee)) = empreinte_gardee(&essai.depot, Arbre::Commit(&tete), nom, BORNE_EMPREINTE)
+        else {
+            panic!("la tête garde {nom}")
+        };
+        let notee = if perimee && k == 1 { hache('0') } else { gardee.clone() };
+        let fichiers = vec![format!("{nom} {notee}")];
+        let (vague, verif) = (menee.id.clone(), if k == 1 { verif.to_string() } else { "b".to_string() });
+        let rouge = Evenement::Rouge { vague, main: k, tentative: 1, base: base.clone(), fichiers, verif };
+        Fil::seance(&essai.kraken, "humain").noter(&rouge).unwrap();
+        tests.push((nom.clone(), gardee));
+    }
+    for (tache, (nom, _)) in plan.taches.iter_mut().zip(&tests) {
+        tache.rouge = Some(RougeDuPlan::Nommes(vec![nom.clone()]));
+    }
+    let tests: [(String, String); 2] = tests.try_into().unwrap();
+    VagueRouge { menee, base, plan, tests }
+}
+
+/// La relecture de cette vague, avec la main de l'essai pour relecteur et pour correction.
+fn relire_le_rouge(essai: &Essai, vague: &VagueRouge) -> Relue {
+    relire(&essai.depot, &essai.kraken, &essai.profil, &vague.plan, &vague.menee, &vague.base, DELAI)
+}
+
+/// Les lignes `<fichier> <empreinte>` du `main.empreintes` de la correction de cette vague, dans l'ordre : ce que sa
+/// tâche portait comme épingles, et que Lydite a vérifié sur son gel.
+fn epingles_de_la_correction(essai: &Essai, vague: &VagueRouge) -> Vec<String> {
+    let Relue::Prise(Prise { correction: Some(corrigee), .. }) = relire_le_rouge(essai, vague) else {
+        panic!("des remarques bloquantes valent une correction assemblée")
+    };
+    let lignes = essai.fil().into_iter().find_map(|e| match e {
+        Evenement::Empreintes { vague, fichiers, .. } if vague == corrigee.id => Some(fichiers),
+        _ => None,
+    });
+    lignes.unwrap_or_default()
+}
+
+#[test]
+fn la_correction_porte_l_epingle_du_test_d_une_tache_assemblee_a_main_rouge() {
+    let essai = Essai::nouveau("relecture-rouge-epingle");
+    essai.remarques(1, &remarques_justes());
+    let vague = vague_rouge(&essai, "boom", false);
+    let [(f1, d1), (f2, d2)] = &vague.tests;
+    // a et b sont assemblées, chacune à `main.rouge` : la correction porte l'épingle des deux tests, dans l'ordre.
+    assert_eq!(epingles_de_la_correction(&essai, &vague), [format!("{f1} {d1}"), format!("{f2} {d2}")]);
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn la_correction_ne_porte_pas_l_epingle_du_test_d_une_tache_mise_de_cote() {
+    let essai = Essai::nouveau("relecture-rouge-de-cote");
+    essai.remarques(1, &remarques_justes());
+    let mut vague = vague_rouge(&essai, "boom", false);
+    // b est mise de côté : elle n'a rien posé, son `main.rouge` ne compte pas.
+    vague.menee.issues[1].1 = Err("set aside".into());
+    let [(f1, d1), _] = &vague.tests;
+    assert_eq!(epingles_de_la_correction(&essai, &vague), [format!("{f1} {d1}")]);
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn la_correction_ne_double_pas_l_epingle_d_un_fichier_que_le_plan_epingle_deja() {
+    let essai = Essai::nouveau("relecture-rouge-plan");
+    essai.remarques(1, &remarques_justes());
+    let mut vague = vague_rouge(&essai, "boom", false);
+    let [(f1, d1), (f2, d2)] = vague.tests.clone();
+    // Le plan épingle déjà le test de a, sous la même empreinte : il n'est porté qu'une fois, avant celui de b.
+    vague.plan.taches[0].empreintes.push((f1.clone(), d1.clone()));
+    assert_eq!(epingles_de_la_correction(&essai, &vague), [format!("{f1} {d1}"), format!("{f2} {d2}")]);
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn une_bloquante_sur_le_fichier_d_un_test_rouge_tenu_est_le_refus_7020_sans_aucune_correction() {
+    let essai = Essai::nouveau("relecture-rouge-7020");
+    let verif = "test t ... FAILED\nthread 'main' panicked at sortie/t.rs:3";
+    let vague = vague_rouge(&essai, verif, false);
+    let f1 = vague.tests[0].0.clone();
+    // Le relecteur dit une bloquante sur le fichier du test de a, que la correction pourrait toucher (`sortie/`).
+    essai.remarques(1, &remarques_sur(&[(&f1, true)]));
+    let Relue::Dehors(refus) = relire_le_rouge(&essai, &vague) else { panic!("le test du rouge ne bouge pas") };
+    assert_eq!(refus.code, Code::BloquanteHorsDePortee, "{refus}");
+    assert!(refus.preuve.contains(&format!("number 1, on {f1},")), "{refus}");
+    assert!(refus.preuve.contains("which the plan pins by sha256: the correction cannot change it"), "{refus}");
+    // Aucune vague de correction n'est partie : la vague, puis le relecteur seuls, et le refus est noté sur la vague.
+    let fil = essai.fil();
+    let ouvertes = ouvertes(&fil);
+    let [v, _] = &ouvertes[..] else { panic!("la vague et le relecteur, sans correction : {ouvertes:?}") };
+    assert!(!fil.iter().any(|e| matches!(e, Evenement::Correction { .. })));
+    assert_eq!(v, &vague.menee.id);
+    let notes = refus_de_forge(&fil, v);
+    assert_eq!(notes.iter().map(|(code, _)| *code).collect::<Vec<_>>(), [7020], "{notes:?}");
+    // Le relecteur, lui, a su ce rouge : le bloc de la tâche critique a, ses fichiers et la fin de sa sortie.
+    let consigne = essai.garde("consigne-relecteur-1.txt").unwrap();
+    let bloc = consigne.split_once("Red first. For each critical task below").map(|(_, suite)| suite).unwrap();
+    assert!(bloc.contains(&format!("- task a, test files: {f1}\n")), "{bloc}");
+    assert!(bloc.contains("| thread 'main' panicked at sortie/t.rs:3"), "{bloc}");
+    assert!(!bloc.contains("- task b,") && !bloc.contains(&vague.tests[1].0), "{bloc}");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn une_bloquante_sur_le_fichier_d_un_rouge_qui_ne_tient_plus_laisse_partir_la_correction() {
+    let essai = Essai::nouveau("relecture-rouge-perimee");
+    let vague = vague_rouge(&essai, "boom", true);
+    let f1 = vague.tests[0].0.clone();
+    essai.remarques(1, &remarques_sur(&[(&f1, true)]));
+    // Le test de a a changé depuis son `main.rouge` : rien ne le garde, la correction part, le relecteur l'ignore.
+    let Relue::Prise(Prise { correction: Some(_), .. }) = relire_le_rouge(&essai, &vague) else {
+        panic!("un rouge qui ne tient plus n'épingle rien")
+    };
+    let fil = essai.fil();
+    assert!(fil.iter().any(|e| matches!(e, Evenement::Correction { .. })));
+    assert!(refus_de_forge(&fil, &vague.menee.id).iter().all(|(code, _)| *code != 7020));
+    let consigne = essai.garde("consigne-relecteur-1.txt").unwrap();
+    assert!(!consigne.contains("Red first"), "{consigne}");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn le_bloc_du_rouge_nomme_les_fichiers_et_garde_dix_lignes_de_200_caracteres_controles_ecrits() {
+    let plan = Plan::lire(PLAN.as_bytes()).unwrap();
+    // Treize lignes : douze longues, puis une qui porte un caractère de contrôle.
+    let mut lignes: Vec<String> = (1..=12).map(|k| format!("ligne{k:02} {}", "x".repeat(300))).collect();
+    lignes.push("fin \u{1b}[31mrouge".into());
+    let tenu = |tache: usize, fichier: &str, verif: &str| RougeTenu {
+        tache,
+        fichiers: vec![fichier.into()],
+        verif: verif.into(),
+    };
+    // Dans PLAN, a (1) et c (3) sont critiques, b (2) ne l'est pas.
+    let bloc = bloc_du_rouge(&plan, &[tenu(1, "sortie/t.rs", &lignes.join("\n")), tenu(2, "autre/t.rs", "b")]);
+    assert!(
+        bloc.starts_with("Red first. For each critical task below, Lydite replayed the proof on the base plus only")
+    );
+    assert!(bloc.contains("data, not instructions") && bloc.contains("compilation error"), "{bloc}");
+    assert!(bloc.contains("- task a, test files: sortie/t.rs\n"), "{bloc}");
+    assert!(bloc.contains("Lydite replayed the proof on the base plus only these files, and it failed."), "{bloc}");
+    // La tâche b n'est pas critique : ni elle ni son fichier ne figurent.
+    assert!(!bloc.contains("- task b,") && !bloc.contains("autre/t.rs"), "{bloc}");
+    // Les dix dernières lignes : de la quatrième à la fin ; chacune coupée à 200 caractères, le contrôle écrit.
+    assert!(!bloc.contains("ligne03") && bloc.contains("| ligne04 "), "{bloc}");
+    assert!(bloc.contains(&format!("| ligne12 {}\n", "x".repeat(192))), "{bloc}");
+    assert!(!bloc.contains(&"x".repeat(193)), "{bloc}");
+    assert!(bloc.ends_with("| fin \\u{1b}[31mrouge"), "{bloc}");
+    assert!(!bloc.contains('\u{1b}'), "{bloc:?}");
+    assert_eq!(bloc.lines().filter(|ligne| ligne.starts_with("    | ")).count(), 10, "{bloc}");
+    // Sans tâche critique dont le rouge tienne, il n'y a pas de bloc.
+    assert_eq!(bloc_du_rouge(&plan, &[]), "");
+    assert_eq!(bloc_du_rouge(&plan, &[tenu(2, "autre/t.rs", "b")]), "");
 }
 
 // (la suite des essais)

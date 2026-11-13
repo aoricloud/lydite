@@ -563,6 +563,42 @@ fn retirer_un_bac_ne_perd_aucun_travail() {
 }
 
 #[test]
+fn retirer_de_force_ne_laisse_ni_le_worktree_ni_son_dossier_temporaire_et_ne_touche_aucune_branche() {
+    let (depot, kraken) = (depot("force"), neuf("force-lydite"));
+    let depart = git(&depot, &["rev-parse", "HEAD"]);
+    let branches = git(&depot, &["branch", "--list"]);
+    // Un worktree détaché, posé par `poser`, avec un fichier non suivi et son dossier temporaire.
+    let detache = kraken.join("bacs").join("main-detache");
+    poser(&depot, &detache, &["--detach"], &depart).unwrap();
+    ecrire(&detache, "travail.txt", "nulle part ailleurs");
+    let temporaire = temporaire_de(&detache).unwrap();
+    ecrire(&temporaire, "x", "temporaire");
+    assert!(git(&depot, &["worktree", "list"]).contains("main-detache"), "le worktree est bien nommé avant");
+    // Le retrait qui ne force pas refuse ce fichier non suivi : sans la force, rien ne partirait.
+    let vu = retirer(&depot, &detache, None, faire).unwrap_err();
+    assert!(vu.starts_with("git worktree remove "), "{vu}");
+    assert!(detache.join("travail.txt").is_file() && temporaire.is_dir());
+    assert_eq!(retirer_de_force(&depot, &detache), Ok(()));
+    assert!(!detache.exists(), "le worktree est parti, son fichier non suivi avec lui");
+    assert!(!temporaire.exists(), "son dossier temporaire aussi");
+    let liste = git(&depot, &["worktree", "list"]);
+    assert!(!liste.contains("main-detache"), "git ne le nomme plus : {liste}");
+    // Aucune branche n'a bougé, et la tête du dépôt non plus.
+    assert_eq!(git(&depot, &["branch", "--list"]), branches);
+    assert_eq!(git(&depot, &["rev-parse", "HEAD"]), depart);
+    // Sans dossier temporaire, le retrait réussit de même ; un worktree absent est une erreur qui nomme le geste.
+    let nu = kraken.join("bacs").join("main-sans-temporaire");
+    poser(&depot, &nu, &["--detach"], &depart).unwrap();
+    assert!(!temporaire_de(&nu).unwrap().exists());
+    assert_eq!(retirer_de_force(&depot, &nu), Ok(()));
+    assert!(!nu.exists());
+    let vu = retirer_de_force(&depot, &nu).unwrap_err();
+    assert!(vu.starts_with("git worktree remove --force "), "{vu}");
+    let _ = fs::remove_dir_all(&depot);
+    let _ = fs::remove_dir_all(&kraken);
+}
+
+#[test]
 fn retirer_joue_ses_deux_gestes_par_le_lanceur_qu_on_lui_donne() {
     let (depot, kraken) = (depot("lanceur"), neuf("lanceur-lydite"));
     let depart = git(&depot, &["rev-parse", "HEAD"]);

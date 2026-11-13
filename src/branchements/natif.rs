@@ -64,7 +64,7 @@ use std::time::{Duration, Instant};
 use crate::branchements::bac::temporaire_de;
 use crate::branchements::claude::temporaire;
 use crate::branchements::processus::{attendre, echeance, retire_de_la_preuve, sans_session, tuer_et_attendre};
-use crate::branchements::srt::{Jeu, est_tuee, rejouer_si_tuee};
+use crate::branchements::srt::{FinDuRejeu, Jeu, Rejeu, rejouer_si_tuee};
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{nommee, queue};
 use crate::coeur::fil::lot;
@@ -245,6 +245,9 @@ struct Reglage {
 /// le filtre réseau (voir l'en-tête) ; sans `lydite-reseau`, ou avec un chemin de socket trop long, il ne part pas non
 /// plus, et rien n'est créé. Le fichier du filtre d'appels système est retiré dans tous les cas, le filtre réseau
 /// arrêté et son dossier retiré, et le journal lu puis effacé.
+// raccourci : srt passe par `rejouer_et_finir` ; seuls les tests appellent encore `rejouer` et `rejouer_avec`, qui
+// gardent leur signature ; les retirer quand les tests passent par leur voisine
+#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn rejouer(
     programme: &OsStr,
     maison: &Path,
@@ -253,11 +256,11 @@ pub(crate) fn rejouer(
     bac: &Path,
     journal: &Path,
 ) -> (Option<String>, Result<(), String>) {
-    let reglage = Reglage { filtre: reseau(), pret: ATTENTE_DU_FILTRE, arret: ATTENTE_DU_FILTRE };
-    rejouer_avec(programme, maison, profil, commande, bac, journal, &reglage)
+    rejouer_et_finir(programme, maison, profil, commande, bac, journal).0
 }
 
 /// [`rejouer`], avec les `reglage`s donnés.
+#[cfg_attr(not(test), expect(dead_code))] // raccourci : voir `rejouer`
 fn rejouer_avec(
     programme: &OsStr,
     maison: &Path,
@@ -267,14 +270,41 @@ fn rejouer_avec(
     journal: &Path,
     reglage: &Reglage,
 ) -> (Option<String>, Result<(), String>) {
+    rejouer_et_finir_avec(programme, maison, profil, commande, bac, journal, reglage).0
+}
+
+/// [`rejouer`], et la fin du rejeu ([`FinDuRejeu`]) : le même rejeu, rendu avec son type.
+pub(crate) fn rejouer_et_finir(
+    programme: &OsStr,
+    maison: &Path,
+    profil: &Profil,
+    commande: &str,
+    bac: &Path,
+    journal: &Path,
+) -> (Rejeu, FinDuRejeu) {
+    let reglage = Reglage { filtre: reseau(), pret: ATTENTE_DU_FILTRE, arret: ATTENTE_DU_FILTRE };
+    rejouer_et_finir_avec(programme, maison, profil, commande, bac, journal, &reglage)
+}
+
+/// [`rejouer_et_finir`], avec les `reglage`s donnés.
+fn rejouer_et_finir_avec(
+    programme: &OsStr,
+    maison: &Path,
+    profil: &Profil,
+    commande: &str,
+    bac: &Path,
+    journal: &Path,
+    reglage: &Reglage,
+) -> (Rejeu, FinDuRejeu) {
     if commande.trim().is_empty() {
-        return (None, Err(format!("vérification « {commande} » blanche : rien ne se rejoue, rien n'est prouvé")));
+        let erreur = format!("vérification « {commande} » blanche : rien ne se rejoue, rien n'est prouvé");
+        return ((None, Err(erreur)), FinDuRejeu::Autre);
     }
     rejouer_si_tuee(|| jouer_sous_le_mur(programme, maison, profil, commande, bac, journal, reglage))
 }
 
 /// Un jeu de la preuve sous le mur natif : le mur préparé de nouveau, et le journal repris à neuf. Rend son rejeu, et
-/// le statut de la commande si elle a fini tuée ([`est_tuee`]).
+/// sa fin ([`FinDuRejeu`]), décidée sur le statut de la commande et sur l'arrêt du filtre réseau, avant tout texte.
 fn jouer_sous_le_mur(
     programme: &OsStr,
     maison: &Path,
@@ -287,7 +317,10 @@ fn jouer_sous_le_mur(
     let delai = profil.delai_preuve();
     let mur = match preparer(maison, profil, bac, reglage) {
         Ok(mur) => mur,
-        Err(erreur) => return ((None, Err(format!("vérification « {commande} » impossible : {erreur}"))), None),
+        Err(erreur) => {
+            let erreur = format!("vérification « {commande} » impossible : {erreur}");
+            return ((None, Err(erreur)), FinDuRejeu::Autre);
+        }
     };
     let jouee = executer(programme, commande, bac, delai, journal, profil.variable_de_la_cle(), &mur);
     let _ = fs::remove_file(&mur.filtre);
@@ -295,11 +328,13 @@ fn jouer_sous_le_mur(
     let sortie = lire_journal(journal);
     let (issue, arret) = match jouee {
         Ok(jouee) => jouee,
-        Err(erreur) => return ((None, Err(erreur)), None),
+        Err(erreur) => return ((None, Err(erreur)), FinDuRejeu::Autre),
     };
-    let tuee = match &issue {
-        Ok(Some(statut)) if est_tuee(statut) => Some(*statut),
-        _ => None,
+    // La fin se décide sur le statut et sur l'arrêt du filtre, avant tout texte : la tuée et le délai priment sur un
+    // filtre qui ne s'arrête pas ; une commande qui a fini d'elle-même ne finit verte ou rouge que s'il s'arrête.
+    let fin = match &issue {
+        Ok(statut) => FinDuRejeu::de_l_issue(*statut, arret.is_none()),
+        Err(_) => FinDuRejeu::Autre,
     };
     let rejeu = match issue {
         Err(erreur) => Err(erreur),
@@ -315,7 +350,7 @@ fn jouer_sous_le_mur(
         (Ok(()), Some(echec)) => Err(format!("vérification « {commande} » : {echec}")),
         (Err(erreur), Some(echec)) => Err(format!("{erreur}\n{echec}")),
     };
-    ((Some(queue(&sortie)), rejeu), tuee)
+    ((Some(queue(&sortie)), rejeu), fin)
 }
 
 /// Ce que [`preparer`] a posé pour un rejeu.

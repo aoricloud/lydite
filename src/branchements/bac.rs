@@ -69,6 +69,20 @@ pub(crate) fn retirer(
     Ok(())
 }
 
+/// Retire un worktree de Kraken du dépôt visé sans rien épargner : le worktree, par `git worktree remove --force`
+/// ([`geste`] et [`faire`]), qui l'efface même avec un changement ou un fichier non suivi ; puis son dossier temporaire
+/// ([`temporaire_de`]), s'il existe. Aucune branche n'est touchée. Rend le premier pas raté, qui se nomme. [`retirer`]
+/// ne force pas : il garde un travail qui ne serait nulle part ailleurs.
+pub(crate) fn retirer_de_force(depot: &Path, worktree: &Path) -> Result<(), String> {
+    let mut retrait = geste(depot, &["worktree", "remove", "--force"]);
+    retrait.arg(worktree);
+    faire(retrait)?;
+    if let Some(temporaire) = temporaire_de(worktree).filter(|temporaire| temporaire.exists()) {
+        fs::remove_dir_all(&temporaire).map_err(|e| format!("erasing {}: {e}", temporaire.display()))?;
+    }
+    Ok(())
+}
+
 /// Tout dossier `.claude` d'un bac, à toute profondeur et en toute casse : Claude Code charge les compétences d'un
 /// `<dossier>/.claude/skills` imbriqué, et sous Windows `.Claude/` est le dossier qu'il lit. Deux pathspecs, car sous
 /// `glob` un motif ne couvre pas ce qui est sous lui, ni son contraire : ce qui est sous le dossier, et l'entrée
