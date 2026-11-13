@@ -11,7 +11,8 @@ the proof.
 - **The hands' commands run behind a wall**, a sandbox that limits what they read, write and reach on the network.
   By default, if the wall does not start, no hand starts.
 - **Each pull request opens with a receipt**: the hands, their retries, the tasks set aside, the seal of the run's
-  journal. After a review, the body also lists anything the reviewer says was not replayed.
+  journal. After a review, the body can also list what the reviewer says was not replayed (ten lines at most, long
+  lines cut).
 
 **Install** on Linux x86-64 (or WSL2), then check your setup:
 
