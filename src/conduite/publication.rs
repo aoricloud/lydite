@@ -14,6 +14,9 @@
 //!   ([`Forge::base_a_bouge`], 8009), une vague neuve d'une tâche `ci` partie de la tête poussée ([`plan_de_relance`]),
 //!   la même règle de publication sur toute la PR, le push en avance rapide dans la branche de la PR, la CI relue ;
 //!   tout cela se note sous la relance, ou sous la vague relancée si la relance ne s'ouvre pas.
+//! - Le reçu dit le rouge d'abord pour un plan qui a des tâches à `red` : `Red first: <n> of <m> tasks`, où `<n>`
+//!   compte les tâches dont le rouge tient encore à la tête publiée ([`rouges_tenus`]) ; la relance de la CI en porte
+//!   les épingles, comme la correction d'une relecture.
 //! - Enfin le rangement de ce qui est poussé ([`Proposition::ranger`]), relance comprise ; les deux gestes de git d'un
 //!   retrait ([`retirer`]) passent par la forge comme les autres.
 
@@ -25,7 +28,7 @@ use std::time::Duration;
 
 use crate::branchements::bac::{retirer, temporaire_de};
 use crate::branchements::dossier::{self, Fil};
-use crate::branchements::git::faire_borne;
+use crate::branchements::git::{Arbre, BORNE_EMPREINTE, Gardee, empreinte_gardee, faire_borne, racines};
 use crate::branchements::github::{Ci, Forge, GIT_FORGE, PrOuverte, a_pousser, distant, en_echec};
 use crate::coeur::erreur::{Code, Refus, queue};
 use crate::coeur::fil::{
@@ -34,9 +37,10 @@ use crate::coeur::fil::{
 use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
 use crate::coeur::profil::{EFFORT_PAR_DEFAUT, SANS_A1, SANS_LECTURE};
 use crate::coeur::remarques::lire_fichier;
+use crate::coeur::texte::en_ligne;
 use crate::conduite::alarmes;
 use crate::conduite::lancer::{Issues, Menee};
-use crate::conduite::relecture::{empreintes_de, exacts_de};
+use crate::conduite::relecture::{avec_les_rouges, empreintes_de, exacts_de};
 
 /// La correction du refus 8011.
 const ROUGE: &str = "The PR stays open and red, and Lydite does not retry it twice: read its CI, then fix it yourself.";
@@ -79,6 +83,119 @@ fn plan_de_relance(plan: &Plan, issues: &Issues, numero: u64, contexte: &str) ->
         ..Tache::default()
     };
     Plan { objectif: format!("Make the CI of PR {numero} green"), preuve: plan.preuve.clone(), taches: vec![tache] }
+}
+
+/// Le rouge d'une tâche qui tient encore : son rang dans le plan (à partir de 1, celui de sa main), les fichiers de
+/// son dernier `main.rouge`, et la fin de la sortie de la preuve rejouée sur la base plus ces seuls fichiers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RougeTenu {
+    pub(crate) tache: usize,
+    pub(crate) fichiers: Vec<String>,
+    pub(crate) verif: String,
+}
+
+/// Les rouges d'une vague qui tiennent encore à une tête ([`rouges_tenus`]).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct RougesTenus {
+    /// Les couples (fichier, empreinte) qui tiennent : un fichier n'a qu'une empreinte, celle du dernier `main.rouge`
+    /// qui le nomme.
+    pub(crate) couples: Vec<(String, String)>,
+    /// Les tâches dont tous les fichiers du dernier `main.rouge` tiennent, dans l'ordre du plan.
+    pub(crate) taches: Vec<RougeTenu>,
+}
+
+/// Un élément de `main.rouge.fichiers`, `<fichier> <empreinte>` : l'empreinte est un SHA-256 en 64 hexadécimaux
+/// minuscules, que le fichier, qui peut porter des blancs, précède. `None` s'il n'a pas cette forme.
+fn couple_du_rouge(ligne: &str) -> Option<(String, String)> {
+    let (fichier, empreinte) = ligne.rsplit_once(' ')?;
+    let hexa = empreinte.len() == 64 && empreinte.bytes().all(|o| matches!(o, b'0'..=b'9' | b'a'..=b'f'));
+    (hexa && !fichier.is_empty()).then(|| (fichier.to_string(), empreinte.to_string()))
+}
+
+/// Les rouges de la vague `vague` qui tiennent encore à la tête `tete` (un commit). Pour chaque main assemblée de la
+/// vague (`assemblees` : le rang `k` de la main, qui est celui de la tâche `k` du plan), le dernier `main.rouge` que le
+/// fil note ; pour chaque fichier, la seule empreinte du dernier de ces `main.rouge` qui le nomme. Un fichier ne
+/// compte que si git, à `tete`, le garde sous cette empreinte (`git::empreinte_gardee`, lue depuis la racine du dépôt
+/// visé `depot`, dont les chemins du plan sont relatifs : `depot` peut en être un sous-dossier). Une tâche compte si
+/// tous les fichiers de son dernier `main.rouge` tiennent sous l'empreinte qu'il note : une ligne qui n'a pas la forme
+/// `<fichier> <empreinte>`, ou un `main.rouge` sans fichier, ne tient pas. Sans aucun `main.rouge` à lire, git n'est
+/// pas lancé. Un git qui échoue est une erreur, jamais un rouge tenu.
+pub(crate) fn rouges_tenus(
+    depot: &Path,
+    evenements: &[Evenement],
+    vague: &str,
+    assemblees: &[usize],
+    tete: &str,
+) -> Result<RougesTenus, String> {
+    // Le dernier `main.rouge` de chaque main assemblée, dans l'ordre où le fil les note.
+    let mut derniers: Vec<(usize, &[String], &str)> = Vec::new();
+    for evenement in evenements {
+        if let Evenement::Rouge { vague: v, main, fichiers, verif, .. } = evenement
+            && v == vague
+            && assemblees.contains(main)
+        {
+            derniers.retain(|(vu, _, _)| vu != main);
+            derniers.push((*main, fichiers, verif));
+        }
+    }
+    if derniers.is_empty() {
+        return Ok(RougesTenus::default());
+    }
+    let (racine, _) = racines(depot).map_err(|refus| refus.preuve)?;
+    let mut lus: HashMap<String, Option<String>> = HashMap::new();
+    let mut gardee = |fichier: &str| -> Result<Option<String>, String> {
+        if let Some(vu) = lus.get(fichier) {
+            return Ok(vu.clone());
+        }
+        let lue = match empreinte_gardee(&racine, Arbre::Commit(tete), fichier, BORNE_EMPREINTE) {
+            Ok(Gardee::Empreinte(empreinte)) => Some(empreinte),
+            Ok(Gardee::Absent | Gardee::PasOrdinaire(_) | Gardee::TropLourd) => None,
+            Err(vu) => {
+                return Err(format!(
+                    "git does not say what commit {tete} keeps of the test file {}: {}",
+                    en_ligne(fichier),
+                    en_ligne(&vu)
+                ));
+            }
+        };
+        lus.insert(fichier.to_string(), lue.clone());
+        Ok(lue)
+    };
+    let mut nommes: Vec<(String, String)> = Vec::new();
+    let mut taches = Vec::new();
+    for (tache, lignes, verif) in derniers {
+        let couples: Vec<Option<(String, String)>> = lignes.iter().map(|ligne| couple_du_rouge(ligne)).collect();
+        let mut tient = !couples.is_empty() && couples.iter().all(Option::is_some);
+        for (fichier, empreinte) in couples.iter().flatten() {
+            tient &= gardee(fichier)?.as_deref() == Some(empreinte.as_str());
+            // Le dernier `main.rouge` qui nomme un fichier donne son empreinte.
+            match nommes.iter_mut().find(|(vu, _)| vu == fichier) {
+                Some(couple) => couple.1.clone_from(empreinte),
+                None => nommes.push((fichier.clone(), empreinte.clone())),
+            }
+        }
+        if tient {
+            let fichiers = couples.into_iter().flatten().map(|(fichier, _)| fichier).collect();
+            taches.push(RougeTenu { tache, fichiers, verif: verif.to_string() });
+        }
+    }
+    taches.sort_by_key(|rouge| rouge.tache);
+    let mut couples = Vec::new();
+    for (fichier, empreinte) in nommes {
+        if gardee(&fichier)?.as_deref() == Some(empreinte.as_str()) {
+            couples.push((fichier, empreinte));
+        }
+    }
+    Ok(RougesTenus { couples, taches })
+}
+
+/// Les fichiers distincts que le plan épingle par `sha256`, triés : un fichier n'a qu'une empreinte par plan.
+fn fichiers_epingles(plan: &Plan) -> Vec<&str> {
+    let mut epingles: Vec<&str> =
+        plan.taches.iter().flat_map(|tache| &tache.empreintes).map(|(f, _)| f.as_str()).collect();
+    epingles.sort_unstable();
+    epingles.dedup();
+    epingles
 }
 
 /// Le corps de la PR, public, écrit en anglais : d'abord le bloc « Receipt », écrit à l'ouverture de la PR : le coût
@@ -149,11 +266,7 @@ pub(crate) fn corps(
         }
         noms.join(", ")
     };
-    // Les fichiers distincts que le plan épingle : un fichier n'a qu'une empreinte par plan.
-    let mut epingles: Vec<&str> =
-        plan.taches.iter().flat_map(|tache| &tache.empreintes).map(|(f, _)| f.as_str()).collect();
-    epingles.sort_unstable();
-    epingles.dedup();
+    let epingles = fichiers_epingles(plan);
     let lignes = recu.lignes_de_pr(epingles.len()).join("\n");
     let recu = format!("Receipt\n{lignes}\n- Proof settings changed: {changes}");
     let a_justifier = if points.is_empty() {
@@ -409,6 +522,8 @@ struct Publication<'a> {
     corps: String,
     chemins: Vec<&'a Path>,
     ci: (Duration, Duration),
+    /// Les couples (fichier, empreinte) des rouges qui tiennent à `tete` ([`rouges_tenus`]) : la relance les porte.
+    rouges: Vec<(String, String)>,
 }
 
 /// Ce que dit une CI rouge : ses checks en échec, puis la fin du journal de ses runs en échec, vide sans journal.
@@ -525,7 +640,7 @@ impl Proposition<'_> {
             return Err(Arret::Net("the wave has no assembly, and nothing is pushed".into()));
         };
         a_pousser(&self.base, tete).map_err(Arret::Refus)?;
-        let (vague, relecture, mut recu) = self.rejouee(menee, tete)?;
+        let (vague, relecture, mut recu, rouges) = self.rejouee(plan, menee, tete)?;
         let reglages = self.reglages_changes(tete).map_err(Arret::Net)?;
         let mut caracteres = plan.objectif.char_indices();
         let titre = match (caracteres.nth(255), caracteres.next()) {
@@ -539,6 +654,7 @@ impl Proposition<'_> {
             .sceller(&menee.id)
             .map_err(|e| Arret::Net(format!("the seal of the thread cannot be written: {e}")))?;
         recu.sceau = Some(sceau);
+        recu.selon_le_plan(plan, &rouges);
         let corps = corps(plan, &vague, relecture.as_deref(), self.issue, &recu, &reglages, &points);
         let chemins: Vec<&Path> = personnel.into_iter().chain([self.forge.dossier, self.forge.depot]).collect();
         self.forge.publiable(&self.base, tete, branche, &titre, &corps, &chemins).map_err(Arret::Refus)?;
@@ -547,7 +663,8 @@ impl Proposition<'_> {
         self.forge.pousser(tete, branche).map_err(Arret::Refus)?;
         suite.poussee = Some(tete.clone());
         let pr = self.forge.ouvrir(&self.branche, branche, &titre, &corps, tete).map_err(Arret::Refus)?;
-        let publication = Publication { branche, tete, pr, titre, corps, chemins, ci };
+        let rouges = rouges.couples;
+        let publication = Publication { branche, tete, pr, titre, corps, chemins, ci, rouges };
         self.noter_la_pr(&suite.fil, &menee.id, &publication, tete)?;
         eprintln!("PR {} · {}", publication.pr.numero, publication.pr.url);
         let Some(rouge) = self.lire_la_ci(suite, &menee.id, &publication, tete, None)? else { return Ok(()) };
@@ -631,7 +748,11 @@ impl Proposition<'_> {
         }
         self.forge.base_a_bouge(&self.branche, tete).map_err(Arret::Refus)?;
         eprintln!("CI red: one retry, the wave restarts from {tete}");
-        let relance = plan_de_relance(plan, issues, numero, &rouge.contexte());
+        let mut relance = plan_de_relance(plan, issues, numero, &rouge.contexte());
+        // Le test d'un rouge qui tient à la tête poussée ne bouge pas : la tâche `ci` en porte l'épingle.
+        for tache in &mut relance.taches {
+            avec_les_rouges(plan, &mut tache.empreintes, &publication.rouges);
+        }
         let ouverte = lancer(&relance, tete).map_err(|echec| {
             refus(format!("the retry wave of PR {numero} does not open, {}: {}", echec.code, echec.preuve))
         })?;
@@ -668,7 +789,17 @@ impl Proposition<'_> {
 
     /// La vague `menee` telle que le fil la rejoue, avec la ligne de sa relecture s'il y en a une
     /// ([`ligne_de_relecture`]) : le corps de la PR en tire l'issue de chaque tâche, et les nombres de la relecture.
-    fn rejouee(&self, menee: &Menee, tete: &str) -> Result<(Vague, Option<String>, Recu), Arret> {
+    ///
+    /// Elle rend de plus les rouges de la vague qui tiennent à `tete` ([`rouges_tenus`]) : le fil note les
+    /// `main.rouge`, et git dit ce que `tete` garde. Un plan sans tâche à `red` n'en lit aucun, et git n'est pas
+    /// lancé. Un git qui échoue arrête la forge net, que le corps n'ait rien dit de ce qu'il n'a pas lu.
+    #[allow(clippy::type_complexity)]
+    fn rejouee(
+        &self,
+        plan: &Plan,
+        menee: &Menee,
+        tete: &str,
+    ) -> Result<(Vague, Option<String>, Recu, RougesTenus), Arret> {
         let lue = dossier::lire(self.forge.dossier)
             .map_err(|refus| Arret::Net(format!("the thread cannot be read back: {}", refus.preuve)))?;
         let evenements: Vec<Evenement> = lue.notes.iter().map(|note| note.evenement.clone()).collect();
@@ -683,7 +814,15 @@ impl Proposition<'_> {
         let recu = recu_de(&vagues, &lue.notes, &menee.id);
         let rang = vagues.iter().position(|vague| vague.id == menee.id);
         let rang = rang.ok_or_else(|| Arret::Net(format!("the thread does not replay wave {}", menee.id)))?;
-        Ok((vagues.swap_remove(rang), relecture, recu))
+        let rouges = if plan.taches.iter().any(|tache| tache.rouge.is_some()) {
+            let assemblees: Vec<usize> =
+                (1..).zip(&menee.issues).filter(|(_, (_, issue))| issue.is_ok()).map(|(k, _)| k).collect();
+            rouges_tenus(self.forge.depot, &evenements, &menee.id, &assemblees, tete)
+                .map_err(|vu| Arret::Net(format!("the red-first check of the head cannot be read: {vu}")))?
+        } else {
+            RougesTenus::default()
+        };
+        Ok((vagues.swap_remove(rang), relecture, recu, rouges))
     }
 
     /// Les fichiers de réglage de la preuve que le diff de la base à la tête `tete` change ([`reglages_changes`]),
@@ -807,6 +946,9 @@ pub(crate) struct Recu {
     /// fil les note. Une main dont la dernière issue n'est pas l'assemblage (refusée après sa note, par un conflit ou
     /// une preuve rouge) n'y compte pas : son fichier n'est pas dans la branche.
     verifies: Vec<String>,
+    /// Les tâches du plan à `red` dont le rouge tient à la tête publiée, puis toutes celles du plan à `red`
+    /// (`publier` les compte) ; `None` pour un plan sans `red`, et hors d'une PR.
+    rouge: Option<(usize, usize)>,
 }
 
 /// Le reçu de la vague `id` parmi `vagues` : elle, son découpage, ses relectures, ses corrections et ses relances, et
@@ -904,6 +1046,18 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
 }
 
 impl Recu {
+    /// Ce que le plan ajoute au reçu d'une PR, avant le corps. Les fichiers vérifiés par SHA-256 ne sont que ceux
+    /// que le plan épingle : les épingles du rouge que portent une correction ou une relance n'y comptent pas. Et,
+    /// si le plan a des tâches à `red`, `<n>` de `<m>` : `<m>` est leur nombre, `<n>` celui dont le rouge tient à la
+    /// tête publiée (`rouges`, voir [`rouges_tenus`]). Un plan sans `red` ne change rien au reçu.
+    fn selon_le_plan(&mut self, plan: &Plan, rouges: &RougesTenus) {
+        let epingles = fichiers_epingles(plan);
+        self.verifies.retain(|fichier| epingles.contains(&fichier.as_str()));
+        let a_red: Vec<usize> = (1..).zip(&plan.taches).filter(|(_, t)| t.rouge.is_some()).map(|(k, _)| k).collect();
+        let tenus = a_red.iter().filter(|k| rouges.taches.iter().any(|rouge| rouge.tache == **k)).count();
+        self.rouge = (!a_red.is_empty()).then_some((tenus, a_red.len()));
+    }
+
     /// Le coût, en anglais : `$0.84 estimated`, `subscription, ≈ $0.84` ou `unknown`, suivi de
     /// ` + unknown` s'il a de plus une part inconnue.
     pub(crate) fn cout_de_pr(&self) -> String {
@@ -1013,7 +1167,8 @@ impl Recu {
     /// Les lignes du bloc « Receipt » du corps d'une PR, à la suite de son titre : le coût et les mains, jamais la
     /// durée ; puis `- Effort: <efforts>` ; puis, si des réglages de mesure sont posés, `- Measurement: <réglages>.` ;
     /// puis, si le plan épingle `epingles` fichiers (au moins un), `- Files verified by SHA-256: <n> of <epingles>` ;
-    /// puis, si le reçu porte un sceau, `- Thread sealed at <octets> bytes: sha256 <empreinte>.`
+    /// puis, si le plan a des tâches à `red`, `- Red first: <n> of <m> tasks (the proof failed on the base plus only
+    /// their test files)` ; puis, si le reçu porte un sceau, `- Thread sealed at <octets> bytes: sha256 <empreinte>.`
     pub(crate) fn lignes_de_pr(&self, epingles: usize) -> Vec<String> {
         let mut lignes = vec![
             format!("- Cost: {}", self.cout_de_pr()),
@@ -1022,6 +1177,9 @@ impl Recu {
         ];
         lignes.extend(self.ligne_de_mesure().map(|ligne| format!("- {ligne}")));
         lignes.extend(self.ligne_des_empreintes(Some(epingles)).map(|ligne| format!("- {ligne}")));
+        lignes.extend(self.rouge.map(|(n, m)| {
+            format!("- Red first: {n} of {m} tasks (the proof failed on the base plus only their test files)")
+        }));
         lignes.extend(
             self.sceau.iter().map(|s| format!("- Thread sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)),
         );
