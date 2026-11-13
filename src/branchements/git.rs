@@ -318,14 +318,7 @@ pub(crate) fn empreinte_gardee(bac: &Path, arbre: Arbre<'_>, chemin: &str, borne
     };
     entrees.envs(GIT_FORGE).env("GIT_LITERAL_PATHSPECS", "1");
     let sortie = faire(entrees)?;
-    // `ls-files -s` : `<mode> <objet> <étape>\t<chemin>` ; `ls-tree` : `<mode> <type> <objet>\t<chemin>`. Git rend
-    // aussi ce qui est sous un dossier que `chemin` nomme, et rien d'autre que ce chemin ne compte.
-    let mut trouvees = sortie.split('\0').filter_map(|entree| {
-        let (champs, nom) = entree.split_once('\t')?;
-        let [mode, deuxieme, troisieme] = champs.split(' ').collect::<Vec<_>>()[..] else { return None };
-        let objet = if matches!(arbre, Arbre::Index) { deuxieme } else { troisieme };
-        (nom == chemin).then(|| (mode.to_string(), objet.to_string()))
-    });
+    let mut trouvees = entrees_du_chemin(&sortie, chemin, matches!(arbre, Arbre::Index));
     let Some((mode, objet)) = trouvees.next() else { return Ok(Gardee::Absent) };
     if trouvees.next().is_some() || (mode != "100644" && mode != "100755") {
         return Ok(Gardee::PasOrdinaire(mode));
@@ -338,6 +331,38 @@ pub(crate) fn empreinte_gardee(bac: &Path, arbre: Arbre<'_>, chemin: &str, borne
         return Ok(Gardee::TropLourd);
     }
     Ok(Gardee::Empreinte(hex(&sha256(&octets))))
+}
+
+/// Les entrées que `ls-files -s -z` (`index` vrai : `<mode> <objet> <étape>\t<chemin>`) ou `ls-tree -z`
+/// (`<mode> <type> <objet>\t<chemin>`) a rendues pour `chemin`, chacune `(mode, objet)`. Git rend aussi ce qui est sous
+/// un dossier que `chemin` nomme, et rien d'autre que ce chemin ne compte.
+fn entrees_du_chemin<'a>(sortie: &'a str, chemin: &'a str, index: bool) -> impl Iterator<Item = (String, String)> + 'a {
+    sortie.split('\0').filter_map(move |entree| {
+        let (champs, nom) = entree.split_once('\t')?;
+        let [mode, deuxieme, troisieme] = champs.split(' ').collect::<Vec<_>>()[..] else { return None };
+        let objet = if index { deuxieme } else { troisieme };
+        (nom == chemin).then(|| (mode.to_string(), objet.to_string()))
+    })
+}
+
+/// L'entrée que l'index du bac a au fichier `chemin` : `Ok(Some((mode, objet)))`, `Ok(None)` sans entrée, une erreur si
+/// git échoue ou si le chemin a plus d'une entrée (un conflit en porte plusieurs, une par étape). Elle lit comme
+/// [`empreinte_gardee`] : `ls-files -s -z` par [`geste`], sans les remplacements d'objets que le dépôt déclare
+/// (`GIT_FORGE`), le chemin donné à git à la lettre (`GIT_LITERAL_PATHSPECS`), jamais un fichier du bac ouvert par
+/// Lydite. Elle ne juge pas le mode, que l'appelant juge.
+// raccourci : rien ne l'appelle encore hors des tests ; la tâche qui constate le rouge sur la base l'appelle, et
+// retirera l'attente
+#[cfg_attr(not(test), expect(dead_code))]
+pub(crate) fn entree_de_l_index(bac: &Path, chemin: &str) -> Result<Option<(String, String)>, String> {
+    let mut entrees = geste(bac, &["ls-files", "-s", "-z", "--", chemin]);
+    entrees.envs(GIT_FORGE).env("GIT_LITERAL_PATHSPECS", "1");
+    let sortie = faire(entrees)?;
+    let mut trouvees = entrees_du_chemin(&sortie, chemin, true);
+    let premiere = trouvees.next();
+    if trouvees.next().is_some() {
+        return Err(format!("the index of {} has more than one entry for {chemin:?}", bac.display()));
+    }
+    Ok(premiere)
 }
 
 /// Le chemin canonique d'un chemin qui n'existe peut-être pas : son plus proche ancêtre qui existe, canonisé, puis le

@@ -45,7 +45,7 @@ pub(crate) fn rejouer(
     bac: &Path,
     journal: &Path,
 ) -> (Option<String>, Result<(), String>) {
-    rejouer_avec(profil, commande, bac, journal, &MurNatif::de_l_environnement())
+    rejouer_et_finir(profil, commande, bac, journal).0
 }
 
 /// [`rejouer`], avec le mur natif donné.
@@ -56,13 +56,32 @@ fn rejouer_avec(
     journal: &Path,
     natif: &MurNatif,
 ) -> (Option<String>, Result<(), String>) {
+    rejouer_et_finir_avec(profil, commande, bac, journal, natif).0
+}
+
+/// [`rejouer`], et la fin du rejeu ([`FinDuRejeu`]) : la même preuve, jouée de la même façon, rendue avec son type.
+pub(crate) fn rejouer_et_finir(profil: &Profil, commande: &str, bac: &Path, journal: &Path) -> (Rejeu, FinDuRejeu) {
+    rejouer_et_finir_avec(profil, commande, bac, journal, &MurNatif::de_l_environnement())
+}
+
+/// [`rejouer_et_finir`], avec le mur natif donné.
+fn rejouer_et_finir_avec(
+    profil: &Profil,
+    commande: &str,
+    bac: &Path,
+    journal: &Path,
+    natif: &MurNatif,
+) -> (Rejeu, FinDuRejeu) {
     if commande.trim().is_empty() {
-        return (None, Err(format!("vérification « {commande} » blanche : rien ne se rejoue, rien n'est prouvé")));
+        let erreur = format!("vérification « {commande} » blanche : rien ne se rejoue, rien n'est prouvé");
+        return ((None, Err(erreur)), FinDuRejeu::Autre);
     }
     if profil.mur_du_rejeu() == MurDuRejeu::Natif {
         return match &natif.maison {
-            Ok(maison) => natif::rejouer(&natif.programme, maison, profil, commande, bac, journal),
-            Err(erreur) => (None, Err(format!("vérification « {commande} » impossible : {erreur}"))),
+            Ok(maison) => natif::rejouer_et_finir(&natif.programme, maison, profil, commande, bac, journal),
+            Err(erreur) => {
+                ((None, Err(format!("vérification « {commande} » impossible : {erreur}"))), FinDuRejeu::Autre)
+            }
         };
     }
     rejouer_si_tuee(|| jouer_sous_srt(profil, commande, bac, journal))
@@ -71,8 +90,41 @@ fn rejouer_avec(
 /// Ce que rend un rejeu : son `verif` et son issue.
 pub(crate) type Rejeu = (Option<String>, Result<(), String>);
 
-/// Un jeu de la preuve : son rejeu, et son statut si la commande a fini tuée ([`est_tuee`]).
-pub(crate) type Jeu = (Rejeu, Option<ExitStatus>);
+/// Comment un rejeu a fini, décidé sur le statut de la commande lui-même, avant tout texte et toute coupe ([`queue`]) :
+/// le texte de l'issue ne se relit jamais pour le savoir.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FinDuRejeu {
+    /// La commande a réussi, sous un mur sans défaut.
+    Verte,
+    /// La commande a fini d'elle-même, d'un statut non nul qui n'est pas une mise à mort ([`est_tuee`]), et, sous le
+    /// mur natif, son filtre réseau s'est arrêté sans erreur.
+    Rouge,
+    /// La commande a fini tuée ([`est_tuee`]) : son statut. Prime sur un filtre réseau qui ne s'arrête pas.
+    Tuee(ExitStatus),
+    /// Le délai est passé. Prime sur un filtre réseau qui ne s'arrête pas.
+    Delai,
+    /// Tout ce qui n'est pas une fin de la commande : elle n'a pas pu partir, une commande blanche, l'attente ou la
+    /// mise à mort impossibles, un mur qui ne se prépare pas ; et, pour une commande qui a fini d'elle-même (rouge ou
+    /// verte), un filtre réseau qui ne s'arrête pas.
+    Autre,
+}
+
+impl FinDuRejeu {
+    /// La fin d'une commande partie, d'après son issue : son statut, `None` au délai. Le défaut du mur, s'il y en a un
+    /// (`mur_sans_defaut` faux), ne change que la fin d'une commande qui a fini d'elle-même.
+    pub(crate) fn de_l_issue(statut: Option<ExitStatus>, mur_sans_defaut: bool) -> FinDuRejeu {
+        match statut {
+            None => FinDuRejeu::Delai,
+            Some(statut) if est_tuee(&statut) => FinDuRejeu::Tuee(statut),
+            Some(_) if !mur_sans_defaut => FinDuRejeu::Autre,
+            Some(statut) if statut.success() => FinDuRejeu::Verte,
+            Some(_) => FinDuRejeu::Rouge,
+        }
+    }
+}
+
+/// Un jeu de la preuve : son rejeu, et sa fin.
+pub(crate) type Jeu = (Rejeu, FinDuRejeu);
 
 /// Vrai si la commande lancée a fini tuée du dehors : du signal 9 (SIGKILL) ou 15 (SIGTERM), ou par le code 137 ou 143,
 /// que rend une coquille dont la commande est morte d'un de ces deux signaux. Un autre signal est un plantage, rouge.
@@ -90,17 +142,18 @@ pub(crate) fn est_tuee(statut: &ExitStatus) -> bool {
     }
 }
 
-/// Joue la preuve avec `jouer` ; si elle a fini tuée ([`est_tuee`]), la joue une seule fois de plus, et l'issue de ce
-/// second jeu est celle du rejeu : sa première ligne de `verif`, écrite par Lydite, dit `proof killed (<statut du
-/// premier jeu>), replayed once`, puis vient la fin de la sortie du second jeu. La ligne s'ajoute après la coupe aux
-/// derniers caractères. Si le second jeu ne peut pas partir, `verif` reste absent, et la ligne avec lui.
-pub(crate) fn rejouer_si_tuee(mut jouer: impl FnMut() -> Jeu) -> Rejeu {
-    let (premier, tuee) = jouer();
-    let Some(statut) = tuee else {
-        return premier;
+/// Joue la preuve avec `jouer` ; si elle a fini tuée ([`FinDuRejeu::Tuee`]), la joue une seule fois de plus, et l'issue
+/// de ce second jeu est celle du rejeu, sa fin aussi (une preuve tuée deux fois finit `Tuee`) : sa première ligne de
+/// `verif`, écrite par Lydite, dit `proof killed (<statut du premier jeu>), replayed once`, puis vient la fin de la
+/// sortie du second jeu. La ligne s'ajoute après la coupe aux derniers caractères. Si le second jeu ne peut pas partir,
+/// `verif` reste absent, et la ligne avec lui.
+pub(crate) fn rejouer_si_tuee(mut jouer: impl FnMut() -> Jeu) -> (Rejeu, FinDuRejeu) {
+    let (premier, fin) = jouer();
+    let FinDuRejeu::Tuee(statut) = fin else {
+        return (premier, fin);
     };
-    let ((verif, rejeu), _) = jouer();
-    (verif.map(|sortie| format!("proof killed ({statut}), replayed once\n{sortie}")), rejeu)
+    let ((verif, rejeu), fin) = jouer();
+    ((verif.map(|sortie| format!("proof killed ({statut}), replayed once\n{sortie}")), rejeu), fin)
 }
 
 /// Un jeu de la preuve par la coquille, sous srt si le profil exige le mur : le mur préparé de nouveau, son dossier
@@ -109,7 +162,10 @@ fn jouer_sous_srt(profil: &Profil, commande: &str, bac: &Path, journal: &Path) -
     let delai = profil.delai_preuve();
     let srt = match sous_le_mur(profil, bac) {
         Ok(srt) => srt,
-        Err(erreur) => return ((None, Err(format!("vérification « {commande} » impossible : {erreur}"))), None),
+        Err(erreur) => {
+            let erreur = format!("vérification « {commande} » impossible : {erreur}");
+            return ((None, Err(erreur)), FinDuRejeu::Autre);
+        }
     };
     let issue = executer(commande, bac, delai, journal, profil.variable_de_la_cle(), srt.as_ref());
     if let Some(srt) = &srt {
@@ -119,11 +175,12 @@ fn jouer_sous_srt(profil: &Profil, commande: &str, bac: &Path, journal: &Path) -
     let sortie = lire_journal(journal);
     let issue = match issue {
         Ok(issue) => issue,
-        Err(erreur) => return ((None, Err(erreur)), None),
+        Err(erreur) => return ((None, Err(erreur)), FinDuRejeu::Autre),
     };
-    let tuee = match &issue {
-        Ok(Some(statut)) if est_tuee(statut) => Some(*statut),
-        _ => None,
+    // La fin se décide sur le statut, avant tout texte : l'attente ou la mise à mort impossibles ne sont pas une fin.
+    let fin = match &issue {
+        Ok(statut) => FinDuRejeu::de_l_issue(*statut, true),
+        Err(_) => FinDuRejeu::Autre,
     };
     let rejeu = match issue {
         Err(erreur) => Err(erreur),
@@ -133,7 +190,7 @@ fn jouer_sous_srt(profil: &Profil, commande: &str, bac: &Path, journal: &Path) -
             Err(queue(&format!("vérification « {commande} » : temps dépassé ({} s) :\n{sortie}", delai.as_secs_f32())))
         }
     };
-    ((Some(queue(&sortie)), rejeu), tuee)
+    ((Some(queue(&sortie)), rejeu), fin)
 }
 
 /// La correction d'un mur exigé que srt ne tient pas (6028).

@@ -64,6 +64,7 @@ fn histoire(evenements: &[Evenement]) -> Vec<String> {
         Evenement::Verdict { verdict, foi, .. } => format!("verdict {verdict:?} {foi:?}"),
         Evenement::Gel { .. } => "gel".into(),
         Evenement::Empreintes { .. } => "empreintes".into(),
+        Evenement::Rouge { .. } => "rouge".into(),
         Evenement::Fusion { .. } => "fusion".into(),
         Evenement::Refus { code, .. } => format!("refus {code}"),
         Evenement::Poussee { .. } => "poussée".into(),
@@ -265,6 +266,7 @@ fn main_de(evenement: &Evenement) -> Option<usize> {
         | Evenement::Verdict { main, .. }
         | Evenement::Gel { main, .. }
         | Evenement::Empreintes { main, .. }
+        | Evenement::Rouge { main, .. }
         | Evenement::Fusion { main, .. }
         | Evenement::Refus { main, .. } => Some(*main),
     }
