@@ -194,7 +194,7 @@ fn consigne(
     pretee: bool,
     socle: &str,
 ) -> String {
-    super::consigne(objectif, fichiers, exacts, &[], None, verifier, precedente, pretee, socle, false)
+    super::consigne(objectif, fichiers, exacts, &[], &[], None, verifier, precedente, pretee, socle, false)
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn sans_a1_retire_honnetete_et_perimetre_et_rien_d_autre() {
         (None, &[][..], None, Some("avant"), false),
     ] {
         let pieces = |sans_a1| {
-            super::consigne("Écrire a", fichiers, exacts, &[], None, verifier, precedente, pretee, "S", sans_a1)
+            super::consigne("Écrire a", fichiers, exacts, &[], &[], None, verifier, precedente, pretee, "S", sans_a1)
         };
         let (pleine, nue) = (pieces(false), pieces(true));
         assert!(pleine.contains(HONNETETE) && pleine.contains(PERIMETRE), "{pleine}");
@@ -228,7 +228,7 @@ fn sans_a1_retire_honnetete_et_perimetre_et_rien_d_autre() {
 
 #[test]
 fn sans_a1_ne_laisse_pas_de_ligne_vide_en_trop() {
-    let nue = super::consigne("Écrire a", None, &[], &[], None, None, None, false, "S", true);
+    let nue = super::consigne("Écrire a", None, &[], &[], &[], None, None, None, false, "S", true);
     assert!(nue.starts_with(&format!("S\n\nÉcrire a\n\n{COMMIT}\n\n")), "{nue}");
 }
 
@@ -238,14 +238,14 @@ fn le_profil_sans_a1_retire_les_deux_phrases_de_la_consigne_de_tache_seulement()
     let mesure = Mesure { sans_a1: true, ..Mesure::default() };
     let nue = Profil::faux(vec![], DELAI).avec_mesure(mesure);
     let (a, b) = (
-        consigne_de(&pleine, "Écrire a", None, &[], &[], None, None, None, false),
-        consigne_de(&nue, "Écrire a", None, &[], &[], None, None, None, false),
+        consigne_de(&pleine, "Écrire a", None, &[], &[], &[], None, None, None, false),
+        consigne_de(&nue, "Écrire a", None, &[], &[], &[], None, None, None, false),
     );
     assert!(a.contains(HONNETETE) && a.contains(PERIMETRE), "{a}");
     assert!(!b.contains(HONNETETE) && !b.contains(PERIMETRE) && b.contains(COMMIT), "{b}");
     // Une main jugée n'a jamais ces phrases : le réglage n'y change rien.
     let juge =
-        |profil: &Profil| consigne_de(profil, "Juger", None, &[], &[], None, Some("exit 0"), Some("avant"), true);
+        |profil: &Profil| consigne_de(profil, "Juger", None, &[], &[], &[], None, Some("exit 0"), Some("avant"), true);
     assert_eq!(juge(&pleine).split_once("\n\n").unwrap().1, juge(&nue).split_once("\n\n").unwrap().1);
 }
 
@@ -282,7 +282,8 @@ fn la_consigne_nomme_les_epingles_sha256_apres_les_textes_exacts_et_sans_epingle
     let exacts = [("src/a.rs".to_string(), "fn a() {}".to_string())];
     let (h1, h2) = ("1".repeat(64), "2".repeat(64));
     let epingles = [("src/a.rs".to_string(), h1.clone()), ("docs/x.md".to_string(), h2.clone())];
-    let avec = super::consigne("Écrire a", Some(&fichiers), &exacts, &epingles, None, None, None, false, "S", false);
+    let avec =
+        super::consigne("Écrire a", Some(&fichiers), &exacts, &[], &epingles, None, None, None, false, "S", false);
     let textes = "These texts must appear in your files byte for byte, as written here:\nsrc/a.rs: fn a() {}";
     let titre = "These files must have exactly this SHA-256, as git stores them:";
     // Une ligne de titre, puis une ligne par épingle, juste après les textes exacts.
@@ -290,10 +291,31 @@ fn la_consigne_nomme_les_epingles_sha256_apres_les_textes_exacts_et_sans_epingle
     let attendue = format!("S\n\nÉcrire a{FIXE} Your files: src/a.rs docs/\n{textes}\n{lignes}{SUITE}{PREUVE}");
     assert_eq!(avec, attendue);
     // Sans épingle, la consigne est celle d'avant, à l'octet : ni titre, ni ligne vide.
-    let sans = super::consigne("Écrire a", Some(&fichiers), &exacts, &[], None, None, None, false, "S", false);
+    let sans = super::consigne("Écrire a", Some(&fichiers), &exacts, &[], &[], None, None, None, false, "S", false);
     let d_avant = format!("S\n\nÉcrire a{FIXE} Your files: src/a.rs docs/\n{textes}{SUITE}{PREUVE}");
     assert_eq!(sans, d_avant);
     assert!(!sans.contains("SHA-256"), "{sans}");
+}
+
+#[test]
+fn la_consigne_nomme_les_fichiers_poses_en_une_ligne_avant_les_epingles_et_sans_place_elle_ne_change_pas() {
+    let fichiers = ["donnees/".to_string()];
+    let exacts = [("donnees/t.txt".to_string(), "alpha".to_string())];
+    let poses = ["donnees/t.txt".to_string(), "donnees/u bin".to_string()];
+    let epingle = [("donnees/t.txt".to_string(), "1".repeat(64))];
+    let avec =
+        super::consigne("Écrire a", Some(&fichiers), &exacts, &poses, &epingle, None, None, None, false, "S", false);
+    let textes = "These texts must appear in your files byte for byte, as written here:\ndonnees/t.txt: alpha";
+    let posee = "Lydite placed these files itself before you started; keep them byte for byte: \
+                 donnees/t.txt donnees/u bin";
+    let titre = "These files must have exactly this SHA-256, as git stores them:";
+    let lignes = format!("{textes}\n{posee}\n{titre}\ndonnees/t.txt: {}", "1".repeat(64));
+    assert_eq!(avec, format!("S\n\nÉcrire a{FIXE} Your files: donnees/\n{lignes}{SUITE}{PREUVE}"));
+    // Sans fichier posé : la consigne d'avant, à l'octet, sans la ligne.
+    let sans =
+        super::consigne("Écrire a", Some(&fichiers), &exacts, &[], &epingle, None, None, None, false, "S", false);
+    assert_eq!(sans, avec.replace(&format!("{posee}\n"), ""));
+    assert!(!sans.contains("Lydite placed"), "{sans}");
 }
 
 /// La dernière ligne du rouge d'abord, la même avec des fichiers nommés et avec `declared`.
@@ -307,7 +329,7 @@ fn la_consigne_d_une_tache_a_fichiers_nommes_dit_le_rouge_d_abord_apres_les_epin
     let epingles = [("src/a.rs".to_string(), "1".repeat(64))];
     let rouge = Rouge::Nommes(vec!["tests/a.rs".to_string(), "tests/b.rs".to_string()]);
     let avec =
-        super::consigne("Écrire a", Some(&fichiers), &[], &epingles, Some(&rouge), None, None, false, "S", false);
+        super::consigne("Écrire a", Some(&fichiers), &[], &[], &epingles, Some(&rouge), None, None, false, "S", false);
     let epingle =
         format!("These files must have exactly this SHA-256, as git stores them:\nsrc/a.rs: {}", "1".repeat(64));
     let titre = "Red first: Lydite replays the proof on the base plus only these files, and it must fail there; then \
@@ -322,7 +344,7 @@ fn la_consigne_d_une_tache_a_fichiers_nommes_dit_le_rouge_d_abord_apres_les_epin
 #[test]
 fn la_consigne_d_une_tache_a_declared_dit_de_nommer_chaque_fichier_du_test_par_une_ligne_red() {
     let rouge = Rouge::Declare;
-    let avec = super::consigne("Écrire a", None, &[], &[], Some(&rouge), None, None, false, "S", false);
+    let avec = super::consigne("Écrire a", None, &[], &[], &[], Some(&rouge), None, None, false, "S", false);
     let titre = "Red first: Lydite replays the proof on the base plus only the test files you name, and it must fail \
                  there; then it must pass with your whole change.";
     let nommer = "Name each test file at the end of your answer, one line `RED: <file>` each.";
@@ -334,8 +356,9 @@ fn la_consigne_d_une_tache_a_declared_dit_de_nommer_chaque_fichier_du_test_par_u
 fn sans_red_la_consigne_est_celle_d_avant_a_l_octet_et_ne_dit_rien_du_rouge() {
     let fichiers = ["src/a.rs".to_string()];
     let exacts = [("src/a.rs".to_string(), "fn a() {}".to_string())];
+    let (verifier, pretee) = (Some("cargo test"), true);
     let sans =
-        super::consigne("Écrire a", Some(&fichiers), &exacts, &[], None, Some("cargo test"), None, true, "S", false);
+        super::consigne("Écrire a", Some(&fichiers), &exacts, &[], &[], None, verifier, None, pretee, "S", false);
     let textes = "These texts must appear in your files byte for byte, as written here:\nsrc/a.rs: fn a() {}";
     let d_avant = format!(
         "S\n\nÉcrire a{FIXE} Your files: src/a.rs\n{textes}{SUITE}\n\nQuand tu auras fini, joue toi-même dans ton \
@@ -365,7 +388,11 @@ fn les_lignes_red_de_la_reponse_se_lisent_ou_qu_elles_soient_et_une_ligne_qui_n_
 fn la_couche_fixe_d_une_tache_a_red_tient_sous_le_plafond_et_ne_cite_que_des_codes_connus() {
     for rouge in [Rouge::Nommes(Vec::new()), Rouge::Declare] {
         for (verifier, pretee) in [(None, false), (Some(""), false), (Some(""), true)] {
-            let fixe = super::consigne("", Some(&[]), &[], &[], Some(&rouge), verifier, None, pretee, "", false);
+            // Une tâche qui pose un fichier (sa ligne fixe est comptée, son nom vide) est la plus chargée.
+            let poses = [String::new()];
+            let fixe =
+                super::consigne("", Some(&[]), &[], &poses, &[], Some(&rouge), verifier, None, pretee, "", false);
+            assert!(fixe.contains("Lydite placed these files"), "{fixe}");
             assert!(fixe.chars().count() <= PLAFOND, "{rouge:?} {verifier:?} {pretee} : {}", fixe.chars().count());
             assert_eq!(crate::essais::codes_inconnus(&fixe), Vec::<String>::new());
         }
@@ -508,13 +535,13 @@ fn la_main_de_tache_et_la_main_jugee_recoivent_le_socle_en_tete() {
     let (dir, bac) = bac_jetable("socle");
     let journal = dir.join("journal.tmp");
     let main = Profil::faux(crate::essais::fausse_main(&dir), DELAI);
-    let texte = consigne_de(&main, "Écrire a", None, &[], &[], None, None, None, false);
+    let texte = consigne_de(&main, "Écrire a", None, &[], &[], &[], None, None, None, false);
     let _ = tenter(&main, &bac, &texte, None, None, &journal, None, None);
     let tache = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(tache.starts_with(TETE_DU_SOCLE), "{tache}");
     assert!(tache.contains(" UTC, in 60 minutes: keep the last minutes to say what is done and what is not.\n\n"));
     let juge = |_: &Path| Ok(());
-    let texte = consigne_de(&main, "Juger", None, &[], &[], None, Some("exit 0"), Some("avant"), true);
+    let texte = consigne_de(&main, "Juger", None, &[], &[], &[], None, Some("exit 0"), Some("avant"), true);
     let _ = tenter(&main, &bac, &texte, Some("exit 0"), Some("avant"), &journal, Some(&juge), None);
     let jugee = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(jugee.starts_with(TETE_DU_SOCLE), "{jugee}");

@@ -37,7 +37,7 @@ use crate::coeur::lecons;
 use crate::coeur::plan;
 use crate::coeur::plan::Plan;
 use crate::coeur::remarques;
-use crate::conduite::lancer::{Liens, base_du_depot};
+use crate::conduite::lancer::{Liens, Posee, base_du_depot};
 use crate::conduite::mener::{Lieu, decouper_cmd, mener_sur, preparer};
 use crate::conduite::publication;
 use crate::conduite::relecture;
@@ -82,16 +82,16 @@ fn avec_sa_fin(sortie: ExitCode) -> ExitCode {
 /// `--decouper` passe par `decouper_cmd` ; sinon `mener_sur` mène la vague, sa relecture et sa forge.
 fn executer() -> Result<ExitCode, Refus> {
     let args: Vec<OsString> = env::args_os().skip(1).collect();
-    let (profil, depot, dossier, plan, pr, decoupe, empreinte) = match options(&args)? {
+    let (profil, depot, dossier, plan, pr, decoupe, empreinte, posees) = match options(&args)? {
         Commande::Lancer(o) => {
             let (profil, depot, dossier) = preparer(&o.profil, o.depot.as_deref())?;
             let plan = Plan::copies(&o.objectif, o.verifier.as_deref(), o.n);
-            (profil, depot, dossier, plan, None, o.decouper.then_some(o), None)
+            (profil, depot, dossier, plan, None, o.decouper.then_some(o), None, Vec::new())
         }
         Commande::Plan { profil, plan, depot, pr } => {
             let (profil, depot, dossier) = preparer(&profil, depot.as_deref())?;
-            let (plan, _, empreinte, _) = lire_plan(&plan, plan::Mode::Main)?;
-            (profil, depot, dossier, plan, pr, None, Some(empreinte))
+            let (plan, _, empreinte, posees) = lire_plan(&plan, plan::Mode::Main)?;
+            (profil, depot, dossier, plan, pr, None, Some(empreinte), posees)
         }
         Commande::Accepter(nom) => return accepter_cmd(&nom),
         Commande::Profil(nom) => return profil_cmd(&nom),
@@ -119,8 +119,9 @@ fn executer() -> Result<ExitCode, Refus> {
     if let Some(o) = decoupe {
         return decouper_cmd(&lieu, &o);
     }
-    // L'empreinte des octets du fichier de `--plan` : la vague du plan la porte à son `vague.lancement`.
-    let liens = Liens { plan: empreinte.as_deref(), ..Liens::default() };
+    // L'empreinte des octets du fichier de `--plan` : la vague du plan la porte à son `vague.lancement`. Le contenu des
+    // fichiers que le plan pose arrive tel que `lire_plan` l'a lu, sans rien relire du disque.
+    let liens = Liens { plan: empreinte.as_deref(), poses: &posees, ..Liens::default() };
     let Some(base) = pr else {
         return mener_sur(&lieu, &plan, &base_du_depot(&depot)?, liens, None, Origine::Plan);
     };
@@ -129,17 +130,6 @@ fn executer() -> Result<ExitCode, Refus> {
         eprintln!("{ecart}");
     }
     mener_sur(&lieu, &plan, &proposition.base, liens, Some(&proposition), Origine::Plan)
-}
-
-/// Ce que le plan dit pour un fichier qu'il pose, et le contenu que Lydite en a lu : les octets du fichier de même
-/// chemin sous `<fichier du plan>.files/`, tels quels, dont l'empreinte est celle du plan.
-#[derive(Debug, PartialEq, Eq)]
-struct Posee {
-    /// L'id de la tâche dont une ligne `place` dit ce fichier.
-    tache: String,
-    /// Le chemin du fichier, tel que le plan l'écrit : relatif à la racine du dépôt, des noms séparés par `/`.
-    fichier: String,
-    octets: Vec<u8>,
 }
 
 /// Les fichiers qu'un plan pose, au plus.

@@ -61,9 +61,23 @@ pub(crate) type Issues = Vec<(String, Result<Pris, String>)>;
 /// (`relecture.rs`). Un refus retient la main : sa tâche est refusée, sans bail ni départ.
 pub(crate) type Preparation<'a> = &'a dyn Fn(&Path) -> Result<(), Refus>;
 
+/// Ce que le plan dit pour un fichier qu'il pose, et le contenu que Lydite en a lu : les octets du fichier de même
+/// chemin sous `<fichier du plan>.files/`, tels quels, dont l'empreinte est celle du plan.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Posee {
+    /// L'id de la tâche dont une ligne `place` dit ce fichier.
+    pub(crate) tache: String,
+    /// Le chemin du fichier, tel que le plan l'écrit : relatif à la racine du dépôt, des noms séparés par `/`.
+    pub(crate) fichier: String,
+    pub(crate) octets: Vec<u8>,
+}
+
 /// Ce qu'une vague de découpage, de relecture ou de correction porte de plus qu'une vague à plan ; par défaut, rien.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Liens<'a> {
+    /// Le contenu des fichiers que le plan pose (`lire_plan`), tel que la ligne de commande l'a lu : rien pour toute
+    /// vague que Lydite bâtit (correction, relance, découpage, relecteur), dont le plan ne pose aucun fichier.
+    pub(crate) poses: &'a [Posee],
     /// Le juge de ses mains : celui du découpeur ou du relecteur, dont la preuve prêtée est une commande de Kraken
     /// ([`Juge`]). Sa vague, des copies, ne note pas cette commande en `verifier` : Kraken ne la rejoue pas.
     pub(crate) juge: Option<Juge<'a>>,
@@ -162,6 +176,50 @@ pub(crate) fn base_du_depot(depot: &Path) -> Result<String, Refus> {
     Ok(base.trim().to_string())
 }
 
+/// Ce que la base garde à chaque chemin que le plan pose, lu par git depuis la racine du dépôt visé (`empreinte_gardee`
+/// sur le commit `base`) : rien, ou un fichier ordinaire, que la pose remplace. Un lien symbolique, un dossier, un
+/// sous-dépôt, un fichier trop lourd, ou une lecture de git qui rate sont le refus 6036, avant tout bac et tout fil.
+pub(crate) fn poses_posables(depot: &Path, base: &str, poses: &[Posee]) -> Result<(), Refus> {
+    for posee in poses {
+        let fichier = en_ligne(&posee.fichier);
+        let vu = match empreinte_gardee(depot, Arbre::Commit(base), &posee.fichier, BORNE_EMPREINTE) {
+            Ok(Gardee::Absent | Gardee::Empreinte(_)) => continue,
+            Ok(Gardee::PasOrdinaire(mode)) => format!("it keeps mode {mode} there, which is not an ordinary file"),
+            Ok(Gardee::TropLourd) => format!("it keeps a file of more than {BORNE_EMPREINTE} bytes there"),
+            Err(vu) => format!("git does not say what it keeps there: {}", en_ligne(&vu)),
+        };
+        let preuve = format!("the file `{fichier}` that the plan places: the base commit {base}: {vu}");
+        let correction = "Place no file where the base commit keeps a symbolic link, a folder, a submodule or a very \
+                          large file (an ordinary file there is replaced by the placed one), or run the plan on \
+                          another base.";
+        return Err(Refus::new(Code::FichierPoseRefuse, preuve, correction));
+    }
+    Ok(())
+}
+
+/// Pose `octets` au chemin `fichier` du bac, tels quels : d'abord dans le fichier temporaire `temporaire`, hors du
+/// bac ; puis `git hash-object -w --no-filters` en fait l'objet de git (sans conversion de fins de ligne ni filtre du
+/// dépôt), `update-index --add --cacheinfo` l'inscrit en 100644 et `checkout-index -f` l'écrit : git n'écrit jamais à
+/// travers un lien symbolique. Le temporaire est effacé dans tous les cas. Rend ce qui a raté.
+fn poser_un_fichier(bac: &Path, temporaire: &Path, fichier: &str, octets: &[u8]) -> Result<(), String> {
+    let pose = std::fs::write(temporaire, octets)
+        .map_err(|e| format!("its bytes are not written to {}: {e}", temporaire.display()))
+        .and_then(|()| {
+            let mut hacher = geste(bac, &["hash-object", "-w", "--no-filters"]);
+            hacher.arg(temporaire);
+            let objet = faire(hacher)?;
+            let inscrire = ["update-index", "--add", "--cacheinfo", &format!("100644,{},{fichier}", objet.trim())];
+            faire(geste(bac, &inscrire))?;
+            faire(geste(bac, &["checkout-index", "-f", "--", fichier])).map(|_| ())
+        });
+    if let Err(vu) = std::fs::remove_file(temporaire)
+        && vu.kind() != std::io::ErrorKind::NotFound
+    {
+        eprintln!("lydite: cannot remove {}: {vu}", temporaire.display());
+    }
+    pose
+}
+
 /// [`lancer_sur`], avec les [`Liens`] de la vague : son `vague.joue` suit son `vague.assemblage` s'il nomme un
 /// découpage, et le juge, s'il y en a un, rend le verdict de chaque tentative ([`tenter`]).
 pub(crate) fn lancer_avec(
@@ -234,6 +292,7 @@ pub(crate) fn lancer_avec(
             _ => Role::Main,
         },
         preparation: liens.preparation,
+        poses: liens.poses,
         baux: Baux::new(),
         rangs: (0..).zip(&plan.taches).map(|(rang, tache)| (tache.id.as_str(), rang)).collect(),
         taches: plan.taches.iter().map(|_| Etat::Attente).collect(),
@@ -575,6 +634,8 @@ struct Vague<'a> {
     role: Role,
     /// Ce qui se pose dans le bac de chaque main avant son premier départ ([`Preparation`]).
     preparation: Option<Preparation<'a>>,
+    /// Le contenu des fichiers que le plan pose, que chaque tentative pose dans le bac de sa tâche ([`Liens::poses`]).
+    poses: &'a [Posee],
     baux: Baux,
     /// Le rang de chaque tâche dans le plan, par son id.
     rangs: HashMap<&'a str, usize>,
@@ -745,6 +806,12 @@ impl<'a> Vague<'a> {
                 }
             }
         };
+        // Les fichiers que le plan pose se posent avant chaque tentative, la relance comprise (une main d'avant a pu
+        // les changer), et avant tout bail : un refus retient la main.
+        if let Err(refus) = self.poser_les_fichiers(k, &bac) {
+            self.refuser(k, refus, None);
+            return;
+        }
         let verifier = tache.preuve.as_deref().or(plan.preuve.as_deref());
         let profil = self.profil_de(tache);
         // Les leçons de la main, écrites avant tout bail : une écriture ratée arrête la vague.
@@ -1149,6 +1216,30 @@ impl<'a> Vague<'a> {
         self.taches[k - 1] = Etat::Finie(Err(issue));
     }
 
+    /// Pose dans `bac`, le bac de la tâche `k`, chaque fichier que le plan pose pour elle ([`poser_un_fichier`]), dans
+    /// l'ordre du plan ; le temporaire de chacun est dans le dossier de Lydite, hors du bac. Un geste raté est le refus
+    /// 7009, qui nomme le fichier : rien ne se pose ailleurs que dans ce bac.
+    fn poser_les_fichiers(&self, k: usize, bac: &Path) -> Result<(), Refus> {
+        let tache = &self.plan.taches[k - 1];
+        for (rang, posee) in self.poses.iter().filter(|posee| posee.tache == tache.id).enumerate() {
+            let temporaire = self.fil.dossier().join(format!("pose-{}-{k}-{rang}.tmp", self.id));
+            poser_un_fichier(bac, &temporaire, &posee.fichier, &posee.octets).map_err(|vu| {
+                let preuve = format!(
+                    "{} ({}) : the file {} that the plan places is not placed in its sandbox: {}",
+                    self.main(k),
+                    tache.id,
+                    en_ligne(&posee.fichier),
+                    en_ligne(&vu)
+                );
+                let correction = "The task is refused without a retry, because Lydite could not place a file in its \
+                                  sandbox: check that git writes there and that nothing blocks the path, then run it \
+                                  again in a fresh wave.";
+                Refus::new(Code::GitImpossible, preuve, correction)
+            })?;
+        }
+        Ok(())
+    }
+
     /// Le fichier des leçons de la main de `tache` (`dossier::ecrire_consigne`), s'il y en a : les leçons de la tâche
     /// (`lecons::donnees`) pour une main de tâche, la liste de toutes pour le découpeur et le relecteur (la vague a un
     /// juge). Aucun pour une main nue, ou sans leçon qui lui aille. Une écriture ratée est le refus 7012.
@@ -1212,8 +1303,20 @@ impl<'a> Vague<'a> {
         }
         let objectif = &tache.objectif;
         let rouge = tache.rouge.as_ref();
-        let texte =
-            consigne_de(profil, objectif, fichiers, &tache.exacts, &epingles, rouge, verifier, precedente, juge);
+        // Les fichiers que Lydite pose dans son bac, dans l'ordre du plan : une ligne de plus, avant les épingles.
+        let poses: Vec<String> = tache.poses.iter().map(|(fichier, _)| fichier.clone()).collect();
+        let texte = consigne_de(
+            profil,
+            objectif,
+            fichiers,
+            &tache.exacts,
+            &poses,
+            &epingles,
+            rouge,
+            verifier,
+            precedente,
+            juge,
+        );
         ecrire_consigne(self.fil.dossier(), &texte, ARRET)?;
         Ok(texte)
     }
