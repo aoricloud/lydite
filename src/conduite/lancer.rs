@@ -39,7 +39,7 @@ use std::time::{Duration, Instant};
 use crate::branchements::bac::{bac, exclusions_de_l_etat, poser, reglages_du_bac, retirer_de_force, sans_claude};
 use crate::branchements::dossier::{Fil, depense_du_jour, ecrire_consigne, lire_quota, retenir_la_vague, tenir};
 use crate::branchements::git::{Arbre, BORNE_EMPREINTE, Gardee, empreinte_gardee, entree_de_l_index};
-use crate::branchements::git::{faire, geste, lecons_du_commit};
+use crate::branchements::git::{faire, geste, lecons_du_commit, racines};
 use crate::branchements::srt::{FinDuRejeu, rejouer_et_finir};
 use crate::coeur::bail::Baux;
 use crate::coeur::erreur::{Code, Refus};
@@ -176,23 +176,53 @@ pub(crate) fn base_du_depot(depot: &Path) -> Result<String, Refus> {
     Ok(base.trim().to_string())
 }
 
-/// Ce que la base garde à chaque chemin que le plan pose, lu par git depuis la racine du dépôt visé (`empreinte_gardee`
-/// sur le commit `base`) : rien, ou un fichier ordinaire, que la pose remplace. Un lien symbolique, un dossier, un
-/// sous-dépôt, un fichier trop lourd, ou une lecture de git qui rate sont le refus 6036, avant tout bac et tout fil.
+/// Ce que la base garde à chaque chemin que le plan pose, lu par git depuis la racine du dépôt visé (`racines`, son
+/// premier élément : les chemins du plan lui sont relatifs, et le dépôt visé peut en être un sous-dossier), par
+/// `empreinte_gardee` sur le commit `base`. Chaque dossier parent du chemin est absent ou un dossier (mode 040000) ;
+/// le chemin lui-même est absent ou un fichier ordinaire, que la pose remplace. Un fichier, un lien symbolique ou un
+/// sous-dépôt à la place d'un parent, un lien, un dossier, un sous-dépôt ou un fichier trop lourd au chemin, ou une
+/// lecture de git qui rate sont le refus 6036, avant tout bac et tout fil ; il nomme le parent ou le chemin.
 pub(crate) fn poses_posables(depot: &Path, base: &str, poses: &[Posee]) -> Result<(), Refus> {
+    if poses.is_empty() {
+        return Ok(());
+    }
+    let refus = |fichier: &str, vu: String| {
+        let preuve = format!("the file `{}` that the plan places: the base commit {base}: {vu}", en_ligne(fichier));
+        let correction = "Place no file where the base commit keeps a symbolic link, a submodule or a very large \
+                          file, or a file in place of a parent folder (an ordinary file at the path is replaced by \
+                          the placed one), or run the plan on another base.";
+        Refus::new(Code::FichierPoseRefuse, preuve, correction)
+    };
+    let (racine, _) = racines(depot).map_err(|vu| {
+        let preuve =
+            format!("the files that the plan places: git does not say where the repository starts: {}", vu.preuve);
+        Refus::new(Code::FichierPoseRefuse, preuve, "Target a git repository, then run again.")
+    })?;
     for posee in poses {
-        let fichier = en_ligne(&posee.fichier);
-        let vu = match empreinte_gardee(depot, Arbre::Commit(base), &posee.fichier, BORNE_EMPREINTE) {
+        let chemin = posee.fichier.as_str();
+        // Les dossiers parents, du plus haut au plus bas : `a`, puis `a/b` pour `a/b/c.txt`.
+        for (rang, _) in chemin.match_indices('/') {
+            let parent = &chemin[..rang];
+            let vu = match empreinte_gardee(&racine, Arbre::Commit(base), parent, BORNE_EMPREINTE) {
+                Ok(Gardee::Absent) => continue,
+                Ok(Gardee::PasOrdinaire(mode)) if mode == "040000" => continue,
+                Ok(Gardee::PasOrdinaire(mode)) => {
+                    format!("its parent `{}` is mode {mode}, not a folder", en_ligne(parent))
+                }
+                Ok(Gardee::Empreinte(_) | Gardee::TropLourd) => {
+                    format!("its parent `{}` is a file, not a folder", en_ligne(parent))
+                }
+                Err(vu) => format!("git does not say what its parent `{}` is: {}", en_ligne(parent), en_ligne(&vu)),
+            };
+            return Err(refus(chemin, vu));
+        }
+        let vu = match empreinte_gardee(&racine, Arbre::Commit(base), chemin, BORNE_EMPREINTE) {
             Ok(Gardee::Absent | Gardee::Empreinte(_)) => continue,
             Ok(Gardee::PasOrdinaire(mode)) => format!("it keeps mode {mode} there, which is not an ordinary file"),
             Ok(Gardee::TropLourd) => format!("it keeps a file of more than {BORNE_EMPREINTE} bytes there"),
             Err(vu) => format!("git does not say what it keeps there: {}", en_ligne(&vu)),
         };
-        let preuve = format!("the file `{fichier}` that the plan places: the base commit {base}: {vu}");
-        let correction = "Place no file where the base commit keeps a symbolic link, a folder, a submodule or a very \
-                          large file (an ordinary file there is replaced by the placed one), or run the plan on \
-                          another base.";
-        return Err(Refus::new(Code::FichierPoseRefuse, preuve, correction));
+        return Err(refus(chemin, vu));
     }
     Ok(())
 }
