@@ -22,10 +22,10 @@
 //! donc pas.
 //!
 //! L'énumération ne tient que les codes que le programme construit : 1001, 1002, 1005, 1006, 1009 et 1010 du bloc
-//! 1000, 6001 à 6036 du bloc 6000, 7001 à 7022 du bloc 7000, 8001 à 8013 du bloc 8000. Les autres lignes du bloc 1000
-//! de passerelle (1003, 1004, 1007, 1008 et 1011) n'y sont pas ; `tests::copie_du_bloc_1000` en garde la copie entière,
-//! sous `#[cfg(test)]` comme `Code::TOUS` : chaque code de 1000 à 5999 et de 9000 à 9999 en est une ligne, et ceux de
-//! ce dépôt vivent dans 6000 à 8999.
+//! 1000, 6001 à 6036 et 6038 du bloc 6000, 7001 à 7022 du bloc 7000, 8001 à 8013 du bloc 8000. Les autres lignes du
+//! bloc 1000 de passerelle (1003, 1004, 1007, 1008 et 1011) n'y sont pas ; `tests::copie_du_bloc_1000` en garde la
+//! copie entière, sous `#[cfg(test)]` comme `Code::TOUS` : chaque code de 1000 à 5999 et de 9000 à 9999 en est une
+//! ligne, et ceux de ce dépôt vivent dans 6000 à 8999.
 //!
 //! Ce qui diffère de passerelle, un écart par ligne avec sa raison :
 //!
@@ -215,6 +215,8 @@ codes! {
     FichierPoseRefuse = 6036, "lancer.fichier_pose_refuse",
         "A file that a plan places is a regular file next to the plan, of at most 4 MiB, whose SHA-256 is the one the \
          plan writes.";
+    RapportRefuse = 6038, "lancer.rapport_refuse",
+        "A hermes-security report is read strictly, and a plan is written only for a finding it keeps.";
     // --- 7000 : vague ---
     VagueBacImpossible = 7001, "vague.bac_impossible",
         "Each task has its own worktree, which git creates just before its hand; a task without a worktree is \

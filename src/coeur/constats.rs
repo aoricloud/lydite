@@ -46,7 +46,7 @@ use std::collections::BTreeSet;
 const TYPE_DU_DOCUMENT: &str = "hermes-security.findings";
 const VERSION_DU_SCHEMA: &str = "1.0";
 
-const OCTETS_MAXIMUM: usize = 4_194_304;
+pub(crate) const OCTETS_MAXIMUM: usize = 4_194_304;
 const ENTREES_MAXIMUM: usize = 200;
 const CHEMINS_GARDES_PAR_CONSTAT: usize = 4;
 const LIGNE_MAXIMUM: u64 = 1_000_000_000;
@@ -76,7 +76,7 @@ impl Sorte {
     const TOUTES: [Sorte; 2] = [Sorte::Finding, Sorte::Candidate];
 
     /// Le nom de la sorte, tel que le plan l'écrit.
-    fn nom(self) -> &'static str {
+    pub(crate) fn nom(self) -> &'static str {
         match self {
             Sorte::Finding => "finding",
             Sorte::Candidate => "candidate",
@@ -164,6 +164,12 @@ fn refus_du_rapport(vu: &str) -> String {
     format!("{vu} {CONSEIL}")
 }
 
+/// Le refus d'un rapport qui pèse plus de [`OCTETS_MAXIMUM`] octets, tel que [`lire`] le dit : pour qui le pèse avant
+/// de le lire.
+pub(crate) fn rapport_trop_gros() -> String {
+    refus_du_rapport(&format!("The report is over {OCTETS_MAXIMUM} bytes."))
+}
+
 // --- Le texte : une ligne, bornée -----------------------------------------------------------------------------------
 
 /// Ce caractère est-il de ceux qu'on remplace par une espace : contrôle, format, substitut, usage privé, non assigné,
@@ -217,13 +223,13 @@ fn texte(valeur: Option<&Json>, borne: usize) -> Option<String> {
 // --- Les formes -----------------------------------------------------------------------------------------------------
 
 /// `prefixe` puis 24 hexadécimaux minuscules, et rien d'autre.
-fn identite_de_forme(texte: &str, prefixe: &str) -> bool {
+pub(crate) fn identite_de_forme(texte: &str, prefixe: &str) -> bool {
     texte
         .strip_prefix(prefixe)
         .is_some_and(|reste| reste.len() == 24 && reste.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
 }
 
-fn scan_bien_forme(texte: &str) -> bool {
+pub(crate) fn scan_bien_forme(texte: &str) -> bool {
     identite_de_forme(texte, "scan_")
 }
 
@@ -415,10 +421,9 @@ fn rang(constat: &Constat) -> (bool, usize, &str) {
 // si un rapport réel s'en approche
 /// Le rapport lu depuis ses octets, ou le refus qui dit ce qui a été vu puis quoi faire. Au plus 4 194 304 octets, 200
 /// entrées en tout, quatre chemins gardés par constat. Un BOM de tête est toléré.
-#[cfg_attr(not(test), expect(dead_code))] // raccourci : la tâche suivante l'appelle
 pub(crate) fn lire(octets: &[u8]) -> Result<Rapport, String> {
     if octets.len() > OCTETS_MAXIMUM {
-        return Err(refus_du_rapport(&format!("The report is over {OCTETS_MAXIMUM} bytes.")));
+        return Err(rapport_trop_gros());
     }
     let Ok(brut) = std::str::from_utf8(octets) else {
         return Err(refus_du_rapport("The report is not UTF-8 text."));
@@ -607,7 +612,6 @@ fn citation(constat: &Constat) -> Result<Citation, String> {
 /// Le plan porte, en colonne 0, `plan 1`, `objectif`, `preuve`, `report` (le scan et le constat), `tache`, `critique`
 /// et `red : declared` ; tout le reste est indenté de quatre espaces, ou vide : le texte du rapport n'est cité que dans
 /// les lignes de la citation, entre des délimiteurs de `~`.
-#[cfg_attr(not(test), expect(dead_code))] // raccourci : la tâche suivante l'appelle
 pub(crate) fn plan_de(constat: &Constat, scan: &str, preuve: &str) -> Result<String, String> {
     let preuve = preuve_nette(preuve)?;
     let citation = citation(constat)?;

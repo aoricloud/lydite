@@ -176,7 +176,7 @@ fn decouper_de(
         relance: modele,
         ..Tache::default()
     };
-    let plan = Plan { objectif: format!("Découper : {objectif}"), preuve: None, taches: vec![tache] };
+    let plan = Plan { objectif: format!("Découper : {objectif}"), preuve: None, rapport: None, taches: vec![tache] };
     // Le plan que le juge a lu à la prise : c'est lui que le fil note, octet pour octet, et que la vague joue, chaque
     // tâche rendue critique si la source est une issue.
     let lu: Mutex<Option<(Plan, Vec<u8>)>> = Mutex::new(None);

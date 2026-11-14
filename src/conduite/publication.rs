@@ -82,7 +82,12 @@ fn plan_de_relance(plan: &Plan, issues: &Issues, numero: u64, contexte: &str) ->
         empreintes,
         ..Tache::default()
     };
-    Plan { objectif: format!("Make the CI of PR {numero} green"), preuve: plan.preuve.clone(), taches: vec![tache] }
+    Plan {
+        objectif: format!("Make the CI of PR {numero} green"),
+        preuve: plan.preuve.clone(),
+        rapport: None,
+        taches: vec![tache],
+    }
 }
 
 /// Le rouge d'une tâche qui tient encore : son rang dans le plan (à partir de 1, celui de sa main), les fichiers de
