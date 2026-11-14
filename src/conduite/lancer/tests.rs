@@ -77,6 +77,7 @@ fn histoire(evenements: &[Evenement]) -> Vec<String> {
         Evenement::Relecture { n, bloquantes, .. } => format!("relecture {n} {bloquantes}"),
         Evenement::Correction { .. } => "correction".into(),
         Evenement::Relecteur { .. } => "relecteur".into(),
+        Evenement::Rapport { .. } => "rapport".into(),
         Evenement::VerdictRelecture { sha, .. } => format!("verdict de relecture {sha}"),
         Evenement::Fournisseur { tentative, fournisseur, .. } => format!("fournisseur {tentative} {fournisseur}"),
         Evenement::Consigne { tentative, .. } => format!("consigne {tentative}"),
@@ -251,7 +252,8 @@ fn main_de(evenement: &Evenement) -> Option<usize> {
         | Evenement::Relecture { .. }
         | Evenement::Correction { .. }
         | Evenement::VerdictRelecture { .. }
-        | Evenement::Relecteur { .. } => None,
+        | Evenement::Relecteur { .. }
+        | Evenement::Rapport { .. } => None,
         Evenement::Tache { main, .. }
         | Evenement::Bail { main, .. }
         | Evenement::Debut { main, .. }
@@ -836,6 +838,7 @@ fn chaque_main_de_tache_recoit_ses_lecons_dans_un_fichier_nomme_par_son_sha_256(
     let plan = Plan {
         objectif: "o".into(),
         preuve: None,
+        rapport: None,
         taches: vec![tache_de("1", Some(&["src/"])), tache_de("2", Some(&["tests/x.rs"])), tache_de("3", None)],
     };
     lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
@@ -930,7 +933,8 @@ fn une_main_sans_lecon_qui_lui_aille_ne_recoit_ni_fichier_ni_option() {
     let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     commiter_les_lecons(&depot, &[("a-visee", texte_de_lecon("a-visee", &["src/a.rs"]))]);
     let profil = profil_declare("sorte = claude\nprogramme = lydite-claude-introuvable\n", &kraken, &depot);
-    let plan = Plan { objectif: "o".into(), preuve: None, taches: vec![tache_de("1", Some(&["docs/"]))] };
+    let plan =
+        Plan { objectif: "o".into(), preuve: None, rapport: None, taches: vec![tache_de("1", Some(&["docs/"]))] };
     lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
     assert!(consignes(&kraken).is_empty(), "ni fichier de leçons");
     // Sans leçon au dépôt, de même ; et une main nue ne reçoit rien, même avec des leçons.
@@ -1086,6 +1090,7 @@ fn la_consigne_d_une_main_declaree_dit_ses_lecons_donnees_ecartees_et_son_system
     let plan = Plan {
         objectif: "o".into(),
         preuve: None,
+        rapport: None,
         taches: vec![tache_de("1", Some(&["src/"])), tache_de("2", Some(&["tests/x.rs"]))],
     };
     lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();

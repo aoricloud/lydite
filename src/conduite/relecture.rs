@@ -795,7 +795,7 @@ fn plan_du_relecteur(profil: &Profil, plan: &Plan, critiques: &[&Tache], points:
         relance: modele,
         ..Tache::default()
     };
-    Plan { objectif: format!("Relire : {}", plan.objectif), preuve: None, taches: vec![tache] }
+    Plan { objectif: format!("Relire : {}", plan.objectif), preuve: None, rapport: None, taches: vec![tache] }
 }
 
 /// Le plan de la correction : une vague d'une seule tâche, `correction`, de preuve celle de la vague, d'objectif
@@ -824,7 +824,7 @@ fn plan_de_la_correction(
         empreintes,
         ..Tache::default()
     };
-    Plan { objectif, preuve: plan.preuve.clone(), taches: vec![tache] }
+    Plan { objectif, preuve: plan.preuve.clone(), rapport: None, taches: vec![tache] }
 }
 
 /// L'objectif de la correction : [`CORRIGER`], puis chaque remarque bloquante, `<fichier>, ligne <n> : <texte>` (sans

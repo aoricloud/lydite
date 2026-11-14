@@ -31,14 +31,16 @@ use std::process::ExitCode;
 use self::ligne::{Commande, options};
 use crate::branchements::dossier;
 use crate::branchements::github;
+use crate::coeur::constats::{self, Rapport};
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus};
+use crate::coeur::json;
 use crate::coeur::lecons;
 use crate::coeur::plan;
 use crate::coeur::plan::Plan;
 use crate::coeur::remarques;
 use crate::conduite::lancer::{Liens, Posee, base_du_depot};
-use crate::conduite::mener::{Lieu, decouper_cmd, mener_sur, preparer};
+use crate::conduite::mener::{Lieu, decouper_cmd, exiger_le_mur_du_rapport, mener_sur, preparer};
 use crate::conduite::publication;
 use crate::conduite::relecture;
 use crate::conduite::relecture::Origine;
@@ -88,9 +90,11 @@ fn executer() -> Result<ExitCode, Refus> {
             let plan = Plan::copies(&o.objectif, o.verifier.as_deref(), o.n);
             (profil, depot, dossier, plan, None, o.decouper.then_some(o), None, Vec::new())
         }
-        Commande::Plan { profil, plan, depot, pr } => {
-            let (profil, depot, dossier) = preparer(&profil, depot.as_deref())?;
+        Commande::Plan { profil: nom, plan, depot, pr } => {
+            let (profil, depot, dossier) = preparer(&nom, depot.as_deref())?;
             let (plan, _, empreinte, posees) = lire_plan(&plan, plan::Mode::Main)?;
+            // Comme `--issue` (6029) : avant tout bac et tout fil, un plan de rapport veut le mur exigé.
+            exiger_le_mur_du_rapport(&plan, &profil, &nom)?;
             (profil, depot, dossier, plan, pr, None, Some(empreinte), posees)
         }
         Commande::Accepter(nom) => return accepter_cmd(&nom),
@@ -102,6 +106,12 @@ fn executer() -> Result<ExitCode, Refus> {
         Commande::Rappel(texte) => return memoire::rappel_cmd(&texte),
         Commande::LirePlan { fichier, decoupe } => return plan_cmd(&fichier, decoupe),
         Commande::LireRemarques { fichier } => return remarques_cmd(&fichier),
+        Commande::LireConstats { rapport, plan } => {
+            return constats_cmd(
+                &rapport,
+                plan.as_ref().map(|(identite, preuve)| (identite.as_str(), preuve.as_str())),
+            );
+        }
         Commande::LireLecons { dossier } => return lecons_cmd(&dossier),
         Commande::Version => return version_cmd(),
         Commande::Skill => return skill_cmd(),
@@ -253,6 +263,111 @@ fn remarques_cmd(fichier: &Path) -> Result<ExitCode, Refus> {
         Refus::new(Code::EntreeSortie, preuve, correction)
     })?;
     remarques::lire_fichier(&octets)?.exiger_la_forme_2().map(|_| ExitCode::SUCCESS)
+}
+
+/// Le refus 6038 : le rapport, ou le plan d'un constat, que le lecteur refuse. La preuve est ce que le lecteur a vu.
+fn rapport_refuse(preuve: impl Into<String>) -> Refus {
+    let correction = "Give lydite findings the report that `hermes security-review export` wrote (a regular file of \
+                      4 MiB at most), and, for a plan, the id of a finding that its list keeps with --verify \
+                      \"<proof>\", then run again.";
+    Refus::new(Code::RapportRefuse, preuve, correction)
+}
+
+/// Les octets du rapport : un fichier ordinaire, jamais un lien suivi, de [`constats::OCTETS_MAXIMUM`] octets au
+/// plus, pesé avant d'être lu. Un fichier qu'on ne lit pas est le refus 6006 ; un lien, ce qui n'est pas un fichier
+/// ordinaire, et un rapport trop gros sont le refus 6038.
+fn lire_rapport(fichier: &Path) -> Result<Vec<u8>, Refus> {
+    use std::io::Read;
+    let illisible = |e: std::io::Error| {
+        let preuve = format!("reading the report {}: {e}", fichier.display());
+        let correction = "Give lydite findings the path of a file that Lydite can read (a relative path starts from \
+                          the current folder), then run again.";
+        Refus::new(Code::EntreeSortie, preuve, correction)
+    };
+    let ici = fichier.display();
+    let vu = std::fs::symlink_metadata(fichier).map_err(illisible)?;
+    if vu.file_type().is_symlink() {
+        return Err(rapport_refuse(format!("the report {ici} is a symbolic link, which is not followed")));
+    }
+    if !vu.is_file() {
+        return Err(rapport_refuse(format!("the report {ici} is not a regular file")));
+    }
+    if vu.len() > constats::OCTETS_MAXIMUM as u64 {
+        return Err(rapport_refuse(constats::rapport_trop_gros()));
+    }
+    // Lu borné, un octet de plus pour voir qu'il dépasse : le lecteur refuse ce qui a grossi depuis la pesée.
+    let mut octets = Vec::new();
+    let borne = constats::OCTETS_MAXIMUM as u64 + 1;
+    std::fs::File::open(fichier).and_then(|ouvert| ouvert.take(borne).read_to_end(&mut octets)).map_err(illisible)?;
+    Ok(octets)
+}
+
+/// La liste d'un rapport lu, en un objet JSON sur une ligne, dans l'ordre du lecteur : les constats gardés (`id`,
+/// `kind`, `state`, `severity`, `title`, `where`) et ceux qu'il écarte (`ref`, `why`). `json::ecrire` n'écrit que des
+/// objets plats : chaque chaîne, un titre venu du rapport compris, passe par `json::chaine`.
+fn liste_des_constats(rapport: &Rapport) -> String {
+    let constats: Vec<String> = rapport
+        .constats
+        .iter()
+        .map(|constat| {
+            let lieux: Vec<String> = constat.lieux.iter().map(|lieu| json::chaine(lieu)).collect();
+            format!(
+                r#"{{"id":{},"kind":{},"state":{},"severity":{},"title":{},"where":[{}]}}"#,
+                json::chaine(&constat.id),
+                json::chaine(constat.sorte.nom()),
+                json::chaine(&constat.etat),
+                json::chaine(&constat.gravite),
+                json::chaine(&constat.titre),
+                lieux.join(",")
+            )
+        })
+        .collect();
+    let ecartes: Vec<String> = rapport
+        .ecartes
+        .iter()
+        .map(|ecarte| {
+            format!(r#"{{"ref":{},"why":{}}}"#, json::chaine(&ecarte.reference), json::chaine(&ecarte.pourquoi))
+        })
+        .collect();
+    format!(
+        r#"{{"scan":{},"findings":[{}],"set_aside":[{}]}}"#,
+        json::chaine(&rapport.scan),
+        constats.join(","),
+        ecartes.join(",")
+    )
+}
+
+/// Ce que `lydite findings` écrit sur stdout : la liste du rapport et sa fin de ligne, ou, avec l'identité d'un constat
+/// et la preuve, le texte de `constats::plan_de`, tel quel. Une identité mal formée, absente du rapport ou écartée est
+/// refusée en disant laquelle des trois.
+fn texte_des_constats(fichier: &Path, plan: Option<(&str, &str)>) -> Result<String, Refus> {
+    let rapport = constats::lire(&lire_rapport(fichier)?).map_err(rapport_refuse)?;
+    let Some((identite, preuve)) = plan else {
+        return Ok(liste_des_constats(&rapport) + "\n");
+    };
+    if !["hsf_", "cand_"].iter().any(|prefixe| constats::identite_de_forme(identite, prefixe)) {
+        let vu: String = identite.chars().take(80).collect();
+        return Err(rapport_refuse(format!(
+            "the finding id {vu:?} is not well-formed: it is `hsf_` or `cand_` and 24 lowercase hexadecimal digits"
+        )));
+    }
+    if let Some(constat) = rapport.constats.iter().find(|constat| constat.id == identite) {
+        return constats::plan_de(constat, &rapport.scan, preuve).map_err(rapport_refuse);
+    }
+    Err(rapport_refuse(match rapport.ecartes.iter().find(|ecarte| ecarte.reference == identite) {
+        Some(ecarte) => format!("the finding {identite} is set aside by the reader: {}", ecarte.pourquoi),
+        None => format!("the finding {identite} is not in the report"),
+    }))
+}
+
+/// `lydite findings <report> [--plan <id> --verify "<proof>"]` : lit le rapport comme le lecteur le lit et écrit sur
+/// stdout sa liste, ou le plan du constat demandé, et rien d'autre.
+fn constats_cmd(fichier: &Path, plan: Option<(&str, &str)>) -> Result<ExitCode, Refus> {
+    use std::io::Write;
+    let texte = texte_des_constats(fichier, plan)?;
+    let mut sortie = std::io::stdout().lock();
+    sortie.write_all(texte.as_bytes()).and_then(|()| sortie.flush())?;
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `lydite lecons <dossier>` : lit chaque `.agents/skills/*/SKILL.md` du dépôt de ce dossier, dans l'ordre des noms, et

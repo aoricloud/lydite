@@ -80,6 +80,103 @@ fn le_corps_ne_cite_pas_la_raison_d_une_main_impossible() {
     assert!(texte.contains("1 impossible"), "{texte}");
 }
 
+/// Les notes de ces événements, à un même instant, dans une même séance.
+fn notes_de(evenements: &[Evenement]) -> Vec<fil::Note> {
+    (1..)
+        .zip(evenements)
+        .map(|(seq, evenement)| fil::Note {
+            seance: "s".into(),
+            seq,
+            instant: "2026-10-31T21:00:00.000Z".into(),
+            origine: "humain".into(),
+            origine_foi: Foi::Declare,
+            evenement: evenement.clone(),
+        })
+        .collect()
+}
+
+/// Les notes d'une vague `vague` à une tâche par raison : chaque main (`1`, `2`, …) y finit rouge, déclarée impossible
+/// pour sa raison. Avec `rapport`, la vague porte un `vague.rapport` à l'ouverture.
+fn vague_impossible(vague: &str, raisons: &[&str], rapport: bool) -> Vec<Evenement> {
+    let ouverte = Evenement::Vague {
+        vague: vague.into(),
+        n: raisons.len(),
+        depot: "depot".into(),
+        verifier: None,
+        objectif: "Un test".into(),
+    };
+    let scan = "scan_0123456789abcdef01234567".to_string();
+    let constat = "hsf_010101010101010101010101".to_string();
+    let mut evenements = vec![ouverte];
+    evenements.extend(rapport.then(|| Evenement::Rapport { vague: vague.into(), scan, constat }));
+    for (main, raison) in (1..).zip(raisons) {
+        evenements.extend([
+            Evenement::Debut { vague: vague.into(), main, tentative: 1 },
+            Evenement::Fin {
+                vague: vague.into(),
+                main,
+                tentative: 1,
+                couleur: Couleur::Rouge,
+                foi: Foi::Declare,
+                texte: (*raison).into(),
+                verif: None,
+            },
+            Evenement::Verdict { vague: vague.into(), main, verdict: Verdict::Impossible, foi: Foi::Declare },
+        ]);
+    }
+    evenements
+}
+
+#[test]
+fn le_recu_compte_les_not_proved_d_une_vague_a_rapport_et_d_elle_seule() {
+    let (v, w) = ("1761901500000_11_0", "1761901600000_11_0");
+    let mut evenements = vague_impossible(v, &["not proved: no test shows it", "the claim is wrong"], true);
+    // Une vague sans `vague.rapport` dont la main dit la même phrase : rien ne se compte à part.
+    evenements.extend(vague_impossible(w, &["not proved: no test shows it"], false));
+    let (vagues, notes) = (etat(&evenements), notes_de(&evenements));
+    let avec = recu_de(&vagues, &notes, v);
+    assert_eq!(avec.non_prouvees, 1, "seule la main qui dit `not proved:` compte");
+    assert_eq!(avec.ligne(), "Cost: unknown · 2 hands, 0 retries, 0 set aside, 2 impossible · 0 s · Not proved: 1");
+    // Sans `vague.rapport`, la ligne du reçu garde son texte d'aujourd'hui, à l'octet.
+    let sans = recu_de(&vagues, &notes, w);
+    assert_eq!(sans.non_prouvees, 0);
+    assert_eq!(sans.ligne(), "Cost: unknown · 1 hand, 0 retries, 0 set aside, 1 impossible · 0 s");
+}
+
+#[test]
+fn le_recu_d_une_pr_dit_not_proved_pour_un_plan_a_report_et_rien_pour_un_autre() {
+    let v = "1761901500000_11_0";
+    let avec_report = "plan 1\nobjectif : Fix a finding\npreuve : cargo test\n\
+                       report : scan_0123456789abcdef01234567 hsf_010101010101010101010101\n\n\
+                       tache a\nred : declared\n    Prove a\ntache b\nred : declared\n    Prove b\n";
+    let plan = Plan::lire(avec_report.as_bytes()).unwrap();
+    assert!(plan.rapport.is_some());
+    let evenements = vague_impossible(v, &["not proved: a", "not proved: b"], true);
+    let (vagues, notes) = (etat(&evenements), notes_de(&evenements));
+    let mut recu = recu_de(&vagues, &notes, v);
+    recu.selon_le_plan(&plan, &RougesTenus::default());
+    // La ligne vient après le rouge d'abord, et le texte de PR la porte.
+    let lignes = recu.lignes_de_pr(0);
+    let [.., rouge, non_prouve] = &lignes[..] else { panic!("{lignes:?}") };
+    assert!(rouge.starts_with("- Red first: 0 of 2 tasks"), "{rouge}");
+    assert_eq!(non_prouve, "- Not proved: 2 of 2 tasks");
+    let vague = vagues.iter().find(|vague| vague.id == v).unwrap();
+    let texte = corps(&plan, vague, None, None, &recu, &[], &[]);
+    assert!(texte.contains("\n- Not proved: 2 of 2 tasks\n"), "{texte}");
+    // Un plan sans `report` ne change pas d'un octet : ni ligne, ni mot, même si une main dit `not proved:`.
+    let texte = "plan 1\nobjectif : Un test\npreuve : cargo test\n\ntache a\n    Ecrire a\n";
+    let sans_report = Plan::lire(texte.as_bytes()).unwrap();
+    let evenements = vague_impossible(v, &["not proved: a"], false);
+    let (vagues, notes) = (etat(&evenements), notes_de(&evenements));
+    let mut recu = recu_de(&vagues, &notes, v);
+    recu.selon_le_plan(&sans_report, &RougesTenus::default());
+    let attendu =
+        ["- Cost: unknown", "- 1 hand, 0 retries, 0 set aside, 1 impossible", "- Effort: Claude Code's default"];
+    assert_eq!(recu.lignes_de_pr(0), attendu);
+    let vague = vagues.iter().find(|vague| vague.id == v).unwrap();
+    assert!(!corps(&sans_report, vague, None, None, &recu, &[], &[]).contains("Not proved"));
+}
+
 #[test]
 fn le_corps_garde_set_aside_pour_une_tache_classee_rouge_apres_sa_relance() {
     let plan = Plan::lire(b"plan 1\nobjectif : Un test\npreuve : cargo test\n\ntache a\n    Ecrire a.txt\n").unwrap();
@@ -1571,8 +1668,12 @@ fn un_plan_sans_exact_ni_epingle_rend_la_tache_ci_d_avant() {
         fichiers: Some(vec!["a.txt".into()]),
         ..Tache::default()
     };
-    let attendu =
-        Plan { objectif: "Make the CI of PR 7 green".into(), preuve: Some("cargo test".into()), taches: vec![tache] };
+    let attendu = Plan {
+        objectif: "Make the CI of PR 7 green".into(),
+        preuve: Some("cargo test".into()),
+        rapport: None,
+        taches: vec![tache],
+    };
     assert_eq!(relance, attendu);
 }
 

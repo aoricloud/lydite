@@ -82,7 +82,12 @@ fn plan_de_relance(plan: &Plan, issues: &Issues, numero: u64, contexte: &str) ->
         empreintes,
         ..Tache::default()
     };
-    Plan { objectif: format!("Make the CI of PR {numero} green"), preuve: plan.preuve.clone(), taches: vec![tache] }
+    Plan {
+        objectif: format!("Make the CI of PR {numero} green"),
+        preuve: plan.preuve.clone(),
+        rapport: None,
+        taches: vec![tache],
+    }
 }
 
 /// Le rouge d'une tâche qui tient encore : son rang dans le plan (à partir de 1, celui de sa main), les fichiers de
@@ -932,6 +937,12 @@ pub(crate) struct Recu {
     impossibles: usize,
     /// Les mains dont la dernière issue est un refus, comme `lydite etat` les montre.
     refusees: usize,
+    /// Les mains d'une vague à `vague.rapport` qui ont déclaré `IMPOSSIBLE: not proved: <raison>` : le défaut qu'un
+    /// rapport annonce n'a pas été montré par un test, et rien n'est corrigé à l'aveugle. Elles comptent aussi parmi
+    /// les `impossibles`, que ce compte ne retire de nulle part.
+    non_prouvees: usize,
+    /// Le nombre de tâches d'un plan à `report`, `Some` seulement quand `selon_le_plan` a lu un tel plan.
+    taches_du_rapport: Option<usize>,
     /// De la première note de la vague à la dernière de ses vagues liées, en millisecondes ; `None` sans instants.
     duree: Option<u128>,
     /// Le sceau du fil noté juste avant le corps de la PR ; `None` hors d'une PR (`recu_de` n'en lit aucun).
@@ -988,7 +999,11 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
         recu.classees += mains.clone().filter(|main| matches!(main.verdict, Some((fil::Verdict::Classee, _)))).count();
         recu.impossibles +=
             mains.clone().filter(|main| matches!(main.verdict, Some((fil::Verdict::Impossible, _)))).count();
-        recu.refusees += mains.filter(|main| matches!(main.issue, Some(fil::Issue::Refusee { .. }))).count();
+        recu.refusees += mains.clone().filter(|main| matches!(main.issue, Some(fil::Issue::Refusee { .. }))).count();
+        // Hors d'une vague à `vague.rapport`, `IMPOSSIBLE: not proved: …` n'a pas de sens à part : rien ne se compte.
+        if vague.rapport.is_some() {
+            recu.non_prouvees += mains.filter(|main| non_prouvee(main)).count();
+        }
     }
     let (mut debut, mut fin): (Option<u128>, Option<u128>) = (None, None);
     let mut lances: HashMap<(&str, usize, usize), Option<&str>> = HashMap::new();
@@ -1045,6 +1060,19 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
     recu
 }
 
+/// Ce que la main d'une vague à `vague.rapport` écrit pour dire qu'aucun test ne montre le défaut du rapport, après
+/// `IMPOSSIBLE:` : sa raison, que le fil garde pour texte de sa dernière fin, commence par cette phrase.
+const NON_PROUVE: &str = "not proved:";
+
+/// La main a déclaré sa tâche impossible, et sa raison commence par [`NON_PROUVE`]. Le fil garde la raison pour
+/// texte de sa dernière fin ; un `IMPOSSIBLE:` de tête, s'il y est, ne compte pas.
+fn non_prouvee(main: &fil::Main) -> bool {
+    let texte = main.texte().trim_start();
+    let apres = texte.strip_prefix("IMPOSSIBLE").and_then(|reste| reste.trim_start().strip_prefix(':'));
+    matches!(main.verdict, Some((fil::Verdict::Impossible, _)))
+        && apres.unwrap_or(texte).trim_start().starts_with(NON_PROUVE)
+}
+
 impl Recu {
     /// Ce que le plan ajoute au reçu d'une PR, avant le corps. Les fichiers vérifiés par SHA-256 ne sont que ceux
     /// que le plan épingle : les épingles du rouge que portent une correction ou une relance n'y comptent pas. Et,
@@ -1056,6 +1084,7 @@ impl Recu {
         let a_red: Vec<usize> = (1..).zip(&plan.taches).filter(|(_, t)| t.rouge.is_some()).map(|(k, _)| k).collect();
         let tenus = a_red.iter().filter(|k| rouges.taches.iter().any(|rouge| rouge.tache == **k)).count();
         self.rouge = (!a_red.is_empty()).then_some((tenus, a_red.len()));
+        self.taches_du_rapport = plan.rapport.is_some().then_some(plan.taches.len());
     }
 
     /// Le coût, en anglais : `$0.84 estimated`, `subscription, ≈ $0.84` ou `unknown`, suivi de
@@ -1107,10 +1136,14 @@ impl Recu {
     }
 
     /// La ligne de `lydite etat` : `Cost: $0.84 estimated · 7 hands, 2 retries, 1 set aside · 41 min`, sans la durée
-    /// si les instants manquent.
+    /// si les instants manquent. Quand des mains d'une vague à `vague.rapport` ont déclaré `IMPOSSIBLE: not proved:
+    /// …`, `Not proved: <n>` la finit ; sans elles, rien ne s'ajoute.
     pub(crate) fn ligne(&self) -> String {
         let mut parties = vec![format!("Cost: {}", self.cout_de_pr()), self.mains_de_pr()];
         parties.extend(self.duree());
+        if self.non_prouvees > 0 {
+            parties.push(format!("Not proved: {}", self.non_prouvees));
+        }
         parties.join(" · ")
     }
 
@@ -1168,7 +1201,9 @@ impl Recu {
     /// durée ; puis `- Effort: <efforts>` ; puis, si des réglages de mesure sont posés, `- Measurement: <réglages>.` ;
     /// puis, si le plan épingle `epingles` fichiers (au moins un), `- Files verified by SHA-256: <n> of <epingles>` ;
     /// puis, si le plan a des tâches à `red`, `- Red first: <n> of <m> tasks (the proof failed on the base plus only
-    /// their test files)` ; puis, si le reçu porte un sceau, `- Thread sealed at <octets> bytes: sha256 <empreinte>.`
+    /// their test files)` ; puis, si le plan a `report`, `- Not proved: <n> of <m> tasks` (`<n>` : les mains qui ont
+    /// déclaré `IMPOSSIBLE: not proved: …`, `<m>` : les tâches du plan) ; puis, si le reçu porte un sceau,
+    /// `- Thread sealed at <octets> bytes: sha256 <empreinte>.`
     pub(crate) fn lignes_de_pr(&self, epingles: usize) -> Vec<String> {
         let mut lignes = vec![
             format!("- Cost: {}", self.cout_de_pr()),
@@ -1180,6 +1215,7 @@ impl Recu {
         lignes.extend(self.rouge.map(|(n, m)| {
             format!("- Red first: {n} of {m} tasks (the proof failed on the base plus only their test files)")
         }));
+        lignes.extend(self.taches_du_rapport.map(|m| format!("- Not proved: {} of {m} tasks", self.non_prouvees)));
         lignes.extend(
             self.sceau.iter().map(|s| format!("- Thread sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)),
         );

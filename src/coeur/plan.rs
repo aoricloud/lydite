@@ -5,6 +5,7 @@
 //! plan 1
 //! objectif : <une ligne>
 //! preuve : <commande de la vague>
+//! report : <scan id> <finding id>
 //!
 //! tache <id>
 //! depend : <id> <id>
@@ -34,7 +35,8 @@
 //!
 //! Les clés sont fermées, et chacune se donne une fois au plus, hors `exact`, `sha256`, `red` et `place` :
 //!
-//! - dans l'en-tête, avant la première tâche : `objectif` et `preuve`, obligatoires l'une et l'autre ;
+//! - dans l'en-tête, avant la première tâche : `objectif` et `preuve`, obligatoires l'une et l'autre, et `report`,
+//!   facultative (voir plus bas) ;
 //! - sous `tache <id>`, avant l'objectif, toutes facultatives : `depend`, des ids séparés par des blancs (aucun, si
 //!   elle est vide) ; `preuve`, que ne porte aucune tâche d'un plan découpé ; `modele` et `relance`, les modèles de la
 //!   première tentative de la tâche et de sa relance, en `[a-z0-9.-]` sans `-` de tête, comme au profil, dont ils
@@ -88,6 +90,13 @@
 //!   (`lire_plan`, dans `commande.rs`) ; refus 6036 si ce fichier manque, n'est pas un fichier ordinaire (un lien
 //!   symbolique, un dossier), pèse plus de 4 Mio, ou n'a pas l'empreinte du plan, et si le plan pose plus de 64
 //!   fichiers.
+//!
+//! La clé d'en-tête `report : <scan id> <finding id>` dit l'origine d'un plan né d'un rapport de hermes-security
+//! (`constats::plan_de` l'écrit) : le scan, `scan_` et 24 hexadécimaux minuscules, une espace, puis le constat, `hsf_`
+//! ou `cand_` et 24 hexadécimaux minuscules, et rien d'autre. Le plan la porte (`Plan::rapport`). Refusés : en 6018,
+//! une valeur hors de cette forme, `report` dans un plan découpé, une ligne `place` (un plan né d'un rapport ne fait
+//! jamais écrire Lydite : le refus cite la ligne `place`), et une tâche sans ligne `red` (le rouge d'abord est exigé
+//! pour un rapport : le refus cite la ligne `tache`) ; en 6021, une valeur blanche.
 //!
 //! Ce que le plan dit :
 //!
@@ -147,6 +156,7 @@ use std::fmt::{self, Display};
 use std::iter;
 use std::str;
 
+use crate::coeur::constats;
 use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::fil::NOMBRE_MAX;
 use crate::coeur::profil::EFFORTS;
@@ -163,7 +173,7 @@ const DECOUPEES_MAX: usize = 12;
 pub(crate) const FICHIERS_MAX: usize = 100;
 
 /// Les clés de l'en-tête, puis celles d'une tâche.
-const CLES_ENTETE: [&str; 2] = ["objectif", "preuve"];
+const CLES_ENTETE: [&str; 3] = ["objectif", "preuve", "report"];
 const CLES_TACHE: [&str; 11] =
     ["depend", "preuve", "modele", "relance", "effort", "fichiers", "critique", "exact", "sha256", "red", "place"];
 
@@ -179,7 +189,8 @@ const REECRIRE: &str = concat!(
 /// La correction d'une ligne hors de la forme du plan.
 const FORME: &str = concat!(
     "Une ligne de plan est vide, `tache <id>`, `<clé> : <valeur>`, ou indentée (l'objectif de la tâche qui la ",
-    "précède). Avant la première tâche, les clés sont `objectif` et `preuve` ; sous `tache <id>`, `depend`, `preuve`, ",
+    "précède). Avant la première tâche, les clés sont `objectif`, `preuve` et `report` ; sous `tache <id>`, `depend`, ",
+    "`preuve`, ",
     "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256`, `red` et `place` (les quatre dernières ",
     "peuvent se répéter), puis l'objectif en lignes indentées ; chaque autre clé une fois."
 );
@@ -208,6 +219,13 @@ const PLACE: &str = concat!(
     "Write `place : <file> : <sha256>`: a file as in `fichiers`, covered by them, outside `.github/`, `.git`, ",
     "`.claude` and `.agents/skills/`; its content is the file of the same path under the folder ",
     "`<plan file>.files/`, next to the plan."
+);
+
+/// La correction d'une ligne `report` refusée.
+const REPORT: &str = concat!(
+    "Write `report : <scan id> <finding id>`: `scan_` and 24 lowercase hexadecimal digits, one space, then `hsf_` or ",
+    "`cand_` and 24 lowercase hexadecimal digits, and nothing else; a plan that carries it places no file (no `place` ",
+    "line) and gives every task a `red` line."
 );
 
 /// La valeur de `red` qui dit que le plan ne connaît pas le fichier du test.
@@ -255,6 +273,9 @@ pub(crate) struct Plan {
     /// La preuve de la vague, rejouée sur sa branche après chaque fusion. `None` pour des copies : sans elle, rien ne
     /// s'assemble.
     pub(crate) preuve: Option<String>,
+    /// L'origine d'un plan né d'un rapport de hermes-security : le scan, puis le constat, ceux de la ligne `report`.
+    /// `None` sans elle, pour des copies comme pour un plan écrit à la main.
+    pub(crate) rapport: Option<(String, String)>,
     pub(crate) taches: Vec<Tache>,
 }
 
@@ -382,7 +403,7 @@ impl Plan {
             objectif: objectif.to_string(),
             ..Tache::default()
         };
-        Plan { objectif: objectif.to_string(), preuve: None, taches: (1..=n).map(tache).collect() }
+        Plan { objectif: objectif.to_string(), preuve: None, rapport: None, taches: (1..=n).map(tache).collect() }
     }
 }
 
@@ -400,6 +421,8 @@ struct Lecteur<'a, 'd> {
     base: Option<Base<'d>>,
     objectif: Option<&'a str>,
     preuve: Option<&'a str>,
+    /// La ligne `report` de l'en-tête, avec le scan et le constat qu'elle nomme.
+    rapport: Option<(&'a str, &'a str)>,
     taches: Vec<Brouillon<'a>>,
     /// Le rang dans `taches` de chaque id vu.
     ids: HashMap<&'a str, usize>,
@@ -468,7 +491,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             Mode::Decoupe(Some(demande)) => Some(Base::new(demande.chemins)),
             Mode::Main | Mode::Decoupe(None) => None,
         };
-        Lecteur { mode, base, objectif: None, preuve: None, taches: Vec::new(), ids: HashMap::new() }
+        Lecteur { mode, base, objectif: None, preuve: None, rapport: None, taches: Vec::new(), ids: HashMap::new() }
     }
 
     /// Lit une ligne après la première.
@@ -567,7 +590,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
         let (cle, valeur) = (cle.trim(), valeur.trim());
         let entete = self.taches.is_empty();
         let (permises, lieu, liste): (&[&str], _, _) = if entete {
-            (&CLES_ENTETE, "de l'en-tête", "`objectif` ou `preuve`")
+            (&CLES_ENTETE, "de l'en-tête", "`objectif`, `preuve` ou `report`")
         } else {
             (
                 &CLES_TACHE,
@@ -604,9 +627,26 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             );
             return Err(refus(Code::PlanLigne, ligne, quoi, PLACE));
         }
+        // Un plan né d'un rapport ne fait jamais écrire Lydite non plus : `report` précède toute tâche, donc toute
+        // ligne `place`.
+        if let Some(tache) = self.taches.last()
+            && cle == "place"
+            && self.rapport.is_some()
+        {
+            let quoi = format!(
+                "the task {} carries a `place` line, and a plan born of a report never makes Lydite write a file",
+                cite(tache.id)
+            );
+            return Err(refus(Code::PlanLigne, ligne, quoi, REPORT));
+        }
+        if cle == "report" && matches!(self.mode, Mode::Decoupe(_)) {
+            let quoi = "a plan split by a hand carries no `report` line, which only a plan born of a report has";
+            return Err(refus(Code::PlanLigne, ligne, quoi, REPORT));
+        }
         let donnee = match self.taches.last() {
             None if cle == "objectif" => self.objectif.is_some(),
-            None => self.preuve.is_some(),
+            None if cle == "preuve" => self.preuve.is_some(),
+            None => self.rapport.is_some(),
             Some(tache) => tache.donnee(cle),
         };
         if donnee {
@@ -618,6 +658,14 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             return Err(refus(Code::PlanBlanc, ligne, quoi, blanche(entete, cle)));
         }
         let Some(tache) = self.taches.last_mut() else {
+            if cle == "report" {
+                let Some(rapport) = rapport_de_forme(valeur) else {
+                    let quoi = format!("the value {} is not `<scan id> <finding id>`", cite(valeur));
+                    return Err(refus(Code::PlanLigne, ligne, quoi, REPORT));
+                };
+                self.rapport = Some(rapport);
+                return Ok(());
+            }
             demandee(self.mode, ligne, cle, valeur)?;
             *(if cle == "objectif" { &mut self.objectif } else { &mut self.preuve }) = Some(valeur);
             return Ok(());
@@ -814,6 +862,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
         };
         let objectif = self.objectif.ok_or_else(|| manque("objectif"))?;
         let preuve = self.preuve.ok_or_else(|| manque("preuve"))?;
+        let rapport = self.rapport.map(|(scan, constat)| (scan.to_string(), constat.to_string()));
         if self.taches.is_empty() {
             let correction = "Écris au moins une tâche : `tache <id>`, puis son objectif en lignes indentées.";
             return Err(Refus::new(Code::PlanBlanc, "le plan ne contient aucune tâche", correction));
@@ -830,6 +879,14 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                 );
                 let correction = "Écris l'objectif de la tâche en lignes indentées, sous ses clés.";
                 return Err(refus(Code::PlanBlanc, brouillon.ligne, quoi, correction));
+            }
+            // Le rouge d'abord est exigé pour un rapport : aucune ligne `red` n'est fautive, la ligne `tache` l'est.
+            if rapport.is_some() && brouillon.rouges.is_empty() {
+                let quoi = format!(
+                    "the task {} has no `red` line, and a plan born of a report is proved by a failing test first",
+                    cite(brouillon.id)
+                );
+                return Err(refus(Code::PlanLigne, brouillon.ligne, quoi, REPORT));
             }
             let absentes = match (self.mode, brouillon.fichiers.is_none(), brouillon.modele.is_none()) {
                 (Mode::Main, ..) | (_, false, false) => None,
@@ -947,7 +1004,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             return Err(refus(Code::PlanDependance, ligne, quoi, correction));
         }
         let attentes = en_serie(&mut taches, &dependances);
-        Ok((Plan { objectif: objectif.to_string(), preuve: Some(preuve.to_string()), taches }, attentes))
+        Ok((Plan { objectif: objectif.to_string(), preuve: Some(preuve.to_string()), rapport, taches }, attentes))
     }
 }
 
@@ -1003,6 +1060,14 @@ fn demandee(mode: Mode<'_>, ligne: Ligne<'_>, cle: &str, valeur: &str) -> Result
         demande.preuve.trim()
     );
     Err(refus(Code::PlanEntete, ligne, quoi, correction))
+}
+
+/// Le scan et le constat d'une valeur de `report` : `scan_` et 24 hexadécimaux minuscules, une espace, puis `hsf_` ou
+/// `cand_` et 24 hexadécimaux minuscules ; `None` pour tout autre texte.
+fn rapport_de_forme(valeur: &str) -> Option<(&str, &str)> {
+    let (scan, constat) = valeur.split_once(' ')?;
+    let constat_juste = constats::identite_de_forme(constat, "hsf_") || constats::identite_de_forme(constat, "cand_");
+    (constats::scan_bien_forme(scan) && constat_juste).then_some((scan, constat))
 }
 
 /// Un modèle de `modele` ou de `relance`, comme au profil : en `[a-z0-9.-]`, sans `-` de tête, que `--model`

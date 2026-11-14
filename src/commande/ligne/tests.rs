@@ -199,6 +199,59 @@ fn options_remarques_seul() {
 }
 
 #[test]
+fn options_constats_seul() {
+    // `constats <rapport>` : la liste ; avec `--plan <id> --verify "<preuve>"`, dans l'ordre qu'on veut, le plan d'un
+    // constat. Le chemin garde son `OsString`.
+    let lire = |rapport: &str, plan: Option<(&str, &str)>| {
+        let plan = plan.map(|(identite, preuve)| (identite.to_string(), preuve.to_string()));
+        Ok(Commande::LireConstats { rapport: rapport.into(), plan })
+    };
+    assert_eq!(options(&args(&["constats", "r.json"])), lire("r.json", None));
+    assert_eq!(options(&args(&["findings", "r.json"])), lire("r.json", None));
+    let plan = Some(("hsf_a1a1a1a1a1a1a1a1a1a1a1a1", "cargo test --all"));
+    let mots = ["findings", "r.json", "--plan", "hsf_a1a1a1a1a1a1a1a1a1a1a1a1", "--verify", "cargo test --all"];
+    assert_eq!(options(&args(&mots)), lire("r.json", plan));
+    // `--verifier` est le double français de `--verify`, et l'ordre des deux drapeaux est libre ; la preuve peut
+    // commencer par `-`, et la valeur de `--plan` est lue telle quelle (c'est le plan qui la juge).
+    let mots = ["constats", "r.json", "--verifier", "cargo test --all", "--plan", "hsf_a1a1a1a1a1a1a1a1a1a1a1a1"];
+    assert_eq!(options(&args(&mots)), lire("r.json", plan));
+    let mots = ["findings", "r.json", "--verify", "-x", "--plan", "?"];
+    assert_eq!(options(&args(&mots)), lire("r.json", Some(("?", "-x"))));
+    let mauvais = non_utf8();
+    let complete = [args(&["findings"]), vec![mauvais.clone()]].concat();
+    assert_eq!(options(&complete), Ok(Commande::LireConstats { rapport: PathBuf::from(mauvais), plan: None }));
+    // Chaque faute : 1006, dont la preuve dit ce qui a été vu, et la correction donne l'usage.
+    for (mots, vu) in [
+        ("constats", "`findings`: the report file is missing"),
+        ("constats --plan x", "« --plan » is a flag"),
+        ("constats -", "« - » is a flag"),
+        ("constats r --n 1", "and « --n » follows the report"),
+        ("constats r x", "and « x » follows the report"),
+        ("constats r --plan", "flag without a value: --plan"),
+        ("constats r --plan --verify x", "flag without a value: --plan"),
+        ("constats r --verifier --plan x", "flag without a value: --verify"),
+        ("constats r --plan x --plan y", "flag repeated: --plan"),
+        ("constats r --verify x --verifier y", "flag repeated: --verify, seen as « --verify » and « --verifier »"),
+        ("constats r --plan x", "--plan <id> and --verify \"<proof>\" go together, or neither"),
+        ("constats r --verifier x", "go together, or neither"),
+    ] {
+        let refus = options(&ligne(mots)).unwrap_err();
+        assert_eq!(refus.code, Code::CommandeMalFormee, "{mots}");
+        assert!(refus.preuve.contains(vu), "la preuve dit ce qui a été vu ({vu}) : {refus}");
+        assert!(refus.correction.contains(USAGE), "la correction donne l'usage : {refus}");
+        assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
+    }
+    // Une valeur qui n'est pas de l'UTF-8 est refusée, nommée.
+    for rang in [3, 5] {
+        let mut mots = args(&["findings", "r.json", "--plan", "x", "--verify", "y"]);
+        mots[rang] = non_utf8();
+        assert_eq!(options(&mots).unwrap_err().code, Code::CommandeMalFormee, "{mots:?}");
+    }
+    // Le mot est dans l'usage.
+    assert!(USAGE.contains("lydite findings <report> [--plan <id> --verify \"<proof>\"]"), "{USAGE}");
+}
+
+#[test]
 fn options_lecons_seul() {
     let lu = |dossier: &str| Ok(Commande::LireLecons { dossier: dossier.into() });
     assert_eq!(options(&args(&["lecons", "depot"])), lu("depot"));
@@ -711,7 +764,7 @@ fn l_usage_est_en_anglais() {
 #[test]
 fn l_usage_ne_montre_aucun_mot_francais_de_la_table() {
     // Chaque mot français qui a un double anglais est absent de l'usage.
-    let francais = ["lancer", "etat", "attendre", "accepter", "profil ", "remarques", "lecons"];
+    let francais = ["lancer", "etat", "attendre", "accepter", "profil ", "remarques", "constats", "lecons"];
     let drapeaux = ["--verifier", "--depot", "--decouper", "--decoupe", "--observer"];
     for mot in francais.iter().chain(drapeaux.iter()) {
         assert!(!USAGE.contains(mot), "l'usage dit encore {mot} : {USAGE}");
@@ -739,6 +792,14 @@ fn chaque_mot_anglais_est_lu_comme_son_double_francais() {
         ("remarques", "remarks"),
         ("remarques -x", "remarks -x"),
         ("remarques p q", "remarks p q"),
+        ("constats r.json", "findings r.json"),
+        ("constats", "findings"),
+        ("constats -x", "findings -x"),
+        ("constats r --plan x --verifier y", "findings r --plan x --verify y"),
+        ("constats r --verifier y --plan x", "findings r --verify y --plan x"),
+        ("constats r --verifier y --verifier z", "findings r --verify y --verify z"),
+        ("constats r --verifier y", "findings r --verify y"),
+        ("constats r --verifier --plan x", "findings r --verify --plan x"),
         ("lecons depot", "lessons depot"),
         ("lecons", "lessons"),
         ("lecons -x", "lessons -x"),
@@ -860,6 +921,7 @@ fn les_preuves_nomment_le_mot_anglais_meme_tape_en_francais() {
         "`accepter`",
         "`profil`",
         "`remarques`",
+        "`constats`",
         "`lecons`",
         "--verifier",
         "--depot",
@@ -892,6 +954,10 @@ fn les_preuves_nomment_le_mot_anglais_meme_tape_en_francais() {
         "profil a b",
         "remarques",
         "remarques a b",
+        "constats",
+        "constats a b",
+        "constats a --plan b",
+        "constats a --verifier b --verifier c",
         "lecons",
         "lecons a b",
         "plan",
