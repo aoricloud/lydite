@@ -259,10 +259,14 @@ codes! {
         "Every step of the wave is noted in the thread before it acts; a failed note stops the starts and the \
          merges.";
     HorsFichiers = 7013, "vague.hors_fichiers",
-        "A hand changes only the paths of its task's `fichiers`; any other path turns its attempt red.";
+        "A hand changes only the paths of its task's `fichiers`; any other path turns its attempt red. A sandbox \
+         stub (an empty, read-only, untracked ordinary file, absent from the starting commit, at a path where the \
+         sandbox places stubs) is not counted.";
     BacTouche = 7014, "vague.bac_touche",
         "The splitter and the reviewer write only their own file, an ordinary one that the repository does not \
-         ignore, at the root of their worktree; nothing else changes there.";
+         ignore, at the root of their worktree; nothing else changes there. A sandbox stub (an empty, read-only, \
+         untracked ordinary file, absent from the starting commit, at a path where the sandbox places stubs) is \
+         not counted.";
     RemarquesIllisibles = 7015, "vague.remarques_illisibles",
         "The reviewer's file follows the `remarques 2` format; otherwise its attempt is red.";
     RelectureManquee = 7016, "vague.relecture_manquee",

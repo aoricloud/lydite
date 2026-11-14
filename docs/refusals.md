@@ -65,8 +65,8 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 7010 | `vague.assemblage_ferme` | The wave's worktree returns to its head after each failure; if it cannot, the assembly closes and nothing is merged into it any more. |
 | 7011 | `vague.sautee` | A task starts only if all its dependencies are assembled; otherwise it is skipped, without a worktree. |
 | 7012 | `vague.fil_injoignable` | Every step of the wave is noted in the thread before it acts; a failed note stops the starts and the merges. |
-| 7013 | `vague.hors_fichiers` | A hand changes only the paths of its task's `fichiers`; any other path turns its attempt red. |
-| 7014 | `vague.bac_touche` | The splitter and the reviewer write only their own file, an ordinary one that the repository does not ignore, at the root of their worktree; nothing else changes there. |
+| 7013 | `vague.hors_fichiers` | A hand changes only the paths of its task's `fichiers`; any other path turns its attempt red. A sandbox stub (an empty, read-only, untracked ordinary file, absent from the starting commit, at a path where the sandbox places stubs) is not counted. |
+| 7014 | `vague.bac_touche` | The splitter and the reviewer write only their own file, an ordinary one that the repository does not ignore, at the root of their worktree; nothing else changes there. A sandbox stub (an empty, read-only, untracked ordinary file, absent from the starting commit, at a path where the sandbox places stubs) is not counted. |
 | 7015 | `vague.remarques_illisibles` | The reviewer's file follows the `remarques 2` format; otherwise its attempt is red. |
 | 7016 | `vague.relecture_manquee` | The work of a critical task is pushed only once reviewed; a review that is set aside, and nothing is pushed. |
 | 7017 | `vague.bloquantes_restantes` | Blocking remarks are worth a single correction; not assembled, nothing is pushed. |
