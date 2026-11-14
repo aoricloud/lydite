@@ -69,9 +69,10 @@
 //!   contrôle, ou fini par `/`, et un fichier que les `fichiers` ne couvrent pas (refus à la fin de la lecture, sur la
 //!   ligne du fichier) ; en 6018, un fichier nommé deux fois dans la tâche, et `declared` avec une autre ligne `red`
 //!   (sur la seconde ligne) ; en 6021, une valeur blanche. Un fichier nommé `declared` ne se nomme donc pas ;
-//! - `place : <fichier> : <empreinte>` dit un fichier que Lydite pose lui-même, sans main, dans la base de la tâche (le
-//!   poser est une tâche suivante) : le plan le fournit à l'octet, et la clé en garde l'empreinte. Le fichier est un
-//!   chemin de fichier comme dans `fichiers` (sans blanc, sans virgule, sans caractère de contrôle, sans `/` final),
+//! - `place : <fichier> : <empreinte>` dit un fichier que Lydite pose lui-même, sans main, dans le bac de la
+//!   tâche, avant chaque tentative et avant le bail (`Vague::poser_les_fichiers`, src/conduite/lancer.rs) : le plan le
+//!   fournit à l'octet, et la clé en garde l'empreinte. Le fichier est un chemin de fichier
+//!   comme dans `fichiers` (sans blanc, sans virgule, sans caractère de contrôle, sans `/` final),
 //!   que les `fichiers` de la tâche couvrent quand elle en a ; jamais sous `.github/` (en toute casse), ni dans un
 //!   dossier `.git` ou `.claude` (en toute casse), ni sous `.agents/skills/` : ce que la forge et le gel refusent déjà
 //!   à une main. L'empreinte est faite de 64 hexadécimaux minuscules. Un fichier posé est aussi une épingle `sha256` de
