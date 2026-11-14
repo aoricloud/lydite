@@ -19,7 +19,7 @@ use crate::coeur::profil::Profil;
 use crate::coeur::texte;
 use crate::conduite::decoupage;
 use crate::conduite::decoupage::Decoupage;
-use crate::conduite::lancer::{Liens, Menee, base_du_depot, duree_du_bail, lancer_avec};
+use crate::conduite::lancer::{Liens, Menee, base_du_depot, duree_du_bail, lancer_avec, poses_posables};
 use crate::conduite::publication;
 use crate::conduite::publication::Proposition;
 use crate::conduite::relecture::{Origine, Prise, Relue, relire, relire_issue};
@@ -195,6 +195,8 @@ pub(crate) fn mener_sur(
     proposition: Option<&Proposition<'_>>,
     origine: Origine,
 ) -> Result<ExitCode, Refus> {
+    // La base est connue : ce qu'elle garde à chaque chemin que le plan pose se juge avant tout bac et tout fil (6036).
+    poses_posables(lieu.depot, base, liens.poses)?;
     let bail = duree_du_bail(lieu.profil);
     let lancer_la_vague = |plan: &Plan, base: &str, liens: Liens<'_>| -> Result<Menee, Refus> {
         let menee = lancer_avec(lieu.depot, lieu.dossier, lieu.profil, plan, bail, base, liens)?;
