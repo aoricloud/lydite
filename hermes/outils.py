@@ -96,8 +96,15 @@ LIMITE_DU_REFUS = 2000
 
 # L'identité d'un constat devient un nom de fichier : `hsf_` ou `cand_` et 24 hexadécimaux minuscules, rien d'autre.
 _IDENTITE = re.compile(r"(?:hsf|cand)_[0-9a-f]{24}")
-# La ligne d'origine d'un plan né d'un rapport, en colonne 0 de son en-tête : `report : <scan> <constat>`.
-_ORIGINE = re.compile(r"report : (scan_[0-9a-f]{24}) ((?:hsf|cand)_[0-9a-f]{24})")
+# Les blancs que `trim` de Rust ôte (la propriété White_Space) : ni `\s` de Python, qui y ajoute U+001C à U+001F.
+_BLANCS = "\t\n\x0b\x0c\r \x85\xa0  -     　"
+# La ligne d'origine d'un plan né d'un rapport, comme Lydite la lit (`cle`, src/coeur/plan.rs) : en colonne 0 (ni espace
+# ni tabulation en tête), la clé `report`, des blancs permis autour du `:` et au bord de la valeur, puis la valeur
+# `<scan>`, une seule espace, `<constat>`.
+_ORIGINE = re.compile(
+    rf"(?![ \t])[{_BLANCS}]*report[{_BLANCS}]*:[{_BLANCS}]*"
+    rf"(scan_[0-9a-f]{{24}}) ((?:hsf|cand)_[0-9a-f]{{24}})[{_BLANCS}]*"
+)
 # Ce que Lydite écrit quand il refuse un rapport ou un constat (6038) : toute autre sortie en erreur peut venir d'un
 # binaire trop ancien pour connaître `findings`.
 _REFUS_DU_RAPPORT = re.compile(r"^lydite : 6038 ", re.MULTILINE)
@@ -187,8 +194,8 @@ def _en_tete_du_plan(texte: str) -> list:
 
 
 def _origine_du_plan(texte: str):
-    """`(scan, constat)` de la première ligne `report : <scan> <constat>` bien formée de l'en-tête du plan, en
-    colonne 0, ou None si le plan n'en porte pas."""
+    """`(scan, constat)` de la première ligne `report` bien formée de l'en-tête du plan, lue comme Lydite la lit
+    (`_ORIGINE`), ou None si le plan n'en porte pas."""
     for ligne in _en_tete_du_plan(texte):
         trouvee = _ORIGINE.fullmatch(ligne)
         if trouvee:
@@ -567,9 +574,10 @@ class Outils:
                 ("plan", f"{nom} · {compte} · {len(texte)} chars", "debut"),
             ]
             origine = _origine_du_plan(texte)
+            # Le constat entier suffit sur une rangée : le scan est dans le plan, que son SHA-256 désigne.
             apres = [
                 ("proof", self._preuve_du_plan(texte), "fin"),
-                ("origin", "none (written by hand)" if origine is None else "report " + " ".join(origine), "fin"),
+                ("origin", "none (written by hand)" if origine is None else f"report {origine[1]}", "fin"),
                 ("profile", f"{demande['profil']} · pull request against {demande['pr']}", "fin"),
             ]
             # L'en-tête, les deux lignes du SHA-256 et la phrase finale ne bougent pas : l'origine prend une rangée sur

@@ -458,8 +458,41 @@ class Verrou(AvecOutils):
             f"plan 1\nobjectif : Prove and fix\npreuve : python3 -m unittest\nreport : {SCAN} {ID_FINDING}\n\n"
             f"tache {ID_FINDING}\ncritique : oui\nred : declared\n    Prove it, then fix it.\n"
         )
-        self.assertTrue(ligne.startswith(f"origin : report {SCAN} hsf_"), ligne)
+        self.assertEqual(ligne, f"origin : report {ID_FINDING}")
         self.assertEqual(len(message.splitlines()), 9, message)
+
+    def test_l_origine_se_montre_en_entier_pour_un_hsf_et_pour_un_cand(self):
+        for identite in (ID_FINDING, ID_CANDIDAT):
+            with self.subTest(identite=identite):
+                ligne, message = self.origine_montree(
+                    f"plan 1\nobjectif : Prove and fix\npreuve : python3 -m unittest\nreport : {SCAN} {identite}\n\n"
+                    f"tache {identite}\ncritique : oui\nred : declared\n    Prove it, then fix it.\n"
+                )
+                self.assertEqual(ligne, f"origin : report {identite}")
+                self.assertNotIn("…", ligne)
+                self.assertLessEqual(len(message.splitlines()), 9, message)
+
+    def test_une_ligne_report_se_lit_comme_lydite_la_lit(self):
+        entete = "plan 1\nobjectif : o\npreuve : cargo test\n"
+        queue = "\ntache a\n    faire.\n"
+        lues = (
+            f"report:   {SCAN} {ID_FINDING}  ",
+            f"report   :{SCAN} {ID_FINDING}",
+            f"report\t:\t{SCAN} {ID_CANDIDAT}\t",
+        )
+        for ligne in lues:
+            with self.subTest(ligne=ligne):
+                montree, _ = self.origine_montree(entete + ligne + "\n" + queue)
+                self.assertEqual(montree, f"origin : report {ligne.split()[-1]}")
+        refusees = (
+            f"report : {SCAN}  {ID_FINDING}",  # deux espaces dans la valeur : Lydite la refuse
+            f" report : {SCAN} {ID_FINDING}",  # indentée : l'objectif d'une tâche, pas une clé
+            f"\treport : {SCAN} {ID_FINDING}",
+        )
+        for ligne in refusees:
+            with self.subTest(ligne=ligne):
+                montree, _ = self.origine_montree(entete + ligne + "\n" + queue)
+                self.assertEqual(montree, "origin : none (written by hand)")
 
     def test_l_approbation_d_un_plan_sans_ligne_report_dit_qu_il_est_ecrit_a_la_main(self):
         ligne, _ = self.origine_montree(PLAN)
@@ -478,7 +511,7 @@ class Verrou(AvecOutils):
         lf, _ = self.origine_montree(texte)
         crlf, _ = self.origine_montree(texte.replace("\n", "\r\n"))
         self.assertEqual(lf, crlf)
-        self.assertIn(SCAN, lf)
+        self.assertIn(ID_FINDING, lf)
 
     def test_une_tache_ouverte_par_une_tabulation_se_compte(self):
         self.faux_lydite()
