@@ -94,6 +94,17 @@ OCTETS_MAXIMUM = 4_194_304
 TAILLE_DE_LA_LECON = 4096
 LIMITE_DU_REFUS = 2000
 
+# L'identité d'un constat devient un nom de fichier : `hsf_` ou `cand_` et 24 hexadécimaux minuscules, rien d'autre.
+_IDENTITE = re.compile(r"(?:hsf|cand)_[0-9a-f]{24}")
+# La ligne d'origine d'un plan né d'un rapport, en colonne 0 de son en-tête : `report : <scan> <constat>`.
+_ORIGINE = re.compile(r"report : (scan_[0-9a-f]{24}) ((?:hsf|cand)_[0-9a-f]{24})")
+# Ce que Lydite écrit quand il refuse un rapport ou un constat (6038) : toute autre sortie en erreur peut venir d'un
+# binaire trop ancien pour connaître `findings`.
+_REFUS_DU_RAPPORT = re.compile(r"^lydite : 6038 ", re.MULTILINE)
+BINAIRE_ANCIEN = (
+    "This may be a Lydite binary older than the one that has `lydite findings` (not in 0.4.0): update the binary."
+)
+
 PLAN_ACCEPTE = (
     "Lydite accepts this plan as written; nothing was started. `added_dependencies` lists the tasks Lydite "
     "will run one after the other because they share a file. A launch still asks the human's approval, which "
@@ -163,6 +174,26 @@ def _ouvre_une_tache(ligne: str) -> bool:
     """Cette ligne ouvre-t-elle une tâche ? Lydite y voit `tache` suivi d'une espace ou d'une tabulation, ou seul
     (`strip_prefix("tache")`, src/coeur/plan.rs)."""
     return ligne == "tache" or ligne.startswith(("tache ", "tache\t"))
+
+
+def _en_tete_du_plan(texte: str) -> list:
+    """Les lignes de l'en-tête d'un plan : celles qui précèdent la première `tache`."""
+    en_tete = []
+    for ligne in _lignes_du_plan(texte):
+        if _ouvre_une_tache(ligne):
+            break
+        en_tete.append(ligne)
+    return en_tete
+
+
+def _origine_du_plan(texte: str):
+    """`(scan, constat)` de la première ligne `report : <scan> <constat>` bien formée de l'en-tête du plan, en
+    colonne 0, ou None si le plan n'en porte pas."""
+    for ligne in _en_tete_du_plan(texte):
+        trouvee = _ORIGINE.fullmatch(ligne)
+        if trouvee:
+            return trouvee.group(1), trouvee.group(2)
+    return None
 
 
 def _compter_les_taches(texte: str) -> int:
@@ -535,11 +566,14 @@ class Outils:
                 ("repo", demande["depot"], "debut"),
                 ("plan", f"{nom} · {compte} · {len(texte)} chars", "debut"),
             ]
+            origine = _origine_du_plan(texte)
             apres = [
                 ("proof", self._preuve_du_plan(texte), "fin"),
+                ("origin", "none (written by hand)" if origine is None else "report " + " ".join(origine), "fin"),
                 ("profile", f"{demande['profil']} · pull request against {demande['pr']}", "fin"),
             ]
-            # L'en-tête, les deux lignes du SHA-256 et la phrase finale ne bougent pas.
+            # L'en-tête, les deux lignes du SHA-256 et la phrase finale ne bougent pas : l'origine prend une rangée sur
+            # celles qui restent, le message n'en gagne aucune.
             place = LIGNES_DE_L_APPROBATION - 4 - len(avant) - len(apres)
         else:
             travail = f"issue #{demande['issue']}" if demande["issue"] else f"objective: {demande['objectif']}"
@@ -1062,14 +1096,18 @@ class Outils:
         except OSError as exc:
             raise Refus(f"`lydite findings` could not start: {exc}") from exc
         if fin.returncode != 0:
-            dit = (fin.stderr + fin.stdout).decode("utf-8", errors="replace")[-LIMITE_DU_REFUS:]
-            raise Refus(f"`lydite findings` refused (exit {fin.returncode}): {dit}")
+            tout = (fin.stderr + fin.stdout).decode("utf-8", errors="replace")
+            dit = f"`lydite findings` refused (exit {fin.returncode}): {tout[-LIMITE_DU_REFUS:]}"
+            if not _REFUS_DU_RAPPORT.search(tout):
+                dit = f"{dit}\n{BINAIRE_ANCIEN}"
+            raise Refus(dit)
         return fin.stdout
 
     @staticmethod
     def _lire_la_liste(sortie: bytes) -> dict:
-        """La liste que `lydite findings <report>` écrit : un objet JSON avec `scan`, `findings` (chacun avec son `id`
-        et son `where`) et `set_aside` (chacun avec `ref` et `why`). Tout autre texte est un refus, jamais une panne."""
+        """La liste que `lydite findings <report>` écrit : un objet JSON avec `scan`, `findings` (chacun avec son `id`,
+        `hsf_` ou `cand_` et 24 hexadécimaux minuscules, et son `where`) et `set_aside` (chacun avec `ref` et `why`).
+        Tout autre texte est un refus, jamais une panne."""
         try:
             liste = json.loads(sortie.decode("utf-8"))
             ok = (
@@ -1078,6 +1116,7 @@ class Outils:
                 and all(
                     isinstance(constat, dict)
                     and isinstance(constat["id"], str)
+                    and _IDENTITE.fullmatch(constat["id"]) is not None  # un id devient un nom de fichier
                     and isinstance(constat["where"], list)
                     and all(isinstance(lieu, str) for lieu in constat["where"])
                     and all(isinstance(constat[cle], str) for cle in ("kind", "state", "severity", "title"))
@@ -1105,7 +1144,7 @@ class Outils:
             empreinte = _empreinte(octets)
             if args.get("ids") is None:
                 return self._lister(chemin, empreinte, liste["scan"], pris, ecartes)
-            return self._ecrire_les_plans(args, binaire, chemin, empreinte, pris, ecartes)
+            return self._ecrire_les_plans(args, binaire, chemin, empreinte, liste["scan"], pris, ecartes)
         except Refus as refus:
             return {"error": str(refus)}
 
@@ -1150,9 +1189,12 @@ class Outils:
                 raise Refus(f"{vu!r} is not a finding Lydite can take: {pourquoi}. Call without `ids` to list them")
         return list(ids)
 
-    def _ecrire_les_plans(self, args: dict, binaire: str, rapport: str, empreinte: str, pris: list, ecartes: list):
+    def _ecrire_les_plans(
+        self, args: dict, binaire: str, rapport: str, empreinte: str, scan: str, pris: list, ecartes: list
+    ):
         """Un fichier de plan par identité choisie, écrit en entier tel que `lydite findings` l'a écrit ; rien ne
-        part."""
+        part. Un texte dont l'en-tête n'a pas, en colonne 0, la ligne `report : <scan> <identité>` du scan lu et de
+        l'identité demandée n'est pas enregistré."""
         ids = self._identites_choisies(args.get("ids"), pris, ecartes)
         preuve = args.get("preuve")
         if not isinstance(preuve, str) or not preuve.strip():
@@ -1169,6 +1211,8 @@ class Outils:
                 raise Refus(f"{identite}: {refus}") from refus
             if not texte.strip():
                 raise Refus(f"{identite}: `lydite findings` wrote an empty plan")
+            if f"report : {scan} {identite}" not in _en_tete_du_plan(texte):
+                raise Refus(f"{identite}: `lydite findings` wrote a plan without its `report : {scan} {identite}` line")
             textes.append((sortie, len(texte)))
         try:
             dossier = self._dossier_des_constats(empreinte)

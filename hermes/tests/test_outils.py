@@ -444,6 +444,42 @@ class Verrou(AvecOutils):
         self.assertEqual(decision["action"], "approve", decision)
         self.assertIn("python3-munittest", self.compact(decision["message"]))
 
+    def origine_montree(self, texte):
+        """La ligne `origin` du message d'approbation d'un plan, et le message entier (borné comme les autres)."""
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande_de_plan(texte))
+        self.assertEqual(decision["action"], "approve", decision)
+        self.bornes(decision["message"])
+        lignes = [ligne for ligne in decision["message"].splitlines() if ligne.startswith("origin")]
+        self.assertEqual(len(lignes), 1, decision["message"])
+        return lignes[0], decision["message"]
+
+    def test_l_approbation_d_un_plan_dit_son_origine_sur_une_ligne(self):
+        ligne, message = self.origine_montree(
+            f"plan 1\nobjectif : Prove and fix\npreuve : python3 -m unittest\nreport : {SCAN} {ID_FINDING}\n\n"
+            f"tache {ID_FINDING}\ncritique : oui\nred : declared\n    Prove it, then fix it.\n"
+        )
+        self.assertTrue(ligne.startswith(f"origin : report {SCAN} hsf_"), ligne)
+        self.assertEqual(len(message.splitlines()), 9, message)
+
+    def test_l_approbation_d_un_plan_sans_ligne_report_dit_qu_il_est_ecrit_a_la_main(self):
+        ligne, _ = self.origine_montree(PLAN)
+        self.assertEqual(ligne, "origin : none (written by hand)")
+        for texte in (
+            f"plan 1\nobjectif : o\npreuve : cargo test\n\ntache a\nreport : {SCAN} {ID_FINDING}\n    faire.\n",
+            f"plan 1\nobjectif : o\npreuve : cargo test\n report : {SCAN} {ID_FINDING}\n\ntache a\n    faire.\n",
+            f"plan 1\nobjectif : o\npreuve : cargo test\nreport : {SCAN} {ID_FINDING[:-1]}\n\ntache a\n    faire.\n",
+            f"plan 1\nobjectif : o\npreuve : cargo test\nreport : scan_x {ID_FINDING}\n\ntache a\n    faire.\n",
+        ):
+            ligne, _ = self.origine_montree(texte)
+            self.assertEqual(ligne, "origin : none (written by hand)", texte)
+
+    def test_une_ligne_report_en_crlf_se_montre_comme_en_lf(self):
+        texte = f"plan 1\nobjectif : o\npreuve : cargo test\nreport : {SCAN} {ID_FINDING}\n\ntache a\n    faire.\n"
+        lf, _ = self.origine_montree(texte)
+        crlf, _ = self.origine_montree(texte.replace("\n", "\r\n"))
+        self.assertEqual(lf, crlf)
+        self.assertIn(SCAN, lf)
+
     def test_une_tache_ouverte_par_une_tabulation_se_compte(self):
         self.faux_lydite()
         texte = "plan 1\nobjectif : o\npreuve : cargo test\n\ntache a\n    faire.\n\ntache\tb\n    faire.\n"
@@ -1257,7 +1293,8 @@ class AvecFindings(AvecOutils):
             f'if [ "$3" = --plan ]; then\n'
             f'  if [ -f "{self.reponses}/refus-$4" ]; then cat "{self.reponses}/refus-$4" >&2; exit 2; fi\n'
             f'  if [ -f "{self.reponses}/plan-$4" ]; then cat "{self.reponses}/plan-$4"; exit 0; fi\n'
-            f'  printf \'plan 1\\nobjectif : fix %s\\npreuve : %s\\n\\ntache %s\\n    texte\\n\' "$4" "$6" "$4"\n'
+            f"  printf 'plan 1\\nobjectif : fix %s\\npreuve : %s\\nreport : {SCAN} %s\\n\\ntache %s\\n    texte\\n' "
+            f'"$4" "$6" "$4" "$4"\n'
             f"  exit 0\n"
             f"fi\n"
             f"cat '{self.reponses}/liste.json'\n",
@@ -1298,7 +1335,8 @@ class AvecFindings(AvecOutils):
 
     def attendu(self, identite, preuve=PREUVE):
         """Le plan que le faux Lydite fait de ses arguments, tel que `lydite findings` l'écrirait."""
-        return f"plan 1\nobjectif : fix {identite}\npreuve : {preuve}\n\ntache {identite}\n    texte\n"
+        en_tete = f"plan 1\nobjectif : fix {identite}\npreuve : {preuve}\nreport : {SCAN} {identite}\n"
+        return en_tete + f"\ntache {identite}\n    texte\n"
 
     def rien_d_ecrit(self):
         self.assertFalse((self.dossier / "donnees" / "findings").exists())
@@ -1391,6 +1429,23 @@ class Findings(AvecFindings):
             self.assertIn(ligne, rendu["error"])
         self.rien_d_ecrit()
 
+    def test_une_sortie_en_erreur_qui_n_est_pas_un_refus_6038_dit_que_le_binaire_est_peut_etre_ancien(self):
+        phrase = sous_module("outils").BINAIRE_ANCIEN
+        self.assertIn("older than the one that has `lydite findings` (not in 0.4.0): update the binary.", phrase)
+        # Un Lydite d'avant `findings` ne connaît pas ce mot : il le refuse en 1005.
+        self.repondre("refus", b"lydite : 1005 contrat.commande_inconnue\n  seen : findings\n")
+        for champs in ({}, {"ids": [ID_FINDING], "proof": PREUVE}):
+            erreur = self.appeler(**champs)["error"]
+            self.assertIn("1005 contrat.commande_inconnue", erreur)
+            self.assertTrue(erreur.endswith(phrase), erreur)
+        # Un refus 6038 de Lydite lui-même ne porte pas cette phrase, ni quand 6038 ne vient qu'après d'autres lignes.
+        for refus in (b"lydite : 6038 lancer.rapport_refuse\n  seen : not JSON\n", b"avant\nlydite : 6038 x\n"):
+            self.repondre("refus", refus)
+            self.assertNotIn("older", self.appeler()["error"])
+        # Le chiffre 6038 dans le texte d'un autre refus ne le fait pas passer pour un refus du rapport.
+        self.repondre("refus", b"lydite : 1005 contrat.commande_inconnue\n  seen : 6038\n")
+        self.assertIn("older", self.appeler()["error"])
+
     def test_le_refus_de_lydite_est_borne_a_2000_caracteres_et_garde_sa_fin(self):
         self.repondre("refus", b"x" * 3000 + b"FIN-DU-REFUS")
         erreur = self.appeler()["error"]
@@ -1410,6 +1465,36 @@ class Findings(AvecFindings):
             rendu = self.appeler()
             self.assertEqual(set(rendu), {"error"}, texte)
             self.assertIn("cannot read", rendu["error"], texte)
+
+    def test_un_id_mal_forme_dans_la_liste_est_refuse(self):
+        bons = (ID_FINDING, ID_CANDIDAT)
+        self.lister([constat(identite) for identite in bons])
+        self.assertEqual([c["id"] for c in self.appeler()["findings"]], list(bons))  # la même liste, bien formée, passe
+        for mauvais in (
+            "hsf_x",
+            "../" + ID_FINDING,
+            ID_FINDING + "a",  # 25 hexadécimaux
+            "hsf_" + "a1" * 11 + "a",  # 23
+            "hsf_" + "A1" * 12,  # majuscules
+            "hsf_" + "g1" * 12,  # pas hexadécimal
+            "scan_" + "a1" * 12,  # ni `hsf_` ni `cand_`
+            ID_FINDING + "\n",
+            "",
+        ):
+            self.lister([constat(ID_FINDING), constat(mauvais)])
+            rendu = self.appeler()
+            self.assertEqual(set(rendu), {"error"}, mauvais)
+            self.assertIn("cannot read", rendu["error"], mauvais)
+            self.assertEqual(set(self.appeler(ids=[ID_FINDING], proof=PREUVE)), {"error"}, mauvais)
+        self.rien_d_ecrit()
+
+    def test_une_liste_ne_rend_que_les_six_champs_du_constat(self):
+        self.lister([constat(summary="texte du rapport", cause="autre texte du rapport"), candidat(summary="x")])
+        rendu = self.appeler()
+        self.assertEqual(len(rendu["findings"]), 2)
+        for constat_rendu in rendu["findings"]:
+            self.assertEqual(set(constat_rendu), {"id", "kind", "state", "severity", "title", "where"})
+        self.assertNotIn("texte du rapport", json.dumps(rendu))
 
     def test_un_binaire_introuvable_rend_error_sans_rien_ecrire(self):
         self.reglages["binaire"] = str(self.dossier / "absent")
@@ -1569,7 +1654,10 @@ class Findings(AvecFindings):
     def test_le_plan_est_ecrit_tel_que_lydite_l_a_ecrit_octet_pour_octet(self):
         """Le plugin ne retouche pas ce que Lydite écrit : ni fins de ligne, ni caractères, ni accents."""
         separateur = "\N{LINE SEPARATOR}"
-        corps = "plan 1\r\nobjectif : \N{LATIN SMALL LETTER E WITH ACUTE}\r\npreuve : x\r\n\r\ntache a\r\n"
+        corps = (
+            "plan 1\r\nobjectif : \N{LATIN SMALL LETTER E WITH ACUTE}\r\npreuve : x\r\n"
+            f"report : {SCAN} {ID_FINDING}\r\n\r\ntache a\r\n"
+        )
         texte = (corps + f"    pirate\x00 {separateur} fin\r\n").encode("utf-8")
         self.repondre(f"plan-{ID_FINDING}", texte)
         rendu = self.appeler(ids=[ID_FINDING], proof=PREUVE)
@@ -1586,6 +1674,32 @@ class Findings(AvecFindings):
             self.assertIn(mot, rendu["error"])
             self.assertIn(ID_FINDING, rendu["error"])
         self.rien_d_ecrit()
+
+    def test_un_plan_rendu_sans_la_ligne_report_n_est_pas_enregistre(self):
+        autre_scan = "scan_" + "f9" * 12
+        autre_id = "hsf_" + "e5" * 12
+        bons = self.attendu(ID_FINDING)
+        cas = {
+            "sans ligne": bons.replace(f"report : {SCAN} {ID_FINDING}\n", ""),
+            "ligne dans la tâche": bons.replace(f"report : {SCAN} {ID_FINDING}\n", "").replace(
+                "    texte\n", f"report : {SCAN} {ID_FINDING}\n"
+            ),
+            "ligne indentée": bons.replace("report :", " report :"),
+            "autre scan": bons.replace(SCAN, autre_scan),
+            "autre constat": bons.replace(f"report : {SCAN} {ID_FINDING}", f"report : {SCAN} {autre_id}"),
+            "ligne trop longue": bons.replace(f"{SCAN} {ID_FINDING}", f"{SCAN} {ID_FINDING} en plus"),
+        }
+        for nom, texte in cas.items():
+            self.repondre(f"plan-{ID_FINDING}", texte.encode("utf-8"))
+            rendu = self.appeler(ids=[ID_FINDING, ID_CANDIDAT], proof=PREUVE)
+            self.assertEqual(set(rendu), {"error"}, nom)
+            self.assertIn(ID_FINDING, rendu["error"], nom)
+            self.assertIn(f"report : {SCAN} {ID_FINDING}", rendu["error"], nom)
+            self.rien_d_ecrit()
+        # Le même plan, avec sa ligne, s'enregistre : la recherche trouve la ligne quand elle y est.
+        self.repondre(f"plan-{ID_FINDING}", bons.encode("utf-8"))
+        rendu = self.appeler(ids=[ID_FINDING], proof=PREUVE)
+        self.assertEqual(Path(rendu["plans"][0]["plan"]).read_text(encoding="utf-8"), bons)
 
     # --- ce que le plugin lance, et ne lance pas ------------------------------------------------------------------
 
