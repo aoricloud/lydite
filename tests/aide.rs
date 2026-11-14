@@ -72,6 +72,7 @@ fn l_aide_ecrit_l_usage_une_forme_par_ligne_et_sort_en_0() {
         ),
         "lydite plan [--split] <file>",
         "lydite remarks <file>",
+        "lydite findings <report> [--plan <id> --verify \"<proof>\"]",
         "lydite lessons <folder>",
         "lydite accept <profile>",
         "lydite profile <profile>",
@@ -86,7 +87,7 @@ fn l_aide_ecrit_l_usage_une_forme_par_ligne_et_sort_en_0() {
         let ligne = format!("  {forme}");
         assert!(lignes.contains(&ligne.as_str()), "pas de ligne « {ligne} » :\n{texte}");
     }
-    assert_eq!(lignes.len(), 17, "une ligne par forme, après `Usage:` :\n{texte}");
+    assert_eq!(lignes.len(), 18, "une ligne par forme, après `Usage:` :\n{texte}");
 }
 
 #[test]

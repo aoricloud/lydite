@@ -19,6 +19,7 @@ const USAGE: &str = concat!(
     " [--pr <branch>]",
     " or lydite plan [--split] <file>",
     " or lydite remarks <file>",
+    " or lydite findings <report> [--plan <id> --verify \"<proof>\"]",
     " or lydite lessons <folder>",
     " or lydite accept <profile>",
     " or lydite profile <profile>",
@@ -32,13 +33,14 @@ const USAGE: &str = concat!(
 );
 
 /// Le double français de chaque commande, qui a son mot anglais : `(français, anglais)`.
-const ALIAS_COMMANDES: [(&str, &str); 7] = [
+const ALIAS_COMMANDES: [(&str, &str); 8] = [
     ("lancer", "launch"),
     ("etat", "status"),
     ("attendre", "wait"),
     ("accepter", "accept"),
     ("profil", "profile"),
     ("remarques", "remarks"),
+    ("constats", "findings"),
     ("lecons", "lessons"),
 ];
 
@@ -101,6 +103,9 @@ pub(crate) enum Commande {
     /// Le fichier de remarques, lu comme Kraken lira celui du relecteur, sans rien lancer. Le chemin garde son
     /// `OsString`.
     LireRemarques { fichier: PathBuf },
+    /// Le rapport de hermes-security, lu comme le lecteur le lit, sans rien lancer : sa liste, ou, avec `plan`, le plan
+    /// d'un constat (son identité, puis la preuve). Le chemin garde son `OsString`.
+    LireConstats { rapport: PathBuf, plan: Option<(String, String)> },
     /// Les leçons `.agents/skills/*/SKILL.md` du dépôt de ce dossier, lues sans rien lancer. Le chemin garde son
     /// `OsString`.
     LireLecons { dossier: PathBuf },
@@ -195,10 +200,57 @@ fn options_lire_plan(args: &[OsString]) -> Result<Commande, Refus> {
     Ok(Commande::LirePlan { fichier: PathBuf::from(fichier), decoupe })
 }
 
-/// Lit la ligne de commande : `launch` et ses drapeaux, `launch --plan`, `accept`, `status`, `plan` ou `remarks`,
-/// chacun lu aussi par son double français. `--pr` sans `--plan` ni `--split` est refusé (1006), et `--split` et
-/// `--plan` s'excluent. Une ligne sans commande, ou de forme fausse, est refusée en 1006 ; un premier mot qui n'est
-/// pas une commande, non UTF-8 compris, en 1005.
+/// Lit ce qui suit `findings` : `<rapport>`, puis `--plan <id>` et `--verify "<preuve>"` ensemble ou aucun, chacun une
+/// fois, dans l'ordre qu'on veut ; `--verifier` est le double français de `--verify`. Le rapport garde son `OsString`,
+/// et n'est pas un drapeau. Une valeur n'est jamais un des deux drapeaux, et tout autre mot est le refus 1006, qui le
+/// nomme.
+fn options_lire_constats(args: &[OsString]) -> Result<Commande, Refus> {
+    let mal_formee = |preuve: String| refus_de_ligne(Code::CommandeMalFormee, preuve);
+    let [rapport, reste @ ..] = args else {
+        return Err(mal_formee("`findings`: the report file is missing".into()));
+    };
+    if rapport.to_str().is_some_and(|nom| nom.starts_with('-')) {
+        return Err(mal_formee(format!("`findings` wants a report file, and {} is a flag", mot(rapport))));
+    }
+    let drapeau = |arg: &OsStr| ["--plan", "--verify"].into_iter().find(|nom| drapeau_anglais(arg) == Some(*nom));
+    let (mut identite, mut preuve) = (None, None);
+    // Les drapeaux vus : le mot anglais, et le mot que l'humain a écrit.
+    let mut vus: Vec<(&str, &str)> = Vec::new();
+    let mut reste = reste.iter();
+    while let Some(vu) = reste.next() {
+        let (Some(nom), Some(tape)) = (drapeau(vu), vu.to_str()) else {
+            let preuve = format!(
+                "`findings` takes only `<report> [--plan <id> --verify \"<proof>\"]`, and {} follows the report",
+                mot(vu)
+            );
+            return Err(mal_formee(preuve));
+        };
+        if let Some((_, avant)) = vus.iter().find(|(deja, _)| *deja == nom) {
+            return Err(mal_formee(drapeau_redit(nom, avant, tape)));
+        }
+        vus.push((nom, tape));
+        let Some(valeur) = reste.next().filter(|valeur| drapeau(valeur).is_none()) else {
+            return Err(mal_formee(format!("flag without a value: {nom}")));
+        };
+        match nom {
+            "--plan" => identite = Some(texte(valeur, "the finding id")?),
+            _ => preuve = Some(texte(valeur, "the command of --verify")?),
+        }
+    }
+    let plan = match (identite, preuve) {
+        (Some(identite), Some(preuve)) => Some((identite, preuve)),
+        (None, None) => None,
+        _ => {
+            return Err(mal_formee("`findings`: --plan <id> and --verify \"<proof>\" go together, or neither".into()));
+        }
+    };
+    Ok(Commande::LireConstats { rapport: PathBuf::from(rapport), plan })
+}
+
+/// Lit la ligne de commande : `launch` et ses drapeaux, `launch --plan`, `accept`, `status`, `plan`, `remarks` ou
+/// `findings`, chacun lu aussi par son double français. `--pr` sans `--plan` ni `--split` est refusé (1006), et
+/// `--split` et `--plan` s'excluent. Une ligne sans commande, ou de forme fausse, est refusée en 1006 ; un premier mot
+/// qui n'est pas une commande, non UTF-8 compris, en 1005.
 pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
     let Some((commande, reste)) = args.split_first() else {
         return Err(refus_de_ligne(Code::CommandeMalFormee, "no command"));
@@ -238,6 +290,7 @@ pub(crate) fn options(args: &[OsString]) -> Result<Commande, Refus> {
         (Some("memory"), reste) => options_memoire(reste),
         (Some("plan"), reste) => options_lire_plan(reste),
         (Some("remarks"), reste) => options_lire_remarques(reste),
+        (Some("findings"), reste) => options_lire_constats(reste),
         (Some("lessons"), reste) => options_lire_lecons(reste),
         (Some("accept"), [nom]) => Ok(Commande::Accepter(texte(nom, "the profile")?)),
         (Some("accept"), []) => Err(refus_de_ligne(Code::CommandeMalFormee, "`accept`: the profile is missing")),

@@ -54,7 +54,7 @@ what is missing.
 | `lydite_etat` | Returns `lydite etat` (what Lydite itself recorded: tasks, proofs, pull request, CI) and the launches made from this plugin, with the end of a launch's log when given its `id`. |
 | `lydite_lecons` | Returns the lessons of a repository: the written rules Lydite learned there from past mistakes and gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Without `name`, the list of each lesson's name, rule and files; with `name`, one lesson in full. It is read-only, and Lydite checks the lessons first. Nothing is approved, because nothing is started or written. |
 | `lydite_plan` | Runs `lydite plan <file>` on a plan file and returns what Lydite accepts or refuses, and why: the plan's SHA-256, its number of tasks, its proof line and the tasks that will wait for one another because they share a file, or Lydite's refusal (its code, its rule, what was seen, the fix). It starts nothing and costs nothing, so nothing is approved: use it to fix a plan with the human before approving a launch. |
-| `lydite_findings` | Reads a hermes-security findings export (JSON, `1.0`) and turns it into Lydite plans. Without `ids`, it lists the findings Lydite can take and the ones it sets aside, each with the reason. With `ids` (from 1 to 12) and `proof`, it writes one plan file per chosen finding under the plugin's data folder (mode 0600) and starts nothing, so nothing is approved. A plan it wrote is launched like any plan, with `lydite_lancer`, after the human's approval, and only under a required wall (see below). |
+| `lydite_findings` | Runs `lydite findings` (read-only, and nothing else) on a hermes-security findings export (JSON, `1.0`) and turns it into Lydite plans. It needs a Lydite binary that has `lydite findings`, newer than 0.4.0. Without `ids`, it lists the findings Lydite can take and the ones it sets aside, each with the reason. With `ids` (from 1 to 12) and `proof`, it writes one plan file per chosen finding, as Lydite wrote it, under the plugin's data folder (mode 0600), and starts nothing, so nothing is approved. It saves a plan only if its header carries the `report` line of that scan and finding. It is launched like any plan, with `lydite_lancer`, after the human's approval; Lydite refuses a plan that carries the `report` line unless the profile requires the wall (6037; see below). |
 
 It also ships one skill, `lydite:driving-lydite`, in the open `SKILL.md` format with only its common fields, so
 Claude Code can read it too. It tells the model when to hand a job to Lydite, what to have before launching (the
@@ -81,18 +81,20 @@ The workers are **Claude Code sessions that Lydite starts itself**, on the model
 
 A finding that comes back **not proved** is the worker's word that no test could show it: nothing was changed, and the
 worker says so instead of fixing blind. Lydite does not verify that word, so it is for the human to judge. What is
-proved today: Lydite replays the final green itself. The red of the test before the fix is what the worker declares and
-what the reviewer reads; Lydite does not replay it. A finding under `.github/` (or `.git/`, `.claude/`) goes back to
-the human: Lydite does not publish changes there.
+proved today: a plan from `lydite_findings` carries `red : declared`, and the hand names its test file (`RED: <file>`).
+Lydite itself replays the proof on the base plus that one file and requires it to fail, then requires it to pass with
+the whole change. The reviewer reads the reason for the red (a compile error counts as a failure). A finding under
+`.github/` (or `.git/`, `.claude/`) goes back to the human: Lydite does not publish changes there.
 
 The format read is the `1.0` JSON export of hermes-security. No code of hermes-security is taken.
 
 The titles and claims of a report are text written by someone else. They enter the worker's instruction quoted as
-data, bounded and on one line, and a plan written from a report only runs under a required wall: before such a launch
-the plugin asks `lydite profil <name>` (read-only) and refuses unless it says `wall: required`. To use it, put
-`mur = exige` in the profile, and have a human run `lydite accept <name>`; or use another profile. The check goes by
-where the plan is: under the plugin's `findings/` data folder. A plan copied out of that folder goes like a plan
-written by hand.
+data, bounded and on one line. The plan that `lydite_findings` writes carries its origin, a `report` line, and Lydite
+itself refuses a plan that carries that line (6037) unless the profile requires the wall. That is all that holds: a plan
+whose `report` line was removed, or one written by hand from a report, goes as a plan written by hand, and the human's
+reading of the plan before approving is what holds. The approval message says the origin of a plan, `report <scan>
+<id>` or `none (written by hand)`. To use a plan that carries the line, put `mur = exige` in the profile, and have a
+human run `lydite accept <name>`; or use another profile.
 
 ### Names still in French
 
@@ -174,31 +176,32 @@ hermes config set tools.tool_search.enabled off
 
 - Linux only. On Windows the wall is not held by Lydite; the tools do not appear.
 - Lydite's proof is only as good as your command: a test that is wrong is replayed as faithfully as one that is right.
+- A plan born from a report is held to a required wall only while it carries the `report` line that `lydite_findings`
+  writes (Lydite refuses it otherwise, 6037). A plan whose line was removed, or written by hand from a report, goes as
+  a plan written by hand: the human's reading of the plan before approving is what holds.
 - Nothing comes back into the chat by itself: the plugin does not notify Hermes when a wave ends. Ask for the state
   with `lydite_etat`.
 - The pull request body opens with a receipt written when the pull request is opened: the cost so far, the hands, the
   retries, the set-aside tasks and the proof-setting files the diff changed; then the proof result and the review
   outcome. `lydite_etat` returns what `lydite etat` prints, which has the same cost and hands line plus the wave's
   duration. The cost is an estimate, a flat-rate approximation or `unknown`, never an invoice.
-- The wall check of a plan from a report goes by the plan's place: a plan copied out of the plugin's `findings/` data
-  folder is launched like a plan written by hand, without that check. Until Lydite itself knows where a plan comes
-  from, the human's reading of the plan before approving is what holds.
 
 ## What it does on your machine (disclosures)
 
 - **Commands.** One program only: the Lydite binary, started with an argument list, never through a shell. `lydite
   lancer` (in the background), `lydite etat` (read-only, 30 s timeout), `lydite lecons <folder>` (read-only, 30 s
   timeout, with the closed list of variables and no provider key), and `lydite plan <file>` (read-only, 30 s timeout,
-  with the closed list of variables and no provider key), and `lydite profil <name>` (read-only, 30 s timeout, same
-  closed list, only before launching a plan written from a report). The plugin starts these French words; Lydite 0.4
-  still reads them as doubles of its English ones (`launch`, `status`, `lessons`, `profile`). Lydite in turn runs `git`, `gh` and the `claude`
+  with the closed list of variables and no provider key), and `lydite findings <report>` (read-only, 30 s timeout,
+  same closed list; with `--plan <id> --verify <proof>` it writes a plan on its standard output, which the plugin saves;
+  it starts no wave). The plugin starts these French words; Lydite 0.4
+  still reads them as doubles of its English ones (`launch`, `status`, `lessons`). Lydite in turn runs `git`, `gh` and the `claude`
   process on the host, with your GitHub login; only the commands of a hand run in Claude Code's sandbox, and the proof
   command is replayed in the wall (by srt under `mur = exige`, by Lydite's native wall under `mur = natif`); those are
   Lydite's, documented in its README.
 - **A requested wall.** A profile accepted with `mur = demande` leaves this: the commands of a hand may run outside
   Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed on the host, outside the
-  wall. A required wall (`exige`, the default, or `natif`) is required for `--issue` and for a plan written from a
-  report.
+  wall. A required wall (`exige`, the default, or `natif`) is required for `--issue` and, by Lydite's refusal 6037,
+  for a plan that carries the `report` line that `lydite_findings` writes; a plan without that line is not held to it.
 - **Network.** The plugin makes no network call itself. Lydite and its workers do: the model provider named in the
   profile, and GitHub (through `gh`) for the issue, the push and the pull request. Nothing is sent anywhere else, and
   there is no telemetry.
@@ -214,7 +217,8 @@ hermes config set tools.tool_search.enabled off
   to the `lydite` binary; the plugin passes these two variables, as it passes `LYDITE_SRT`.
 - **Approvals.** A `pre_tool_call` hook sends every `lydite_lancer` call to Hermes' human approval: at most ten rows,
   the plugin's message holding in nine, with the exact repository, work, proof, profile and target branch. A plan is
-  shown by its file name, its size, its number of tasks, its proof line and the SHA-256 of its bytes, not its text.
+  shown by its file name, its size, its number of tasks, its origin (`report <scan> <id>` if its header carries a
+  well-formed `report` line, else `none (written by hand)`), its proof line and the SHA-256 of its bytes, not its text.
   A request that would be refused anyway is answered without asking. "Always" only covers the same repository, profile,
   issue, objective, target branch, mode (a dry run with `observe` or a real launch) and proof (or the same plan
   bytes). Nothing here disables a guard or reads the YOLO mode; in an unattended run
@@ -230,7 +234,9 @@ hermes config set tools.tool_search.enabled off
 - **File writes.** The plans written by `lydite_findings`, mode 0600, under the plugin's data folder, and nothing
   anywhere else (apart from the logs and plan copies of launches, in the same folder).
 - **Third-party text.** The titles and the claims of a report enter a worker's instruction, quoted as data, bounded
-  and without a line break; and such a plan only runs under a required wall.
+  and without a line break. Lydite refuses, unless the wall is required (6037), a plan that carries the `report` line
+  that `lydite_findings` writes; a plan whose line was removed, or written by hand from a report, goes as a plan
+  written by hand, and the human's reading of the plan before approving is what holds.
 
 ## Test
 

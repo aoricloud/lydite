@@ -40,7 +40,7 @@ screenshots:
 platforms: [linux]
 known_issues:
   - "Linux only: Lydite's sandbox wall holds there."
-  - "Needs the lydite binary of the same release as this plugin (attested release of github.com/aoricloud/lydite), Claude Code, gh and srt installed (bubblewrap and lydite-reseau instead of srt under mur = natif), and a Lydite profile accepted by a human."
+  - "Needs the lydite binary of the same release as this plugin (attested release of github.com/aoricloud/lydite; for lydite_findings, a binary that has `lydite findings`, newer than 0.4.0), Claude Code, gh and srt installed (bubblewrap and lydite-reseau instead of srt under mur = natif), and a Lydite profile accepted by a human."
   - "Some names are still French: three tool names (lydite_lancer, lydite_etat, lydite_lecons), the plugin settings (binaire, profil, cle_nom, cle) and a few lines Lydite writes. Lydite's commands have English words, and its usage and the lines about the pull request and CI are in English; pull request receipts are in English. The progress lines of a launch are still in French."
 capabilities:
   provides_tools: [lydite_lancer, lydite_etat, lydite_lecons, lydite_plan, lydite_findings]
@@ -61,7 +61,7 @@ capabilities:
 | 9. No core override | `no core override — no runtime rebinds of Hermes core`. |
 | 10. Dependencies | None (standard library only). |
 | 11. Credentials through Hermes | `get_secret("LYDITE_CLE_FOURNISSEUR")` from `agent.secret_scope`; no `.env`, no `auth.json`; a test forbids those strings and `os.getenv` / `os.environ[`. |
-| 12. Approvals respected | `pre_tool_call` returns `approve` for every launch, showing the repository, the work, the proof, the profile and the target branch in at most nine rows; a plan is shown by its file name, its size, its number of tasks, its proof line and the SHA-256 of its bytes, not its text. Nothing bypasses a guard; no Hermes child process is spawned; no shell. `lydite_lecons` and `lydite_plan` start nothing and write nothing, so they ask no approval. `lydite_findings` starts nothing and asks no approval; a plan it wrote is launched like any plan, after the human's approval, and only under a required wall, which the plugin checks with `lydite profil` (read-only). |
+| 12. Approvals respected | `pre_tool_call` returns `approve` for every launch, showing the repository, the work, the proof, the profile and the target branch in at most nine rows; a plan is shown by its file name, its size, its number of tasks, its proof line and the SHA-256 of its bytes, not its text. Nothing bypasses a guard; no Hermes child process is spawned; no shell. `lydite_lecons` and `lydite_plan` start nothing and write nothing, so they ask no approval. `lydite_findings` runs the Lydite binary (`lydite findings`, read-only) and nothing else: it starts no wave and asks no approval; a plan it wrote carries its origin (a `report` line) and is launched like any plan, after the human's approval; Lydite itself refuses a plan that carries that line unless the profile requires the wall (6037). A plan whose line was removed, or written by hand from a report, goes as a plan written by hand, and the human's reading of the plan before approving is what holds; the approval message says the origin (`report <scan> <id>` or `none (written by hand)`). |
 | 13. Risky behavior disclosed | See "Disclosures" below and the README. |
 | 14. Truthful metadata | `requires_hermes: ">=0.23.0"` (the release it was validated on), same in `plugin.yaml`; `version` is the pinned code's. |
 | 17. No unscannable executables | No compiled binary, no `.pyc` in the plugin (a test checks the file headers); its only non-text files are the PNG images under `docs/`. The Lydite binary is **not** shipped nor downloaded: it must already be on the machine. Lydite's release binaries are built by the repository's own GitHub Actions and carry a build attestation. |
@@ -73,14 +73,15 @@ capabilities:
   its sandbox wall when the wall is required (`exige`, the default, or `natif`; see "A requested wall" below), on the model of a Lydite profile a human accepted. They are not Hermes agents.
 - **Shell commands.** None through a shell. One external program (`lydite`) is started with an argument list:
   `lydite lancer ...` (detached, long-running), `lydite etat` (read-only), `lydite lecons <folder>` (read-only) and
-  `lydite plan <file>` (read-only) and `lydite profil <name>` (read-only). Lydite itself runs `git`, `gh` and the
+  `lydite plan <file>` (read-only) and `lydite findings <report>` (read-only, and with `--plan <id> --verify <proof>`
+  to write a plan on its standard output; it needs a binary newer than 0.4.0). Lydite itself runs `git`, `gh` and the
   `claude` process on the host, with the human's GitHub login; only the commands of a hand run in Claude Code's
   sandbox, and the user's proof command is replayed in the wall (by srt under `mur = exige`, by Lydite's native wall
   under `mur = natif`).
 - **A requested wall.** A profile accepted with `mur = demande` leaves this: the commands of a hand may run outside
   Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed on the host, outside the
-  wall. A required wall (`exige`, the default, or `natif`) is required for `--issue` and for a plan written from a
-  report.
+  wall. A required wall (`exige`, the default, or `natif`) is required for `--issue` and, by Lydite's refusal 6037,
+  for a plan that carries the `report` line that `lydite_findings` writes; a plan without that line is not held to it.
 - **Network.** None from the plugin. Lydite and its workers reach the model provider named in the profile and GitHub.
 - **Background process.** One detached `lydite lancer` per launch (minutes to hours), at most one per Lydite folder,
   its log under the plugin's data folder; the last 20 launches are kept.
@@ -100,7 +101,9 @@ capabilities:
 - **File writes.** The plans written by `lydite_findings`, mode 0600, under the plugin's data folder, and nothing
   anywhere else.
 - **Third-party text.** The titles and the claims of a report enter a worker's instruction, quoted as data, bounded
-  and without a line break; and such a plan only runs under a required wall.
+  and without a line break. Lydite refuses, unless the wall is required (6037), a plan that carries the `report` line
+  that `lydite_findings` writes; a plan whose line was removed, or written by hand from a report, goes as a plan
+  written by hand, and the human's reading of the plan before approving is what holds.
 - **Telemetry.** None.
 - **Platforms.** Linux only; the tools hide themselves elsewhere.
 - **Honest limit.** A worker runs with `--permission-mode acceptEdits --permission-prompts none` inside Lydite's

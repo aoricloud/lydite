@@ -2,7 +2,7 @@
 name: driving-lydite
 description: Hand a coding job to Lydite and report what it recorded. Use when the user asks to give Lydite an issue, an objective or a plan file, or asks where a Lydite wave stands. Lydite runs isolated Claude Code workers, replays the user's proof command itself and opens a pull request.
 license: MIT
-compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat, lydite_lecons, lydite_plan and lydite_findings; anywhere else the same steps are the commands lydite launch, lydite status, lydite lessons and lydite plan. lydite_findings has no equivalent command outside Hermes.
+compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat, lydite_lecons, lydite_plan and lydite_findings; anywhere else the same steps are the commands lydite launch, lydite status, lydite lessons and lydite plan. lydite_findings runs lydite findings (read-only) and nothing else; the plan it writes carries its origin.
 ---
 
 # Driving Lydite
@@ -20,8 +20,9 @@ you do not rewrite its plan, and you never merge: the pull request is for a huma
 ## From Claude Code or a shell
 
 Without the Hermes plugin, the tools below are commands: `lydite_lancer` is `lydite launch`, `lydite_etat` is
-`lydite status`, `lydite_plan` is `lydite plan <file>`, `lydite_lecons` is `lydite lessons <folder>`. The rest of this
-skill holds. In order:
+`lydite status`, `lydite_plan` is `lydite plan <file>`, `lydite_lecons` is `lydite lessons <folder>`, and `lydite_findings` is
+`lydite findings <report> [--plan <id> --verify "<proof>"]`, which prints the list or one plan on its standard output
+(the plugin saves the plan to a file; from a shell, you do). The rest of this skill holds. In order:
 
 1. `lydite doctor` launches nothing and says what is missing. It exits 1 if anything is, `gh` too, even if you will not
    use `--pr`. A sign-in it asks for (`claude auth login`, `gh auth login`) is the user's to make, never yours.
@@ -135,9 +136,13 @@ lydite launch <profile> --issue 15 --split --verify "<proof>" --pr main
 lydite launch <profile> --plan <file> --pr main
 lydite status
 lydite lessons <repository folder>
+lydite findings <report>
+lydite findings <report> --plan <id> --verify "<proof>"
 ```
 
-`lydite plan <file>` checks a plan without running anything. `lydite lessons <repository folder>` checks the lessons of
+`lydite findings <report>` prints the list of findings Lydite can take and the ones it sets aside; with `--plan <id>
+--verify "<proof>"` it prints one plan on its standard output and starts nothing. `lydite plan <file>` checks a plan
+without running anything. `lydite lessons <repository folder>` checks the lessons of
 a repository and prints nothing when all are right. Accepting a profile, and merging, stay with the human.
 
 `lydite lessons` checks the lessons and does not show them. To read them, open the `.agents/skills/<name>/SKILL.md`

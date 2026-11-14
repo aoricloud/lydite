@@ -32,10 +32,10 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 6015 | `lancer.dossier_sous_le_depot` | Lydite's folder is outside the target repository. |
 | 6016 | `lancer.plan_version` | A plan starts with its version, `plan 1`, which Lydite reads before anything else. |
 | 6017 | `lancer.plan_encodage` | A plan is UTF-8 text, a leading BOM tolerated; a plan in UTF-16 is rewritten in UTF-8. |
-| 6018 | `lancer.plan_ligne` | In column 0, a plan line is empty, `tache <id>` within the limit of 10,000 tasks, or a known key (`depend`, `preuve`, `modele`, `relance`, `fichiers`, `critique` under a task), once only and in its place, before the indented lines; an indented line follows a task. |
+| 6018 | `lancer.plan_ligne` | In column 0, a plan line is empty, `tache <id>` within the limit of 10,000 tasks, or a known key (`objectif`, `preuve` and `report` in the header; `depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256`, `red` and `place` under a task), once only and in its place, before the indented lines; an indented line follows a task. A plan with `report` has no `place` line, and each of its tasks has a `red` line and `critique : oui`. |
 | 6019 | `lancer.plan_identifiant` | A task id is a word of ASCII letters and digits, `-` and `_`, unique in the plan. |
 | 6020 | `lancer.plan_dependance` | A task depends only on other tasks of the plan, without a cycle. |
-| 6021 | `lancer.plan_blanc` | A plan has an objective, a proof and at least one task; each task has an objective, and a written `preuve`, `modele`, `relance` or `critique` is not blank (only `depend` may be). |
+| 6021 | `lancer.plan_blanc` | A plan has an objective, a proof and at least one task; each task has an objective, and a written `report`, `preuve`, `modele`, `relance` or `critique` is not blank (only `depend` may be). |
 | 6022 | `lancer.base_rouge` | The wave's proof passes on the base before any hand, so that a green assembly is owed only to the tasks. |
 | 6023 | `lancer.dossier_chemin_refuse` | A path that Lydite writes into a permission rule, its folder or a Claude connection folder, is absolute and is written as is: on Windows it starts with a drive letter, and its names carry no parenthesis, no `*`, `?`, `[`, `]`, `{`, `}`, no quote and no backslash. |
 | 6024 | `lancer.plan_chemin` | A `fichiers` path is relative to the repository root, written with `/`, without `..`, outside `.git/` and `.claude/`, without a comma; in a split plan, it has the case that git knows for it in the base. |
@@ -51,6 +51,8 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 6034 | `lancer.memoire_texte_absent` | A memory recall names a line that the thread carries, by its address `<session>/<seq>` or by its SHA-256; otherwise nothing is recalled. |
 | 6035 | `lancer.memoire_empreinte_fausse` | A memory recall by hash gives 64 lowercase hexadecimal digits; any other text without `/` is refused before the thread is read. |
 | 6036 | `lancer.fichier_pose_refuse` | A file that a plan places is a regular file next to the plan, of at most 4 MiB, whose SHA-256 is the one the plan writes. |
+| 6037 | `lancer.rapport_sans_mur` | A plan written from a report is launched only under a profile that requires the wall. |
+| 6038 | `lancer.rapport_refuse` | A hermes-security report is read strictly, and a plan is written only for a finding it keeps. |
 | 7001 | `vague.bac_impossible` | Each task has its own worktree, which git creates just before its hand; a task without a worktree is refused, and the others go on. |
 | 7002 | `vague.main_active` | A task never has two active hands: a hand starts only on a task with no lease, open or expired. |
 | 7003 | `vague.resultat_perime` | A result is taken only if it carries the attempt of its task's open lease; any other is stale. |

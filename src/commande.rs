@@ -31,14 +31,16 @@ use std::process::ExitCode;
 use self::ligne::{Commande, options};
 use crate::branchements::dossier;
 use crate::branchements::github;
+use crate::coeur::constats::{self, Rapport};
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus};
+use crate::coeur::json;
 use crate::coeur::lecons;
 use crate::coeur::plan;
 use crate::coeur::plan::Plan;
 use crate::coeur::remarques;
 use crate::conduite::lancer::{Liens, Posee, base_du_depot};
-use crate::conduite::mener::{Lieu, decouper_cmd, mener_sur, preparer};
+use crate::conduite::mener::{Lieu, decouper_cmd, exiger_le_mur_du_rapport, mener_sur, preparer};
 use crate::conduite::publication;
 use crate::conduite::relecture;
 use crate::conduite::relecture::Origine;
@@ -88,9 +90,11 @@ fn executer() -> Result<ExitCode, Refus> {
             let plan = Plan::copies(&o.objectif, o.verifier.as_deref(), o.n);
             (profil, depot, dossier, plan, None, o.decouper.then_some(o), None, Vec::new())
         }
-        Commande::Plan { profil, plan, depot, pr } => {
-            let (profil, depot, dossier) = preparer(&profil, depot.as_deref())?;
+        Commande::Plan { profil: nom, plan, depot, pr } => {
+            let (profil, depot, dossier) = preparer(&nom, depot.as_deref())?;
             let (plan, _, empreinte, posees) = lire_plan(&plan, plan::Mode::Main)?;
+            // Comme `--issue` (6029) : avant tout bac et tout fil, un plan de rapport veut le mur exigé.
+            exiger_le_mur_du_rapport(&plan, &profil, &nom)?;
             (profil, depot, dossier, plan, pr, None, Some(empreinte), posees)
         }
         Commande::Accepter(nom) => return accepter_cmd(&nom),
@@ -102,6 +106,12 @@ fn executer() -> Result<ExitCode, Refus> {
         Commande::Rappel(texte) => return memoire::rappel_cmd(&texte),
         Commande::LirePlan { fichier, decoupe } => return plan_cmd(&fichier, decoupe),
         Commande::LireRemarques { fichier } => return remarques_cmd(&fichier),
+        Commande::LireConstats { rapport, plan } => {
+            return constats_cmd(
+                &rapport,
+                plan.as_ref().map(|(identite, preuve)| (identite.as_str(), preuve.as_str())),
+            );
+        }
         Commande::LireLecons { dossier } => return lecons_cmd(&dossier),
         Commande::Version => return version_cmd(),
         Commande::Skill => return skill_cmd(),
@@ -253,6 +263,157 @@ fn remarques_cmd(fichier: &Path) -> Result<ExitCode, Refus> {
         Refus::new(Code::EntreeSortie, preuve, correction)
     })?;
     remarques::lire_fichier(&octets)?.exiger_la_forme_2().map(|_| ExitCode::SUCCESS)
+}
+
+/// Le refus 6038 : le rapport, ou le plan d'un constat, que le lecteur refuse. La preuve est ce que le lecteur a vu.
+fn rapport_refuse(preuve: impl Into<String>) -> Refus {
+    let correction = "Give lydite findings the report that `hermes security-review export` wrote (a regular file of \
+                      4 MiB at most), and, for a plan, the id of a finding that its list keeps with --verify \
+                      \"<proof>\", then run again.";
+    Refus::new(Code::RapportRefuse, preuve, correction)
+}
+
+/// Le refus 6006 d'un rapport qu'on ne lit pas.
+fn rapport_illisible(fichier: &Path, e: &std::io::Error) -> Refus {
+    let preuve = format!("reading the report {}: {e}", fichier.display());
+    let correction = "Give lydite findings the path of a file that Lydite can read (a relative path starts from the \
+                      current folder), then run again.";
+    Refus::new(Code::EntreeSortie, preuve, correction)
+}
+
+/// La pesée du rapport, sans suivre de lien : un fichier ordinaire de [`constats::OCTETS_MAXIMUM`] octets au plus.
+/// Rend ce qu'elle a vu, que [`ouvrir_le_rapport`] compare au fichier qu'il ouvre. Un fichier qu'on ne pèse pas est le
+/// refus 6006 ; un lien, ce qui n'est pas un fichier ordinaire, et un rapport trop gros sont le refus 6038.
+fn peser_le_rapport(fichier: &Path) -> Result<std::fs::Metadata, Refus> {
+    let ici = fichier.display();
+    let vu = std::fs::symlink_metadata(fichier).map_err(|e| rapport_illisible(fichier, &e))?;
+    if vu.file_type().is_symlink() {
+        return Err(rapport_refuse(format!("the report {ici} is a symbolic link, which is not followed")));
+    }
+    if !vu.is_file() {
+        return Err(rapport_refuse(format!("the report {ici} is not a regular file")));
+    }
+    if vu.len() > constats::OCTETS_MAXIMUM as u64 {
+        return Err(rapport_refuse(constats::rapport_trop_gros()));
+    }
+    Ok(vu)
+}
+
+/// Le fichier ouvert est-il celui que la pesée a vu ? Sous Unix, le même `dev` et le même `ino`.
+// raccourci : hors d'Unix, la pesée et le fichier ouvert ne se comparent que par leur forme et leur taille (l'index de
+// fichier de Windows n'est pas stable dans la std) ; monter avec lui quand il le sera
+#[cfg(unix)]
+fn meme_fichier(vu: &std::fs::Metadata, ouvert: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    (vu.dev(), vu.ino()) == (ouvert.dev(), ouvert.ino())
+}
+
+#[cfg(not(unix))]
+fn meme_fichier(_vu: &std::fs::Metadata, _ouvert: &std::fs::Metadata) -> bool {
+    true
+}
+
+/// L'ouverture du rapport que `vu` a pesé, et le jugement du fichier ouvert lui-même (`File::metadata`) : `File::open`
+/// suit les liens, et le chemin a pu changer depuis la pesée. Le fichier ouvert est un fichier ordinaire, de la taille
+/// bornée et, sous Unix, le même que celui de la pesée (`dev` et `ino`) ; sinon le refus 6038, qui dit que le fichier a
+/// changé entre la pesée et l'ouverture. Un fichier qu'on n'ouvre pas est le refus 6006.
+// raccourci : un tube nommé posé entre la pesée et l'ouverture bloque encore l'ouverture (l'extension coupe à 30 s) ;
+// monter avec `O_NOFOLLOW | O_NONBLOCK` quand Lydite aura une façon portable de les poser
+fn ouvrir_le_rapport(fichier: &Path, vu: &std::fs::Metadata) -> Result<std::fs::File, Refus> {
+    let ouvert = std::fs::File::open(fichier).map_err(|e| rapport_illisible(fichier, &e))?;
+    let (ouvert_vu, borne) = (ouvert.metadata().map_err(|e| rapport_illisible(fichier, &e))?, constats::OCTETS_MAXIMUM);
+    if !ouvert_vu.is_file() || ouvert_vu.len() > borne as u64 || !meme_fichier(vu, &ouvert_vu) {
+        let preuve = format!("the report {} changed between the weighing and the opening", fichier.display());
+        return Err(rapport_refuse(preuve));
+    }
+    Ok(ouvert)
+}
+
+/// Les octets du flux, [`constats::OCTETS_MAXIMUM`] au plus et un de plus pour voir qu'il dépasse : le lecteur refuse
+/// ce qui a grossi depuis la pesée, et un flux plus long ne se lit pas en entier.
+fn octets_bornes(flux: impl std::io::Read) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut octets = Vec::new();
+    flux.take(constats::OCTETS_MAXIMUM as u64 + 1).read_to_end(&mut octets)?;
+    Ok(octets)
+}
+
+/// Les octets du rapport : un fichier ordinaire, jamais un lien suivi, de [`constats::OCTETS_MAXIMUM`] octets au
+/// plus, pesé avant d'être ouvert, puis jugé une fois ouvert ([`ouvrir_le_rapport`]), et lu borné. Un fichier qu'on ne
+/// lit pas est le refus 6006 ; un lien, ce qui n'est pas un fichier ordinaire, un rapport trop gros et un fichier
+/// changé entre la pesée et l'ouverture sont le refus 6038.
+fn lire_rapport(fichier: &Path) -> Result<Vec<u8>, Refus> {
+    let vu = peser_le_rapport(fichier)?;
+    let ouvert = ouvrir_le_rapport(fichier, &vu)?;
+    octets_bornes(ouvert).map_err(|e| rapport_illisible(fichier, &e))
+}
+
+/// La liste d'un rapport lu, en un objet JSON sur une ligne, dans l'ordre du lecteur : les constats gardés (`id`,
+/// `kind`, `state`, `severity`, `title`, `where`) et ceux qu'il écarte (`ref`, `why`). `json::ecrire` n'écrit que des
+/// objets plats : chaque chaîne, un titre venu du rapport compris, passe par `json::chaine`.
+fn liste_des_constats(rapport: &Rapport) -> String {
+    let constats: Vec<String> = rapport
+        .constats
+        .iter()
+        .map(|constat| {
+            let lieux: Vec<String> = constat.lieux.iter().map(|lieu| json::chaine(lieu)).collect();
+            format!(
+                r#"{{"id":{},"kind":{},"state":{},"severity":{},"title":{},"where":[{}]}}"#,
+                json::chaine(&constat.id),
+                json::chaine(constat.sorte.nom()),
+                json::chaine(&constat.etat),
+                json::chaine(&constat.gravite),
+                json::chaine(&constat.titre),
+                lieux.join(",")
+            )
+        })
+        .collect();
+    let ecartes: Vec<String> = rapport
+        .ecartes
+        .iter()
+        .map(|ecarte| {
+            format!(r#"{{"ref":{},"why":{}}}"#, json::chaine(&ecarte.reference), json::chaine(&ecarte.pourquoi))
+        })
+        .collect();
+    format!(
+        r#"{{"scan":{},"findings":[{}],"set_aside":[{}]}}"#,
+        json::chaine(&rapport.scan),
+        constats.join(","),
+        ecartes.join(",")
+    )
+}
+
+/// Ce que `lydite findings` écrit sur stdout : la liste du rapport et sa fin de ligne, ou, avec l'identité d'un constat
+/// et la preuve, le texte de `constats::plan_de`, tel quel. Une identité mal formée, absente du rapport ou écartée est
+/// refusée en disant laquelle des trois.
+fn texte_des_constats(fichier: &Path, plan: Option<(&str, &str)>) -> Result<String, Refus> {
+    let rapport = constats::lire(&lire_rapport(fichier)?).map_err(rapport_refuse)?;
+    let Some((identite, preuve)) = plan else {
+        return Ok(liste_des_constats(&rapport) + "\n");
+    };
+    if !["hsf_", "cand_"].iter().any(|prefixe| constats::identite_de_forme(identite, prefixe)) {
+        let vu: String = identite.chars().take(80).collect();
+        return Err(rapport_refuse(format!(
+            "the finding id {vu:?} is not well-formed: it is `hsf_` or `cand_` and 24 lowercase hexadecimal digits"
+        )));
+    }
+    if let Some(constat) = rapport.constats.iter().find(|constat| constat.id == identite) {
+        return constats::plan_de(constat, &rapport.scan, preuve).map_err(rapport_refuse);
+    }
+    Err(rapport_refuse(match rapport.ecartes.iter().find(|ecarte| ecarte.reference == identite) {
+        Some(ecarte) => format!("the finding {identite} is set aside by the reader: {}", ecarte.pourquoi),
+        None => format!("the finding {identite} is not in the report"),
+    }))
+}
+
+/// `lydite findings <report> [--plan <id> --verify "<proof>"]` : lit le rapport comme le lecteur le lit et écrit sur
+/// stdout sa liste, ou le plan du constat demandé, et rien d'autre.
+fn constats_cmd(fichier: &Path, plan: Option<(&str, &str)>) -> Result<ExitCode, Refus> {
+    use std::io::Write;
+    let texte = texte_des_constats(fichier, plan)?;
+    let mut sortie = std::io::stdout().lock();
+    sortie.write_all(texte.as_bytes()).and_then(|()| sortie.flush())?;
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `lydite lecons <dossier>` : lit chaque `.agents/skills/*/SKILL.md` du dépôt de ce dossier, dans l'ordre des noms, et

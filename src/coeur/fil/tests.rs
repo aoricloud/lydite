@@ -3678,6 +3678,66 @@ fn une_issue_aux_champs_faux_est_mal_formee() {
 }
 
 #[test]
+fn le_rapport_d_une_vague_s_ecrit_se_relit_et_se_rejoue_sur_elle() {
+    let dir = dossier("rapport-aller-retour");
+    let fil = Fil::seance(&dir, "humain");
+    let (scan, constat) = ("scan_0123456789abcdef01234567", "cand_abcdef0123456789abcdef01");
+    let ouverte =
+        Evenement::Vague { vague: "v".into(), n: 1, depot: "/srv/depot".into(), verifier: None, objectif: "o".into() };
+    let rapport = Evenement::Rapport { vague: "v".into(), scan: scan.into(), constat: constat.into() };
+    for note in [&ouverte, &rapport] {
+        fil.noter(note).unwrap();
+    }
+    // Le corps, plat, dans l'ordre du contrat ; un type neuf ne change pas `v`.
+    let ecrit = fs::read_to_string(dir.join(FICHIER)).unwrap();
+    let corps = format!(r#""type":"vague.rapport","vague":"v","scan":"{scan}","constat":"{constat}"}}"#);
+    assert!(ecrit.lines().last().unwrap().contains(&corps), "{ecrit}");
+    assert!(ecrit.lines().all(|ligne| ligne.starts_with(r#"{"v":2,"#)), "{ecrit}");
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert!(ecarts.is_empty(), "{ecarts:?}");
+    let evenements: Vec<Evenement> = notes.into_iter().map(|note| note.evenement).collect();
+    assert_eq!(evenements, [ouverte, rapport]);
+    // Au rejeu, la vague garde le scan et le constat ; une vague sans note n'en a pas.
+    let vagues = etat(&evenements);
+    assert_eq!(vagues[0].rapport, Some((scan.to_string(), constat.to_string())));
+    assert_eq!(etat(&evenements[..1])[0].rapport, None);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn un_rapport_aux_champs_faux_est_mal_forme() {
+    const RAPPORT: &str = concat!(
+        r#""type":"vague.rapport","vague":"v","scan":"scan_0123456789abcdef01234567","#,
+        r#""constat":"hsf_010101010101010101010101""#
+    );
+    let cas = vec![
+        (RAPPORT.replace("scan_0123456789abcdef01234567", "scan_0123"), "« scan » vaut"),
+        (RAPPORT.replace("scan_0123456789abcdef01234567", "SCAN_0123456789abcdef01234567"), "« scan » vaut"),
+        (RAPPORT.replace("hsf_0101", "hsg_0101"), "« constat » vaut"),
+        (RAPPORT.replace("hsf_010101010101010101010101", "hsf_01010101010101010101010A"), "« constat » vaut"),
+        (RAPPORT.replace(r#""scan":"scan_0123456789abcdef01234567","#, ""), "« scan » manque"),
+        (RAPPORT.replace(r#","constat":"hsf_010101010101010101010101""#, ""), "« constat » manque"),
+        (format!(r#"{RAPPORT},"titre":"Bonjour""#), "champ en trop pour vague.rapport : « titre »"),
+    ];
+    let mut lignes = Vec::new();
+    for (i, (faux, _)) in cas.iter().enumerate() {
+        lignes.push(ligne_s(2 * i as u64 + 1, faux));
+        lignes.push(ligne_s(2 * i as u64 + 2, RAPPORT));
+    }
+    let dir = dossier("rapport-faux");
+    poser(&dir, &lignes.iter().map(String::as_str).collect::<Vec<_>>());
+    let Lecture { notes, ecarts } = lire(&dir).unwrap();
+    assert_eq!(codes(&ecarts), (0..cas.len()).map(|i| (2 * i + 1, 1009)).collect::<Vec<_>>(), "et aucun 1010");
+    for ((_, refus), (_, bout)) in ecarts.iter().zip(&cas) {
+        assert!(refus.preuve.contains(bout), "la preuve devait dire « {bout} » : {refus}");
+    }
+    // Les lignes justes se lisent, et elles seules.
+    assert_eq!(notes.len(), cas.len());
+    assert!(notes.iter().all(|note| matches!(&note.evenement, Evenement::Rapport { vague, .. } if vague == "v")));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn l_etat_d_une_vague_porte_son_issue() {
     let ouverture = |vague: &str| Evenement::Vague {
         vague: vague.into(),
