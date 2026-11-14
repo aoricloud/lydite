@@ -54,6 +54,8 @@ fn lancer_le_plan(racine: &Path, plan: &Path) -> Output {
 /// Claude : posés sur l'enfant seul, ils ne touchent pas le processus du test, et le vrai dossier personnel de l'humain
 /// n'est jamais lu. Le test ne retire jamais `LYDITE_CLAUDE` : sans elle, Kraken prendrait `claude` dans le PATH.
 fn commande_du_plan(racine: &Path, plan: &Path) -> Command {
+    // Le profil intégré ne part qu'accepté : ces essais ne portent pas sur son accord, que l'humain donne d'abord.
+    accepter_l_integre(racine, &racine.join("lydite"));
     let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
     commande
         .args(["lancer", "claude", "--plan"])
@@ -66,6 +68,15 @@ fn commande_du_plan(racine: &Path, plan: &Path) -> Command {
         .env("LYDITE_SRT", faux_srt(racine));
     avec_leurres(&mut commande, racine);
     commande
+}
+
+/// Le geste de l'humain : `lydite accept claude` sur le dossier de Kraken `dossier`, qui y écrit l'empreinte du profil
+/// intégré. Il sort en 0, ou l'essai s'arrête.
+fn accepter_l_integre(racine: &Path, dossier: &Path) {
+    let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
+    commande.args(["accept", "claude"]).current_dir(racine).env("LYDITE_DOSSIER", dossier);
+    let sortie = avec_leurres(&mut commande, racine).output().unwrap();
+    assert_eq!(sortie.status.code(), Some(0), "{}", String::from_utf8_lossy(&sortie.stderr));
 }
 
 /// Le faux srt des essais, `<racine>/faux-srt.sh` (`.cmd` sous Windows), que `LYDITE_SRT` nomme : le profil intégré
@@ -121,7 +132,8 @@ fn rien_n_est_parti(racine: &Path) {
     let restes: Vec<_> = fs::read_dir(racine.join("lydite"))
         .map(|entrees| entrees.map(|entree| entree.unwrap().file_name()).collect())
         .unwrap_or_default();
-    assert!(restes.is_empty() || restes == ["bacs"], "ni fil, ni bac : {restes:?}");
+    // `profils` est ce que l'accord du profil intégré y a posé, avant le lancement.
+    assert!(restes.iter().all(|reste| reste == "bacs" || reste == "profils"), "ni fil, ni bac : {restes:?}");
     let bacs = fs::read_dir(racine.join("lydite").join("bacs")).map_or(0, Iterator::count);
     assert_eq!(bacs, 0, "aucun bac ne reste");
     assert_eq!(git(&depot, &["branch", "--list", "lydite/*"]), "", "ni branche");
@@ -235,6 +247,7 @@ fn deux_lancements_sur_deux_dossiers_passent() {
     let premier = lancer_et_attendre_sa_preuve(&racine, &attend);
     // Le second prend un autre dossier pendant que le premier tient le sien : il va jusqu'au bout.
     let autre = racine.join("autre");
+    accepter_l_integre(&racine, &autre);
     let second = commande_du_plan(&racine, &rapide).env("LYDITE_DOSSIER", &autre).output().unwrap();
     let erreur = String::from_utf8_lossy(&second.stderr);
     assert_eq!(second.status.code(), Some(1), "la tâche, sans claude, est classée : {erreur}");

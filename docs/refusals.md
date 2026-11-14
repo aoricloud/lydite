@@ -25,9 +25,9 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 6008 | `lancer.profil_illisible` | A profile file is read as UTF-8 (BOM and carriage return tolerated); otherwise its refusal names its path. |
 | 6009 | `lancer.profil_ligne_refusee` | Each line of the profile is `key = value` for a known key, its value in its domain, each key once; no budget. |
 | 6010 | `lancer.profil_incomplet` | A profile says its kind. |
-| 6011 | `lancer.profil_non_accepte` | A profile in a file is launched only once its fingerprint is accepted. |
+| 6011 | `lancer.profil_non_accepte` | A profile, in a file or built in, is launched only once its fingerprint is accepted. |
 | 6012 | `lancer.profil_change` | The launched profile has the accepted fingerprint; a new fingerprint is accepted again by `lydite accept`. |
-| 6013 | `lancer.profil_sans_fichier` | Only a profile in a file is accepted; the built-in profile has no fingerprint to keep. |
+| 6013 | `lancer.profil_sans_fichier` | Retired: the built-in profile is accepted like a profile in a file (6011, 6012). |
 | 6014 | `lancer.preuve_vide` | `--verify`, if given, carries a command that is not blank. |
 | 6015 | `lancer.dossier_sous_le_depot` | Lydite's folder is outside the target repository. |
 | 6016 | `lancer.plan_version` | A plan starts with its version, `plan 1`, which Lydite reads before anything else. |
