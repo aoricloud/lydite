@@ -733,6 +733,71 @@ pub(crate) fn ecrire(dir: &Path, chemin: &str, contenu: &str) {
     fs::write(chemin, contenu).unwrap();
 }
 
+/// Pose `lien`, un lien symbolique vers `cible` (un dossier ou un fichier existant). Sous Windows, un lien ne se pose
+/// qu'avec le droit de le faire : sans lui, la fonction le dit sur stderr et rend `false`, et le test saute ce qui
+/// demande le lien. Toute autre erreur est une panique.
+pub(crate) fn lier(cible: &Path, lien: &Path) -> bool {
+    #[cfg(unix)]
+    let pose = std::os::unix::fs::symlink(cible, lien);
+    #[cfg(windows)]
+    let pose = if cible.is_dir() {
+        std::os::windows::fs::symlink_dir(cible, lien)
+    } else {
+        std::os::windows::fs::symlink_file(cible, lien)
+    };
+    match pose {
+        Ok(()) => true,
+        Err(e) if cfg!(windows) => {
+            eprintln!("lien symbolique non posé, faute du droit de le faire : {e}");
+            false
+        }
+        Err(e) => panic!("lien symbolique {} : {e}", lien.display()),
+    }
+}
+
+/// Les vingt-trois butées qu'un relecteur a laissées à la fin de sa session (Claude Code 2.1.317) : onze à la racine
+/// du bac, les onze noms de `TOUJOURS_REFUSES` sans dossier, et douze sous `.claude/`.
+pub(crate) const BUTEES_DU_RELECTEUR: [&str; 23] = [
+    ".bash_profile",
+    ".bashrc",
+    ".gitconfig",
+    ".gitmodules",
+    ".idea",
+    ".mcp.json",
+    ".profile",
+    ".ripgreprc",
+    ".vscode",
+    ".zprofile",
+    ".zshrc",
+    ".claude/agents",
+    ".claude/commands",
+    ".claude/hooks",
+    ".claude/launch.json",
+    ".claude/loop.md",
+    ".claude/output-styles",
+    ".claude/routines",
+    ".claude/scheduled_tasks.json",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".claude/skills",
+    ".claude/workflows",
+];
+
+#[test]
+fn les_onze_butees_de_la_racine_sont_les_noms_de_toujours_refuses_sans_dossier() {
+    use crate::coeur::natif::TOUJOURS_REFUSES;
+    let mut racine: Vec<&str> = BUTEES_DU_RELECTEUR.iter().copied().filter(|nom| !nom.contains('/')).collect();
+    let mut sans_dossier: Vec<&str> = TOUJOURS_REFUSES.iter().copied().filter(|nom| !nom.contains('/')).collect();
+    racine.sort_unstable();
+    sans_dossier.sort_unstable();
+    assert_eq!(racine.len(), 11, "{racine:?}");
+    assert_eq!(racine, sans_dossier);
+    // Le reste est sous `.claude/`, une entrée directe chacun.
+    let sous_claude = BUTEES_DU_RELECTEUR.iter().filter(|nom| nom.contains('/'));
+    assert!(sous_claude.clone().all(|nom| nom.matches('/').count() == 1 && nom.starts_with(".claude/")));
+    assert_eq!(sous_claude.count(), 12);
+}
+
 /// L'état que Claude Code tient lui-même dans un bac, à la racine et sous `sous/` : un sous-agent isolé, un worktree
 /// dans `.claude/worktrees` et un fichier dedans, puis un fichier à chaque autre nom de la liste à la racine, et sous
 /// chacun d'eux sous `sous/`.
