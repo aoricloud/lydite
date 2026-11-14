@@ -27,7 +27,10 @@
 //!   et un substitut seul (`\ud800`) sont refusés, comme un entier de plus de 4 300 chiffres, où que ce soit dans le
 //!   document (la limite des entiers du Python), par un refus qui dit qu'une valeur n'est pas lue (« holds a value that
 //!   Lydite does not read »), et non que le texte n'est pas du JSON ; ce refus, comme celui de la clé redite, ne cite
-//!   pas le rapport et ne conseille pas de l'exporter encore ;
+//!   pas le rapport. Le refus d'un entier trop long ne conseille pas de réexporter : il se lit après le document
+//!   entier, qui est du JSON. Celui de la clé redite, de `NaN`, d'`Infinity` et du substitut seul arrête
+//!   [`json::document`] à la première faute, et le texte peut en porter une autre après elle (une syntaxe fausse, s'il
+//!   est coupé ou modifié) : il le dit, et redonne le conseil de réexporter ;
 //! - un chemin se lit sans les points de fin de ses noms, comme Windows le lit et comme `plan.rs` le juge : `.git.`,
 //!   `.github.` (en tête) et `.Claude..` sont hors de portée, et un nom fait de points seuls (`...`) n'est pas un
 //!   chemin bien formé. C'est plus strict que le Python, qui ne tient `.git.` que pour un nom comme un autre ;
@@ -421,8 +424,9 @@ fn rang(constat: &Constat) -> (bool, usize, &str) {
 }
 
 /// Le refus d'un document qui est du JSON, mais où Lydite lit moins que le Python : un entier de plus de 4 300
-/// chiffres, `NaN`, `Infinity` ou un substitut seul. Sans citer le rapport, et sans le conseil de réexporter : une
-/// nouvelle exportation dirait la même chose.
+/// chiffres, `NaN`, `Infinity` ou un substitut seul. Sans citer le rapport. Tel quel, c'est le refus de l'entier trop
+/// long, qui se lit après le document entier : il est du JSON, et une nouvelle exportation dirait la même chose. `NaN`,
+/// `Infinity` et le substitut seul arrêtent [`json::document`] : leur refus passe par [`a_la_premiere_faute`].
 fn valeur_non_lue() -> String {
     format!(
         "The report holds a value that Lydite does not read (NaN, Infinity, a lone surrogate or a number of more \
@@ -431,8 +435,19 @@ fn valeur_non_lue() -> String {
 }
 
 /// Le refus d'une clé redite dans un objet, que Lydite ne lit pas (le Python prend la dernière). Sans citer le
-/// rapport, et sans le conseil de réexporter.
+/// rapport. [`json::document`] s'arrête à cette faute : voir [`a_la_premiere_faute`].
 const CLE_REDITE: &str = "The report repeats a key in an object, which Lydite does not read.";
+
+/// Le refus `vu` d'une faute que [`json::document`] a lue en premier, et qui s'y est arrêté : le texte peut porter une
+/// autre faute après elle, une syntaxe fausse s'il est coupé ou modifié. D'où la phrase qui le dit, et le conseil de
+/// réexporter, que seul un fichier entier et intact se passe de lire.
+fn a_la_premiere_faute(vu: &str) -> String {
+    format!("{vu} {PREMIERE_FAUTE} {CONSEIL}")
+}
+
+/// La phrase qui dit que Lydite s'arrête à la première faute qu'il lit.
+const PREMIERE_FAUTE: &str = "Lydite stops at the first fault it reads, so a file that was cut or changed may hold \
+                              another.";
 
 /// `NaN`, ou `Infinity` : ce que `json::document` refuse à la place d'une valeur, ou d'un chiffre après un `-`, et que
 /// le Python lit. `refus` est le texte de ce refus, `at character <rang>: expected …, saw …` ; le rang est celui d'un
@@ -463,9 +478,9 @@ fn refus_de_json(brut: &str, refus: &str) -> String {
     if refus.starts_with("more than ") {
         refus_du_rapport("The report is nested too deeply to be read.")
     } else if refus.starts_with("repeated key") {
-        CLE_REDITE.into()
+        a_la_premiere_faute(CLE_REDITE)
     } else if refus.starts_with("lone surrogate") || mot_non_lu(brut, refus) {
-        valeur_non_lue()
+        a_la_premiere_faute(&valeur_non_lue())
     } else {
         refus_du_rapport("The report is not JSON.")
     }

@@ -241,11 +241,17 @@ fn lire_plan(fichier: &Path, mode: plan::Mode<'_>) -> Result<(Plan, Vec<plan::At
 /// découpé ne juge ni l'en-tête ni la casse, que seul le rejeu juge.
 fn plan_cmd(fichier: &Path, decoupe: bool) -> Result<ExitCode, Refus> {
     let mode = if decoupe { plan::Mode::Decoupe(None) } else { plan::Mode::Main };
-    let (plan, attentes, ..) = lire_plan(fichier, mode)?;
+    let (plan, attentes, _, posees) = lire_plan(fichier, mode)?;
     // Permis, et voulu : un plan sans tâche critique n'est pas relu. L'auteur doit le savoir ; rien sur stdout, où le
     // plugin Hermes lit une dépendance par ligne, et rien pour le découpeur.
     if !decoupe && !plan.taches.iter().any(|tache| tache.critique) {
         eprintln!("No task is critical: nothing in this plan is reviewed.");
+    }
+    // Même règle : sur stderr, pas pour le découpeur, et rien pour un plan qui ne pose aucun fichier. Les fichiers sont
+    // déjà lus et leur empreinte vérifiée : `lire_plan` n'a rien rendu sinon.
+    if !decoupe && !posees.is_empty() {
+        let octets: usize = posees.iter().map(|posee| posee.octets.len()).sum();
+        eprintln!("Placed files checked: {} ({octets} bytes).", posees.len());
     }
     for attente in attentes {
         println!("{attente}");

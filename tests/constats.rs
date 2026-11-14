@@ -163,6 +163,57 @@ fn un_rapport_ou_un_plan_refuse_est_le_refus_6038_et_sort_en_2() {
     assert!(liste.contains(r#""set_aside":[{"ref":"hsf_c3c3c3c3c3c3c3c3c3c3c3c3","why":"rejected by the scanner"}]"#));
 }
 
+/// Un plan d'une tâche critique `a` qui pose ces fichiers : (chemin, empreinte). Critique, pour que la seule ligne de
+/// stderr soit celle des fichiers posés.
+fn plan_qui_pose(poses: &[(&str, &str)]) -> String {
+    let lignes: String =
+        poses.iter().map(|(fichier, empreinte)| format!("place : {fichier} : {empreinte}\n")).collect();
+    format!("plan 1\nobjectif : o\npreuve : p\n\ntache a\n{lignes}critique : oui\n    x\n")
+}
+
+/// SHA-256 de `abc`, et de rien : les deux valeurs connues, pour ne pas recalculer l'empreinte dans le test.
+const EMPREINTE_DE_ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+const EMPREINTE_DU_VIDE: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+#[test]
+fn lydite_plan_dit_sur_stderr_combien_de_fichiers_poses_il_a_verifies_et_stdout_ne_change_pas() {
+    let dossier = neuf("plan-pose");
+    let plan = dossier.join("plan.txt");
+    let fichiers = dossier.join("plan.txt.files");
+    fs::create_dir_all(&fichiers).unwrap();
+    fs::write(fichiers.join("a.txt"), b"abc").unwrap();
+    fs::write(fichiers.join("vide.txt"), b"").unwrap();
+    let poses = [("a.txt", EMPREINTE_DE_ABC), ("vide.txt", EMPREINTE_DU_VIDE)];
+    fs::write(&plan, plan_qui_pose(&poses)).unwrap();
+    let sortie = kraken(&dossier).arg("plan").arg(&plan).output().unwrap();
+    assert_eq!(sortie.status.code(), Some(0), "{}", texte_de(&sortie.stderr));
+    // Deux fichiers, trois octets ; rien sur stdout, que l'extension Hermes lit.
+    assert_eq!(texte_de(&sortie.stderr), "Placed files checked: 2 (3 bytes).\n");
+    assert_eq!(texte_de(&sortie.stdout), "");
+
+    // Un contenu qui n'a pas l'empreinte du plan est refusé (6036) : la ligne vient après la vérification, pas avant.
+    fs::write(fichiers.join("a.txt"), b"abd").unwrap();
+    let sortie = kraken(&dossier).arg("plan").arg(&plan).output().unwrap();
+    let erreur = texte_de(&sortie.stderr);
+    assert_eq!(sortie.status.code(), Some(2), "{erreur}");
+    assert!(erreur.contains("lydite : 6036"), "{erreur}");
+    assert!(!erreur.contains("Placed files checked"), "{erreur}");
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn lydite_plan_sur_un_plan_sans_place_n_ecrit_rien_de_plus() {
+    // La même commande que sur un plan qui pose des fichiers, où la ligne paraît (le test d'avant) : ici, sans `place`,
+    // ni la ligne, ni rien d'autre.
+    let dossier = neuf("plan-sans-pose");
+    let sans = dossier.join("sans.txt");
+    fs::write(&sans, plan_qui_pose(&[])).unwrap();
+    let sortie = kraken(&dossier).arg("plan").arg(&sans).output().unwrap();
+    assert_eq!(sortie.status.code(), Some(0), "{}", texte_de(&sortie.stderr));
+    assert_eq!((texte_de(&sortie.stderr), texte_de(&sortie.stdout)), (String::new(), String::new()));
+    let _ = fs::remove_dir_all(&dossier);
+}
+
 #[test]
 fn les_autres_refus_gardent_leur_code_et_rien_n_est_ecrit_ailleurs() {
     let dossier = neuf("autres");
