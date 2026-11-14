@@ -136,7 +136,10 @@ fn le_recu_compte_les_not_proved_d_une_vague_a_rapport_et_d_elle_seule() {
     let (vagues, notes) = (etat(&evenements), notes_de(&evenements));
     let avec = recu_de(&vagues, &notes, v);
     assert_eq!(avec.non_prouvees, 1, "seule la main qui dit `not proved:` compte");
-    assert_eq!(avec.ligne(), "Cost: unknown · 2 hands, 0 retries, 0 set aside, 2 impossible · 0 s · Not proved: 1");
+    assert_eq!(
+        avec.ligne(),
+        "Cost: unknown · 2 hands, 0 retries, 0 set aside, 2 impossible · 0 s · Not proved (declared): 1"
+    );
     // Sans `vague.rapport`, la ligne du reçu garde son texte d'aujourd'hui, à l'octet.
     let sans = recu_de(&vagues, &notes, w);
     assert_eq!(sans.non_prouvees, 0);
@@ -144,11 +147,25 @@ fn le_recu_compte_les_not_proved_d_une_vague_a_rapport_et_d_elle_seule() {
 }
 
 #[test]
+fn not_proved_se_reconnait_sans_egard_a_la_casse_et_suivi_de_deux_points() {
+    let v = "1761901500000_11_0";
+    let comptees = ["not proved: a", "Not proved: b", "NOT PROVED: c", "IMPOSSIBLE: Not Proved: d", "  nOt PrOvEd:e"];
+    let pas_comptees = ["not proved", "not proved - a", "not proved :", "NOT PROVEN: a", "not provéd: a", "é", "not"];
+    let raisons: Vec<&str> = comptees.iter().chain(&pas_comptees).copied().collect();
+    let evenements = vague_impossible(v, &raisons, true);
+    let (vagues, notes) = (etat(&evenements), notes_de(&evenements));
+    let recu = recu_de(&vagues, &notes, v);
+    assert_eq!(recu.impossibles, raisons.len());
+    assert_eq!(recu.non_prouvees, comptees.len(), "{raisons:?}");
+}
+
+#[test]
 fn le_recu_d_une_pr_dit_not_proved_pour_un_plan_a_report_et_rien_pour_un_autre() {
     let v = "1761901500000_11_0";
     let avec_report = "plan 1\nobjectif : Fix a finding\npreuve : cargo test\n\
                        report : scan_0123456789abcdef01234567 hsf_010101010101010101010101\n\n\
-                       tache a\nred : declared\n    Prove a\ntache b\nred : declared\n    Prove b\n";
+                       tache a\nred : declared\ncritique : oui\n    Prove a\n\
+                       tache b\nred : declared\ncritique : oui\n    Prove b\n";
     let plan = Plan::lire(avec_report.as_bytes()).unwrap();
     assert!(plan.rapport.is_some());
     let evenements = vague_impossible(v, &["not proved: a", "not proved: b"], true);
@@ -159,10 +176,25 @@ fn le_recu_d_une_pr_dit_not_proved_pour_un_plan_a_report_et_rien_pour_un_autre()
     let lignes = recu.lignes_de_pr(0);
     let [.., rouge, non_prouve] = &lignes[..] else { panic!("{lignes:?}") };
     assert!(rouge.starts_with("- Red first: 0 of 2 tasks"), "{rouge}");
-    assert_eq!(non_prouve, "- Not proved: 2 of 2 tasks");
+    assert_eq!(non_prouve, "- Not proved (declared): 2 of 2 tasks");
     let vague = vagues.iter().find(|vague| vague.id == v).unwrap();
     let texte = corps(&plan, vague, None, None, &recu, &[], &[]);
-    assert!(texte.contains("\n- Not proved: 2 of 2 tasks\n"), "{texte}");
+    assert!(texte.contains("\n- Not proved (declared): 2 of 2 tasks\n"), "{texte}");
+    // Un plan à `report` dont aucune main ne dit `not proved:` n'a pas la ligne : un compte nul ne s'écrit pas.
+    let evenements = vague_impossible(v, &["the claim is wrong", "nothing to say"], true);
+    let (vagues, notes) = (etat(&evenements), notes_de(&evenements));
+    let mut recu = recu_de(&vagues, &notes, v);
+    recu.selon_le_plan(&plan, &RougesTenus::default());
+    assert_eq!(recu.non_prouvees, 0);
+    assert!(recu.lignes_de_pr(0).iter().all(|ligne| !ligne.contains("Not proved")), "{:?}", recu.lignes_de_pr(0));
+    let vague = vagues.iter().find(|vague| vague.id == v).unwrap();
+    assert!(!corps(&plan, vague, None, None, &recu, &[], &[]).contains("Not proved"));
+    // Et un seul `not proved:` sur deux tâches s'écrit `1 of 2`.
+    let evenements = vague_impossible(v, &["not proved: a", "the claim is wrong"], true);
+    let (vagues, notes) = (etat(&evenements), notes_de(&evenements));
+    let mut recu = recu_de(&vagues, &notes, v);
+    recu.selon_le_plan(&plan, &RougesTenus::default());
+    assert_eq!(recu.lignes_de_pr(0).last().map(String::as_str), Some("- Not proved (declared): 1 of 2 tasks"));
     // Un plan sans `report` ne change pas d'un octet : ni ligne, ni mot, même si une main dit `not proved:`.
     let texte = "plan 1\nobjectif : Un test\npreuve : cargo test\n\ntache a\n    Ecrire a\n";
     let sans_report = Plan::lire(texte.as_bytes()).unwrap();

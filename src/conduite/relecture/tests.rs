@@ -1397,6 +1397,7 @@ fn sous_une_issue_un_diff_de_plus_de_1_mo_est_7016_sans_relecteur() {
     assert_eq!(refus.code, Code::RelectureManquee, "{refus}");
     let attendu = format!("its diff weighs {} bytes, more than 1 MB", TAILLE_MAX + 1);
     assert!(refus.preuve.contains(&attendu), "{refus}");
+    assert!(refus.preuve.ends_with("and a wave born from an issue or a report is not reviewed in part"), "{refus}");
     // Aucun relecteur n'est parti : ni sa main, ni son bac, ni sa vague au fil ; le refus y est noté.
     assert!(essai.garde("relecture-1").is_none(), "aucun relecteur n'est parti");
     assert!(essai.bacs().is_empty(), "{:?}", essai.bacs());
@@ -1512,6 +1513,7 @@ fn une_vague_a_report_note_vague_rapport_et_se_relit_comme_celle_d_une_issue_701
     let refus = refus_de_forge(&fil, v);
     assert_eq!(refus.iter().map(|(code, _)| *code).collect::<Vec<_>>(), [7016], "{refus:?}");
     assert!(refus[0].1.contains("more than 1 MB"), "{refus:?}");
+    assert!(refus[0].1.contains("a wave born from an issue or a report is not reviewed in part"), "{refus:?}");
     let _ = fs::remove_dir_all(&essai.racine);
 }
 

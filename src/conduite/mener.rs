@@ -199,7 +199,8 @@ pub(crate) fn mener_sur(
     // La base est connue : ce qu'elle garde à chaque chemin que le plan pose se juge avant tout bac et tout fil (6036).
     poses_posables(lieu.depot, base, liens.poses)?;
     // Un plan à `report` se mène sous l'origine d'une issue, quelle que soit celle qu'on donne : son texte vient d'un
-    // autre outil, et sa relecture lit le diff en entier ou pas du tout.
+    // autre outil. Sous `report`, la relecture lit le diff en entier ou pas du tout (`relire_issue`), et chaque tâche
+    // est critique (`Plan::lire` l'exige), donc relue : une vague née d'un rapport ne part jamais sans relecture.
     let origine = if plan.rapport.is_some() { Origine::Issue } else { origine };
     let bail = duree_du_bail(lieu.profil);
     let lancer_la_vague = |plan: &Plan, base: &str, liens: Liens<'_>| -> Result<Menee, Refus> {

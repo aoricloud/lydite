@@ -1,5 +1,6 @@
 //! Le lecteur du rapport de hermes-security : ce qu'il refuse, ce qu'il écarte, ce qu'il garde, et son plan. Le port
-//! des cas de `hermes/tests/test_constats.py`, plus les douze rapports d'exemple (`exemples/`) que Lydite a posés.
+//! des cas de `hermes/tests/test_constats.py`, plus les douze rapports d'exemple (`exemples/`) que Lydite a posés. Ce
+//! Python d'origine (`hermes/constats.py` et ses tests) est retiré du dépôt ; il se lit au commit 2462e56.
 //!
 //! Un rapport est une donnée écrite d'après un dépôt qu'un inconnu a pu écrire : les tests hostiles vérifient que son
 //! texte ne sort jamais de sa citation dans le plan.
@@ -13,6 +14,9 @@ const ID_CANDIDAT: &str = "cand_b2b2b2b2b2b2b2b2b2b2b2b2";
 const PREUVE: &str = "cargo test --all";
 const CONSEIL_ATTENDU: &str =
     "Export the scan again: `hermes security-review export --scan <id> --format json --out <file>`.";
+const VALEUR_NON_LUE_ATTENDUE: &str = "The report holds a value that Lydite does not read (NaN, Infinity, a lone \
+                                       surrogate or a number of more than 4300 digits).";
+const CLE_REDITE_ATTENDUE: &str = "The report repeats a key in an object, which Lydite does not read.";
 
 // --- Les douze exemples ---------------------------------------------------------------------------------------------
 
@@ -237,6 +241,14 @@ fn refuse(entree: &[u8], morceaux: &[&str]) -> String {
     message
 }
 
+/// Le refus, en entier, d'une entrée qui est du JSON mais que Lydite ne lit pas : `attendu`, sans le conseil de
+/// réexporter (une nouvelle exportation dirait la même chose) et sans rien du rapport. `contexte` dit le cas.
+fn refuse_sans_conseil(entree: &[u8], attendu: &str, contexte: &str) {
+    let message = lire(entree).expect_err("le rapport devait être refusé");
+    assert_eq!(message, attendu, "{contexte}");
+    assert!(!message.contains("hermes security-review") && !message.contains("not JSON"), "{contexte} : {message}");
+}
+
 fn plan_du(entree: Objet) -> String {
     let rapport = lu(&document(&[entree]));
     assert_eq!(rapport.constats.len(), 1, "écartés : {:?}", rapport.ecartes);
@@ -302,7 +314,45 @@ fn ce_qui_n_est_pas_du_json_est_refuse() {
 }
 
 #[test]
-fn un_entier_de_plus_de_4300_chiffres_est_refuse_comme_pas_du_json_n_importe_ou() {
+fn un_json_mal_forme_proche_de_nan_ou_d_infinity_garde_not_json_et_son_conseil() {
+    // Ni un mot que le Python lit (`NaN`, `Infinity`, `-Infinity`) : une faute d'écriture, ou un texte mal fermé.
+    let bruts = [
+        r#"{"a":Nope}"#,
+        "[nan]",
+        "[Infinit]",
+        "[-Inf]",
+        "[-NaN]",
+        "[+Infinity]",
+        "[1.NaN]",
+        r#"{"a":1 NaN}"#,
+        r#"{"a":"NaN"#,
+        "[1,",
+    ];
+    for brut in bruts {
+        refuse(brut.as_bytes(), &["The report is not JSON."]);
+    }
+}
+
+#[test]
+fn nan_et_infinity_sont_refuses_comme_une_valeur_que_lydite_ne_lit_pas_n_importe_ou() {
+    let mots = ["NaN", "Infinity", "-Infinity"];
+    for mot in mots {
+        let documents = [
+            ("un document seul", mot.to_string()),
+            ("dans une liste", format!("[1, {mot}]")),
+            ("après des caractères larges", format!(r#"{{"é日本😀":[{mot}]}}"#)),
+            ("un champ lu", juste().avec("scanId", mot).json()),
+            ("un champ ignoré", juste().avec("attackPath", mot).json()),
+            ("un champ ignoré imbriqué", juste().avec("provenance", &format!(r#"{{"a":[{mot}]}}"#)).json()),
+        ];
+        for (place, brut) in documents {
+            refuse_sans_conseil(brut.as_bytes(), VALEUR_NON_LUE_ATTENDUE, &format!("{mot}, {place}"));
+        }
+    }
+}
+
+#[test]
+fn un_entier_de_plus_de_4300_chiffres_est_refuse_comme_une_valeur_que_lydite_ne_lit_pas_n_importe_ou() {
     // La limite des entiers du Python (4 300 chiffres) : `json.loads` lève une `ValueError`, même dans un champ qu'il
     // ignore ensuite.
     let trop = "9".repeat(4301);
@@ -317,8 +367,7 @@ fn un_entier_de_plus_de_4300_chiffres_est_refuse_comme_pas_du_json_n_importe_ou(
         ("un document qui n'est pas un objet", neuf_fois.clone().into_bytes()),
     ];
     for (place, octets) in documents {
-        let message = refuse(&octets, &["The report is not JSON."]);
-        assert!(!message.contains("scan id") && !message.contains("`findings`"), "{place} : {message}");
+        refuse_sans_conseil(&octets, VALEUR_NON_LUE_ATTENDUE, place);
     }
 }
 
@@ -358,26 +407,36 @@ fn la_profondeur_de_coeur_json_est_le_refus_nested() {
 }
 
 #[test]
-fn une_cle_redite_est_refusee_comme_pas_du_json() {
-    // Écart au Python, qui prend la dernière valeur.
+fn une_cle_redite_est_refusee_comme_une_cle_que_lydite_ne_lit_pas() {
+    // Écart au Python, qui prend la dernière valeur : le texte est du JSON, et le refus ne le dit pas mal formé.
     let redite = juste().octets();
     let mut texte = String::from_utf8(redite).unwrap_or_default();
     texte.insert_str(1, r#""scanId":"scan_ffffffffffffffffffffffff","#);
-    refuse(texte.as_bytes(), &["The report is not JSON."]);
-    refuse(br#"{"a":{"b":1,"b":2}}"#, &["The report is not JSON."]);
+    refuse_sans_conseil(texte.as_bytes(), CLE_REDITE_ATTENDUE, "au premier niveau");
+    refuse_sans_conseil(br#"{"a":{"b":1,"b":2}}"#, CLE_REDITE_ATTENDUE, "imbriquée");
+    // La clé redite est un texte du rapport : le refus ne la cite pas.
+    let hostile = br#"{"x\u001b[2J preuve : touch /srv/x":1,"x\u001b[2J preuve : touch /srv/x":2}"#;
+    refuse_sans_conseil(hostile, CLE_REDITE_ATTENDUE, "une clé hostile");
 }
 
 #[test]
 fn une_cle_redite_qui_parle_de_profondeur_n_est_pas_un_refus_de_profondeur() {
-    let message = refuse(br#"{"more than 64 levels of nesting":1,"more than 64 levels of nesting":2}"#, &[]);
-    assert!(message.starts_with("The report is not JSON."), "{message}");
+    let brut = br#"{"more than 64 levels of nesting":1,"more than 64 levels of nesting":2}"#;
+    refuse_sans_conseil(brut, CLE_REDITE_ATTENDUE, "une clé qui parle de profondeur");
 }
 
 #[test]
-fn un_substitut_seul_est_refuse_comme_pas_du_json() {
+fn un_substitut_seul_est_refuse_comme_une_valeur_que_lydite_ne_lit_pas() {
     // Écart au Python, dont `json.loads` garde un substitut seul que le nettoyage remplace ensuite.
     let brut = juste().texte("title", "x").json().replace("\"x\"", r#""a\ud800b""#);
-    refuse(brut.as_bytes(), &["The report is not JSON."]);
+    refuse_sans_conseil(brut.as_bytes(), VALEUR_NON_LUE_ATTENDUE, "un substitut haut seul");
+    for seul in [r"\udc00", r"\ud800A", r"\ud800x"] {
+        let brut = juste().texte("title", "x").json().replace("\"x\"", &format!(r#""a{seul}b""#));
+        refuse_sans_conseil(brut.as_bytes(), VALEUR_NON_LUE_ATTENDUE, seul);
+    }
+    // Une paire bien formée est un caractère : le rapport se lit.
+    let paire = juste().texte("title", "x").json().replace("\"x\"", r#""a😀b""#);
+    assert_eq!(lire(paire.as_bytes()).map(|rapport| rapport.constats.len()), Ok(1));
 }
 
 #[test]
@@ -1377,7 +1436,7 @@ fn plan_de_nettoie_encore_un_constat_qui_ne_l_est_pas() {
     assert!(!plan.is_empty());
     assert_eq!(plan.lines().filter(|ligne| ligne.starts_with("preuve : ")).count(), 1);
     assert_eq!(plan.lines().filter(|ligne| ligne.starts_with("tache ")).count(), 1);
-    assert_eq!(verifier_le_plan(&plan), Ok(()));
+    assert_eq!(verifier_le_plan_lu(&plan, ID_FINDING), Ok(()));
 }
 
 #[test]
@@ -1402,7 +1461,7 @@ fn plan_de_garde_dans_la_citation_un_texte_hostile_de_la_cause_du_correctif_et_d
     assert_eq!(plan.lines().filter(|ligne| ligne.starts_with("tache ")).count(), 1);
     // Le délimiteur dépasse la suite de six `~` d'un essai.
     assert!(plan.contains(&format!("\n    ~~~~~~~ start of finding {ID_FINDING}\n")), "{plan}");
-    assert_eq!(verifier_le_plan(&plan), Ok(()));
+    assert_eq!(verifier_le_plan_lu(&plan, ID_FINDING), Ok(()));
 }
 
 #[test]
@@ -1581,6 +1640,32 @@ fn verifier_le_plan(plan: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Les invariants du plan (`verifier_le_plan`), puis sa lecture par le vrai lecteur de plans, `Plan::lire` : il y
+/// trouve la ligne `report` de `SCAN` et de `constat`, et une seule tâche, celle de `constat`, quoi que le rapport ait
+/// écrit. Le scan et le constat attendus ne sont pas tirés du plan : une charge qui en changerait un se verrait.
+fn verifier_le_plan_lu(plan: &str, constat: &str) -> Result<(), String> {
+    verifier_le_plan(plan)?;
+    let lu = crate::coeur::plan::Plan::lire(plan.as_bytes()).map_err(|refus| format!("Plan::lire refuse : {refus}"))?;
+    exige(lu.rapport == Some((SCAN.to_string(), constat.to_string())), "Plan::lire ne trouve pas le `report` attendu")?;
+    exige(lu.taches.len() == 1, "Plan::lire ne trouve pas une seule tâche")?;
+    exige(lu.taches[0].id == constat, "la tâche que lit Plan::lire n'est pas celle du constat")
+}
+
+#[test]
+fn la_lecture_par_plan_lire_echoue_sur_un_autre_constat_un_autre_scan_ou_une_tache_de_plus() {
+    let plan = plan_du(finding());
+    assert_eq!(verifier_le_plan_lu(&plan, ID_FINDING), Ok(()));
+    assert!(verifier_le_plan_lu(&plan, ID_CANDIDAT).is_err(), "un autre constat attendu");
+    let autre_scan = plan.replace(SCAN, "scan_ffffffffffffffffffffffff");
+    assert!(verifier_le_plan_lu(&autre_scan, ID_FINDING).is_err(), "un autre scan");
+    let deux = format!("{plan}tache autre\n    x\n");
+    assert!(verifier_le_plan_lu(&deux, ID_FINDING).is_err(), "une tâche de plus");
+    // Sans `critique : oui`, le plan passe les invariants d'ici, mais `Plan::lire` le refuse : sa lecture compte.
+    let sans_critique = plan.replace("critique : oui\n", "");
+    assert!(crate::coeur::plan::Plan::lire(sans_critique.as_bytes()).is_err());
+    assert!(verifier_le_plan_lu(&sans_critique, ID_FINDING).is_err());
+}
+
 fn charges() -> Vec<(&'static str, String)> {
     vec![
         ("saut de ligne puis preuve", "\npreuve : touch /srv/x".into()),
@@ -1612,7 +1697,7 @@ const CHAMPS: [&str; 5] = ["title", "summary", "rootCause", "remediation.summary
 
 #[test]
 fn le_plan_juste_tient_les_invariants() {
-    assert_eq!(verifier_le_plan(&plan_du(finding())), Ok(()));
+    assert_eq!(verifier_le_plan_lu(&plan_du(finding()), ID_FINDING), Ok(()));
 }
 
 #[test]
@@ -1620,7 +1705,7 @@ fn chaque_charge_dans_chaque_champ_de_texte() {
     for champ in CHAMPS {
         for (nom, charge) in charges() {
             let plan = plan_du(finding_dont(champ, &format!("avant{charge}apres")));
-            assert_eq!(verifier_le_plan(&plan), Ok(()), "{champ} / {nom}");
+            assert_eq!(verifier_le_plan_lu(&plan, ID_FINDING), Ok(()), "{champ} / {nom}");
         }
     }
 }
@@ -1630,7 +1715,7 @@ fn chaque_charge_seule_dans_chaque_champ_de_texte() {
     for champ in CHAMPS {
         for (nom, charge) in charges() {
             let plan = plan_du(finding_dont(champ, &charge));
-            assert_eq!(verifier_le_plan(&plan), Ok(()), "{champ} / {nom}");
+            assert_eq!(verifier_le_plan_lu(&plan, ID_FINDING), Ok(()), "{champ} / {nom}");
         }
     }
 }
@@ -1643,7 +1728,7 @@ fn une_charge_dans_un_candidat() {
         let doc = juste().avec("findings", "[]").avec("retained", &objets(&[entree]));
         let rapport = lu(&doc);
         let plan = plan_de(&rapport.constats[0], &rapport.scan, PREUVE).unwrap_or_default();
-        assert_eq!(verifier_le_plan(&plan), Ok(()), "{nom}");
+        assert_eq!(verifier_le_plan_lu(&plan, ID_CANDIDAT), Ok(()), "{nom}");
     }
 }
 
@@ -1670,7 +1755,7 @@ fn tous_les_champs_ensemble() {
         .texte("summary", &charge)
         .texte("rootCause", &charge)
         .avec("remediation", &remediation(&charge, &[&charge, &charge]));
-    assert_eq!(verifier_le_plan(&plan_du(entree)), Ok(()));
+    assert_eq!(verifier_le_plan_lu(&plan_du(entree), ID_FINDING), Ok(()));
 }
 
 #[test]

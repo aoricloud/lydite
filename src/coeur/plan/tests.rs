@@ -907,7 +907,7 @@ fn un_plan_a_report_et_a_place_est_refuse_en_6018_sur_la_ligne_place() {
     assert!(refus.preuve.starts_with(&debut), "la preuve devait citer la ligne 7 : {refus}");
     assert!(refus.preuve.contains("a plan born of a report never makes Lydite write a file"), "{refus}");
     // Sans la ligne `place`, le même plan se lit.
-    let juste = [&ENTETE[..], &[RAPPORT], &["tache a", "red : declared", "    x"]].concat();
+    let juste = [&ENTETE[..], &[RAPPORT], &["tache a", "red : declared", "critique : oui", "    x"]].concat();
     assert!(lire(&juste).is_ok());
 }
 
@@ -931,7 +931,17 @@ fn un_plan_a_report_se_lit_avec_son_scan_et_son_constat() {
     for constat in ["hsf_0a0a0a0a0a0a0a0a0a0a0a0a", "cand_b2b2b2b2b2b2b2b2b2b2b2b2"] {
         // Les blancs autour du `:` et du bout de la ligne ne comptent pas.
         for ligne in [format!("report : {scan} {constat}"), format!("report:   {scan} {constat}  ")] {
-            let suite = ["tache a", "red : declared", "    x", "tache b", "red : src/b.rs", "red : src/c.rs", "    y"];
+            let suite = [
+                "tache a",
+                "red : declared",
+                "critique : oui",
+                "    x",
+                "tache b",
+                "red : src/b.rs",
+                "red : src/c.rs",
+                "critique : oui",
+                "    y",
+            ];
             let plan = lire_avec_report(&ligne, &suite).unwrap();
             assert_eq!(plan.rapport, Some((scan.to_string(), constat.to_string())), "{ligne:?}");
         }
@@ -945,8 +955,8 @@ fn un_plan_a_report_se_lit_avec_son_scan_et_son_constat() {
 fn un_plan_a_report_sans_red_est_refuse_en_6018_sur_la_ligne_tache() {
     // Le rouge d'abord est exigé pour un rapport, de chaque tâche : aucune ligne `red` n'est fautive, la ligne `tache`
     // de la tâche qui n'en a pas l'est.
-    let suite = ["tache a", "red : declared", "    x", "tache b", "fichiers : src/", "    y"];
-    let refus = refus_cite(lire_avec_report(RAPPORT, &suite), Code::PlanLigne, 8, "tache b");
+    let suite = ["tache a", "red : declared", "critique : oui", "    x", "tache b", "fichiers : src/", "    y"];
+    let refus = refus_cite(lire_avec_report(RAPPORT, &suite), Code::PlanLigne, 9, "tache b");
     assert!(refus.preuve.contains("the task « b » has no `red` line"), "{refus}");
     // Une seule tâche, sans aucune ligne `red`.
     let sans_rouge = lire_avec_report(RAPPORT, &["tache a", "critique : oui", "    x"]);
@@ -954,8 +964,44 @@ fn un_plan_a_report_sans_red_est_refuse_en_6018_sur_la_ligne_tache() {
     assert!(refus.preuve.contains("the task « a » has no `red` line"), "{refus}");
     // Les mêmes tâches sans ligne `report` se lisent, et avec `red` sur chacune le plan à `report` aussi.
     assert!(lire_apres_entete(&suite).is_ok());
-    let rouges = ["tache a", "red : declared", "    x", "tache b", "red : src/b.rs", "    y"];
+    let rouges = [
+        "tache a",
+        "red : declared",
+        "critique : oui",
+        "    x",
+        "tache b",
+        "red : src/b.rs",
+        "critique : oui",
+        "    y",
+    ];
     assert!(lire_avec_report(RAPPORT, &rouges).is_ok());
+}
+
+#[test]
+fn un_plan_a_report_sans_critique_est_refuse_en_6018_sur_la_ligne_tache() {
+    // Sans relecture, une vague née d'un rapport ne se relit pas : chaque tâche est critique, et celle qui ne l'est pas
+    // est refusée sur sa ligne `tache`, aucune ligne `critique` n'étant fautive.
+    let suite = ["tache a", "red : declared", "critique : oui", "    x", "tache b", "red : src/b.rs", "    y"];
+    let refus = refus_cite(lire_avec_report(RAPPORT, &suite), Code::PlanLigne, 9, "tache b");
+    assert!(refus.preuve.contains("the task « b » has no `critique : oui` line"), "{refus}");
+    assert!(refus.correction.contains("`critique : oui`"), "{refus}");
+    // Une seule tâche, avec son `red`, mais sans `critique`.
+    let sans_critique = lire_avec_report(RAPPORT, &["tache a", "red : declared", "    x"]);
+    let refus = refus_cite(sans_critique, Code::PlanLigne, 5, "tache a");
+    assert!(refus.preuve.contains("the task « a » has no `critique : oui` line"), "{refus}");
+    // Le même plan sans ligne `report` se lit, et avec `critique : oui` sur chaque tâche celui à `report` aussi.
+    assert!(lire_apres_entete(&suite).is_ok());
+    let critiques = [
+        "tache a",
+        "red : declared",
+        "critique : oui",
+        "    x",
+        "tache b",
+        "red : src/b.rs",
+        "critique : oui",
+        "    y",
+    ];
+    assert!(lire_avec_report(RAPPORT, &critiques).is_ok());
 }
 
 #[test]
@@ -1029,7 +1075,7 @@ fn les_douze_plans_d_exemple_du_lecteur_se_lisent_avec_leur_rapport_et_leur_red(
 #[test]
 fn report_dans_un_plan_decoupe_est_refuse_en_6018_sur_sa_ligne() {
     // Même juste, et même avec le `red` : un plan écrit par une main n'a pas d'origine de rapport.
-    let suite = ["tache a", "fichiers : src/", "modele : haiku", "red : declared", "    x"];
+    let suite = ["tache a", "fichiers : src/", "modele : haiku", "red : declared", "critique : oui", "    x"];
     let plan = [&ENTETE[..], &[RAPPORT], &suite].concat();
     let refus = refuse_en(lire_en(&plan, Mode::Decoupe(None)));
     assert_eq!(refus.code, Code::PlanLigne, "{refus}");

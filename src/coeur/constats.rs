@@ -1,4 +1,5 @@
-//! Le lecteur du rapport de hermes-security, et le plan de Lydite qu'on en tire : le port de `hermes/constats.py`.
+//! Le lecteur du rapport de hermes-security, et le plan de Lydite qu'on en tire : le port de `hermes/constats.py`. Ce
+//! Python d'origine est retiré du dépôt ; il se lit au commit 2462e56 (`git show 2462e56:hermes/constats.py`).
 //!
 //! Un module pur : des octets en entrée, des valeurs et du texte en sortie ; il ne lit ni fichier ni réglage et ne
 //! lance rien. Il ne dépend que de la std et de [`json::document`].
@@ -18,12 +19,15 @@
 //!
 //! Écarts au Python, assumés :
 //!
-//! - une clé redite dans un objet est refusée (c'est la règle de [`json::document`]) ; le Python prend la dernière ;
+//! - une clé redite dans un objet est refusée (c'est la règle de [`json::document`]), en disant que Lydite ne la lit
+//!   pas, et non que le texte n'est pas du JSON ; le Python prend la dernière ;
 //! - la profondeur est celle de [`json`] (64 niveaux) : le refus « nested too deeply » ou « not JSON » peut différer de
 //!   celui du Python, et un rapport imbriqué de plus de 64 niveaux dans un champ que le Python ignore est refusé ici ;
 //! - [`json::document`] est aussi plus strict que `json.loads` sur ce que la RFC 8259 n'écrit pas : `NaN`, `Infinity`
-//!   et un substitut seul (`\ud800`) sont refusés (« not JSON ») ; un entier de plus de 4 300 chiffres, où que ce
-//!   soit dans le document, l'est aussi, comme par la limite des entiers du Python ;
+//!   et un substitut seul (`\ud800`) sont refusés, comme un entier de plus de 4 300 chiffres, où que ce soit dans le
+//!   document (la limite des entiers du Python), par un refus qui dit qu'une valeur n'est pas lue (« holds a value that
+//!   Lydite does not read »), et non que le texte n'est pas du JSON ; ce refus, comme celui de la clé redite, ne cite
+//!   pas le rapport et ne conseille pas de l'exporter encore ;
 //! - un chemin se lit sans les points de fin de ses noms, comme Windows le lit et comme `plan.rs` le juge : `.git.`,
 //!   `.github.` (en tête) et `.Claude..` sont hors de portée, et un nom fait de points seuls (`...`) n'est pas un
 //!   chemin bien formé. C'est plus strict que le Python, qui ne tient `.git.` que pour un nom comme un autre ;
@@ -416,6 +420,57 @@ fn rang(constat: &Constat) -> (bool, usize, &str) {
     (constat.sorte != Sorte::Finding, gravite, &constat.id)
 }
 
+/// Le refus d'un document qui est du JSON, mais où Lydite lit moins que le Python : un entier de plus de 4 300
+/// chiffres, `NaN`, `Infinity` ou un substitut seul. Sans citer le rapport, et sans le conseil de réexporter : une
+/// nouvelle exportation dirait la même chose.
+fn valeur_non_lue() -> String {
+    format!(
+        "The report holds a value that Lydite does not read (NaN, Infinity, a lone surrogate or a number of more \
+         than {CHIFFRES_MAXIMUM} digits)."
+    )
+}
+
+/// Le refus d'une clé redite dans un objet, que Lydite ne lit pas (le Python prend la dernière). Sans citer le
+/// rapport, et sans le conseil de réexporter.
+const CLE_REDITE: &str = "The report repeats a key in an object, which Lydite does not read.";
+
+/// `NaN`, ou `Infinity` : ce que `json::document` refuse à la place d'une valeur, ou d'un chiffre après un `-`, et que
+/// le Python lit. `refus` est le texte de ce refus, `at character <rang>: expected …, saw …` ; le rang est celui d'un
+/// caractère de `brut`.
+fn mot_non_lu(brut: &str, refus: &str) -> bool {
+    let Some((rang, attendu)) = refus.strip_prefix("at character ").and_then(|reste| reste.split_once(": expected "))
+    else {
+        return false;
+    };
+    let Some(debut) = rang.parse::<usize>().ok().and_then(|rang| rang.checked_sub(1)) else {
+        return false;
+    };
+    let Some((octet, _)) = brut.char_indices().nth(debut) else {
+        return false;
+    };
+    let reste = &brut[octet..];
+    if attendu.starts_with("a value, saw ") {
+        return reste.starts_with("NaN") || reste.starts_with("Infinity");
+    }
+    attendu.starts_with("a digit, saw ") && brut[..octet].ends_with('-') && reste.starts_with("Infinity")
+}
+
+/// Le refus d'un texte que `json::document` n'a pas lu, selon ce qu'il en dit (`refus`) : la profondeur, une clé
+/// redite, une valeur que Lydite ne lit pas (`NaN`, `Infinity`, un substitut seul), ou, sinon, un JSON mal formé. Le
+/// refus de profondeur commence par `more than `, celui d'une clé redite par `repeated key` (il peut citer un texte du
+/// rapport, qu'on ne reprend pas) et celui d'un substitut seul par `lone surrogate`.
+fn refus_de_json(brut: &str, refus: &str) -> String {
+    if refus.starts_with("more than ") {
+        refus_du_rapport("The report is nested too deeply to be read.")
+    } else if refus.starts_with("repeated key") {
+        CLE_REDITE.into()
+    } else if refus.starts_with("lone surrogate") || mot_non_lu(brut, refus) {
+        valeur_non_lue()
+    } else {
+        refus_du_rapport("The report is not JSON.")
+    }
+}
+
 // raccourci : la borne des 200 entrées se juge après la lecture de tout l'arbre JSON ; un rapport de 4 Mio fait de
 // petits objets peut coûter quelques centaines de Mo avant son refus ; monter (compter les entrées pendant la lecture)
 // si un rapport réel s'en approche
@@ -431,16 +486,11 @@ pub(crate) fn lire(octets: &[u8]) -> Result<Rapport, String> {
     let brut = brut.strip_prefix('\u{feff}').unwrap_or(brut);
     let document = match json::document(brut) {
         Ok(document) => document,
-        // Le refus de profondeur de `coeur::json` commence ainsi ; celui d'une clé redite, qui peut citer un texte du
-        // rapport, commence par `repeated key`.
-        Err(refus) if refus.starts_with("more than ") => {
-            return Err(refus_du_rapport("The report is nested too deeply to be read."));
-        }
-        Err(_) => return Err(refus_du_rapport("The report is not JSON.")),
+        Err(refus) => return Err(refus_de_json(brut, &refus)),
     };
     // Comme le Python, dont `json.loads` lève une `ValueError` : avant de regarder ce que le document est.
     if porte_un_entier_trop_long(&document) {
-        return Err(refus_du_rapport("The report is not JSON."));
+        return Err(valeur_non_lue());
     }
     let Json::Objet(membres) = document else {
         return Err(refus_du_rapport("The report is not a JSON object."));
