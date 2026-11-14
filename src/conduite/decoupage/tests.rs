@@ -828,6 +828,50 @@ fn retirer_le_bac_n_efface_rien_hors_du_bac_quand_claude_est_un_lien() {
 }
 
 #[test]
+fn retirer_le_bac_n_efface_rien_hors_du_bac_quand_un_dossier_protege_est_un_lien() {
+    // `.agents` et `config` sont des liens vers un dossier hors du bac, qui porte `skills` et `secret.env` vides en
+    // lecture seule : suivis au départ dans le dépôt visé, ou non suivis et ignorés. Les chemins protégés du profil
+    // les nomment : rien n'est lu ni effacé hors du bac.
+    let proteges: Vec<String> = [".agents/skills/", "config/secret.env"].iter().map(|c| c.to_string()).collect();
+    for (nom, suivi) in [("suivi", true), ("ignore", false)] {
+        let essai = Essai::nouveau(&format!("retrait-agents-lien-{nom}"));
+        let cible = essai.racine.join("cible");
+        poser_une_butee(&cible, "skills");
+        poser_une_butee(&cible, "secret.env");
+        if suivi {
+            if !(lier(&cible, &essai.depot.join(".agents")) && lier(&cible, &essai.depot.join("config"))) {
+                continue;
+            }
+            commiter(&essai.depot, &[]);
+        } else {
+            commiter(&essai.depot, &[(".gitignore", ".agents\nconfig\n")]);
+        }
+        let (bac, base) = bac_neuf(&essai, "relecteur");
+        if !suivi && !(lier(&cible, &bac.join(".agents")) && lier(&cible, &bac.join("config"))) {
+            continue;
+        }
+        // Git peut ne pas rendre le lien sous Windows : sans lui, rien à éprouver.
+        let est_un_lien = |chemin: &str| fs::symlink_metadata(bac.join(chemin)).unwrap().file_type().is_symlink();
+        if !(est_un_lien(".agents") && est_un_lien("config")) {
+            if cfg!(unix) {
+                panic!("{nom} : .agents et config ne sont pas des liens dans le bac");
+            }
+            continue;
+        }
+        ecrire(&bac, "REMARQUES.lydite", "remarques 2\n");
+        assert_eq!(butees_du_bac(&bac, &base, &proteges), Vec::<String>::new(), "{nom}");
+        let ecrits = ["REMARQUES.lydite"];
+        retirer_le_bac(&essai.depot, &essai.kraken, "the reviewer's sandbox", "relecteur", &base, &ecrits, &proteges);
+        assert!(!bac.join("REMARQUES.lydite").exists(), "{nom} : le fichier de Kraken s'efface");
+        for fichier in ["skills", "secret.env"] {
+            let meta = fs::symlink_metadata(cible.join(fichier)).unwrap_or_else(|e| panic!("{nom} {fichier} : {e}"));
+            assert!(meta.is_file() && meta.len() == 0 && meta.permissions().readonly(), "{nom} {fichier} : {meta:?}");
+        }
+        let _ = fs::remove_dir_all(&essai.racine);
+    }
+}
+
+#[test]
 fn retirer_le_bac_n_efface_pas_un_fichier_vide_suivi_sous_claude_meme_en_lecture_seule() {
     let essai = Essai::nouveau("retrait-claude-suivi");
     commiter(&essai.depot, &[(".claude/loop.md", "")]);

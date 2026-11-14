@@ -184,8 +184,18 @@ fn est_une_butee(bac: &Path, nom: &str) -> bool {
     est_un_fichier_vide_en_lecture_seule(bac, nom)
 }
 
-/// Le chemin `nom` du bac est un fichier ordinaire (ni lien ni dossier), vide, et sans droit d'écriture.
+/// Le chemin `nom` du bac est un fichier ordinaire (ni lien ni dossier), vide, et sans droit d'écriture, et chacun de
+/// ses dossiers ancêtres dans le bac est un vrai dossier, ni un lien ni une jonction : `symlink_metadata` suit tout
+/// composant intermédiaire, et un fichier derrière un lien vers un dossier hors du bac n'est pas du bac.
 fn est_un_fichier_vide_en_lecture_seule(bac: &Path, nom: &str) -> bool {
+    let mut ancetre = bac.to_path_buf();
+    let mut noms = nom.split('/').filter(|morceau| !morceau.is_empty()).peekable();
+    while let Some(morceau) = noms.next() {
+        ancetre.push(morceau);
+        if noms.peek().is_some() && !fs::symlink_metadata(&ancetre).is_ok_and(|meta| meta.file_type().is_dir()) {
+            return false;
+        }
+    }
     fs::symlink_metadata(bac.join(nom))
         .is_ok_and(|meta| meta.file_type().is_file() && meta.len() == 0 && meta.permissions().readonly())
 }

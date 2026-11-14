@@ -435,6 +435,53 @@ fn butees_du_bac_ne_lit_pas_un_claude_qui_est_un_lien() {
 }
 
 #[test]
+fn butees_du_bac_ne_rend_pas_un_chemin_protege_derriere_un_dossier_qui_est_un_lien() {
+    // `.agents` est un lien vers un dossier hors du bac, qui porte un `skills` vide en lecture seule : suivi au départ
+    // dans le dépôt visé, ou non suivi et ignoré par un motif `.agents`. Aucune butée n'est rendue : la cible n'est pas
+    // dans le bac. Même chose pour `config/secret.env`, un chemin protégé du profil à deux noms.
+    let proteges: Vec<String> = [".agents/skills/", "config/secret.env"].iter().map(|c| c.to_string()).collect();
+    for (nom, suivi) in [("suivi", true), ("ignore", false)] {
+        let (depot, kraken) = (depot(&format!("agents-lien-{nom}")), neuf(&format!("agents-lien-{nom}-lydite")));
+        let cible = neuf(&format!("agents-lien-{nom}-cible"));
+        butee(&cible, "skills");
+        butee(&cible, "secret.env");
+        if suivi {
+            if lier(&cible, &depot.join(".agents")) && lier(&cible, &depot.join("config")) {
+                commit(&depot);
+            }
+        } else {
+            ecrire(&depot, ".gitignore", ".agents\nconfig\n");
+            commit(&depot);
+        }
+        let (bac, depart) = pose(&depot, &kraken);
+        if !suivi {
+            lier(&cible, &bac.join(".agents"));
+            lier(&cible, &bac.join("config"));
+        }
+        let est_un_lien =
+            |chemin: &str| fs::symlink_metadata(bac.join(chemin)).is_ok_and(|meta| meta.file_type().is_symlink());
+        // Git peut ne pas rendre le lien sous Windows : sans lui, rien à éprouver.
+        if est_un_lien(".agents") && est_un_lien("config") {
+            assert_eq!(butees_protegees(&bac, &depart, &proteges), Vec::<String>::new(), "{nom}");
+            assert_eq!(butees_du_bac(&bac, &depart, &proteges), Vec::<String>::new(), "{nom}");
+            // Le contrôle : sans les liens, les mêmes fichiers dans le bac sont des butées.
+            for lien in [".agents", "config"] {
+                fs::remove_file(bac.join(lien)).or_else(|_| fs::remove_dir(bac.join(lien))).unwrap();
+            }
+            butee(&bac, ".agents/skills");
+            butee(&bac, "config/secret.env");
+            let attendues = [".agents/skills", "config/secret.env"];
+            assert_eq!(butees_protegees(&bac, &depart, &proteges), attendues, "{nom}");
+        } else if cfg!(unix) {
+            panic!("{nom} : .agents et config ne sont pas des liens dans le bac");
+        }
+        let _ = fs::remove_dir_all(&cible);
+        let _ = fs::remove_dir_all(&depot);
+        let _ = fs::remove_dir_all(&kraken);
+    }
+}
+
+#[test]
 fn un_fichier_vide_suivi_sous_claude_n_est_pas_une_butee_meme_en_lecture_seule() {
     let (depot, kraken) = (depot("claude-suivi"), neuf("claude-suivi-lydite"));
     ecrire(&depot, ".claude/loop.md", "");
