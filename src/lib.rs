@@ -14,6 +14,7 @@ mod branchements {
 
 mod coeur {
     pub(crate) mod bail;
+    pub(crate) mod constats;
     pub(crate) mod empreinte;
     pub(crate) mod erreur;
     pub(crate) mod fil;
