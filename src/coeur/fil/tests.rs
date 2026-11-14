@@ -2746,8 +2746,8 @@ fn main_rouge_aux_champs_faux_est_mal_forme() {
     };
     let juste = rouge(SHA, &format!("src/a b.rs {h}"));
     let hors_domaine = "hors de son domaine : 40 hexadécimaux minuscules";
-    let element = "« fichiers » a un élément qui n'est pas « <fichier> <empreinte> » (un fichier non vide, puis 64 \
-                   hexadécimaux minuscules)";
+    let element = "`fichiers` has an element that is not `<file> <sha256>` (a non-empty file, then 64 lowercase \
+                   hexadecimal digits)";
     let (h63, h65) = (&h[..63], format!("{h}0"));
     let majuscule = h.to_uppercase();
     let non_hexa = h.replacen('a', "g", 1);
@@ -2758,15 +2758,15 @@ fn main_rouge_aux_champs_faux_est_mal_forme() {
         (rouge(&format!("{SHA}0"), ""), hors_domaine.to_string()),
         (rouge(&SHA.replacen('9', "g", 1), ""), hors_domaine.to_string()),
         (juste.replace(&format!(r#","base":"{SHA}""#), ""), "« base » manque".to_string()),
-        (rouge(SHA, "src/a.rs"), format!("{element} : \"src/a.rs\"")),
-        (rouge(SHA, &format!("src/a.rs {h63}")), format!("{element} : \"src/a.rs {h63}\"")),
+        (rouge(SHA, "src/a.rs"), format!("{element}: \"src/a.rs\"")),
+        (rouge(SHA, &format!("src/a.rs {h63}")), format!("{element}: \"src/a.rs {h63}\"")),
         (rouge(SHA, &format!("src/a.rs {h65}")), element.to_string()),
-        (rouge(SHA, &format!("src/a.rs {majuscule}")), format!("{element} : \"src/a.rs {majuscule}\"")),
+        (rouge(SHA, &format!("src/a.rs {majuscule}")), format!("{element}: \"src/a.rs {majuscule}\"")),
         (rouge(SHA, &format!("src/a.rs {non_hexa}")), element.to_string()),
         (rouge(SHA, &format!(" {h}")), element.to_string()),
-        (rouge(SHA, &format!("src/a.rs {h}\\nb.rs")), format!("{element} : \"b.rs\"")),
+        (rouge(SHA, &format!("src/a.rs {h}\\nb.rs")), format!("{element}: \"b.rs\"")),
         // Un caractère de contrôle de l'élément fautif s'écrit : la preuve ne le porte pas tel quel.
-        (rouge(SHA, &format!("a\\tb\\u0001 {h63}")), format!("{element} : \"a\\tb\\u{{1}} {h63}\"")),
+        (rouge(SHA, &format!("a\\tb\\u0001 {h63}")), format!("{element}: \"a\\tb\\u{{1}} {h63}\"")),
         (
             rouge(SHA, &format!("src/a.rs {h}\\n\\nb.rs {h}")),
             "« fichiers » est une liste d'un élément par ligne, sans élément vide".to_string(),

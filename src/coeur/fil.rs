@@ -244,9 +244,8 @@
 //!   de la CI). Noté à l'ouverture, après les autres notes d'ouverture et avant tout départ de main. Une note de
 //!   Kraken, sans `foi`. Type neuf, il ne change pas `v`.
 //! - `vague.fin {vague, code}` : le lancement sort, et `vague` est la dernière vague qu'il a ouverte. `code` est le
-//!   code de sortie qu'il rend, un entier de 0 à 255. Noté une fois,
-//!   par une séance à lui, celle du processus qui sort, après le sceau de fin. Une note de Kraken, sans `foi`. Type
-//!   neuf, il ne change pas `v`.
+//!   code de sortie qu'il rend, un entier de 0 à 255. Noté une fois, par une séance à lui, celle du processus qui sort,
+//!   après le sceau de fin. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`.
 //!   Règle de lecture de ces deux lignes : un seul lancement tient le dossier à la fois, donc la dernière vague du fil
 //!   est la dernière qu'a ouverte le dernier lancement ; si elle porte un `vague.lancement` et aucun `vague.fin`, ce
 //!   lancement n'est pas sorti. Un fil d'avant, sans ces lignes, se lit comme avant.
@@ -1299,8 +1298,8 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
                 });
                 if !valide {
                     return Err(format!(
-                        "« fichiers » a un élément qui n'est pas « <fichier> <empreinte> » (un fichier non vide, \
-                         puis 64 hexadécimaux minuscules) : {element:?}"
+                        "`fichiers` has an element that is not `<file> <sha256>` (a non-empty file, then 64 \
+                         lowercase hexadecimal digits): {element:?}"
                     ));
                 }
             }
