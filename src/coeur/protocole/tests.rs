@@ -795,7 +795,7 @@ const RELEVE_2_1_317: &str = concat!(
 );
 
 #[test]
-fn le_releve_d_une_vraie_main_ne_donne_qu_l_ecart_de_l_allow_write_de_l_humain() {
+fn le_releve_d_une_vraie_main_ne_donne_que_l_ecart_de_l_allow_write_de_l_humain() {
     // Son `--settings` déclaré : les réglages de la source `flagSettings` du relevé, pris dans le relevé même.
     let (_, fin) = RELEVE_2_1_317.split_once(r#"{"source":"flagSettings","settings":"#).unwrap();
     // Après les réglages, la source se ferme (`}`), puis la liste des sources (`]`).

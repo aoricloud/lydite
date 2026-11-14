@@ -90,13 +90,8 @@ pub(crate) const VARIABLES_DE_DEPOT: [&str; 10] = [
 /// `GIT_LITERAL_PATHSPECS=1` dans l'environnement de Kraken, git les lirait mot pour mot, ne trouverait rien, et ces
 /// deux refus se tairaient. Elles ne nomment pas de dépôt : elles ne vont pas dans `VARIABLES_DE_DEPOT`, que
 /// `retire_de_l_env` (processus.rs) retire aussi pour la main.
-#[rustfmt::skip]
-pub(crate) const VARIABLES_DE_PATHSPEC: [&str; 4] = [
-    "GIT_LITERAL_PATHSPECS",
-    "GIT_GLOB_PATHSPECS",
-    "GIT_NOGLOB_PATHSPECS",
-    "GIT_ICASE_PATHSPECS",
-];
+pub(crate) const VARIABLES_DE_PATHSPEC: [&str; 4] =
+    ["GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"];
 
 /// Un geste git de Kraken dans `dir`, le dépôt visé ou un de ses worktrees : la seule façon dont Kraken y lance git
 /// (ses racines, le bac, `sans_claude`, l'assemblage, la branche de la vague). Chaque commande porte les `REGLAGES` et

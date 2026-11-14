@@ -86,6 +86,8 @@ class Api:
 
 def controler(api, numero):
     """Le verdict du contrôle pour une PR : (passe, message)."""
+    # raccourci : le contrôle croit le corps de la PR, écrit par le jeton de publication, et non une relecture
+    # attestée ; monter avec une relecture attestée (hsf_abda9e93)
     pr = api.pr(numero)
     tete = pr["tete"]
     if not pr["branche"].startswith(PREFIXE):

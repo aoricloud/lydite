@@ -112,8 +112,9 @@ pub(crate) const MODE_DES_EDITIONS: &str = "acceptEdits";
 /// Le début de l'erreur d'une main tuée sur un écart, avant sa consigne ou à son ouverture.
 const NON_PRIS: &str = "hand: settings not applied: ";
 
-/// Le fichier de réglages de la source `userSettings`, tel que l'humain le lit dans l'écart d'une règle ou d'un dossier
-/// qu'il y a écrit : `~/.claude/settings.json`, ou le `settings.json` du dossier que nomme `CLAUDE_CONFIG_DIR`.
+/// Le fichier de réglages de la source `userSettings`, tel que l'humain le lit dans l'écart d'une règle, d'un dossier,
+/// d'une entrée de liste ouvrante ou d'une feuille du bac qu'il y a écrit : `~/.claude/settings.json`, ou le
+/// `settings.json` du dossier que nomme `CLAUDE_CONFIG_DIR`.
 const FICHIER_UTILISATEUR: &str =
     "~/.claude/settings.json (or the settings.json in the folder CLAUDE_CONFIG_DIR names)";
 
