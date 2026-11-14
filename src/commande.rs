@@ -273,19 +273,20 @@ fn rapport_refuse(preuve: impl Into<String>) -> Refus {
     Refus::new(Code::RapportRefuse, preuve, correction)
 }
 
-/// Les octets du rapport : un fichier ordinaire, jamais un lien suivi, de [`constats::OCTETS_MAXIMUM`] octets au
-/// plus, pesé avant d'être lu. Un fichier qu'on ne lit pas est le refus 6006 ; un lien, ce qui n'est pas un fichier
-/// ordinaire, et un rapport trop gros sont le refus 6038.
-fn lire_rapport(fichier: &Path) -> Result<Vec<u8>, Refus> {
-    use std::io::Read;
-    let illisible = |e: std::io::Error| {
-        let preuve = format!("reading the report {}: {e}", fichier.display());
-        let correction = "Give lydite findings the path of a file that Lydite can read (a relative path starts from \
-                          the current folder), then run again.";
-        Refus::new(Code::EntreeSortie, preuve, correction)
-    };
+/// Le refus 6006 d'un rapport qu'on ne lit pas.
+fn rapport_illisible(fichier: &Path, e: &std::io::Error) -> Refus {
+    let preuve = format!("reading the report {}: {e}", fichier.display());
+    let correction = "Give lydite findings the path of a file that Lydite can read (a relative path starts from the \
+                      current folder), then run again.";
+    Refus::new(Code::EntreeSortie, preuve, correction)
+}
+
+/// La pesée du rapport, sans suivre de lien : un fichier ordinaire de [`constats::OCTETS_MAXIMUM`] octets au plus.
+/// Rend ce qu'elle a vu, que [`ouvrir_le_rapport`] compare au fichier qu'il ouvre. Un fichier qu'on ne pèse pas est le
+/// refus 6006 ; un lien, ce qui n'est pas un fichier ordinaire, et un rapport trop gros sont le refus 6038.
+fn peser_le_rapport(fichier: &Path) -> Result<std::fs::Metadata, Refus> {
     let ici = fichier.display();
-    let vu = std::fs::symlink_metadata(fichier).map_err(illisible)?;
+    let vu = std::fs::symlink_metadata(fichier).map_err(|e| rapport_illisible(fichier, &e))?;
     if vu.file_type().is_symlink() {
         return Err(rapport_refuse(format!("the report {ici} is a symbolic link, which is not followed")));
     }
@@ -295,11 +296,56 @@ fn lire_rapport(fichier: &Path) -> Result<Vec<u8>, Refus> {
     if vu.len() > constats::OCTETS_MAXIMUM as u64 {
         return Err(rapport_refuse(constats::rapport_trop_gros()));
     }
-    // Lu borné, un octet de plus pour voir qu'il dépasse : le lecteur refuse ce qui a grossi depuis la pesée.
+    Ok(vu)
+}
+
+/// Le fichier ouvert est-il celui que la pesée a vu ? Sous Unix, le même `dev` et le même `ino`.
+// raccourci : hors d'Unix, la pesée et le fichier ouvert ne se comparent que par leur forme et leur taille (l'index de
+// fichier de Windows n'est pas stable dans la std) ; monter avec lui quand il le sera
+#[cfg(unix)]
+fn meme_fichier(vu: &std::fs::Metadata, ouvert: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    (vu.dev(), vu.ino()) == (ouvert.dev(), ouvert.ino())
+}
+
+#[cfg(not(unix))]
+fn meme_fichier(_vu: &std::fs::Metadata, _ouvert: &std::fs::Metadata) -> bool {
+    true
+}
+
+/// L'ouverture du rapport que `vu` a pesé, et le jugement du fichier ouvert lui-même (`File::metadata`) : `File::open`
+/// suit les liens, et le chemin a pu changer depuis la pesée. Le fichier ouvert est un fichier ordinaire, de la taille
+/// bornée et, sous Unix, le même que celui de la pesée (`dev` et `ino`) ; sinon le refus 6038, qui dit que le fichier a
+/// changé entre la pesée et l'ouverture. Un fichier qu'on n'ouvre pas est le refus 6006.
+// raccourci : un tube nommé posé entre la pesée et l'ouverture bloque encore l'ouverture (l'extension coupe à 30 s) ;
+// monter avec `O_NOFOLLOW | O_NONBLOCK` quand Lydite aura une façon portable de les poser
+fn ouvrir_le_rapport(fichier: &Path, vu: &std::fs::Metadata) -> Result<std::fs::File, Refus> {
+    let ouvert = std::fs::File::open(fichier).map_err(|e| rapport_illisible(fichier, &e))?;
+    let (ouvert_vu, borne) = (ouvert.metadata().map_err(|e| rapport_illisible(fichier, &e))?, constats::OCTETS_MAXIMUM);
+    if !ouvert_vu.is_file() || ouvert_vu.len() > borne as u64 || !meme_fichier(vu, &ouvert_vu) {
+        let preuve = format!("the report {} changed between the weighing and the opening", fichier.display());
+        return Err(rapport_refuse(preuve));
+    }
+    Ok(ouvert)
+}
+
+/// Les octets du flux, [`constats::OCTETS_MAXIMUM`] au plus et un de plus pour voir qu'il dépasse : le lecteur refuse
+/// ce qui a grossi depuis la pesée, et un flux plus long ne se lit pas en entier.
+fn octets_bornes(flux: impl std::io::Read) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
     let mut octets = Vec::new();
-    let borne = constats::OCTETS_MAXIMUM as u64 + 1;
-    std::fs::File::open(fichier).and_then(|ouvert| ouvert.take(borne).read_to_end(&mut octets)).map_err(illisible)?;
+    flux.take(constats::OCTETS_MAXIMUM as u64 + 1).read_to_end(&mut octets)?;
     Ok(octets)
+}
+
+/// Les octets du rapport : un fichier ordinaire, jamais un lien suivi, de [`constats::OCTETS_MAXIMUM`] octets au
+/// plus, pesé avant d'être ouvert, puis jugé une fois ouvert ([`ouvrir_le_rapport`]), et lu borné. Un fichier qu'on ne
+/// lit pas est le refus 6006 ; un lien, ce qui n'est pas un fichier ordinaire, un rapport trop gros et un fichier
+/// changé entre la pesée et l'ouverture sont le refus 6038.
+fn lire_rapport(fichier: &Path) -> Result<Vec<u8>, Refus> {
+    let vu = peser_le_rapport(fichier)?;
+    let ouvert = ouvrir_le_rapport(fichier, &vu)?;
+    octets_bornes(ouvert).map_err(|e| rapport_illisible(fichier, &e))
 }
 
 /// La liste d'un rapport lu, en un objet JSON sur une ligne, dans l'ordre du lecteur : les constats gardés (`id`,

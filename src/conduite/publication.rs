@@ -1061,7 +1061,8 @@ pub(crate) fn recu_de(vagues: &[Vague], notes: &[Note], id: &str) -> Recu {
 }
 
 /// Ce que la main d'une vague à `vague.rapport` écrit pour dire qu'aucun test ne montre le défaut du rapport, après
-/// `IMPOSSIBLE:` : sa raison, que le fil garde pour texte de sa dernière fin, commence par cette phrase.
+/// `IMPOSSIBLE:` : sa raison, que le fil garde pour texte de sa dernière fin, commence par cette phrase, sans égard à
+/// la casse.
 const NON_PROUVE: &str = "not proved:";
 
 /// La main a déclaré sa tâche impossible, et sa raison commence par [`NON_PROUVE`]. Le fil garde la raison pour
@@ -1069,8 +1070,10 @@ const NON_PROUVE: &str = "not proved:";
 fn non_prouvee(main: &fil::Main) -> bool {
     let texte = main.texte().trim_start();
     let apres = texte.strip_prefix("IMPOSSIBLE").and_then(|reste| reste.trim_start().strip_prefix(':'));
+    let raison = apres.unwrap_or(texte).trim_start();
+    // Sans égard à la casse : `Not proved:` et `NOT PROVED:` sont le même mot. `get` ne coupe pas un caractère en deux.
     matches!(main.verdict, Some((fil::Verdict::Impossible, _)))
-        && apres.unwrap_or(texte).trim_start().starts_with(NON_PROUVE)
+        && raison.get(..NON_PROUVE.len()).is_some_and(|tete| tete.eq_ignore_ascii_case(NON_PROUVE))
 }
 
 impl Recu {
@@ -1137,12 +1140,12 @@ impl Recu {
 
     /// La ligne de `lydite etat` : `Cost: $0.84 estimated · 7 hands, 2 retries, 1 set aside · 41 min`, sans la durée
     /// si les instants manquent. Quand des mains d'une vague à `vague.rapport` ont déclaré `IMPOSSIBLE: not proved:
-    /// …`, `Not proved: <n>` la finit ; sans elles, rien ne s'ajoute.
+    /// …`, `Not proved (declared): <n>` la finit ; sans elles, rien ne s'ajoute.
     pub(crate) fn ligne(&self) -> String {
         let mut parties = vec![format!("Cost: {}", self.cout_de_pr()), self.mains_de_pr()];
         parties.extend(self.duree());
         if self.non_prouvees > 0 {
-            parties.push(format!("Not proved: {}", self.non_prouvees));
+            parties.push(format!("Not proved (declared): {}", self.non_prouvees));
         }
         parties.join(" · ")
     }
@@ -1201,9 +1204,9 @@ impl Recu {
     /// durée ; puis `- Effort: <efforts>` ; puis, si des réglages de mesure sont posés, `- Measurement: <réglages>.` ;
     /// puis, si le plan épingle `epingles` fichiers (au moins un), `- Files verified by SHA-256: <n> of <epingles>` ;
     /// puis, si le plan a des tâches à `red`, `- Red first: <n> of <m> tasks (the proof failed on the base plus only
-    /// their test files)` ; puis, si le plan a `report`, `- Not proved: <n> of <m> tasks` (`<n>` : les mains qui ont
-    /// déclaré `IMPOSSIBLE: not proved: …`, `<m>` : les tâches du plan) ; puis, si le reçu porte un sceau,
-    /// `- Thread sealed at <octets> bytes: sha256 <empreinte>.`
+    /// their test files)` ; puis, si le plan a `report` et que `<n>` n'est pas nul, `- Not proved (declared): <n> of
+    /// <m> tasks` (`<n>` : les mains qui ont déclaré `IMPOSSIBLE: not proved: …`, `<m>` : les tâches du plan) ; puis,
+    /// si le reçu porte un sceau, `- Thread sealed at <octets> bytes: sha256 <empreinte>.`
     pub(crate) fn lignes_de_pr(&self, epingles: usize) -> Vec<String> {
         let mut lignes = vec![
             format!("- Cost: {}", self.cout_de_pr()),
@@ -1215,7 +1218,9 @@ impl Recu {
         lignes.extend(self.rouge.map(|(n, m)| {
             format!("- Red first: {n} of {m} tasks (the proof failed on the base plus only their test files)")
         }));
-        lignes.extend(self.taches_du_rapport.map(|m| format!("- Not proved: {} of {m} tasks", self.non_prouvees)));
+        // Le mot d'une main, que Lydite n'a pas vérifié : la ligne le dit (`declared`), et ne vient que s'il y en a.
+        let (n, taches) = (self.non_prouvees, self.taches_du_rapport);
+        lignes.extend(taches.filter(|_| n > 0).map(|m| format!("- Not proved (declared): {n} of {m} tasks")));
         lignes.extend(
             self.sceau.iter().map(|s| format!("- Thread sealed at {} bytes: sha256 {}.", s.octets, s.empreinte)),
         );
