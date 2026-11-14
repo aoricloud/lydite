@@ -4744,12 +4744,15 @@ mod rouge {
 /// Les fichiers que Lydite pose lui-même dans le bac de la tâche, avant sa main (clé `place` du plan).
 mod pose {
     use super::*;
+    #[cfg(unix)]
     use crate::conduite::mener::{Lieu, mener_sur};
+    #[cfg(unix)]
     use crate::conduite::relecture::Origine;
 
     const FICHIER: &str = "donnees/t.txt";
 
     /// Le plan d'une tâche `a`, bornée à `FICHIER`, qui le pose avec ces `octets`.
+    #[cfg(unix)]
     fn plan_posant(octets: &[u8]) -> Plan {
         let place = format!("place : {FICHIER} : {}", hex(&sha256(octets)));
         let fichiers = format!("fichiers : {FICHIER}");
@@ -4757,6 +4760,7 @@ mod pose {
     }
 
     /// Le contenu que la ligne de commande passe à la vague pour ce plan.
+    #[cfg(unix)]
     fn posees(octets: &[u8]) -> Vec<Posee> {
         vec![Posee { tache: "a".into(), fichier: FICHIER.into(), octets: octets.to_vec() }]
     }
@@ -4970,6 +4974,83 @@ mod pose {
             assert!(!racine.join("compte-1").exists(), "{cas} : la main est partie");
             let _ = fs::remove_dir_all(&racine);
         }
+    }
+
+    /// Mène sur `visee` (le dépôt visé) la vague qui pose `FICHIER` depuis `base`, et rend son refus : le test dit
+    /// que c'est le 6036 de la base, qu'aucun dossier de Lydite (donc ni bac, ni fil) n'est né et qu'aucune main n'est
+    /// partie.
+    #[cfg(unix)]
+    fn refus_de_la_base(racine: &Path, visee: &Path, base: &str) -> Refus {
+        let (kraken, octets): (_, &[u8]) = (racine.join("lydite"), b"alpha\n");
+        let profil = Profil::faux(main_qui_recopie(racine, false), DELAI);
+        let programme = std::ffi::OsString::from("gh-absent");
+        let lieu = Lieu {
+            profil: &profil,
+            depot: visee,
+            dossier: &kraken,
+            gh: &programme,
+            personnel: Some(racine),
+            ci: (Duration::from_millis(10), Duration::from_secs(60)),
+        };
+        let contenu = posees(octets);
+        let liens = Liens { poses: &contenu, ..Liens::default() };
+        let refus = mener_sur(&lieu, &plan_posant(octets), base, liens, None, Origine::Plan).unwrap_err();
+        assert_eq!(refus.code, Code::FichierPoseRefuse, "{refus}");
+        assert!(!kraken.exists(), "le dossier de Lydite ne devait pas naître : {:?}", noms(&kraken));
+        assert!(!racine.join("compte-1").exists(), "la main est partie");
+        refus
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_fichier_ordinaire_de_la_base_a_la_place_d_un_dossier_parent_est_refuse_en_6036_qui_nomme_le_parent() {
+        let racine = racine("pose-parent-fichier");
+        let depot = depot(&racine);
+        // `donnees` est un fichier de la base : `donnees/t.txt` n'y peut pas être posé.
+        ecrire(&depot, "donnees", "pas un dossier\n");
+        let base = valider(&depot, "donnees");
+        let refus = refus_de_la_base(&racine, &depot, &base);
+        assert!(refus.preuve.contains("its parent `donnees`") && refus.preuve.contains(FICHIER), "{refus}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_lien_symbolique_de_la_base_a_la_place_d_un_parent_est_refuse_en_6036_qui_nomme_le_parent() {
+        let racine = racine("pose-parent-lien");
+        let depot = depot(&racine);
+        // Un lien `donnees` de la base : `ls-tree` ne traverse pas un lien, il ne voit donc rien à `donnees/t.txt`.
+        std::os::unix::fs::symlink("ailleurs", depot.join("donnees")).unwrap();
+        let base = valider(&depot, "lien");
+        let refus = refus_de_la_base(&racine, &depot, &base);
+        assert!(refus.preuve.contains("its parent `donnees`") && refus.preuve.contains("mode 120000"), "{refus}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_depot_vise_sous_dossier_de_la_racine_est_juge_depuis_la_racine_pour_le_chemin_pose_et_ses_parents() {
+        let racine = racine("pose-sous-dossier");
+        let depot = depot(&racine);
+        // Le dépôt visé est `sous`, un dossier de la racine du dépôt ; les chemins du plan sont relatifs à la racine.
+        let visee = depot.join("sous");
+        ecrire(&depot, "sous/x.txt", "x\n");
+        // Un lien de la base au chemin posé : lu depuis `sous`, `donnees/t.txt` n'y serait rien.
+        fs::create_dir_all(depot.join("donnees")).unwrap();
+        std::os::unix::fs::symlink("ailleurs", depot.join(FICHIER)).unwrap();
+        let base = valider(&depot, "lien");
+        let refus = refus_de_la_base(&racine, &visee, &base);
+        assert!(refus.preuve.contains(FICHIER) && refus.preuve.contains("mode 120000"), "{refus}");
+        let _ = fs::remove_dir_all(&racine);
+        // Un lien à la place du parent `donnees`, de même.
+        let racine = super::racine("pose-sous-dossier-parent");
+        let depot = super::depot(&racine);
+        ecrire(&depot, "sous/x.txt", "x\n");
+        std::os::unix::fs::symlink("ailleurs", depot.join("donnees")).unwrap();
+        let base = valider(&depot, "lien");
+        let refus = refus_de_la_base(&racine, &depot.join("sous"), &base);
+        assert!(refus.preuve.contains("its parent `donnees`"), "{refus}");
+        let _ = fs::remove_dir_all(&racine);
     }
 
     #[cfg(unix)]
