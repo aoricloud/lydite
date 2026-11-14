@@ -317,11 +317,12 @@ fn les_butees_a_un_chemin_protege_absent_sont_les_fichiers_vides_en_lecture_seul
     butee(&bac, ".bashrc");
     assert_eq!(butees_protegees(&bac, &depart, &proteges()), attendues);
     assert_eq!(butees_protegees(&bac, &depart, &[]), Vec::<String>::new());
-    // `butees_du_bac` joint celles de `.claude/` et celles des chemins protégés, sans rien d'autre.
+    // `butees_du_bac` joint celles de `.claude/`, celles de la racine (le `.bashrc` ci-dessus) et celles des chemins
+    // protégés, sans rien d'autre.
     butee(&bac, ".claude/loop.md");
-    let toutes = [".agents/skills", ".claude/loop.md", "secret.env", "vendor"];
+    let toutes = [".agents/skills", ".bashrc", ".claude/loop.md", "secret.env", "vendor"];
     assert_eq!(butees_du_bac(&bac, &depart, &proteges()), toutes);
-    assert_eq!(butees_du_bac(&bac, &depart, &[]), [".claude/loop.md"]);
+    assert_eq!(butees_du_bac(&bac, &depart, &[]), [".bashrc", ".claude/loop.md"]);
     let _ = fs::remove_dir_all(&depot);
     let _ = fs::remove_dir_all(&kraken);
 }
@@ -360,6 +361,38 @@ fn une_butee_a_un_chemin_protege_qui_existait_au_depart_n_en_est_pas_une() {
     butee(&bac, "vendor");
     assert_eq!(butees_protegees(&bac, &depart, &proteges()), ["vendor"]);
     assert_eq!(butees_protegees(&bac, &"0".repeat(40), &proteges()), Vec::<String>::new());
+    let _ = fs::remove_dir_all(&depot);
+    let _ = fs::remove_dir_all(&kraken);
+}
+
+#[test]
+fn les_butees_du_bac_comptent_les_noms_toujours_refuses_de_la_racine_qui_sont_des_fichiers_vides_en_lecture_seule() {
+    let (depot, kraken) = (depot("butees-racine"), neuf("butees-racine-lydite"));
+    ecrire(&depot, ".gitmodules", "");
+    commit(&depot);
+    let (bac, depart) = pose(&depot, &kraken);
+    // Des butées : à la racine un nom de `TOUJOURS_REFUSES`, sous `.claude/` une entrée directe. Triées, relatives.
+    for chemin in [".zshrc", ".vscode", ".mcp.json", ".bashrc", ".claude/loop.md"] {
+        butee(&bac, chemin);
+    }
+    let attendues = [".bashrc", ".claude/loop.md", ".mcp.json", ".vscode", ".zshrc"];
+    assert_eq!(butees_du_bac(&bac, &depart, &[]), attendues);
+    assert_eq!(butees_du_bac(&bac, &depart, &proteges()), attendues);
+    // Ce qui n'en est pas une : un nom hors de la liste, un fichier non vide, un fichier qu'on peut écrire, un
+    // dossier, un nom présent au départ (`.claude/commands` ne se lit que sous `.claude/`, pas à la racine).
+    butee(&bac, ".autrerc");
+    butee(&bac, ".gitconfig");
+    regler_ecriture(&bac.join(".gitconfig"), true);
+    fs::write(bac.join(".gitconfig"), "x").unwrap();
+    regler_ecriture(&bac.join(".gitconfig"), false);
+    ecrire(&bac, ".profile", "");
+    butee(&bac, ".idea/x");
+    git(&bac, &["rm", "-q", "--cached", ".gitmodules"]);
+    fs::remove_file(bac.join(".gitmodules")).unwrap();
+    butee(&bac, ".gitmodules");
+    assert_eq!(butees_du_bac(&bac, &depart, &[]), attendues);
+    // Un git qui ne dit pas ce que le départ porte ne prouve aucune absence : aucune butée de la racine.
+    assert_eq!(butees_du_bac(&bac, &"0".repeat(40), &[]), [".claude/loop.md"]);
     let _ = fs::remove_dir_all(&depot);
     let _ = fs::remove_dir_all(&kraken);
 }

@@ -6,6 +6,7 @@ use std::process::Command;
 use crate::branchements::git::{faire, geste, lieux};
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus, nommee};
+use crate::coeur::natif::TOUJOURS_REFUSES;
 
 /// Un bac neuf : un worktree du dépôt sous `<dossier>/bacs/<id>`, sur la branche `lydite/<id>`, posée sur `depart` (un
 /// sha, ou `HEAD` du dépôt). Le dossier est un chemin absolu (voir `dossier::dossier`) : git le lit depuis le dépôt.
@@ -217,9 +218,26 @@ pub(crate) fn butees_protegees(bac: &Path, depart: &str, proteges: &[String]) ->
     chemins
 }
 
-/// Les butées du mur du bac : les entrées directes de `.claude/` à sa racine qui sont des butées ([`est_une_butee`]),
-/// puis celles à un chemin protégé absent ([`butees_protegees`]), en chemins relatifs au bac. Vide si `.claude/` n'y
-/// est pas, ou ne se lit pas, et si aucune butée protégée n'y est.
+/// Les butées du mur à la racine du bac : les noms de [`TOUJOURS_REFUSES`] qui s'y écrivent sans dossier (`.bashrc`,
+/// `.vscode`, `.mcp.json`...) et qui sont un fichier ordinaire vide en lecture seule, absent du commit `depart` du bac.
+/// Le bac à sable de Claude Code pose une butée à chaque chemin qu'il interdit d'écrire et qui n'existe pas. Ceux de
+/// `.claude/` sont [`est_une_butee`] ; ceux qui ont un dossier dans leur nom ne sont pas ici.
+fn butees_de_la_racine(bac: &Path, depart: &str) -> Vec<String> {
+    TOUJOURS_REFUSES
+        .iter()
+        .filter(|nom| !nom.contains('/'))
+        .filter(|nom| est_un_fichier_vide_en_lecture_seule(bac, nom))
+        .filter(|nom| absent_du_depart(bac, depart, nom))
+        .map(|nom| nom.to_string())
+        .collect()
+}
+
+/// Les butées du mur du bac, en chemins relatifs au bac, triées, chacune une fois : les entrées directes de `.claude/`
+/// à sa racine qui sont des butées ([`est_une_butee`]), celles de la racine à un nom de [`TOUJOURS_REFUSES`] absent du
+/// départ ([`butees_de_la_racine`]), puis celles à un chemin protégé absent ([`butees_protegees`]). Elles viennent
+/// d'une commande de la main que sa session a tuée : le bac à sable de Claude Code retire ses butées à la fin d'une
+/// commande, et une commande passée en arrière-plan, encore en cours quand la session finit, meurt sans les retirer.
+/// Vide si `.claude/` n'y est pas, ou ne se lit pas, et si aucune autre butée n'y est.
 pub(crate) fn butees_du_bac(bac: &Path, depart: &str, proteges: &[String]) -> Vec<String> {
     let mut noms: Vec<String> = fs::read_dir(bac.join(".claude"))
         .into_iter()
@@ -228,6 +246,7 @@ pub(crate) fn butees_du_bac(bac: &Path, depart: &str, proteges: &[String]) -> Ve
         .map(|nom| format!(".claude/{nom}"))
         .filter(|chemin| est_une_butee(bac, chemin))
         .collect();
+    noms.extend(butees_de_la_racine(bac, depart));
     noms.extend(butees_protegees(bac, depart, proteges));
     noms.sort();
     noms.dedup();

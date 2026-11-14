@@ -714,3 +714,98 @@ fn la_couche_fixe_du_decoupeur_tient_sous_son_plafond_sans_la_sortie_honnete_ni_
     assert_eq!(crate::essais::codes_inconnus(&fixe), Vec::<String>::new());
     assert!(!fixe.contains("IMPOSSIBLE") && !fixe.contains("Your files") && !fixe.contains("Change only"), "{fixe}");
 }
+
+/// Les vingt-trois butées qu'un relecteur a laissées à la fin de sa session : onze à la racine du bac, douze sous
+/// `.claude/`.
+#[cfg(unix)]
+const BUTEES_DU_RELECTEUR: [&str; 23] = [
+    ".bash_profile",
+    ".bashrc",
+    ".gitconfig",
+    ".gitmodules",
+    ".idea",
+    ".mcp.json",
+    ".profile",
+    ".ripgreprc",
+    ".vscode",
+    ".zprofile",
+    ".zshrc",
+    ".claude/agents",
+    ".claude/commands",
+    ".claude/hooks",
+    ".claude/launch.json",
+    ".claude/loop.md",
+    ".claude/output-styles",
+    ".claude/routines",
+    ".claude/scheduled_tasks.json",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".claude/skills",
+    ".claude/workflows",
+];
+
+/// Pose une butée du mur dans le bac : un fichier vide en lecture seule.
+#[cfg(unix)]
+fn poser_une_butee(bac: &Path, chemin: &str) {
+    ecrire(bac, chemin, "");
+    let fichier = bac.join(chemin);
+    let mut droits = fs::metadata(&fichier).unwrap().permissions();
+    droits.set_readonly(true);
+    fs::set_permissions(&fichier, droits).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn retirer_le_bac_d_un_relecteur_efface_les_vingt_trois_butees_et_le_retire() {
+    let essai = Essai::nouveau("retrait-butees");
+    let (bac, base) = bac_neuf(&essai, "relecteur");
+    ecrire(&bac, "REMARQUES.lydite", "remarques 2\n");
+    for chemin in BUTEES_DU_RELECTEUR {
+        poser_une_butee(&bac, chemin);
+    }
+    assert!(seul_change(&bac, &base, "REMARQUES.lydite", &[]).is_ok());
+    assert!(bac.join(".bashrc").is_file(), "la butée est là avant le retrait");
+    retirer_le_bac(&essai.depot, &essai.kraken, "the reviewer's sandbox", "relecteur", &base, &["REMARQUES.lydite"]);
+    assert!(!bac.exists(), "le bac est retiré, butées comprises");
+    assert_eq!(git(&essai.depot, &["branch", "--list", "lydite/relecteur"]), "", "sa branche aussi");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[cfg(unix)]
+#[test]
+fn retirer_le_bac_garde_le_bac_pour_un_non_suivi_qui_n_est_pas_une_butee() {
+    // Un `.bashrc` non vide, ou vide mais qu'on peut écrire, est un travail que git garde : le bac reste, avec lui.
+    for (nom, contenu, lecture_seule) in [("non-vide", "x", true), ("inscriptible", "", false)] {
+        let essai = Essai::nouveau(&format!("retrait-pas-butee-{nom}"));
+        let (bac, base) = bac_neuf(&essai, "relecteur");
+        ecrire(&bac, "REMARQUES.lydite", "remarques 2\n");
+        poser_une_butee(&bac, ".claude/loop.md");
+        ecrire(&bac, ".bashrc", contenu);
+        if lecture_seule {
+            let mut droits = fs::metadata(bac.join(".bashrc")).unwrap().permissions();
+            droits.set_readonly(true);
+            fs::set_permissions(bac.join(".bashrc"), droits).unwrap();
+        }
+        let ecrits = [REMARQUES_DU_TEST];
+        let retirer =
+            || retirer_le_bac(&essai.depot, &essai.kraken, "the reviewer's sandbox", "relecteur", &base, &ecrits);
+        retirer();
+        assert!(bac.join(".bashrc").is_file(), "{nom} : le fichier de la main reste");
+        assert!(!bac.join("REMARQUES.lydite").exists(), "{nom} : ses fichiers s'effacent");
+        assert!(!bac.join(".claude/loop.md").exists(), "{nom} : la butée s'efface");
+        assert_ne!(git(&essai.depot, &["branch", "--list", "lydite/relecteur"]), "", "{nom} : sa branche reste");
+        // Sans lui, le bac se retire : c'est bien lui qui le gardait.
+        let mut droits = fs::metadata(bac.join(".bashrc")).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        droits.set_readonly(false);
+        fs::set_permissions(bac.join(".bashrc"), droits).unwrap();
+        fs::remove_file(bac.join(".bashrc")).unwrap();
+        retirer();
+        assert!(!bac.exists(), "{nom} : le bac se retire sans lui");
+        let _ = fs::remove_dir_all(&essai.racine);
+    }
+}
+
+/// Le fichier que ces essais font écrire à la main du bac.
+#[cfg(unix)]
+const REMARQUES_DU_TEST: &str = "REMARQUES.lydite";

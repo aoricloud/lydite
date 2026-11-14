@@ -35,7 +35,7 @@ use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-use crate::branchements::bac::retirer;
+use crate::branchements::bac::{butees_du_bac, retirer};
 use crate::branchements::dossier::{Fil, tenir};
 use crate::branchements::git::{faire, geste};
 use crate::coeur::empreinte::{hex, sha256};
@@ -321,18 +321,21 @@ fn chemins_de(depot: &Path, base: &str) -> Result<Vec<String>, Refus> {
 
 /// Retire le bac du découpeur, `qui` étant « the splitter's sandbox » (ou celui du relecteur, `relecture.rs`), et sa
 /// branche, une fois son travail au fil : les `fichiers` que Kraken lui a fait écrire (ici [`PLAN`]) s'effacent,
-/// ceux qui manquent ne comptant pas, puis `bac::retirer`, sans forcer, ôte le worktree, son dossier temporaire et la
-/// branche `lydite/<main>` si elle est encore sur la base. Un retrait raté s'écrit sur stderr, et le reste du bac
-/// demeure : git refuse de retirer un worktree qui garde un fichier non suivi qu'il n'ignore pas.
+/// ceux qui manquent ne comptant pas, ainsi que les butées du mur que la main a laissées dans son bac
+/// ([`butees_du_bac`], parties de `base`) : elles ne portent rien, et git ne retirerait pas le worktree pour elles.
+/// Puis `bac::retirer`, sans forcer, ôte le worktree, son dossier temporaire et la branche `lydite/<main>` si elle est
+/// encore sur la base. Un retrait raté s'écrit sur stderr, et le reste du bac demeure : git refuse de retirer un
+/// worktree qui garde un fichier non suivi qu'il n'ignore pas, et rien d'autre n'est forcé.
 pub(crate) fn retirer_le_bac(depot: &Path, dossier: &Path, qui: &str, main: &str, base: &str, fichiers: &[&str]) {
     let bac = dossier.join("bacs").join(main);
     let branche = format!("lydite/{main}");
-    let efface = |fichier: &&str| match fs::remove_file(bac.join(fichier)) {
+    let efface = |fichier: &str| match fs::remove_file(bac.join(fichier)) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(format!("removing {}: {e}", bac.join(fichier).display())),
         _ => Ok(()),
     };
-    let retrait =
-        fichiers.iter().try_for_each(efface).and_then(|()| retirer(depot, &bac, Some((&branche, base)), faire));
+    let butees = butees_du_bac(&bac, base, &[]);
+    let mut a_effacer = fichiers.iter().copied().chain(butees.iter().map(String::as_str));
+    let retrait = a_effacer.try_for_each(efface).and_then(|()| retirer(depot, &bac, Some((&branche, base)), faire));
     if let Err(vu) = retrait {
         eprintln!("{qui} is not removed, and stays: {vu}");
     }
