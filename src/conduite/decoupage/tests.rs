@@ -4,8 +4,10 @@ use crate::branchements::bac::temporaire_de;
 use crate::coeur::fil::{Couleur, Foi, Lecture, etat};
 use crate::commande::etat::{etat_dans, rendu};
 use crate::conduite::mener::{Lieu, Options, decouper_cmd};
+#[cfg(unix)]
+use crate::essais::BUTEES_DU_RELECTEUR;
 use crate::essais::{PR, depot, distant_nu, faux_decoupeur, gh_qui_suit, git, path_garde, racine};
-use crate::essais::{ecrire, etat_de_claude};
+use crate::essais::{ecrire, etat_de_claude, lier};
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -474,7 +476,7 @@ fn commiter(depot: &Path, fichiers: &[(&str, &str)]) {
 /// Le juge de l'essai sur ce bac parti de `base` : la demande des essais, sur l'arbre de la base.
 fn juge(essai: &Essai, bac: &Path, base: &str) -> Result<(Plan, Vec<u8>), Refus> {
     let chemins = chemins_de(&essai.depot, base).unwrap();
-    juger(bac, base, &Demande { objectif: OBJECTIF, preuve: VERIFIER, chemins: &chemins })
+    juger(bac, base, essai.profil.proteges(), &Demande { objectif: OBJECTIF, preuve: VERIFIER, chemins: &chemins })
 }
 
 /// Le refus est un 7014 dont la preuve dit `bout`, et qui enseigne.
@@ -509,7 +511,7 @@ fn le_juge_ne_prend_que_plan_kraken_seul_ordinaire_et_que_le_depot_n_ignore_pas(
     touche(juge(&essai, &bac, &base).unwrap_err(), cites);
     // Ce que l'appelant permet en plus ne compte pas : le relecteur a aussi le fichier de Kraken.
     let aussi = [".claude/settings.json", "autre.txt", "suivi.txt"];
-    assert_eq!(seul_change(&bac, &base, PLAN, &aussi), Ok(()));
+    assert_eq!(seul_change(&bac, &base, PLAN, &aussi, &[]), Ok(()));
     // Un commit, même du seul plan : 7014.
     let (bac, base) = bac_neuf(&essai, "commite");
     fs::write(bac.join(PLAN), plan_juste()).unwrap();
@@ -703,7 +705,7 @@ fn une_issue_decoupee_demande_issue_n_et_toutes_ses_taches_sont_critiques() {
     let (bac, base) = bac_neuf(&essai, "titre");
     fs::write(bac.join(PLAN), plan.replace("objectif : Issue #9", "objectif : Deux fichiers")).unwrap();
     let demande = Demande { objectif: "Issue #9", preuve: VERIFIER, chemins: &chemins };
-    assert_eq!(juger(&bac, &base, &demande).unwrap_err().code, Code::PlanEntete);
+    assert_eq!(juger(&bac, &base, &[], &demande).unwrap_err().code, Code::PlanEntete);
     let _ = fs::remove_dir_all(&essai.racine);
 }
 
@@ -715,37 +717,7 @@ fn la_couche_fixe_du_decoupeur_tient_sous_son_plafond_sans_la_sortie_honnete_ni_
     assert!(!fixe.contains("IMPOSSIBLE") && !fixe.contains("Your files") && !fixe.contains("Change only"), "{fixe}");
 }
 
-/// Les vingt-trois butées qu'un relecteur a laissées à la fin de sa session : onze à la racine du bac, douze sous
-/// `.claude/`.
-#[cfg(unix)]
-const BUTEES_DU_RELECTEUR: [&str; 23] = [
-    ".bash_profile",
-    ".bashrc",
-    ".gitconfig",
-    ".gitmodules",
-    ".idea",
-    ".mcp.json",
-    ".profile",
-    ".ripgreprc",
-    ".vscode",
-    ".zprofile",
-    ".zshrc",
-    ".claude/agents",
-    ".claude/commands",
-    ".claude/hooks",
-    ".claude/launch.json",
-    ".claude/loop.md",
-    ".claude/output-styles",
-    ".claude/routines",
-    ".claude/scheduled_tasks.json",
-    ".claude/settings.json",
-    ".claude/settings.local.json",
-    ".claude/skills",
-    ".claude/workflows",
-];
-
 /// Pose une butée du mur dans le bac : un fichier vide en lecture seule.
-#[cfg(unix)]
 fn poser_une_butee(bac: &Path, chemin: &str) {
     ecrire(bac, chemin, "");
     let fichier = bac.join(chemin);
@@ -763,9 +735,10 @@ fn retirer_le_bac_d_un_relecteur_efface_les_vingt_trois_butees_et_le_retire() {
     for chemin in BUTEES_DU_RELECTEUR {
         poser_une_butee(&bac, chemin);
     }
-    assert!(seul_change(&bac, &base, "REMARQUES.lydite", &[]).is_ok());
+    assert!(seul_change(&bac, &base, "REMARQUES.lydite", &[], &[]).is_ok());
     assert!(bac.join(".bashrc").is_file(), "la butée est là avant le retrait");
-    retirer_le_bac(&essai.depot, &essai.kraken, "the reviewer's sandbox", "relecteur", &base, &["REMARQUES.lydite"]);
+    let ecrits = ["REMARQUES.lydite"];
+    retirer_le_bac(&essai.depot, &essai.kraken, "the reviewer's sandbox", "relecteur", &base, &ecrits, &[]);
     assert!(!bac.exists(), "le bac est retiré, butées comprises");
     assert_eq!(git(&essai.depot, &["branch", "--list", "lydite/relecteur"]), "", "sa branche aussi");
     let _ = fs::remove_dir_all(&essai.racine);
@@ -788,7 +761,7 @@ fn retirer_le_bac_garde_le_bac_pour_un_non_suivi_qui_n_est_pas_une_butee() {
         }
         let ecrits = [REMARQUES_DU_TEST];
         let retirer =
-            || retirer_le_bac(&essai.depot, &essai.kraken, "the reviewer's sandbox", "relecteur", &base, &ecrits);
+            || retirer_le_bac(&essai.depot, &essai.kraken, "the reviewer's sandbox", "relecteur", &base, &ecrits, &[]);
         retirer();
         assert!(bac.join(".bashrc").is_file(), "{nom} : le fichier de la main reste");
         assert!(!bac.join("REMARQUES.lydite").exists(), "{nom} : ses fichiers s'effacent");
@@ -809,3 +782,101 @@ fn retirer_le_bac_garde_le_bac_pour_un_non_suivi_qui_n_est_pas_une_butee() {
 /// Le fichier que ces essais font écrire à la main du bac.
 #[cfg(unix)]
 const REMARQUES_DU_TEST: &str = "REMARQUES.lydite";
+
+/// Le fichier de `dossier`, `loop.md`, est resté tel que la butée l'a posé : là, ordinaire, vide, en lecture seule.
+fn butee_intacte(dossier: &Path, nom: &str) {
+    let meta = fs::symlink_metadata(dossier.join("loop.md")).unwrap_or_else(|e| panic!("{nom} : {e}"));
+    assert!(meta.is_file() && meta.len() == 0 && meta.permissions().readonly(), "{nom} : {meta:?}");
+}
+
+#[test]
+fn retirer_le_bac_n_efface_rien_hors_du_bac_quand_claude_est_un_lien() {
+    // `.claude` est un lien vers un dossier hors du bac, qui porte un fichier vide en lecture seule : suivi au départ
+    // dans le dépôt visé, ou non suivi et ignoré par un motif `.claude`.
+    for (nom, suivi) in [("suivi", true), ("ignore", false)] {
+        let essai = Essai::nouveau(&format!("retrait-claude-lien-{nom}"));
+        let cible = essai.racine.join("cible");
+        poser_une_butee(&cible, "loop.md");
+        if suivi {
+            if !lier(&cible, &essai.depot.join(".claude")) {
+                continue;
+            }
+            commiter(&essai.depot, &[]);
+        } else {
+            commiter(&essai.depot, &[(".gitignore", ".claude\n")]);
+        }
+        let (bac, base) = bac_neuf(&essai, "relecteur");
+        if !suivi && !lier(&cible, &bac.join(".claude")) {
+            continue;
+        }
+        // Git peut ne pas rendre le lien sous Windows : sans lui, rien à éprouver.
+        if !fs::symlink_metadata(bac.join(".claude")).unwrap().file_type().is_symlink() {
+            if cfg!(unix) {
+                panic!("{nom} : .claude n'est pas un lien dans le bac");
+            }
+            continue;
+        }
+        ecrire(&bac, "REMARQUES.lydite", "remarques 2\n");
+        assert_eq!(butees_du_bac(&bac, &base, &[]), Vec::<String>::new(), "{nom}");
+        let ecrits = ["REMARQUES.lydite"];
+        let proteges = essai.profil.proteges();
+        retirer_le_bac(&essai.depot, &essai.kraken, "the reviewer's sandbox", "relecteur", &base, &ecrits, proteges);
+        assert!(!bac.join("REMARQUES.lydite").exists(), "{nom} : le fichier de Kraken s'efface");
+        butee_intacte(&cible, nom);
+        let _ = fs::remove_dir_all(&essai.racine);
+    }
+}
+
+#[test]
+fn retirer_le_bac_n_efface_pas_un_fichier_vide_suivi_sous_claude_meme_en_lecture_seule() {
+    let essai = Essai::nouveau("retrait-claude-suivi");
+    commiter(&essai.depot, &[(".claude/loop.md", "")]);
+    let (bac, base) = bac_neuf(&essai, "relecteur");
+    ecrire(&bac, "REMARQUES.lydite", "remarques 2\n");
+    // Un travail de la main que git garde : le bac reste, et le fichier suivi avec lui.
+    ecrire(&bac, "travail.txt", "x");
+    let mut droits = fs::metadata(bac.join(".claude/loop.md")).unwrap().permissions();
+    droits.set_readonly(true);
+    fs::set_permissions(bac.join(".claude/loop.md"), droits).unwrap();
+    // Une vraie butée, absente du départ, à côté de lui : elle s'efface, le suivi non.
+    poser_une_butee(&bac, ".claude/hooks");
+    assert_eq!(butees_du_bac(&bac, &base, &[]), [".claude/hooks"]);
+    let ecrits = ["REMARQUES.lydite"];
+    retirer_le_bac(&essai.depot, &essai.kraken, "the reviewer's sandbox", "relecteur", &base, &ecrits, &[]);
+    // Sous Windows, effacer un fichier en lecture seule n'est pas éprouvé ici : les essais voisins sont sous Unix.
+    assert!(cfg!(windows) || !bac.join(".claude/hooks").exists(), "la butée s'efface");
+    assert!(bac.join("travail.txt").is_file(), "le bac reste pour le travail de la main");
+    butee_intacte(&bac.join(".claude"), "suivi");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[cfg(unix)]
+#[test]
+fn retirer_le_bac_retire_le_bac_d_un_relecteur_dont_une_butee_est_a_un_chemin_protege_absent_du_depart() {
+    // Un dépôt sans `.agents/` : la butée des leçons, protégées d'office, est dans un dossier créé pour elle.
+    let essai = Essai::nouveau("retrait-butee-protegee");
+    assert!(!essai.depot.join(".agents").exists());
+    let proteges = essai.profil.proteges();
+    let (bac, base) = bac_neuf(&essai, "relecteur");
+    ecrire(&bac, "REMARQUES.lydite", "remarques 2\n");
+    poser_une_butee(&bac, ".agents/skills");
+    // Le juge du relecteur la laisse passer ; sans les chemins protégés, elle compte.
+    assert!(seul_change(&bac, &base, "REMARQUES.lydite", &[], proteges).is_ok());
+    assert!(seul_change(&bac, &base, "REMARQUES.lydite", &[], &[]).is_err());
+    // Ajoutée à l'index, elle reste le refus 7014.
+    git(&bac, &["add", "-f", ".agents/skills"]);
+    let refus = seul_change(&bac, &base, "REMARQUES.lydite", &[], proteges).unwrap_err();
+    touche(refus, r#"besides REMARQUES.lydite: ".agents/skills""#);
+    git(&bac, &["rm", "-q", "--cached", ".agents/skills"]);
+    // Son bac se retire, la butée comprise.
+    let ecrits = ["REMARQUES.lydite"];
+    retirer_le_bac(&essai.depot, &essai.kraken, "the reviewer's sandbox", "relecteur", &base, &ecrits, proteges);
+    assert!(!bac.exists(), "le bac est retiré, butée comprise");
+    // Sans les chemins protégés, la butée reste, et le bac avec elle.
+    let (bac, base) = bac_neuf(&essai, "decoupeur");
+    ecrire(&bac, "REMARQUES.lydite", "remarques 2\n");
+    poser_une_butee(&bac, ".agents/skills");
+    retirer_le_bac(&essai.depot, &essai.kraken, "the reviewer's sandbox", "decoupeur", &base, &ecrits, &[]);
+    assert!(bac.join(".agents/skills").is_file(), "sans les chemins protégés, la butée reste");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
