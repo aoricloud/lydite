@@ -820,6 +820,89 @@ fn butee(bac: &Path, chemin: &str) {
     fs::set_permissions(&fichier, droits).unwrap();
 }
 
+/// Les vingt-trois butées qu'un relecteur a laissées à la fin de sa session (Claude Code 2.1.317) : onze à la racine
+/// du bac, dont les noms de `TOUJOURS_REFUSES` qui n'ont pas de dossier, et douze sous `.claude/`.
+const BUTEES_DU_RELECTEUR: [&str; 23] = [
+    ".bash_profile",
+    ".bashrc",
+    ".gitconfig",
+    ".gitmodules",
+    ".idea",
+    ".mcp.json",
+    ".profile",
+    ".ripgreprc",
+    ".vscode",
+    ".zprofile",
+    ".zshrc",
+    ".claude/agents",
+    ".claude/commands",
+    ".claude/hooks",
+    ".claude/launch.json",
+    ".claude/loop.md",
+    ".claude/output-styles",
+    ".claude/routines",
+    ".claude/scheduled_tasks.json",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".claude/skills",
+    ".claude/workflows",
+];
+
+#[test]
+fn seul_change_laisse_passer_les_vingt_trois_butees_d_un_relecteur_mort() {
+    let (racine, depot, kraken, base) = vise("seul-butees");
+    let bac = prise(&depot, &kraken, "relecteur", &base, &[("REMARQUES.lydite", "remarques 2\n")]);
+    for chemin in BUTEES_DU_RELECTEUR {
+        butee(&bac, chemin);
+    }
+    assert_eq!(seul_change(&bac, &base, "REMARQUES.lydite", &[]), Ok(()));
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn seul_change_refuse_en_7014_un_nom_de_butee_qui_n_en_est_pas_une() {
+    // Un `.bashrc` non vide, vide mais qu'on peut écrire, présent au départ, suivi (ajouté à l'index), un lien, un
+    // dossier : chacun reste le refus 7014, qui le cite ; un nom hors des listes, de même.
+    let (racine, depot, kraken, _) = vise("seul-pas-butees");
+    ecrire(&depot, ".gitconfig", "");
+    git(&depot, &["add", "-A"]);
+    git(&depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "gitconfig"]);
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    /// Ce que la main fait dans son bac.
+    type Pose = fn(&Path);
+    let cas: [(&str, Pose); 7] = [
+        ("non-vide", |bac| {
+            butee(bac, ".bashrc");
+            regler_ecriture(bac, ".bashrc", true);
+            fs::write(bac.join(".bashrc"), "x").unwrap();
+            regler_ecriture(bac, ".bashrc", false);
+        }),
+        ("inscriptible", |bac| ecrire(bac, ".bashrc", "")),
+        ("present-au-depart", |bac| {
+            // Le fichier suivi du départ quitte l'index, puis une butée le remplace : il n'est pas absent du départ.
+            git(bac, &["rm", "-q", "--cached", ".gitconfig"]);
+            fs::remove_file(bac.join(".gitconfig")).unwrap();
+            butee(bac, ".gitconfig");
+        }),
+        ("suivi", |bac| {
+            butee(bac, ".bashrc");
+            git(bac, &["add", "-f", ".bashrc"]);
+        }),
+        ("dossier", |bac| ecrire(bac, ".bashrc/x", "")),
+        ("hors-des-listes", |bac| butee(bac, ".autrerc")),
+        ("claude-inscriptible", |bac| ecrire(bac, ".claude/loop.md", "")),
+    ];
+    let cite = [".bashrc", ".bashrc", ".gitconfig", ".bashrc", ".bashrc/x", ".autrerc", ".claude/loop.md"];
+    for ((nom, pose), cite) in cas.into_iter().zip(cite) {
+        let bac = prise(&depot, &kraken, nom, &base, &[("REMARQUES.lydite", "remarques 2\n")]);
+        pose(&bac);
+        let refus = seul_change(&bac, &base, "REMARQUES.lydite", &[]).unwrap_err();
+        assert_eq!(refus.code, Code::BacTouche, "{nom}: {refus}");
+        assert!(refus.preuve.contains(&format!("{cite:?}")), "{nom}: {refus}");
+    }
+    let _ = fs::remove_dir_all(&racine);
+}
+
 #[test]
 fn le_gel_epargne_les_butees_du_mur() {
     let (racine, depot, kraken, base) = vise("gel-butees");
@@ -835,6 +918,31 @@ fn le_gel_epargne_les_butees_du_mur() {
     // Le commit du gel ne porte que le vrai changement.
     assert_eq!(git(&bac, &["diff", "--name-only", &base, "HEAD"]), "travail.txt");
     assert_ne!(assemblage.tete(), base.as_str());
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn le_gel_ne_commite_pas_une_butee_de_la_racine_et_ne_la_prend_pas_pour_un_7021() {
+    let (racine, depot, kraken, base) = vise("gel-butees-racine");
+    let profil = profil();
+    let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+    // Sans `fichiers`, puis avec ceux de la tâche : le gel est jugé de même, et la butée n'y entre pas.
+    let permis = chemins(&["b.txt"]);
+    for (k, id, fichier, fichiers) in [(1, "a", "a.txt", None), (2, "b", "b.txt", Some(permis.as_slice()))] {
+        let bac = prise(&depot, &kraken, id, &base, &[(fichier, id)]);
+        for chemin in BUTEES_DU_RELECTEUR {
+            butee(&bac, chemin);
+        }
+        let (_, issue) = assemblage.fusionner(&bac, &base, id, fichiers, k, |_, _| Ok(()));
+        let sha = issue.unwrap_or_else(|refus| panic!("{id} : {refus}"));
+        assert_eq!(assemblage.tete(), sha.as_str(), "{id}");
+        // Le commit du gel ne porte que le vrai changement : aucune des butées de la racine n'y est.
+        assert_eq!(git(&bac, &["diff", "--name-only", &base, "HEAD"]), fichier, "{id}");
+        // Le même diff voit une butée dès qu'elle est à l'index : le contrôle ci-dessus peut échouer.
+        git(&bac, &["add", "-f", ".bashrc"]);
+        assert_eq!(git(&bac, &["diff", "--cached", "--name-only"]), ".bashrc", "{id}");
+    }
+    assert_eq!(fichiers(&depot, "lydite/vague-v"), ["a.txt", "b.txt"]);
     let _ = fs::remove_dir_all(&racine);
 }
 

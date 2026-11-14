@@ -796,6 +796,11 @@ fn epingles_gelees(
 /// que Claude Code tient lui-même sous `.claude/` hors de git. Kraken regarde le fichier lui-même, car git ne dit rien
 /// d'un fichier ignoré. Les chemins se comparent exactement, comme git les rend. Un écart est le refus 7014, qui cite
 /// les chemins en trop ; un git qui ne répond pas, le refus 7009 : rien ne prouve alors que le bac est resté propre.
+///
+/// Une butée du mur ([`butees_du_bac`], du départ du bac, sans chemin protégé) ne compte pas parmi les non-suivis : la
+/// main ne l'a pas écrite, le bac à sable de Claude Code l'a posée et sa session morte ne l'a pas retirée. Tout le
+/// reste compte : un fichier non vide ou qu'on peut écrire, un lien, un dossier, un nom hors de ces listes, un chemin
+/// suivi ou présent au départ.
 pub(crate) fn seul_change(bac: &Path, depart: &str, fichier: &str, aussi: &[&str]) -> Result<(), Refus> {
     let touche = |preuve: String| Refus::new(Code::BacTouche, preuve, SEUL);
     let rate = |vu: String| Refus::new(Code::GitImpossible, vu, SANS_LISTE);
@@ -839,11 +844,18 @@ pub(crate) fn seul_change(bac: &Path, depart: &str, fichier: &str, aussi: &[&str
     let suivi = geste(bac, &["diff", "--name-only", "-z", "--no-renames", "HEAD", "--", "."]);
     let mut non_suivi = geste(bac, &["ls-files", "--others", "--exclude-standard", "-z", "--", "."]);
     non_suivi.args(exclusions_de_l_etat());
+    // Les butées du mur, que la main n'a pas écrites : seul le non suivi les laisse passer, une butée suivie ou
+    // ajoutée à l'index est dans `git diff HEAD` et compte.
+    let butees = butees_du_bac(bac, depart, &[]);
     let mut hors = Vec::new();
-    for commande in [suivi, non_suivi] {
+    for (rang, commande) in [suivi, non_suivi].into_iter().enumerate() {
         let sortie = faire(commande).map_err(rate)?;
-        let autres =
-            sortie.split('\0').filter(|chemin| !chemin.is_empty() && *chemin != fichier && !aussi.contains(chemin));
+        let autres = sortie.split('\0').filter(|chemin| {
+            !chemin.is_empty()
+                && *chemin != fichier
+                && !aussi.contains(chemin)
+                && !(rang == 1 && butees.iter().any(|butee| butee == chemin))
+        });
         hors.extend(autres.map(String::from));
     }
     if hors.is_empty() {
