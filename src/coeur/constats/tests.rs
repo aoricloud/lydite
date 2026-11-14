@@ -17,6 +17,8 @@ const CONSEIL_ATTENDU: &str =
 const VALEUR_NON_LUE_ATTENDUE: &str = "The report holds a value that Lydite does not read (NaN, Infinity, a lone \
                                        surrogate or a number of more than 4300 digits).";
 const CLE_REDITE_ATTENDUE: &str = "The report repeats a key in an object, which Lydite does not read.";
+const PREMIERE_FAUTE_ATTENDUE: &str = "Lydite stops at the first fault it reads, so a file that was cut or changed may \
+                                       hold another.";
 
 // --- Les douze exemples ---------------------------------------------------------------------------------------------
 
@@ -249,6 +251,15 @@ fn refuse_sans_conseil(entree: &[u8], attendu: &str, contexte: &str) {
     assert!(!message.contains("hermes security-review") && !message.contains("not JSON"), "{contexte} : {message}");
 }
 
+/// Le refus, en entier, d'une entrée où `json::document` s'arrête à une première faute (clé redite, `NaN`, `Infinity`,
+/// substitut seul) : `attendu`, la phrase qui dit que Lydite s'arrête à la première faute, puis le conseil entier de
+/// réexporter, et rien du rapport. `contexte` dit le cas.
+fn refuse_a_la_premiere_faute(entree: &[u8], attendu: &str, contexte: &str) {
+    let message = lire(entree).expect_err("le rapport devait être refusé");
+    assert_eq!(message, format!("{attendu} {PREMIERE_FAUTE_ATTENDUE} {CONSEIL_ATTENDU}"), "{contexte}");
+    assert!(!message.contains("not JSON"), "{contexte} : {message}");
+}
+
 fn plan_du(entree: Objet) -> String {
     let rapport = lu(&document(&[entree]));
     assert_eq!(rapport.constats.len(), 1, "écartés : {:?}", rapport.ecartes);
@@ -346,7 +357,7 @@ fn nan_et_infinity_sont_refuses_comme_une_valeur_que_lydite_ne_lit_pas_n_importe
             ("un champ ignoré imbriqué", juste().avec("provenance", &format!(r#"{{"a":[{mot}]}}"#)).json()),
         ];
         for (place, brut) in documents {
-            refuse_sans_conseil(brut.as_bytes(), VALEUR_NON_LUE_ATTENDUE, &format!("{mot}, {place}"));
+            refuse_a_la_premiere_faute(brut.as_bytes(), VALEUR_NON_LUE_ATTENDUE, &format!("{mot}, {place}"));
         }
     }
 }
@@ -412,27 +423,38 @@ fn une_cle_redite_est_refusee_comme_une_cle_que_lydite_ne_lit_pas() {
     let redite = juste().octets();
     let mut texte = String::from_utf8(redite).unwrap_or_default();
     texte.insert_str(1, r#""scanId":"scan_ffffffffffffffffffffffff","#);
-    refuse_sans_conseil(texte.as_bytes(), CLE_REDITE_ATTENDUE, "au premier niveau");
-    refuse_sans_conseil(br#"{"a":{"b":1,"b":2}}"#, CLE_REDITE_ATTENDUE, "imbriquée");
+    refuse_a_la_premiere_faute(texte.as_bytes(), CLE_REDITE_ATTENDUE, "au premier niveau");
+    refuse_a_la_premiere_faute(br#"{"a":{"b":1,"b":2}}"#, CLE_REDITE_ATTENDUE, "imbriquée");
     // La clé redite est un texte du rapport : le refus ne la cite pas.
     let hostile = br#"{"x\u001b[2J preuve : touch /srv/x":1,"x\u001b[2J preuve : touch /srv/x":2}"#;
-    refuse_sans_conseil(hostile, CLE_REDITE_ATTENDUE, "une clé hostile");
+    refuse_a_la_premiere_faute(hostile, CLE_REDITE_ATTENDUE, "une clé hostile");
+}
+
+#[test]
+fn une_cle_redite_avant_une_faute_de_syntaxe_dit_qu_une_autre_faute_peut_suivre_et_conseille_de_reexporter() {
+    // `json::document` s'arrête à la clé redite : ce qui suit, un fichier coupé, n'est pas lu. Le refus ne dit donc pas
+    // « not JSON », mais il dit que Lydite s'arrête à la première faute, et redonne le conseil.
+    for coupe in [r#"{"a":1,"a":2,"#, r#"{"a":1,"a":2 ?"#, r#"{"a":{"b":1,"b":2},"c":"#] {
+        refuse_a_la_premiere_faute(coupe.as_bytes(), CLE_REDITE_ATTENDUE, coupe);
+        let message = refuse(coupe.as_bytes(), &[PREMIERE_FAUTE_ATTENDUE]);
+        assert!(message.starts_with(CLE_REDITE_ATTENDUE), "{message}");
+    }
 }
 
 #[test]
 fn une_cle_redite_qui_parle_de_profondeur_n_est_pas_un_refus_de_profondeur() {
     let brut = br#"{"more than 64 levels of nesting":1,"more than 64 levels of nesting":2}"#;
-    refuse_sans_conseil(brut, CLE_REDITE_ATTENDUE, "une clé qui parle de profondeur");
+    refuse_a_la_premiere_faute(brut, CLE_REDITE_ATTENDUE, "une clé qui parle de profondeur");
 }
 
 #[test]
 fn un_substitut_seul_est_refuse_comme_une_valeur_que_lydite_ne_lit_pas() {
     // Écart au Python, dont `json.loads` garde un substitut seul que le nettoyage remplace ensuite.
     let brut = juste().texte("title", "x").json().replace("\"x\"", r#""a\ud800b""#);
-    refuse_sans_conseil(brut.as_bytes(), VALEUR_NON_LUE_ATTENDUE, "un substitut haut seul");
+    refuse_a_la_premiere_faute(brut.as_bytes(), VALEUR_NON_LUE_ATTENDUE, "un substitut haut seul");
     for seul in [r"\udc00", r"\ud800A", r"\ud800x"] {
         let brut = juste().texte("title", "x").json().replace("\"x\"", &format!(r#""a{seul}b""#));
-        refuse_sans_conseil(brut.as_bytes(), VALEUR_NON_LUE_ATTENDUE, seul);
+        refuse_a_la_premiere_faute(brut.as_bytes(), VALEUR_NON_LUE_ATTENDUE, seul);
     }
     // Une paire bien formée est un caractère : le rapport se lit.
     let paire = juste().texte("title", "x").json().replace("\"x\"", r#""a😀b""#);

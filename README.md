@@ -414,8 +414,11 @@ one skill:
   is approved. It starts nothing and costs nothing.
 - `lydite_findings` reads the findings export of the hermes-security plugin and writes one Lydite plan per finding you
   choose: prove it by a failing test, then fix it. It starts nothing: each plan is launched with `lydite_lancer`, with
-  your approval, and only under a required wall. A finding that no test can show comes back as not proved, with
-  nothing changed.
+  your approval. Lydite refuses, unless the wall is required (6037), a plan that carries the `report` line that
+  `lydite_findings` writes;
+  a plan whose line was removed, or written by hand from a report, goes as a plan written by hand,
+  and the human's reading of the plan before approving is what holds. A finding that no test can show comes back as
+  not proved, with nothing changed.
 - The skill `lydite:driving-lydite` tells the model when to hand a job to Lydite, how to read what `lydite_etat`
   returns, and to quote a refusal and stop instead of redoing the work itself. It is the text `lydite skill` prints.
 
