@@ -17,6 +17,35 @@ you do not rewrite its plan, and you never merge: the pull request is for a huma
 - The user asks where a Lydite wave stands.
 - Not for a quick edit or a question about code: do those yourself.
 
+## From Claude Code or a shell
+
+Without the Hermes plugin, the tools below are commands: `lydite_lancer` is `lydite launch`, `lydite_etat` is
+`lydite status`, `lydite_plan` is `lydite plan <file>`, `lydite_lecons` is `lydite lessons <folder>`. The rest of this
+skill holds. In order:
+
+1. `lydite doctor` launches nothing and says what is missing. It exits 1 if anything is, `gh` too, even if you will not
+   use `--pr`. A sign-in it asks for (`claude auth login`, `gh auth login`) is the user's to make, never yours.
+2. The profile is the first word after `launch`: ask the user which one. Any profile, the built-in `claude` included,
+   works only after the user ran `lydite accept <name>`; you never do. Then `lydite doctor <name>` also reads it and
+   plays the wall check.
+3. Show the user the repository, the work, the proof, the profile and the target branch, and wait for a clear yes.
+   A launch starts hands, and so does `--dry-run`: it runs the hand that splits the work, then prints the plan and
+   stops.
+4. From the repository (or with `--repo <path>`):
+   `lydite launch <profile> "<objective>" --split --verify "<proof>" [--pr main]`. With `--pr` the result is a pull
+   request against that branch. Without it there is none: the work is merged into a wave branch of the repository, and
+   the last line on stderr names it (`branche de la vague : <name>`).
+5. A launch stays in the foreground until the wave ends, minutes to hours, and prints its progress on stderr. Run it as
+   a background command of your shell tool, so that a time limit does not cut it. Wait for that command to end and
+   read its exit code (see the codes below), then `lydite status` for the detail. Do not start a second launch on the
+   same state folder: it is refused (6032).
+6. `lydite wait` is for a session that did not start the launch: it waits while another process holds the state folder,
+   then says the last wave. Started before a launch has taken the folder, it gives up after 60 seconds (exit 2).
+   `lydite status` is no end signal: it exits 0 when there is no wave yet.
+7. Your environment goes to the hands, their commands and the proof, but for the `CLAUDE*` variables (not
+   `CLAUDE_CONFIG_DIR`), GitHub tokens, SSH agent variables and git's repository variables. Tell the user if your shell
+   holds a key for another service.
+
 ## Lessons
 
 A repository that Lydite works on may keep lessons: the written rules Lydite learned there from past mistakes and
