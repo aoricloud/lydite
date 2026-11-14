@@ -1571,8 +1571,12 @@ fn un_plan_sans_exact_ni_epingle_rend_la_tache_ci_d_avant() {
         fichiers: Some(vec!["a.txt".into()]),
         ..Tache::default()
     };
-    let attendu =
-        Plan { objectif: "Make the CI of PR 7 green".into(), preuve: Some("cargo test".into()), taches: vec![tache] };
+    let attendu = Plan {
+        objectif: "Make the CI of PR 7 green".into(),
+        preuve: Some("cargo test".into()),
+        rapport: None,
+        taches: vec![tache],
+    };
     assert_eq!(relance, attendu);
 }
 

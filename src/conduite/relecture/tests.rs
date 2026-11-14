@@ -256,7 +256,7 @@ fn un_plan_sans_exact_ni_epingle_rend_la_correction_d_avant() {
         fichiers: Some(vec!["sortie/".into(), "doc/lisez.md".into()]),
         ..Tache::default()
     };
-    assert_eq!(correction, Plan { objectif, preuve: Some("exit 0".into()), taches: vec![tache] });
+    assert_eq!(correction, Plan { objectif, preuve: Some("exit 0".into()), rapport: None, taches: vec![tache] });
 }
 
 #[test]

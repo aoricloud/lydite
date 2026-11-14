@@ -71,6 +71,7 @@ const TABLE: &[(u16, &str)] = &[
     (6034, "lancer.memoire_texte_absent"),
     (6035, "lancer.memoire_empreinte_fausse"),
     (6036, "lancer.fichier_pose_refuse"),
+    (6038, "lancer.rapport_refuse"),
     // --- 7000 : vague ---
     (7001, "vague.bac_impossible"),
     (7002, "vague.main_active"),
