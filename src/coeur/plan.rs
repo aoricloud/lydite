@@ -95,8 +95,10 @@
 //! (`constats::plan_de` l'écrit) : le scan, `scan_` et 24 hexadécimaux minuscules, une espace, puis le constat, `hsf_`
 //! ou `cand_` et 24 hexadécimaux minuscules, et rien d'autre. Le plan la porte (`Plan::rapport`). Refusés : en 6018,
 //! une valeur hors de cette forme, `report` dans un plan découpé, une ligne `place` (un plan né d'un rapport ne fait
-//! jamais écrire Lydite : le refus cite la ligne `place`), et une tâche sans ligne `red` (le rouge d'abord est exigé
-//! pour un rapport : le refus cite la ligne `tache`) ; en 6021, une valeur blanche.
+//! jamais écrire Lydite : le refus cite la ligne `place`), une tâche sans ligne `red` (le rouge d'abord est exigé
+//! pour un rapport : le refus cite la ligne `tache`), et une tâche sans `critique : oui` (sans relecture, une vague
+//! née d'un rapport ne se relit pas, et sa relance de CI perdrait son origine : chaque tâche est critique, et le refus
+//! cite la ligne `tache`) ; en 6021, une valeur blanche.
 //!
 //! Ce que le plan dit :
 //!
@@ -225,7 +227,7 @@ const PLACE: &str = concat!(
 const REPORT: &str = concat!(
     "Write `report : <scan id> <finding id>`: `scan_` and 24 lowercase hexadecimal digits, one space, then `hsf_` or ",
     "`cand_` and 24 lowercase hexadecimal digits, and nothing else; a plan that carries it places no file (no `place` ",
-    "line) and gives every task a `red` line."
+    "line) and gives every task a `red` line and `critique : oui`."
 );
 
 /// La valeur de `red` qui dit que le plan ne connaît pas le fichier du test.
@@ -884,6 +886,15 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             if rapport.is_some() && brouillon.rouges.is_empty() {
                 let quoi = format!(
                     "the task {} has no `red` line, and a plan born of a report is proved by a failing test first",
+                    cite(brouillon.id)
+                );
+                return Err(refus(Code::PlanLigne, brouillon.ligne, quoi, REPORT));
+            }
+            // Chaque tâche d'un rapport est critique : sans relecture, la vague ne se relit pas, et sa relance de CI
+            // perdrait son origine. Aucune ligne `critique` n'est fautive : la ligne `tache` l'est.
+            if rapport.is_some() && !brouillon.critique {
+                let quoi = format!(
+                    "the task {} has no `critique : oui` line, and every task of a plan born of a report is reviewed",
                     cite(brouillon.id)
                 );
                 return Err(refus(Code::PlanLigne, brouillon.ligne, quoi, REPORT));

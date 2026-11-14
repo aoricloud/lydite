@@ -1161,12 +1161,13 @@ fn un_lancement_tue_pendant_que_sa_main_court_est_dit_interrompu_par_etat_et_pas
 const SCAN: &str = "scan_0123456789abcdef01234567";
 const CONSTAT: &str = "hsf_010101010101010101010101";
 
-/// Un plan né d'un rapport, de preuve `preuve` : sa clé `report`, et sa tâche à `red`, que ce plan exige.
+/// Un plan né d'un rapport, de preuve `preuve` : sa clé `report`, et sa tâche à `red` et critique, que ce plan exige.
 fn plan_du_rapport(racine: &Path, preuve: &str) -> PathBuf {
     let (rapport, tache) = (format!("report : {SCAN} {CONSTAT}"), format!("tache {CONSTAT}"));
     let preuve = format!("preuve : {preuve}");
     let entete = ["plan 1", "objectif : Fix a finding", &preuve, &rapport];
-    plan(racine, "rapport.txt", &[&entete[..], &["", &tache, "red : declared", "    Prove it"]].concat())
+    let corps = ["", &tache, "red : declared", "critique : oui", "    Prove it"];
+    plan(racine, "rapport.txt", &[&entete[..], &corps].concat())
 }
 
 #[test]
@@ -1272,7 +1273,7 @@ fn une_vague_a_report_sous_un_mur_natif_note_vague_rapport_et_etat_compte_ses_no
     assert!(rang("vague.rapport") < rang("main.debut"), "le rapport se note avant tout départ de main");
     // `lydite etat` compte la main à part, sur la ligne du reçu.
     let recu = vague.etat.lines().find(|ligne| ligne.starts_with("Cost: ")).unwrap_or_else(|| panic!("{}", vague.etat));
-    assert!(recu.contains("1 impossible") && recu.ends_with(" · Not proved: 1"), "{recu}");
+    assert!(recu.contains("1 impossible") && recu.ends_with(" · Not proved (declared): 1"), "{recu}");
 }
 
 #[cfg(unix)]

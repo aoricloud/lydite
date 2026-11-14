@@ -40,11 +40,11 @@
 //! par couple qui tient, sauf pour un fichier que le plan épingle déjà ([`avec_les_rouges`]), et le tri des remarques
 //! les compte aux épingles : une bloquante sur le fichier d'un tel test est le refus 7020.
 //!
-//! Une vague née d'une issue se relit par [`relire_issue`], sous [`Origine::Issue`] ; hors issue, rien ne change.
-//! Sous elle, le travail se relit en entier ou pas du tout : avant que le relecteur parte, Kraken pèse le diff de
-//! l'étape 2, lu depuis la racine du dépôt visé comme il l'est dans le bac, quel que soit le dossier d'où Kraken part ;
-//! s'il dépasse [`TAILLE_MAX`] octets, la coupe qu'il subirait vaut une relecture manquée, c'est le refus 7016, rien ne
-//! se pousse, et aucun relecteur ne part.
+//! Une vague née d'une issue ou d'un rapport (un plan à `report`) se relit par [`relire_issue`], sous
+//! [`Origine::Issue`] ; hors issue et rapport, rien ne change. Sous elle, le travail se relit en entier ou pas du
+//! tout : avant que le relecteur parte, Kraken pèse le diff de l'étape 2, lu depuis la racine du dépôt visé comme il
+//! l'est dans le bac, quel que soit le dossier d'où Kraken part ; s'il dépasse [`TAILLE_MAX`] octets, la coupe qu'il
+//! subirait vaut une relecture manquée, c'est le refus 7016, rien ne se pousse, et aucun relecteur ne part.
 //!
 //! Le texte des remarques n'est jamais publié : il vit au fil, et la correction le reçoit comme objectif, que le corps
 //! de la PR ne reprend pas (`publication::corps` n'en garde que les nombres), à une exception : les lignes du bloc
@@ -448,8 +448,8 @@ pub(crate) struct Prise {
     pub(crate) correction: Option<Menee>,
 }
 
-/// D'où vient la vague relue : d'un plan, ou d'une issue. Sous une issue, la relecture ne se fait pas en partie
-/// (un diff coupé est le refus 7016).
+/// D'où vient la vague relue : d'un plan, ou d'une issue ou d'un rapport (un plan à `report` se mène sous `Issue`).
+/// Sous une issue ou un rapport, la relecture ne se fait pas en partie (un diff coupé est le refus 7016).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Origine {
     Plan,
@@ -700,7 +700,7 @@ impl Relecture<'_> {
             if poids > TAILLE_MAX as u64 {
                 return Err(classee(format!(
                     "its diff weighs {poids} bytes, more than 1 MB ({TAILLE_MAX} bytes), and a wave born from an \
-                     issue is not reviewed in part"
+                     issue or a report is not reviewed in part"
                 )));
             }
         }

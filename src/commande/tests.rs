@@ -452,12 +452,20 @@ fn un_rapport_qui_n_est_pas_un_fichier_ordinaire_ou_qu_on_ne_lit_pas_est_refuse(
 #[test]
 fn un_rapport_trop_gros_est_pese_avant_d_etre_ouvert() {
     use std::os::unix::fs::PermissionsExt;
-    // Sans droit de lecture, ouvert, ce fichier serait le refus 6006 : le 6038 vient donc de la pesée. (Un processus
-    // qui lit tout, comme root, le lit : le lecteur refuse alors le même texte.)
+    // Sans droit de lecture, ouvert, ce fichier serait le refus 6006 : le 6038 vient donc de la pesée.
     let dossier = racine("constats-pese");
     let trop = dossier.join("trop.json");
     fs::write(&trop, vec![b' '; constats::OCTETS_MAXIMUM + 1]).unwrap();
     fs::set_permissions(&trop, fs::Permissions::from_mode(0o000)).unwrap();
+    // Sous root, le propriétaire du fichier que ce test crée est 0 : il lit tout, ouvre ce fichier, et la pesée et la
+    // lecture bornée y donnent le même refus. Le test ne montrerait plus la pesée : il se saute, et le dit.
+    if fs::File::open(&trop).is_ok() {
+        eprintln!(
+            "test sauté : ce processus lit un fichier en mode 000 (root ?), la pesée ne se distingue pas du reste"
+        );
+        let _ = fs::remove_dir_all(&dossier);
+        return;
+    }
     assert_eq!(refus_6038(&trop, None, "The report is over 4194304 bytes.").preuve, constats::rapport_trop_gros());
     let _ = fs::remove_dir_all(&dossier);
 }
@@ -473,5 +481,67 @@ fn un_lien_a_la_place_du_rapport_est_refuse_sans_etre_suivi() {
     std::os::unix::fs::symlink(&vrai, &lien).unwrap();
     assert!(texte_des_constats(&vrai, None).is_ok());
     refus_6038(&lien, None, "is a symbolic link, which is not followed");
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[test]
+fn la_lecture_bornee_rend_un_octet_de_plus_que_la_borne_d_un_flux_plus_long() {
+    use std::io::Read;
+    let borne = constats::OCTETS_MAXIMUM;
+    // Un flux du double de la borne : la lecture s'arrête un octet après elle, assez pour que le lecteur le refuse.
+    let long = std::io::repeat(b'x').take(2 * borne as u64);
+    assert_eq!(octets_bornes(long).unwrap().len(), borne + 1);
+    // À la borne, et en dessous, le flux se lit en entier.
+    assert_eq!(octets_bornes(&vec![b'y'; borne][..]).unwrap().len(), borne);
+    assert_eq!(octets_bornes(&b"abc"[..]).unwrap(), b"abc");
+    assert!(octets_bornes(&b""[..]).unwrap().is_empty());
+}
+
+/// Le refus 6038 d'un rapport que l'ouverture juge autre que celui de la pesée : il le dit, et tient en quatre lignes.
+fn refus_change(chemin: &Path, vu: &std::fs::Metadata) -> Refus {
+    let refus = ouvrir_le_rapport(chemin, vu).unwrap_err();
+    assert_eq!(refus.code, Code::RapportRefuse, "{refus}");
+    assert!(refus.preuve.contains("changed between the weighing and the opening"), "{refus}");
+    assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
+    refus
+}
+
+#[test]
+fn un_rapport_remplace_apres_la_pesee_par_un_fichier_plus_gros_est_refuse_en_6038() {
+    // Sans fil ni attente : la pesée est faite, le chemin change, puis l'ouverture se juge. Vaut sous Windows aussi.
+    let dossier = racine("constats-change-gros");
+    let rapport = dossier.join("rapport.json");
+    fs::write(&rapport, RAPPORT_JUSTE).unwrap();
+    let vu = peser_le_rapport(&rapport).unwrap();
+    // Le même chemin, non changé, s'ouvre : c'est bien le remplacement qui est refusé.
+    assert!(ouvrir_le_rapport(&rapport, &vu).is_ok());
+    let gros = dossier.join("gros.json");
+    fs::write(&gros, vec![b' '; constats::OCTETS_MAXIMUM + 1]).unwrap();
+    fs::rename(&gros, &rapport).unwrap();
+    refus_change(&rapport, &vu);
+    let _ = fs::remove_dir_all(&dossier);
+}
+
+#[cfg(unix)]
+#[test]
+fn un_rapport_remplace_apres_la_pesee_par_un_autre_fichier_ou_un_dossier_est_refuse_en_6038() {
+    let dossier = racine("constats-change-autre");
+    let rapport = dossier.join("rapport.json");
+    fs::write(&rapport, RAPPORT_JUSTE).unwrap();
+    let vu = peser_le_rapport(&rapport).unwrap();
+    assert!(ouvrir_le_rapport(&rapport, &vu).is_ok());
+    // Un autre fichier ordinaire, de la même taille et du même contenu : seul son `ino` le distingue.
+    let autre = dossier.join("autre.json");
+    fs::write(&autre, RAPPORT_JUSTE).unwrap();
+    fs::rename(&autre, &rapport).unwrap();
+    refus_change(&rapport, &vu);
+    // Un dossier : `File::open` l'ouvre sous Unix, et ce n'est pas un fichier ordinaire.
+    fs::remove_file(&rapport).unwrap();
+    fs::create_dir(&rapport).unwrap();
+    refus_change(&rapport, &vu);
+    // La lecture entière suit la même route : le fichier de la pesée se lit.
+    let vrai = dossier.join("vrai.json");
+    fs::write(&vrai, RAPPORT_JUSTE).unwrap();
+    assert_eq!(lire_rapport(&vrai).unwrap(), RAPPORT_JUSTE.as_bytes());
     let _ = fs::remove_dir_all(&dossier);
 }

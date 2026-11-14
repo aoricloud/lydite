@@ -288,3 +288,34 @@ fn chaque_copie_se_dit_prise_refusee_ou_classee() {
     let limite = Err("refusée (1) : une main qui le dit".to_string());
     assert!(annonce("main-v-4", &limite).starts_with("refusée : main-v-4\n"));
 }
+
+/// Le plan que cette ligne d'origine (`report : …`, ou rien) donne à une tâche critique.
+fn plan_d_origine(origine: &str) -> Plan {
+    let entete = "plan 1\nobjectif : x\npreuve : cargo test\n";
+    let texte = format!("{entete}{origine}\ntache a\ncritique : oui\nred : declared\n    x\n");
+    Plan::lire(texte.as_bytes()).unwrap_or_else(|refus| panic!("le plan se lit : {refus}"))
+}
+
+#[test]
+fn exiger_le_mur_du_rapport_refuse_en_6037_un_plan_a_report_sous_un_mur_demande_ou_une_main_brute() {
+    let rapport = plan_d_origine("report : scan_0123456789abcdef01234567 hsf_0a0a0a0a0a0a0a0a0a0a0a0a");
+    let sans_rapport = plan_d_origine("");
+    assert!(rapport.rapport.is_some() && sans_rapport.rapport.is_none());
+    let profil =
+        |mur: &str| crate::coeur::profil::lire("essai", &format!("sorte = claude\nmur = {mur}\n"), None, None).unwrap();
+    // Le mur exigé, par srt ou par le mur natif : le plan à `report` passe.
+    for mur in ["exige", "natif"] {
+        assert!(exiger_le_mur_du_rapport(&rapport, &profil(mur), "essai").is_ok(), "mur = {mur}");
+    }
+    // Le mur demandé, ou une main brute, qui n'en a pas : 6037, qui nomme le profil.
+    let brute = Profil::faux(vec!["true".into()], std::time::Duration::from_secs(1));
+    for (nom, refuse) in [("mur = demande", profil("demande")), ("une main brute", brute)] {
+        let refus = exiger_le_mur_du_rapport(&rapport, &refuse, "essai").expect_err(nom);
+        assert_eq!(refus.code, Code::RapportSansMur, "{nom} : {refus}");
+        assert_eq!(refus.code.numero(), 6037, "{nom}");
+        assert!(refus.preuve.contains("the profile essai does not require the wall"), "{nom} : {refus}");
+        assert!(refus.correction.contains("`lydite accept essai`"), "{nom} : {refus}");
+        // Le même profil ne refuse pas un plan sans `report`, que le mur ne regarde pas.
+        assert!(exiger_le_mur_du_rapport(&sans_rapport, &refuse, "essai").is_ok(), "{nom} : un plan sans report");
+    }
+}
