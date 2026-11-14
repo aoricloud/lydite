@@ -133,9 +133,10 @@ pub(crate) fn lire_borne(fichier: &Path) -> io::Result<Vec<u8>> {
 
 /// Le juge du relecteur, sur son bac parti de `depart` : [`REMARQUES`] y est un fichier ordinaire que le dépôt n'ignore
 /// pas, et le seul changement du bac avec [`DIFF`], que Kraken y a écrit (7014, ou 7009 si git ne le dit pas) ; puis il
-/// se lit (7015 ; une lecture ratée, 6006). Rend les remarques et leur texte, ou le refus.
-fn juger(bac: &Path, depart: &str) -> Result<(Vec<Remarque>, String), Refus> {
-    seul_change(bac, depart, REMARQUES, &[DIFF, FICHIER_PREUVE])?;
+/// se lit (7015 ; une lecture ratée, 6006). Rend les remarques et leur texte, ou le refus. `proteges` sont les chemins
+/// protégés du profil sous lequel tourne le relecteur ([`seul_change`]).
+fn juger(bac: &Path, depart: &str, proteges: &[String]) -> Result<(Vec<Remarque>, String), Refus> {
+    seul_change(bac, depart, REMARQUES, &[DIFF, FICHIER_PREUVE], proteges)?;
     let chemin = bac.join(REMARQUES);
     let octets = lire_borne(&chemin).map_err(|e| Refus::from(nommee(e, format!("reading {}", chemin.display()))))?;
     let fichier = lire_fichier(&octets)?.exiger_la_forme_2()?;
@@ -579,7 +580,8 @@ impl Relecture<'_> {
             return Err(Refus::new(Code::FilInjoignable, preuve, SANS_NOTE));
         }
         let ecrits = [REMARQUES, DIFF, FICHIER_PREUVE];
-        retirer_le_bac(self.depot, self.dossier, "the reviewer's sandbox", &main, self.tete, &ecrits);
+        let proteges = self.profil.proteges();
+        retirer_le_bac(self.depot, self.dossier, "the reviewer's sandbox", &main, self.tete, &ecrits, proteges);
         if let Some((numero, fichier, cas)) = self.bloquante_hors_de_portee(&remarques, &rouges.couples) {
             let id = &self.menee.id;
             let refus = match cas {
@@ -707,7 +709,7 @@ impl Relecture<'_> {
         // Ce que le juge a lu à la prise : c'est lui que le fil note.
         let lu: Mutex<Option<(Vec<Remarque>, String)>> = Mutex::new(None);
         let juge = |bac: &Path| -> Result<(), String> {
-            let pris = juger(bac, tete).map_err(|refus| en_erreur(&refus))?;
+            let pris = juger(bac, tete, self.profil.proteges()).map_err(|refus| en_erreur(&refus))?;
             *lu.lock().unwrap_or_else(PoisonError::into_inner) = Some(pris);
             Ok(())
         };

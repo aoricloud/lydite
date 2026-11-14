@@ -47,9 +47,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::branchements::bac::{
-    CLAUDE, butees_du_bac, butees_protegees, exclusions_de_l_etat, poser, sans_claude, temporaire_de,
-};
+use crate::branchements::bac::{CLAUDE, butees_du_bac, exclusions_de_l_etat, poser, sans_claude, temporaire_de};
 use crate::branchements::git::{Arbre, BORNE_EMPREINTE, Gardee, empreinte_gardee, faire, geste};
 use crate::branchements::srt::rejouer;
 use crate::coeur::erreur::{Code, Refus, nommee};
@@ -485,7 +483,7 @@ impl Assemblage<'_> {
 fn geler(bac: &Path, depart: &str, proteges: &[String], titre: &str) -> Result<String, String> {
     let mut ajout = geste(bac, &["add", "-A", "--", "."]);
     ajout.args(exclusions_de_l_etat());
-    // Les butées du mur que la main a laissées derrière elle : ni écrites par elle, ni à commiter.
+    // Les fichiers qui ont la forme d'une butée du mur : ils ne portent rien, et ne sont pas à commiter.
     ajout.args(butees_du_bac(bac, depart, proteges).into_iter().map(|chemin| format!(":(exclude,literal){chemin}")));
     faire(ajout)?;
     if !faire(geste(bac, &["diff", "--cached", "--name-only"]))?.trim().is_empty() {
@@ -574,14 +572,15 @@ fn vus_au_gel(bac: &Path, depart: &str, gel: &str, pathspecs: &[impl AsRef<str>]
 ///   prend pas non plus ;
 /// - `git diff --name-only -z <depart> HEAD` : ce que les commits de la main ont changé, dont `status` ne dit rien.
 ///
-/// Rien sous un dossier `.claude` (voir [`SOUS_CLAUDE`]). Ni la butée du mur à un chemin de `proteges` absent de
-/// `depart` ([`butees_protegees`]), tant qu'elle est non suivie : commitée ou ajoutée à l'index, elle compte. Un
-/// échec de git, qu'il ne parte pas ou qu'il refuse, est le refus 7009 : une liste vide ne vaut « rien changé » que si
-/// git a réussi.
+/// Rien sous un dossier `.claude` (voir [`SOUS_CLAUDE`]). Ni une butée du mur ([`butees_du_bac`], de `depart` et des
+/// `proteges`) : celle à la racine, à un nom de `TOUJOURS_REFUSES`, ou à un chemin de `proteges`, absente de `depart`,
+/// que le gel ne commite pas. Elle ne passe que non suivie : commitée ou ajoutée à l'index, elle compte, comme un
+/// fichier non vide ou qu'on peut écrire, un lien, un dossier ou un nom hors de ces listes. Un échec de git, qu'il ne
+/// parte pas ou qu'il refuse, est le refus 7009 : une liste vide ne vaut « rien changé » que si git a réussi.
 pub(crate) fn chemins_changes(bac: &Path, depart: &str, proteges: &[String]) -> Result<Vec<String>, Refus> {
     let statut = geste(bac, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--", "."]);
     let commites = geste(bac, &["diff", "--name-only", "-z", "--no-renames", depart, "HEAD", "--", "."]);
-    let butees = butees_protegees(bac, depart, proteges);
+    let butees = butees_du_bac(bac, depart, proteges);
     let mut chemins = Vec::new();
     // Chaque entrée finit par NUL, sans guillemets ; celles de `status` commencent par deux lettres d'état et un blanc.
     for (mut commande, saut) in [(statut, 3), (commites, 0)] {
@@ -797,11 +796,19 @@ fn epingles_gelees(
 /// d'un fichier ignoré. Les chemins se comparent exactement, comme git les rend. Un écart est le refus 7014, qui cite
 /// les chemins en trop ; un git qui ne répond pas, le refus 7009 : rien ne prouve alors que le bac est resté propre.
 ///
-/// Une butée du mur ([`butees_du_bac`], du départ du bac, sans chemin protégé) ne compte pas parmi les non-suivis : la
-/// main ne l'a pas écrite, le bac à sable de Claude Code l'a posée et sa session morte ne l'a pas retirée. Tout le
-/// reste compte : un fichier non vide ou qu'on peut écrire, un lien, un dossier, un nom hors de ces listes, un chemin
-/// suivi ou présent au départ.
-pub(crate) fn seul_change(bac: &Path, depart: &str, fichier: &str, aussi: &[&str]) -> Result<(), Refus> {
+/// Un fichier qui a la forme d'une butée du mur ([`butees_du_bac`], du départ du bac, des `proteges` du profil sous
+/// lequel tourne la main) ne compte pas parmi les non-suivis : ordinaire, vide, sans droit d'écriture, absent du
+/// départ, à un nom que le mur interdit d'écrire. Kraken ne teste pas d'où il vient ; d'ordinaire, le bac à sable de
+/// Claude Code l'a posé et sa session morte ne l'a pas retiré. Les `proteges` sont ceux que la main reçoit : le bac à
+/// sable pose aussi une butée à un chemin protégé absent du départ. Tout le reste compte : un fichier non vide ou
+/// qu'on peut écrire, un lien, un dossier, un nom hors de ces listes, un chemin suivi ou présent au départ.
+pub(crate) fn seul_change(
+    bac: &Path,
+    depart: &str,
+    fichier: &str,
+    aussi: &[&str],
+    proteges: &[String],
+) -> Result<(), Refus> {
     let touche = |preuve: String| Refus::new(Code::BacTouche, preuve, SEUL);
     let rate = |vu: String| Refus::new(Code::GitImpossible, vu, SANS_LISTE);
     match fs::symlink_metadata(bac.join(fichier)) {
@@ -844,9 +851,9 @@ pub(crate) fn seul_change(bac: &Path, depart: &str, fichier: &str, aussi: &[&str
     let suivi = geste(bac, &["diff", "--name-only", "-z", "--no-renames", "HEAD", "--", "."]);
     let mut non_suivi = geste(bac, &["ls-files", "--others", "--exclude-standard", "-z", "--", "."]);
     non_suivi.args(exclusions_de_l_etat());
-    // Les butées du mur, que la main n'a pas écrites : seul le non suivi les laisse passer, une butée suivie ou
+    // Les fichiers qui ont la forme d'une butée du mur : seul le non suivi les laisse passer, une butée suivie ou
     // ajoutée à l'index est dans `git diff HEAD` et compte.
-    let butees = butees_du_bac(bac, depart, &[]);
+    let butees = butees_du_bac(bac, depart, proteges);
     let mut hors = Vec::new();
     for (rang, commande) in [suivi, non_suivi].into_iter().enumerate() {
         let sortie = faire(commande).map_err(rate)?;

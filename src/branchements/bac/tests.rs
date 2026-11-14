@@ -3,7 +3,7 @@ use crate::branchements::git::{decrire, faire};
 use crate::coeur::fil::lot;
 #[cfg(windows)]
 use crate::essais::effacer_avant;
-use crate::essais::{depot_neuf as depot, ecrire, effacer, etat_de_claude, git, kraken, neuf, pour_sh, script};
+use crate::essais::{depot_neuf as depot, ecrire, effacer, etat_de_claude, git, kraken, lier, neuf, pour_sh, script};
 use std::cell::RefCell;
 use std::fs;
 use std::process::{Child, Stdio};
@@ -379,7 +379,7 @@ fn les_butees_du_bac_comptent_les_noms_toujours_refuses_de_la_racine_qui_sont_de
     assert_eq!(butees_du_bac(&bac, &depart, &[]), attendues);
     assert_eq!(butees_du_bac(&bac, &depart, &proteges()), attendues);
     // Ce qui n'en est pas une : un nom hors de la liste, un fichier non vide, un fichier qu'on peut écrire, un
-    // dossier, un nom présent au départ (`.claude/commands` ne se lit que sous `.claude/`, pas à la racine).
+    // dossier, un nom présent au départ.
     butee(&bac, ".autrerc");
     butee(&bac, ".gitconfig");
     regler_ecriture(&bac.join(".gitconfig"), true);
@@ -391,8 +391,112 @@ fn les_butees_du_bac_comptent_les_noms_toujours_refuses_de_la_racine_qui_sont_de
     fs::remove_file(bac.join(".gitmodules")).unwrap();
     butee(&bac, ".gitmodules");
     assert_eq!(butees_du_bac(&bac, &depart, &[]), attendues);
-    // Un git qui ne dit pas ce que le départ porte ne prouve aucune absence : aucune butée de la racine.
-    assert_eq!(butees_du_bac(&bac, &"0".repeat(40), &[]), [".claude/loop.md"]);
+    // Un git qui ne dit pas ce que le départ porte ne prouve aucune absence : aucune butée, ni à la racine ni sous
+    // `.claude/`.
+    assert_eq!(butees_du_bac(&bac, &"0".repeat(40), &[]), Vec::<String>::new());
+    let _ = fs::remove_dir_all(&depot);
+    let _ = fs::remove_dir_all(&kraken);
+}
+
+#[test]
+fn butees_du_bac_ne_lit_pas_un_claude_qui_est_un_lien() {
+    // `.claude` est un lien vers un dossier hors du bac, qui porte une butée : suivi au départ dans le dépôt visé, ou
+    // non suivi et ignoré par un motif `.claude`. Aucune butée n'est rendue : la cible n'est pas dans le bac.
+    for (nom, suivi) in [("suivi", true), ("ignore", false)] {
+        let (depot, kraken) = (depot(&format!("claude-lien-{nom}")), neuf(&format!("claude-lien-{nom}-lydite")));
+        let cible = neuf(&format!("claude-lien-{nom}-cible"));
+        butee(&cible, "loop.md");
+        if suivi {
+            if lier(&cible, &depot.join(".claude")) {
+                commit(&depot);
+            }
+        } else {
+            ecrire(&depot, ".gitignore", ".claude\n");
+            commit(&depot);
+        }
+        let (bac, depart) = pose(&depot, &kraken);
+        if !suivi {
+            lier(&cible, &bac.join(".claude"));
+        }
+        // Git peut ne pas rendre le lien sous Windows : sans lui, rien à éprouver.
+        if fs::symlink_metadata(bac.join(".claude")).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            assert_eq!(butees_du_bac(&bac, &depart, &[]), Vec::<String>::new(), "{nom}");
+            // Le contrôle : sans le lien, la même cible dans le bac est une butée.
+            fs::remove_file(bac.join(".claude")).or_else(|_| fs::remove_dir(bac.join(".claude"))).unwrap();
+            butee(&bac, ".claude/loop.md");
+            assert_eq!(butees_du_bac(&bac, &depart, &[]), [".claude/loop.md"], "{nom}");
+        } else if cfg!(unix) {
+            panic!("{nom} : .claude n'est pas un lien dans le bac");
+        }
+        let _ = fs::remove_dir_all(&cible);
+        let _ = fs::remove_dir_all(&depot);
+        let _ = fs::remove_dir_all(&kraken);
+    }
+}
+
+#[test]
+fn butees_du_bac_ne_rend_pas_un_chemin_protege_derriere_un_dossier_qui_est_un_lien() {
+    // `.agents` est un lien vers un dossier hors du bac, qui porte un `skills` vide en lecture seule : suivi au départ
+    // dans le dépôt visé, ou non suivi et ignoré par un motif `.agents`. Aucune butée n'est rendue : la cible n'est pas
+    // dans le bac. Même chose pour `config/secret.env`, un chemin protégé du profil à deux noms.
+    let proteges: Vec<String> = [".agents/skills/", "config/secret.env"].iter().map(|c| c.to_string()).collect();
+    for (nom, suivi) in [("suivi", true), ("ignore", false)] {
+        let (depot, kraken) = (depot(&format!("agents-lien-{nom}")), neuf(&format!("agents-lien-{nom}-lydite")));
+        let cible = neuf(&format!("agents-lien-{nom}-cible"));
+        butee(&cible, "skills");
+        butee(&cible, "secret.env");
+        if suivi {
+            if lier(&cible, &depot.join(".agents")) && lier(&cible, &depot.join("config")) {
+                commit(&depot);
+            }
+        } else {
+            ecrire(&depot, ".gitignore", ".agents\nconfig\n");
+            commit(&depot);
+        }
+        let (bac, depart) = pose(&depot, &kraken);
+        if !suivi {
+            lier(&cible, &bac.join(".agents"));
+            lier(&cible, &bac.join("config"));
+        }
+        let est_un_lien =
+            |chemin: &str| fs::symlink_metadata(bac.join(chemin)).is_ok_and(|meta| meta.file_type().is_symlink());
+        // Git peut ne pas rendre le lien sous Windows : sans lui, rien à éprouver.
+        if est_un_lien(".agents") && est_un_lien("config") {
+            assert_eq!(butees_protegees(&bac, &depart, &proteges), Vec::<String>::new(), "{nom}");
+            assert_eq!(butees_du_bac(&bac, &depart, &proteges), Vec::<String>::new(), "{nom}");
+            // Le contrôle : sans les liens, les mêmes fichiers dans le bac sont des butées.
+            for lien in [".agents", "config"] {
+                fs::remove_file(bac.join(lien)).or_else(|_| fs::remove_dir(bac.join(lien))).unwrap();
+            }
+            butee(&bac, ".agents/skills");
+            butee(&bac, "config/secret.env");
+            let attendues = [".agents/skills", "config/secret.env"];
+            assert_eq!(butees_protegees(&bac, &depart, &proteges), attendues, "{nom}");
+        } else if cfg!(unix) {
+            panic!("{nom} : .agents et config ne sont pas des liens dans le bac");
+        }
+        let _ = fs::remove_dir_all(&cible);
+        let _ = fs::remove_dir_all(&depot);
+        let _ = fs::remove_dir_all(&kraken);
+    }
+}
+
+#[test]
+fn un_fichier_vide_suivi_sous_claude_n_est_pas_une_butee_meme_en_lecture_seule() {
+    let (depot, kraken) = (depot("claude-suivi"), neuf("claude-suivi-lydite"));
+    ecrire(&depot, ".claude/loop.md", "");
+    commit(&depot);
+    let (bac, depart) = pose(&depot, &kraken);
+    regler_ecriture(&bac.join(".claude/loop.md"), false);
+    assert_eq!(butees_du_bac(&bac, &depart, &[]), Vec::<String>::new());
+    // Une vraie butée à côté, absente du départ, est rendue : le contrôle ci-dessus peut échouer.
+    butee(&bac, ".claude/hooks");
+    assert_eq!(butees_du_bac(&bac, &depart, &[]), [".claude/hooks"]);
+    // `sans_claude` garde son sens : le fichier suivi, ôté de l'index, n'est pas une butée pour lui non plus.
+    git(&bac, &["rm", "-q", "--cached", ".claude/loop.md"]);
+    let refus = sans_claude(&bac, &depart).unwrap_err();
+    assert_eq!(refus.code, Code::ClaudeTouche, "{refus}");
+    assert!(refus.preuve.ends_with(": .claude/loop.md"), "{refus}");
     let _ = fs::remove_dir_all(&depot);
     let _ = fs::remove_dir_all(&kraken);
 }
