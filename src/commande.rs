@@ -90,7 +90,7 @@ fn executer() -> Result<ExitCode, Refus> {
         }
         Commande::Plan { profil, plan, depot, pr } => {
             let (profil, depot, dossier) = preparer(&profil, depot.as_deref())?;
-            let (plan, _, empreinte) = lire_plan(&plan, plan::Mode::Main)?;
+            let (plan, _, empreinte, _) = lire_plan(&plan, plan::Mode::Main)?;
             (profil, depot, dossier, plan, pr, None, Some(empreinte))
         }
         Commande::Accepter(nom) => return accepter_cmd(&nom),
@@ -131,10 +131,96 @@ fn executer() -> Result<ExitCode, Refus> {
     mener_sur(&lieu, &plan, &proposition.base, liens, Some(&proposition), Origine::Plan)
 }
 
+/// Ce que le plan dit pour un fichier qu'il pose, et le contenu que Lydite en a lu : les octets du fichier de même
+/// chemin sous `<fichier du plan>.files/`, tels quels, dont l'empreinte est celle du plan.
+#[derive(Debug, PartialEq, Eq)]
+struct Posee {
+    /// L'id de la tâche dont une ligne `place` dit ce fichier.
+    tache: String,
+    /// Le chemin du fichier, tel que le plan l'écrit : relatif à la racine du dépôt, des noms séparés par `/`.
+    fichier: String,
+    octets: Vec<u8>,
+}
+
+/// Les fichiers qu'un plan pose, au plus.
+const POSES_MAX: usize = 64;
+
+/// Un fichier que le plan pose pèse 4 Mio au plus.
+const POSE_TAILLE_MAX: u64 = 4 * 1024 * 1024;
+
+/// Le refus 6036 : ce qui est refusé (un fichier que le plan pose, ou le plan) et ce qui a été vu.
+fn pose_refusee(sujet: impl std::fmt::Display, vu: impl std::fmt::Display) -> Refus {
+    let preuve = format!("{sujet}: {vu}");
+    let correction = "Put each file that the plan places, with the bytes whose SHA-256 the plan writes, at the same \
+                      path under the folder `<plan file>.files/` next to the plan: a regular file, never a symbolic \
+                      link, of 4 MiB at most; a plan places 64 files at most.";
+    Refus::new(Code::FichierPoseRefuse, preuve, correction)
+}
+
+/// Le contenu des fichiers que le plan pose, dans l'ordre du plan : un plan sans `place` n'en lit aucun, n'ouvre rien.
+/// Le dossier est `<fichier du plan>.files`, voisin du plan, et chaque fichier y a son chemin. Aucun lien symbolique
+/// n'est suivi (le dossier, ses sous-dossiers, le fichier : `symlink_metadata`), le fichier ne passe pas 4 Mio (lu
+/// borné, un octet de plus pour voir qu'il dépasse) et ses octets ont l'empreinte du plan. Le refus est 6036.
+fn lire_poses(fichier_du_plan: &Path, plan: &Plan) -> Result<Vec<Posee>, Refus> {
+    use std::io::Read;
+    let total: usize = plan.taches.iter().map(|tache| tache.poses.len()).sum();
+    if total == 0 {
+        return Ok(Vec::new());
+    }
+    if total > POSES_MAX {
+        let quoi = format!("it places {total} files, and {POSES_MAX} at most");
+        return Err(pose_refusee("the plan", quoi));
+    }
+    let mut nom = fichier_du_plan.as_os_str().to_os_string();
+    nom.push(".files");
+    let racine = std::path::PathBuf::from(nom);
+    // Le chemin est de la forme que `symlink_metadata` ne suit pas : un dossier ou un fichier ordinaire, sinon dit.
+    let verifier = |chemin: &Path, dossier: bool| -> Result<(), String> {
+        let ici = chemin.display();
+        match std::fs::symlink_metadata(chemin) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(format!("{ici} is missing")),
+            Err(e) => Err(format!("{ici} cannot be read: {e}")),
+            Ok(vu) if vu.file_type().is_symlink() => Err(format!("{ici} is a symbolic link, which is not followed")),
+            Ok(vu) if dossier && !vu.is_dir() => Err(format!("{ici} is not a folder")),
+            Ok(vu) if !dossier && !vu.is_file() => Err(format!("{ici} is not a regular file")),
+            Ok(_) => Ok(()),
+        }
+    };
+    let mut posees = Vec::with_capacity(total);
+    for tache in &plan.taches {
+        for (fichier, empreinte) in &tache.poses {
+            let refus = |vu: String| pose_refusee(format!("the file `{fichier}` that the plan places"), vu);
+            let mut chemin = racine.clone();
+            verifier(&chemin, true).map_err(refus)?;
+            let noms: Vec<&str> = fichier.split('/').collect();
+            for (rang, nom) in noms.iter().enumerate() {
+                chemin.push(nom);
+                verifier(&chemin, rang + 1 < noms.len()).map_err(refus)?;
+            }
+            let mut octets = Vec::new();
+            let lu = std::fs::File::open(&chemin)
+                .and_then(|ouvert| ouvert.take(POSE_TAILLE_MAX + 1).read_to_end(&mut octets));
+            lu.map_err(|e| refus(format!("{} cannot be read: {e}", chemin.display())))?;
+            if octets.len() as u64 > POSE_TAILLE_MAX {
+                return Err(refus(format!("{} weighs more than 4 MiB", chemin.display())));
+            }
+            let vue = hex(&sha256(&octets));
+            if vue != *empreinte {
+                let quoi = format!("the SHA-256 of {} is {vue}, and the plan writes {empreinte}", chemin.display());
+                return Err(refus(quoi));
+            }
+            posees.push(Posee { tache: tache.id.clone(), fichier: fichier.clone(), octets });
+        }
+    }
+    Ok(posees)
+}
+
 /// Le plan du fichier, lu dans son mode, et les dépendances que Kraken y ajoute : ses octets, 1 Mo au plus et un de
 /// plus pour voir qu'il dépasse (un fichier plus gros ne se lit pas en entier), puis `Plan::lire_en`. Le troisième
 /// rendu est l'empreinte de ces octets, SHA-256 en 64 hexadécimaux minuscules : celle que `sha256sum <fichier>` donne.
-fn lire_plan(fichier: &Path, mode: plan::Mode<'_>) -> Result<(Plan, Vec<plan::Attente>, String), Refus> {
+/// Le quatrième est le contenu des fichiers que le plan pose ([`lire_poses`]), lu après le plan : rien pour un plan
+/// sans `place`.
+fn lire_plan(fichier: &Path, mode: plan::Mode<'_>) -> Result<(Plan, Vec<plan::Attente>, String, Vec<Posee>), Refus> {
     use std::io::Read;
     let mut octets = Vec::new();
     let borne = plan::TAILLE_MAX as u64 + 1;
@@ -146,14 +232,16 @@ fn lire_plan(fichier: &Path, mode: plan::Mode<'_>) -> Result<(Plan, Vec<plan::At
         Refus::new(Code::EntreeSortie, preuve, correction)
     })?;
     let empreinte = hex(&sha256(&octets));
-    Plan::lire_en(&octets, mode).map(|(plan, attentes)| (plan, attentes, empreinte))
+    let (plan, attentes) = Plan::lire_en(&octets, mode)?;
+    let posees = lire_poses(fichier, &plan)?;
+    Ok((plan, attentes, empreinte, posees))
 }
 
 /// `lydite plan [--decoupe] <fichier>` : lit le plan et écrit sur stdout chaque dépendance que Kraken ajoute. Le mode
 /// découpé ne juge ni l'en-tête ni la casse, que seul le rejeu juge.
 fn plan_cmd(fichier: &Path, decoupe: bool) -> Result<ExitCode, Refus> {
     let mode = if decoupe { plan::Mode::Decoupe(None) } else { plan::Mode::Main };
-    let (plan, attentes, _) = lire_plan(fichier, mode)?;
+    let (plan, attentes, ..) = lire_plan(fichier, mode)?;
     // Permis, et voulu : un plan sans tâche critique n'est pas relu. L'auteur doit le savoir ; rien sur stdout, où le
     // plugin Hermes lit une dépendance par ligne, et rien pour le découpeur.
     if !decoupe && !plan.taches.iter().any(|tache| tache.critique) {

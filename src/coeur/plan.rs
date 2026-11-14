@@ -16,6 +16,7 @@
 //! critique : oui
 //! sha256 : <fichier> : <empreinte>
 //! red : <fichier>
+//! place : <fichier> : <empreinte>
 //!     <objectif de la tâche, en lignes indentées>
 //! ```
 //!
@@ -31,7 +32,7 @@
 //!   ôtés autour du `:` ; une ligne indentée (espaces ou tabulations) est l'objectif de la tâche en cours. Il n'y a ni
 //!   commentaire ni continuation de ligne.
 //!
-//! Les clés sont fermées, et chacune se donne une fois au plus, hors `exact`, `sha256` et `red` :
+//! Les clés sont fermées, et chacune se donne une fois au plus, hors `exact`, `sha256`, `red` et `place` :
 //!
 //! - dans l'en-tête, avant la première tâche : `objectif` et `preuve`, obligatoires l'une et l'autre ;
 //! - sous `tache <id>`, avant l'objectif, toutes facultatives : `depend`, des ids séparés par des blancs (aucun, si
@@ -41,9 +42,9 @@
 //!   `high`, `xhigh`, `max`, qui prend la place des clés `effort` et `effort_relance` du profil, et que le profil doit
 //!   permettre (`efforts_permis`, refus 6033 au lancement) ; `fichiers`, les chemins que la tâche peut changer,
 //!   séparés par des blancs ; `critique`, de seule valeur `oui`, pour une tâche dont le travail va à la relecture ;
-//!   `exact`, `sha256` et `red`, qui se répètent, une ligne par fichier (voir plus bas).
+//!   `exact`, `sha256`, `red` et `place`, qui se répètent, une ligne par fichier (voir plus bas).
 //!
-//! Les trois clés de tâche qui se répètent :
+//! Les quatre clés de tâche qui se répètent :
 //!
 //! - `exact : <fichier> : <texte>` exige ce texte dans ce fichier, octet pour octet. Le fichier est un chemin de
 //!   fichier comme dans `fichiers`, que les `fichiers` de la tâche couvrent quand elle en a ; le texte n'est pas vide,
@@ -67,7 +68,25 @@
 //!   seule dans sa tâche. Refusés : en 6024, un chemin hors de la forme, avec un blanc, une virgule ou un caractère de
 //!   contrôle, ou fini par `/`, et un fichier que les `fichiers` ne couvrent pas (refus à la fin de la lecture, sur la
 //!   ligne du fichier) ; en 6018, un fichier nommé deux fois dans la tâche, et `declared` avec une autre ligne `red`
-//!   (sur la seconde ligne) ; en 6021, une valeur blanche. Un fichier nommé `declared` ne se nomme donc pas.
+//!   (sur la seconde ligne) ; en 6021, une valeur blanche. Un fichier nommé `declared` ne se nomme donc pas ;
+//! - `place : <fichier> : <empreinte>` dit un fichier que Lydite pose lui-même, sans main, dans la base de la tâche (le
+//!   poser est une tâche suivante) : le plan le fournit à l'octet, et la clé en garde l'empreinte. Le fichier est un
+//!   chemin de fichier comme dans `fichiers` (sans blanc, sans virgule, sans caractère de contrôle, sans `/` final),
+//!   que les `fichiers` de la tâche couvrent quand elle en a ; jamais sous `.github/` (en toute casse), ni dans un
+//!   dossier `.git` ou `.claude` (en toute casse), ni sous `.agents/skills/` : ce que la forge et le gel refusent déjà
+//!   à une main. L'empreinte est faite de 64 hexadécimaux minuscules. Un fichier posé est aussi une épingle `sha256` de
+//!   sa tâche, de cette empreinte (`Tache::empreintes`) : le contrôle de `sha256` le garde ensuite, et un fichier n'a
+//!   qu'une empreinte dans tout le plan, entre `place` et `sha256` comme entre deux `place`. La lecture du plan ne
+//!   calcule rien et n'ouvre aucun fichier. Refusés : en 6024, un chemin hors de la forme, dans un lieu refusé ou que
+//!   les `fichiers` ne couvrent pas (refus à la fin de la lecture, sur la ligne du fichier), ou une valeur qui n'est
+//!   pas `<fichier> : <empreinte>` ; en 6018, une empreinte qui n'est pas de 64 hexadécimaux minuscules, un fichier
+//!   déjà épinglé ou posé dans la tâche, un fichier sous deux empreintes dans le plan, et toute ligne `place` d'un
+//!   plan découpé (`Mode::Decoupe` : un plan écrit par une main ne fait jamais écrire Lydite) ; en 6021, une valeur
+//!   blanche. Le contenu n'est pas dans le plan : c'est le fichier de même chemin sous le dossier
+//!   `<fichier du plan>.files/`, voisin du plan, que `lancer --plan` et `lydite plan` lisent après le plan
+//!   (`lire_plan`, dans `commande.rs`) ; refus 6036 si ce fichier manque, n'est pas un fichier ordinaire (un lien
+//!   symbolique, un dossier), pèse plus de 4 Mio, ou n'a pas l'empreinte du plan, et si le plan pose plus de 64
+//!   fichiers.
 //!
 //! Ce que le plan dit :
 //!
@@ -115,7 +134,8 @@
 //!   une autre casse que dans la base, que la correction donne ;
 //! - 6025 : un plan de plus de 1 Mo ; un plan découpé de plus de 12 tâches, ou dont une tâche n'a pas `fichiers` ou
 //!   `modele`, porte une `preuve`, ou nomme plus de 100 chemins dans `fichiers` ;
-//! - 6026 : au rejeu d'un découpage, un en-tête autre que celui que Kraken a demandé.
+//! - 6026 : au rejeu d'un découpage, un en-tête autre que celui que Kraken a demandé ;
+//! - 6036 : le contenu d'un fichier que le plan pose, que `lire_plan` lit après le plan et non cette lecture.
 //!
 //! Aucune entrée ne fait paniquer la lecture : un plan est une frontière de confiance, et le lire strictement est ce
 //! qui la garde.
@@ -143,8 +163,8 @@ pub(crate) const FICHIERS_MAX: usize = 100;
 
 /// Les clés de l'en-tête, puis celles d'une tâche.
 const CLES_ENTETE: [&str; 2] = ["objectif", "preuve"];
-const CLES_TACHE: [&str; 10] =
-    ["depend", "preuve", "modele", "relance", "effort", "fichiers", "critique", "exact", "sha256", "red"];
+const CLES_TACHE: [&str; 11] =
+    ["depend", "preuve", "modele", "relance", "effort", "fichiers", "critique", "exact", "sha256", "red", "place"];
 
 /// Les caractères d'une ligne qu'une preuve cite : au-delà, la citation est coupée.
 const CITE_MAX: usize = 200;
@@ -159,8 +179,8 @@ const REECRIRE: &str = concat!(
 const FORME: &str = concat!(
     "Une ligne de plan est vide, `tache <id>`, `<clé> : <valeur>`, ou indentée (l'objectif de la tâche qui la ",
     "précède). Avant la première tâche, les clés sont `objectif` et `preuve` ; sous `tache <id>`, `depend`, `preuve`, ",
-    "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256` et `red` (les trois dernières peuvent ",
-    "se répéter), puis l'objectif en lignes indentées ; chaque autre clé une fois."
+    "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256`, `red` et `place` (les quatre dernières ",
+    "peuvent se répéter), puis l'objectif en lignes indentées ; chaque autre clé une fois."
 );
 
 /// La correction d'une ligne `exact` hors de sa forme.
@@ -180,6 +200,13 @@ const SHA256: &str = concat!(
 const ROUGE: &str = concat!(
     "Write `red : <file>` for each test file Lydite replays alone on the base (a file as in `fichiers`, covered by ",
     "them, not a folder), or one line `red : declared` if the hand names its test."
+);
+
+/// La correction d'une ligne `place` refusée.
+const PLACE: &str = concat!(
+    "Write `place : <file> : <sha256>`: a file as in `fichiers`, covered by them, outside `.github/`, `.git`, ",
+    "`.claude` and `.agents/skills/`; its content is the file of the same path under the folder ",
+    "`<plan file>.files/`, next to the plan."
 );
 
 /// La valeur de `red` qui dit que le plan ne connaît pas le fichier du test.
@@ -252,6 +279,10 @@ pub(crate) struct Tache {
     /// Les fichiers que le plan épingle par leur SHA-256 : un couple (fichier, empreinte) par ligne `sha256`, dans
     /// l'ordre du plan. La lecture ne calcule rien : l'empreinte est celle que le plan écrit.
     pub(crate) empreintes: Vec<(String, String)>,
+    /// Les fichiers que Lydite pose lui-même : un couple (fichier, empreinte) par ligne `place`, dans l'ordre du plan.
+    /// Chacun est aussi une épingle de `empreintes`. La lecture n'ouvre aucun fichier ; une copie de `Plan::copies`
+    /// n'en a aucun.
+    pub(crate) poses: Vec<(String, String)>,
     /// Le test qui doit rougir sur la base : `None` sans ligne `red`. La lecture ne calcule rien et n'ouvre aucun
     /// fichier. Une copie de `Plan::copies` n'en a aucun.
     pub(crate) rouge: Option<Rouge>,
@@ -387,8 +418,11 @@ struct Brouillon<'a> {
     fichiers: Option<Vec<&'a str>>,
     /// Ses lignes `exact`, chacune avec son fichier et son texte.
     exacts: Vec<(Ligne<'a>, &'a str, &'a str)>,
-    /// Ses lignes `sha256`, chacune avec son fichier et son empreinte.
+    /// Ses lignes `sha256` et `place`, dans l'ordre du plan, chacune avec son fichier et son empreinte : un fichier
+    /// posé est aussi une épingle.
     empreintes: Vec<(Ligne<'a>, &'a str, &'a str)>,
+    /// Ses seules lignes `place`, dans l'ordre du plan : des mêmes lignes que dans `empreintes`.
+    poses: Vec<(Ligne<'a>, &'a str, &'a str)>,
     /// Ses lignes `red`, chacune avec sa valeur : un fichier, ou `declared`.
     rouges: Vec<(Ligne<'a>, &'a str)>,
     critique: bool,
@@ -399,7 +433,20 @@ struct Brouillon<'a> {
     vides: usize,
 }
 
-impl Brouillon<'_> {
+impl<'a> Brouillon<'a> {
+    /// La ligne qui épingle déjà ce fichier dans la tâche, avec sa clé : `place` si elle le pose, `sha256` sinon.
+    fn epingle(&self, fichier: &str) -> Option<(&'static str, Ligne<'a>)> {
+        let &(ligne, ..) = self.empreintes.iter().find(|&&(_, vu, _)| vu == fichier)?;
+        let pose = self.poses.iter().any(|&(posee, ..)| posee.numero == ligne.numero);
+        Some((if pose { "place" } else { "sha256" }, ligne))
+    }
+
+    /// La correction d'une ligne d'épingle de la tâche : celle de `place` si la ligne pose le fichier, sinon celle de
+    /// `sha256`.
+    fn correction_de(&self, ligne: Ligne<'_>) -> &'static str {
+        if self.poses.iter().any(|&(posee, ..)| posee.numero == ligne.numero) { PLACE } else { SHA256 }
+    }
+
     fn donnee(&self, cle: &str) -> bool {
         match cle {
             "depend" => self.depend.is_some(),
@@ -408,7 +455,7 @@ impl Brouillon<'_> {
             "relance" => self.relance.is_some(),
             "effort" => self.effort.is_some(),
             "fichiers" => self.fichiers.is_some(),
-            "exact" | "sha256" | "red" => false,
+            "exact" | "sha256" | "red" | "place" => false,
             _ => self.critique,
         }
     }
@@ -500,6 +547,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             fichiers: None,
             exacts: Vec::new(),
             empreintes: Vec::new(),
+            poses: Vec::new(),
             rouges: Vec::new(),
             critique: false,
             objectif: Vec::new(),
@@ -523,7 +571,8 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             (
                 &CLES_TACHE,
                 "d'une tâche",
-                "`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256` ou `red`",
+                "`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256`, `red` \
+                 ou `place`",
             )
         };
         if !permises.contains(&cle) {
@@ -542,6 +591,17 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             let quoi =
                 format!("la tâche {} porte une clé `preuve`, et aucune tâche d'un plan découpé n'en a", cite(tache.id));
             return Err(refus(Code::PlanBorne, ligne, quoi, SANS_PREUVE));
+        }
+        // Un plan écrit par une main ne fait jamais écrire Lydite : `place` est aux plans écrits à la main.
+        if let Some(tache) = self.taches.last()
+            && cle == "place"
+            && matches!(self.mode, Mode::Decoupe(_))
+        {
+            let quoi = format!(
+                "the task {} carries a `place` line, and a plan split by a hand never makes Lydite write a file",
+                cite(tache.id)
+            );
+            return Err(refus(Code::PlanLigne, ligne, quoi, PLACE));
         }
         let donnee = match self.taches.last() {
             None if cle == "objectif" => self.objectif.is_some(),
@@ -649,15 +709,53 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                     let quoi = format!("the hash {} is not 64 lowercase hexadecimal digits", cite(empreinte));
                     return Err(refus(Code::PlanLigne, ligne, quoi, SHA256));
                 }
-                if let Some(&(avant, ..)) = tache.empreintes.iter().find(|&&(_, vu, _)| vu == fichier) {
+                if let Some((cle, avant)) = tache.epingle(fichier) {
                     let quoi = format!(
-                        "the file {} is already pinned by the `sha256` line {} of this task",
+                        "the file {} is already pinned by the `{cle}` line {} of this task",
                         cite(fichier),
                         avant.numero
                     );
                     return Err(refus(Code::PlanLigne, ligne, quoi, SHA256));
                 }
                 tache.empreintes.push((ligne, fichier, empreinte));
+            }
+            "place" => {
+                let Some((fichier, empreinte)) =
+                    valeur.split_once(" : ").filter(|(_, empreinte)| !empreinte.is_empty())
+                else {
+                    let quoi = format!("the value {} is not `<file> : <hash>` with a hash", cite(valeur));
+                    return Err(refus(Code::PlanChemin, ligne, quoi, PLACE));
+                };
+                let (blanc, dossier) =
+                    (fichier.chars().any(|c| c.is_whitespace() || c.is_control()), fichier.ends_with('/'));
+                if blanc || dossier || fichier.contains(',') || hors_forme(fichier).is_some() {
+                    let quoi = format!(
+                        "the file {} is not a file path as `fichiers` writes it, or has a blank, a comma or a \
+                         control character, or is a folder",
+                        cite(fichier)
+                    );
+                    return Err(refus(Code::PlanChemin, ligne, quoi, PLACE));
+                }
+                if let Some(lieu) = lieu_refuse(fichier) {
+                    let quoi = format!("the file {} is {lieu}, where Lydite places no file", cite(fichier));
+                    return Err(refus(Code::PlanChemin, ligne, quoi, PLACE));
+                }
+                let hexa = |c: u8| c.is_ascii_digit() || (b'a'..=b'f').contains(&c);
+                if empreinte.len() != 64 || !empreinte.bytes().all(hexa) {
+                    let quoi = format!("the hash {} is not 64 lowercase hexadecimal digits", cite(empreinte));
+                    return Err(refus(Code::PlanLigne, ligne, quoi, PLACE));
+                }
+                // Une seule fois par tâche, que le fichier soit déjà posé ou épinglé par un `sha256`.
+                if let Some((cle, avant)) = tache.epingle(fichier) {
+                    let quoi = format!(
+                        "the file {} is already pinned by the `{cle}` line {} of this task",
+                        cite(fichier),
+                        avant.numero
+                    );
+                    return Err(refus(Code::PlanLigne, ligne, quoi, PLACE));
+                }
+                tache.empreintes.push((ligne, fichier, empreinte));
+                tache.poses.push((ligne, fichier, empreinte));
             }
             "red" if valeur == DECLARE => {
                 // `declared` est seule dans sa tâche : une autre ligne `red`, avant elle, la rend double.
@@ -757,7 +855,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                     if !fichiers.iter().any(|entree| couvre(entree, fichier)) {
                         let quoi =
                             format!("the file {} is not covered by any path of the task's `fichiers`", cite(fichier));
-                        return Err(refus(Code::PlanChemin, ligne, quoi, SHA256));
+                        return Err(refus(Code::PlanChemin, ligne, quoi, brouillon.correction_de(ligne)));
                     }
                 }
                 for &(ligne, fichier) in &brouillon.rouges {
@@ -777,7 +875,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                             cite(fichier),
                             cite(tache)
                         );
-                        return Err(refus(Code::PlanLigne, ligne, quoi, SHA256));
+                        return Err(refus(Code::PlanLigne, ligne, quoi, brouillon.correction_de(ligne)));
                     }
                     Some(_) => {}
                     None => {
@@ -821,6 +919,11 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                     .collect(),
                 empreintes: brouillon
                     .empreintes
+                    .iter()
+                    .map(|&(_, fichier, empreinte)| (fichier.to_string(), empreinte.to_string()))
+                    .collect(),
+                poses: brouillon
+                    .poses
                     .iter()
                     .map(|&(_, fichier, empreinte)| (fichier.to_string(), empreinte.to_string()))
                     .collect(),
@@ -870,6 +973,11 @@ fn blanche(entete: bool, cle: &str) -> String {
                               SHA-256, 64 lowercase hexadecimal digits), or remove the line: the task then pins \
                               no file."
             .into(),
+        (false, "place") => {
+            "Write `place : <file> : <sha256>` after the key (a file as in `fichiers`, then its SHA-256, \
+                             64 lowercase hexadecimal digits), or remove the line: the task then places no file."
+                .into()
+        }
         (false, "red") => {
             "Write `red : <file>` after the key (a test file as in `fichiers`), or `red : declared` if the hand \
              names its test, or remove the line: the task then names no test."
@@ -931,6 +1039,17 @@ pub(crate) fn hors_forme(chemin: &str) -> Option<&'static str> {
         }
     }
     None
+}
+
+/// Où Lydite ne pose aucun fichier, s'il y a quelque chose : ce que la forge et le gel refusent déjà à une main. Un
+/// chemin sous `.github/` à la racine (en toute casse, avec les points et les blancs de fin que Windows ôte) ou sous
+/// `.agents/skills/` ; `hors_forme` écarte déjà `.git` et `.claude`, à tout niveau.
+fn lieu_refuse(chemin: &str) -> Option<&'static str> {
+    let premier = chemin.split('/').next().unwrap_or_default().trim_end_matches(['.', ' ']);
+    if premier.eq_ignore_ascii_case(".github") {
+        return Some("under `.github/`");
+    }
+    chemin.starts_with(".agents/skills/").then_some("under `.agents/skills/`")
 }
 
 /// L'arbre de la base : chaque chemin, fichier ou dossier (fini par `/`), tel que git l'écrit, puis le même par sa
