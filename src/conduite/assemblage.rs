@@ -47,9 +47,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::branchements::bac::{
-    CLAUDE, butees_du_bac, butees_protegees, exclusions_de_l_etat, poser, sans_claude, temporaire_de,
-};
+use crate::branchements::bac::{CLAUDE, butees_du_bac, exclusions_de_l_etat, poser, sans_claude, temporaire_de};
 use crate::branchements::git::{Arbre, BORNE_EMPREINTE, Gardee, empreinte_gardee, faire, geste};
 use crate::branchements::srt::rejouer;
 use crate::coeur::erreur::{Code, Refus, nommee};
@@ -574,14 +572,15 @@ fn vus_au_gel(bac: &Path, depart: &str, gel: &str, pathspecs: &[impl AsRef<str>]
 ///   prend pas non plus ;
 /// - `git diff --name-only -z <depart> HEAD` : ce que les commits de la main ont changé, dont `status` ne dit rien.
 ///
-/// Rien sous un dossier `.claude` (voir [`SOUS_CLAUDE`]). Ni la butée du mur à un chemin de `proteges` absent de
-/// `depart` ([`butees_protegees`]), tant qu'elle est non suivie : commitée ou ajoutée à l'index, elle compte. Un
-/// échec de git, qu'il ne parte pas ou qu'il refuse, est le refus 7009 : une liste vide ne vaut « rien changé » que si
-/// git a réussi.
+/// Rien sous un dossier `.claude` (voir [`SOUS_CLAUDE`]). Ni une butée du mur ([`butees_du_bac`], de `depart` et des
+/// `proteges`) : celle à la racine, à un nom de `TOUJOURS_REFUSES`, ou à un chemin de `proteges`, absente de `depart`,
+/// que le gel ne commite pas. Elle ne passe que non suivie : commitée ou ajoutée à l'index, elle compte, comme un
+/// fichier non vide ou qu'on peut écrire, un lien, un dossier ou un nom hors de ces listes. Un échec de git, qu'il ne
+/// parte pas ou qu'il refuse, est le refus 7009 : une liste vide ne vaut « rien changé » que si git a réussi.
 pub(crate) fn chemins_changes(bac: &Path, depart: &str, proteges: &[String]) -> Result<Vec<String>, Refus> {
     let statut = geste(bac, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--", "."]);
     let commites = geste(bac, &["diff", "--name-only", "-z", "--no-renames", depart, "HEAD", "--", "."]);
-    let butees = butees_protegees(bac, depart, proteges);
+    let butees = butees_du_bac(bac, depart, proteges);
     let mut chemins = Vec::new();
     // Chaque entrée finit par NUL, sans guillemets ; celles de `status` commencent par deux lettres d'état et un blanc.
     for (mut commande, saut) in [(statut, 3), (commites, 0)] {
