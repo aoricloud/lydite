@@ -1156,3 +1156,137 @@ fn un_lancement_tue_pendant_que_sa_main_court_est_dit_interrompu_par_etat_et_pas
     assert!(sortie.exists(), "la fausse main n'a pas posé `sortie` dans les dix secondes après `libre`");
     let _ = fs::remove_dir_all(&racine);
 }
+
+/// Le scan et le constat du plan né d'un rapport de hermes-security, que sa clé d'en-tête `report` nomme.
+const SCAN: &str = "scan_0123456789abcdef01234567";
+const CONSTAT: &str = "hsf_010101010101010101010101";
+
+/// Un plan né d'un rapport, de preuve `preuve` : sa clé `report`, et sa tâche à `red`, que ce plan exige.
+fn plan_du_rapport(racine: &Path, preuve: &str) -> PathBuf {
+    let (rapport, tache) = (format!("report : {SCAN} {CONSTAT}"), format!("tache {CONSTAT}"));
+    let preuve = format!("preuve : {preuve}");
+    let entete = ["plan 1", "objectif : Fix a finding", &preuve, &rapport];
+    plan(racine, "rapport.txt", &[&entete[..], &["", &tache, "red : declared", "    Prove it"]].concat())
+}
+
+#[test]
+fn un_plan_de_rapport_sous_un_profil_sans_mur_exige_est_refuse_en_6037_avant_tout_bac_et_tout_fil() {
+    let racine = racine("rapport-6037");
+    depot(&racine);
+    let dossier = racine.join("lydite");
+    fs::create_dir_all(dossier.join("profils")).unwrap();
+    // Le profil demande le mur sans l'exiger, et son programme n'existe pas : aucune vraie main ne peut partir.
+    let texte = "sorte = claude\nprogramme = claude-absent\nmodele = haiku\nmur = demande\n";
+    fs::write(dossier.join("profils").join("libre.profil"), texte).unwrap();
+    let kraken = |args: &[&str]| {
+        let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
+        commande
+            .args(args)
+            .current_dir(&racine)
+            .env("LYDITE_DOSSIER", &dossier)
+            .env("LYDITE_CLAUDE", racine.join("claude-absent"))
+            .env("LYDITE_SRT", faux_srt(&racine));
+        avec_leurres(&mut commande, &racine);
+        commande
+    };
+    let accepte = kraken(&["accept", "libre"]).output().unwrap();
+    assert_eq!(accepte.status.code(), Some(0), "{}", String::from_utf8_lossy(&accepte.stderr));
+    let chemin = plan_du_rapport(&racine, "git status");
+    let sortie = kraken(&["lancer", "libre", "--plan"]).arg(&chemin).arg("--depot").arg(racine.join("depot")).output();
+    let sortie = sortie.unwrap();
+    let refus = lire_refus(&sortie);
+    assert_eq!(refus.code, "lydite : 6037 lancer.rapport_sans_mur");
+    let regle = "  rule: A plan written from a report is launched only under a profile that requires the wall.";
+    assert_eq!(String::from_utf8_lossy(&sortie.stderr).lines().nth(1), Some(regle));
+    assert!(refus.preuve.contains("libre"), "la preuve nomme le profil : {}", refus.preuve);
+    let correction = &refus.correction;
+    assert!(correction.contains("`mur = exige`") && correction.contains("`mur = natif`"), "{correction}");
+    assert!(correction.contains("lydite accept libre"), "{correction}");
+    rien_n_est_parti(&racine);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+/// Ce que la vague d'un plan, sous le mur natif, rend avec une fausse main qui finit sur `IMPOSSIBLE: not proved: …` :
+/// le lancement, le fil de Lydite, et `lydite etat`.
+#[cfg(unix)]
+struct VagueImpossible {
+    lancement: Output,
+    fil: String,
+    etat: String,
+}
+
+/// Joue sous le mur natif (`mur = natif` exige le mur), dans la racine `suffixe`, la vague de ce plan, dont l'unique
+/// main déclare `IMPOSSIBLE: not proved: no test shows it`, puis `lydite etat`.
+#[cfg(unix)]
+fn vague_impossible(suffixe: &str, plan_de_la_vague: impl Fn(&Path) -> PathBuf) -> VagueImpossible {
+    let racine = racine_courte(suffixe);
+    let depot = depot(&racine);
+    let (dossier, main) = (racine.join("l"), racine.join("main"));
+    fs::create_dir_all(&main).unwrap();
+    let faux = FauxNatif::nouveau(&racine, None);
+    let (controle_jsonl, fin_jsonl) = (main.join("controle.jsonl"), main.join("fin.jsonl"));
+    let lignes = [
+        "#!/bin/sh".to_string(),
+        format!(r#"sed "s|@BAC@|/$(pwd)|g" '{}'"#, controle_jsonl.display()),
+        "cat > /dev/null".to_string(),
+        format!("cat '{}'", fin_jsonl.display()),
+    ];
+    let fausse = main.join("fausse-claude.sh");
+    script(&fausse, &lignes);
+    let web = r#"{"behavior":"allow","source":"flagSettings","rule":"WebFetch(domain:exemple.test)"}"#;
+    let reponses = controle(&racine, &dossier, &depot, "exit 0")
+        .replace(r#""allowedDomains":[]"#, r#""allowedDomains":["exemple.test"]"#)
+        .replace(r#""rule":"ExitPlanMode"}"#, &format!(r#""rule":"ExitPlanMode"}},{web}"#));
+    fs::write(&controle_jsonl, reponses).unwrap();
+    let dit = r"Looked at it.\nIMPOSSIBLE: not proved: no test shows it";
+    let impossible = RESULTAT.replace(r"fait\nPREUVE: vert", dit);
+    assert_ne!(impossible, RESULTAT);
+    fs::write(&fin_jsonl, format!("{OUVERTURE}\n{impossible}\n")).unwrap();
+    let kraken = kraken_natif(&racine, &dossier, &faux, &fausse);
+    let accepte = kraken(&["accepter", "essai"]).output().unwrap();
+    assert_eq!(accepte.status.code(), Some(0), "{}", String::from_utf8_lossy(&accepte.stderr));
+    let chemin = plan_de_la_vague(&racine);
+    let lancement = kraken(&["lancer", "essai", "--plan"]).arg(&chemin).arg("--depot").arg(&depot).output().unwrap();
+    let etat = kraken(&["etat"]).output().unwrap();
+    let fil = fs::read_to_string(dossier.join("fil.jsonl")).unwrap_or_default();
+    let etat = String::from_utf8_lossy(&etat.stdout).into_owned();
+    let _ = fs::remove_dir_all(&racine);
+    VagueImpossible { lancement, fil, etat }
+}
+
+#[cfg(unix)]
+#[test]
+fn une_vague_a_report_sous_un_mur_natif_note_vague_rapport_et_etat_compte_ses_not_proved() {
+    let vague = vague_impossible("c", |racine| plan_du_rapport(racine, "exit 0"));
+    let erreur = String::from_utf8_lossy(&vague.lancement.stderr);
+    // Le plan part sous `mur = natif` (pas de 6037) : sa tâche est classée, déclarée impossible, et le code est 1.
+    assert_eq!(vague.lancement.status.code(), Some(1), "{erreur}");
+    assert!(!erreur.contains("6037"), "{erreur}");
+    assert!(erreur.contains("impossible (declared): not proved: no test shows it"), "{erreur}");
+    // Le fil note `vague.rapport` une fois, avec le scan et le constat du plan, avant la première main.
+    let rapports: Vec<&str> = vague.fil.lines().filter(|ligne| ligne.contains(r#""type":"vague.rapport""#)).collect();
+    let [rapport] = &rapports[..] else { panic!("une seule note vague.rapport : {rapports:?}") };
+    assert_eq!(champ_texte(rapport, "scan"), Some(SCAN), "{rapport}");
+    assert_eq!(champ_texte(rapport, "constat"), Some(CONSTAT), "{rapport}");
+    let rang = |genre: &str| vague.fil.lines().position(|ligne| ligne.contains(&format!(r#""type":"{genre}""#)));
+    assert!(rang("vague.rapport") < rang("main.debut"), "le rapport se note avant tout départ de main");
+    // `lydite etat` compte la main à part, sur la ligne du reçu.
+    let recu = vague.etat.lines().find(|ligne| ligne.starts_with("Cost: ")).unwrap_or_else(|| panic!("{}", vague.etat));
+    assert!(recu.contains("1 impossible") && recu.ends_with(" · Not proved: 1"), "{recu}");
+}
+
+#[cfg(unix)]
+#[test]
+fn la_meme_vague_sans_report_ne_compte_aucun_not_proved_ni_ne_note_vague_rapport() {
+    let sans_report = |racine: &Path| {
+        plan(racine, "plan.txt", &["plan 1", "objectif : o", "preuve : exit 0", "", "tache a", "    Écrire a.txt"])
+    };
+    let vague = vague_impossible("d", sans_report);
+    let erreur = String::from_utf8_lossy(&vague.lancement.stderr);
+    assert_eq!(vague.lancement.status.code(), Some(1), "{erreur}");
+    assert!(erreur.contains("impossible (declared): not proved: no test shows it"), "{erreur}");
+    assert!(!vague.fil.contains("vague.rapport"), "aucune note de rapport");
+    let recu = vague.etat.lines().find(|ligne| ligne.starts_with("Cost: ")).unwrap_or_else(|| panic!("{}", vague.etat));
+    assert!(recu.contains("1 impossible"), "la main est comptée impossible : {recu}");
+    assert!(!vague.etat.contains("Not proved"), "{}", vague.etat);
+}

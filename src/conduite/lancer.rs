@@ -355,8 +355,8 @@ fn efforts_permis(profil: &Profil, plan: &Plan) -> Result<(), Refus> {
 /// Les notes qui ouvrent la vague : `vague.ouverte`, puis, pour un plan, `vague.assemblage`, son `vague.joue` s'il joue
 /// le plan d'un découpage, son `vague.correction` s'il corrige une vague, et un `vague.tache` par tâche, avant tout
 /// départ. Son `vague.relecteur`, si son relecteur relit une vague, suit l'assemblage d'un plan, ou l'ouverture de
-/// copies. Des copies portent dans `verifier` leur preuve commune, sauf celles d'un juge, dont la commande prêtée n'est
-/// pas rejouée ; un plan, `null`.
+/// copies. Son `vague.rapport`, si son plan a `report`, vient en dernier. Des copies portent dans `verifier` leur
+/// preuve commune, sauf celles d'un juge, dont la commande prêtée n'est pas rejouée ; un plan, `null`.
 fn ouverture(
     vague: &str,
     depot: &Path,
@@ -395,6 +395,10 @@ fn ouverture(
         }));
     } else {
         notes.extend(liens.relit.map(relit));
+    }
+    // Un plan né d'un rapport le dit à son tour, après les autres notes d'ouverture et avant tout départ de main.
+    if let Some((scan, constat)) = &plan.rapport {
+        notes.push(Evenement::Rapport { vague: vague.into(), scan: scan.clone(), constat: constat.clone() });
     }
     notes
 }

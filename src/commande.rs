@@ -40,7 +40,7 @@ use crate::coeur::plan;
 use crate::coeur::plan::Plan;
 use crate::coeur::remarques;
 use crate::conduite::lancer::{Liens, Posee, base_du_depot};
-use crate::conduite::mener::{Lieu, decouper_cmd, mener_sur, preparer};
+use crate::conduite::mener::{Lieu, decouper_cmd, exiger_le_mur_du_rapport, mener_sur, preparer};
 use crate::conduite::publication;
 use crate::conduite::relecture;
 use crate::conduite::relecture::Origine;
@@ -90,9 +90,11 @@ fn executer() -> Result<ExitCode, Refus> {
             let plan = Plan::copies(&o.objectif, o.verifier.as_deref(), o.n);
             (profil, depot, dossier, plan, None, o.decouper.then_some(o), None, Vec::new())
         }
-        Commande::Plan { profil, plan, depot, pr } => {
-            let (profil, depot, dossier) = preparer(&profil, depot.as_deref())?;
+        Commande::Plan { profil: nom, plan, depot, pr } => {
+            let (profil, depot, dossier) = preparer(&nom, depot.as_deref())?;
             let (plan, _, empreinte, posees) = lire_plan(&plan, plan::Mode::Main)?;
+            // Comme `--issue` (6029) : avant tout bac et tout fil, un plan de rapport veut le mur exigé.
+            exiger_le_mur_du_rapport(&plan, &profil, &nom)?;
             (profil, depot, dossier, plan, pr, None, Some(empreinte), posees)
         }
         Commande::Accepter(nom) => return accepter_cmd(&nom),

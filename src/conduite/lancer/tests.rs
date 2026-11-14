@@ -77,6 +77,7 @@ fn histoire(evenements: &[Evenement]) -> Vec<String> {
         Evenement::Relecture { n, bloquantes, .. } => format!("relecture {n} {bloquantes}"),
         Evenement::Correction { .. } => "correction".into(),
         Evenement::Relecteur { .. } => "relecteur".into(),
+        Evenement::Rapport { .. } => "rapport".into(),
         Evenement::VerdictRelecture { sha, .. } => format!("verdict de relecture {sha}"),
         Evenement::Fournisseur { tentative, fournisseur, .. } => format!("fournisseur {tentative} {fournisseur}"),
         Evenement::Consigne { tentative, .. } => format!("consigne {tentative}"),
@@ -251,7 +252,8 @@ fn main_de(evenement: &Evenement) -> Option<usize> {
         | Evenement::Relecture { .. }
         | Evenement::Correction { .. }
         | Evenement::VerdictRelecture { .. }
-        | Evenement::Relecteur { .. } => None,
+        | Evenement::Relecteur { .. }
+        | Evenement::Rapport { .. } => None,
         Evenement::Tache { main, .. }
         | Evenement::Bail { main, .. }
         | Evenement::Debut { main, .. }

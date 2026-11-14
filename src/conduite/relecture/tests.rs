@@ -1475,6 +1475,47 @@ fn sous_une_issue_une_vague_lancee_d_un_sous_dossier_pese_son_diff_depuis_la_rac
 }
 
 #[test]
+fn une_vague_a_report_note_vague_rapport_et_se_relit_comme_celle_d_une_issue_7016() {
+    let essai = Essai::nouveau("relecture-rapport");
+    essai.remarques(1, SANS_REMARQUE);
+    // Comme la vague d'une issue : la tâche critique écrit sous `sortie/` plus de 1 Mo, et le diff coupé n'irait pas au
+    // relecteur. Ici l'origine donnée est celle d'un plan ; seule la clé `report` du plan fait relire en entier.
+    fs::write(essai.faux.join("gros.txt"), format!("{}\n", "y".repeat(99)).repeat(TAILLE_MAX / 100 + 1)).unwrap();
+    let programme = OsString::from("gh-absent");
+    let lieu = Lieu {
+        profil: &essai.profil,
+        depot: &essai.depot,
+        dossier: &essai.kraken,
+        gh: &programme,
+        personnel: Some(&essai.racine),
+        ci: (Duration::from_millis(10), Duration::from_secs(60)),
+    };
+    let mut plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    let (scan, constat) = ("scan_0123456789abcdef01234567", "hsf_010101010101010101010101");
+    plan.rapport = Some((scan.into(), constat.into()));
+    let base = base_du_depot(&essai.depot).unwrap();
+    let code = mener_sur(&lieu, &plan, &base, Liens::default(), None, Origine::Plan).unwrap();
+    assert_eq!(code, ExitCode::FAILURE);
+    let fil = essai.fil();
+    let ouvertes = ouvertes(&fil);
+    let [v] = &ouvertes[..] else { panic!("la vague seule : {ouvertes:?}") };
+    // Le fil note `vague.rapport` à l'ouverture, avant tout départ de main, et une seule fois.
+    let notes: Vec<&Evenement> = fil.iter().filter(|e| matches!(e, Evenement::Rapport { .. })).collect();
+    let attendu = Evenement::Rapport { vague: v.clone(), scan: scan.into(), constat: constat.into() };
+    assert_eq!(notes, [&attendu]);
+    let rang = |cherche: &dyn Fn(&Evenement) -> bool| fil.iter().position(cherche).unwrap();
+    let (rapport, premiere_main) =
+        (rang(&|e| matches!(e, Evenement::Rapport { .. })), rang(&|e| matches!(e, Evenement::Debut { .. })));
+    assert!(rapport < premiere_main, "le rapport se note avant tout départ de main");
+    // La relecture suit la règle de l'issue : 7016, et aucun relecteur n'est parti.
+    assert!(essai.garde("relecture-1").is_none(), "aucun relecteur n'est parti");
+    let refus = refus_de_forge(&fil, v);
+    assert_eq!(refus.iter().map(|(code, _)| *code).collect::<Vec<_>>(), [7016], "{refus:?}");
+    assert!(refus[0].1.contains("more than 1 MB"), "{refus:?}");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
 fn la_consigne_porte_les_points_a_justifier_apres_les_taches_critiques_vingt_au_plus() {
     let libre = Tache { id: "d".into(), objectif: "Libre".into(), critique: true, ..Tache::default() };
     let sans = consigne("o", &[&libre], &[]);
