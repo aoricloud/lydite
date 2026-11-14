@@ -186,7 +186,8 @@ fn liens_de_la_relance(lecons: &[Lecon]) -> Liens<'_> {
 /// chacune de ses sorties une fois la vague partie, publiée ou non, elle note au fil le sceau de fin (`vague.sceau`) ;
 /// un sceau qui ne s'écrit pas fait un code 1. Le sceau montre une ligne changée ou retirée avant lui, non une ligne
 /// ajoutée après lui ni un fil réécrit avec des sceaux refaits. Une
-/// vague née d'une issue (`origine`) se relit par `relecture::relire_issue`.
+/// vague née d'une issue (`origine`) se relit par `relecture::relire_issue`, et celle d'un plan à `report` aussi : elle
+/// note de plus son `vague.rapport` à l'ouverture (`lancer::ouverture`).
 pub(crate) fn mener_sur(
     lieu: &Lieu<'_>,
     plan: &Plan,
@@ -197,6 +198,9 @@ pub(crate) fn mener_sur(
 ) -> Result<ExitCode, Refus> {
     // La base est connue : ce qu'elle garde à chaque chemin que le plan pose se juge avant tout bac et tout fil (6036).
     poses_posables(lieu.depot, base, liens.poses)?;
+    // Un plan à `report` se mène sous l'origine d'une issue, quelle que soit celle qu'on donne : son texte vient d'un
+    // autre outil, et sa relecture lit le diff en entier ou pas du tout.
+    let origine = if plan.rapport.is_some() { Origine::Issue } else { origine };
     let bail = duree_du_bail(lieu.profil);
     let lancer_la_vague = |plan: &Plan, base: &str, liens: Liens<'_>| -> Result<Menee, Refus> {
         let menee = lancer_avec(lieu.depot, lieu.dossier, lieu.profil, plan, bail, base, liens)?;
@@ -323,6 +327,26 @@ fn lire_l_issue(lieu: &Lieu<'_>, nom: &str, numero: u64) -> Result<github::Issue
         ));
     }
     github::lire_issue(lieu.gh, lieu.dossier, lieu.depot, numero)
+}
+
+/// Le refus 6037, avant tout bac et tout fil : un plan à `report` ne part que sous un profil qui exige le mur (`mur =
+/// exige` comme `mur = natif`, [`Profil::exige`]), car son texte vient d'un rapport qu'un autre outil a écrit du
+/// contenu du dépôt. Un plan sans `report` n'est pas jugé ici. `nom` est celui du profil, pour la preuve et la
+/// correction.
+pub(crate) fn exiger_le_mur_du_rapport(plan: &Plan, profil: &Profil, nom: &str) -> Result<(), Refus> {
+    if plan.rapport.is_none() || profil.exige() {
+        return Ok(());
+    }
+    Err(Refus::new(
+        Code::RapportSansMur,
+        format!(
+            "the profile {nom} does not require the wall, and this plan was written from a report, whose text \
+             comes from another tool"
+        ),
+        format!(
+            "Write `mur = exige` or `mur = natif` in the profile {nom}, then accept it again (`lydite accept {nom}`)."
+        ),
+    ))
 }
 
 /// Ce que `lancer` dit de sa vague : sur stdout, chaque sortie prise ; sur stderr, une ligne par tâche, puis la

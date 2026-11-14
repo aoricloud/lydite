@@ -51,6 +51,7 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 6034 | `lancer.memoire_texte_absent` | A memory recall names a line that the thread carries, by its address `<session>/<seq>` or by its SHA-256; otherwise nothing is recalled. |
 | 6035 | `lancer.memoire_empreinte_fausse` | A memory recall by hash gives 64 lowercase hexadecimal digits; any other text without `/` is refused before the thread is read. |
 | 6036 | `lancer.fichier_pose_refuse` | A file that a plan places is a regular file next to the plan, of at most 4 MiB, whose SHA-256 is the one the plan writes. |
+| 6037 | `lancer.rapport_sans_mur` | A plan written from a report is launched only under a profile that requires the wall. |
 | 6038 | `lancer.rapport_refuse` | A hermes-security report is read strictly, and a plan is written only for a finding it keeps. |
 | 7001 | `vague.bac_impossible` | Each task has its own worktree, which git creates just before its hand; a task without a worktree is refused, and the others go on. |
 | 7002 | `vague.main_active` | A task never has two active hands: a hand starts only on a task with no lease, open or expired. |

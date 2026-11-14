@@ -227,6 +227,13 @@
 //!   sans la borne de 10 000, comme le `numero` d'une PR. Le titre et le corps de l'issue n'entrent pas au fil, seul
 //!   son numéro. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`. Il s'écrit par `Fil::noter_issue`
 //!   et se relit par `lire_tout`, strictement comme les autres ; `lire` en dit les lignes mal formées.
+//! - `vague.rapport {vague, scan, constat}` : la vague `vague` est née d'un plan à `report`, un rapport de
+//!   hermes-security : `scan` (`scan_` et 24 hexadécimaux minuscules) et `constat` (`hsf_` ou `cand_` et 24
+//!   hexadécimaux minuscules) sont ceux de la ligne `report` du plan, et rien du texte du rapport n'entre au fil.
+//!   Noté à l'ouverture de la vague du plan, comme `vague.issue`, après les autres notes d'ouverture et avant tout
+//!   départ de main. Une note de Kraken, sans `foi`. Type neuf, il ne change pas `v`. Dans une vague qui le porte,
+//!   une main qui finit sur `IMPOSSIBLE: not proved: <raison>` compte à part, dans le reçu. Il s'écrit par
+//!   `Fil::noter` et se relit comme les autres notes ; le rejeu le garde sur la vague (`Vague::rapport`).
 //! - `vague.sceau {vague, octets, empreinte}` : le sceau du fil. `octets` est la longueur du fil au moment du sceau,
 //!   un entier positif sans la borne de 10 000, comme le `numero` d'une PR ; `empreinte` est le SHA-256 de ses `octets`
 //!   premiers octets, en 64 hexadécimaux minuscules. Une note de Kraken, sans `foi`, type neuf qui ne change pas `v`.
@@ -363,6 +370,7 @@ use std::str;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::coeur::constats;
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus};
 use crate::coeur::json::{self, Valeur};
@@ -508,6 +516,9 @@ pub(crate) enum Evenement {
     Correction { vague: String, corrige: String },
     /// `vague.relecteur` : la vague `vague`, celle du relecteur, relit la vague `relue`, une autre.
     Relecteur { vague: String, relue: String },
+    /// `vague.rapport` : la vague `vague` est née d'un rapport de hermes-security : `scan` et `constat` sont ceux de la
+    /// ligne `report` de son plan.
+    Rapport { vague: String, scan: String, constat: String },
     /// `main.fournisseur` : la main part pour sa tentative chez le fournisseur que son profil déclare, l'hôte de son
     /// `api`, un jeton. Toujours déclaré : la ligne porte `foi: declare`, qui n'est pas un champ.
     Fournisseur { vague: String, main: usize, tentative: usize, fournisseur: String },
@@ -1377,6 +1388,23 @@ fn note(objet: &BTreeMap<String, Option<Valeur>>) -> Result<Option<Lue>, String>
         },
         "vague.correction" => Evenement::Correction { vague: texte("vague")?.into(), corrige: autre_vague("corrige")? },
         "vague.relecteur" => Evenement::Relecteur { vague: texte("vague")?.into(), relue: autre_vague("relue")? },
+        "vague.rapport" => {
+            let (scan, constat) = (texte("scan")?, texte("constat")?);
+            if !constats::scan_bien_forme(scan) {
+                return Err(format!(
+                    "« scan » vaut {scan:?}, hors de son domaine : `scan_` et 24 hexadécimaux minuscules"
+                ));
+            }
+            let constat_juste =
+                constats::identite_de_forme(constat, "hsf_") || constats::identite_de_forme(constat, "cand_");
+            if !constat_juste {
+                return Err(format!(
+                    "« constat » vaut {constat:?}, hors de son domaine : `hsf_` ou `cand_` et 24 hexadécimaux \
+                     minuscules"
+                ));
+            }
+            Evenement::Rapport { vague: texte("vague")?.into(), scan: scan.into(), constat: constat.into() }
+        }
         "main.fournisseur" => {
             foi_fixe(Foi::Declare)?;
             Evenement::Fournisseur {
@@ -1591,6 +1619,8 @@ pub(crate) struct Vague {
     /// `vague.issue` : le numéro de son issue sur la forge, le dernier noté, `None` sans note. [`etat`] le laisse à
     /// `None` : [`porter_issues`] le remplit.
     pub(crate) issue: Option<u64>,
+    /// `vague.rapport` : le scan et le constat du rapport dont son plan est né, le dernier noté, `None` sans note.
+    pub(crate) rapport: Option<(String, String)>,
 }
 
 /// Ce qu'une relecture a rendu, tel que le rejeu le garde : la vague relue, le nombre de remarques et celui des
@@ -1796,6 +1826,7 @@ pub(crate) fn etat(evenements: &[Evenement]) -> Vec<Vague> {
             }
             Evenement::Correction { corrige, .. } => vague.corrige = Some(corrige.clone()),
             Evenement::Relecteur { relue, .. } => vague.relit = Some(relue.clone()),
+            Evenement::Rapport { scan, constat, .. } => vague.rapport = Some((scan.clone(), constat.clone())),
             Evenement::Fournisseur { main, tentative, fournisseur, .. } => {
                 let lancee = vague.mains.entry(*main).or_default().tentatives.entry(*tentative).or_default();
                 lancee.fournisseur = Some(fournisseur.clone());
@@ -1884,6 +1915,7 @@ impl Evenement {
             Evenement::VerdictRelecture { .. } => "vague.verdict",
             Evenement::Correction { .. } => "vague.correction",
             Evenement::Relecteur { .. } => "vague.relecteur",
+            Evenement::Rapport { .. } => "vague.rapport",
             Evenement::Coupure { .. } => "main.coupure",
             Evenement::Fournisseur { .. } => "main.fournisseur",
             Evenement::Consigne { .. } => "main.consigne",
@@ -1919,6 +1951,7 @@ impl Evenement {
         | Evenement::VerdictRelecture { vague, .. }
         | Evenement::Correction { vague, .. }
         | Evenement::Relecteur { vague, .. }
+        | Evenement::Rapport { vague, .. }
         | Evenement::Coupure { vague, .. }
         | Evenement::Fournisseur { vague, .. }
         | Evenement::Consigne { vague, .. }
@@ -2103,6 +2136,9 @@ impl Evenement {
             ],
             Evenement::Correction { vague, corrige } => vec![("vague", texte(vague)), ("corrige", texte(corrige))],
             Evenement::Relecteur { vague, relue } => vec![("vague", texte(vague)), ("relue", texte(relue))],
+            Evenement::Rapport { vague, scan, constat } => {
+                vec![("vague", texte(vague)), ("scan", texte(scan)), ("constat", texte(constat))]
+            }
             Evenement::Coupure { vague, main, tentative, statut } => vec![
                 ("vague", texte(vague)),
                 ("main", entier(*main)),
