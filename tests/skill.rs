@@ -132,7 +132,7 @@ fn la_skill_servie_ne_cite_que_des_commandes_que_le_binaire_connait() {
     let texte = texte_servi();
     let citees = commandes_citees(&texte);
     // Le relevé voit bien les commandes que la skill doit citer : un relevé vide ne ferait rien rougir.
-    for attendu in ["launch", "status", "lessons", "plan", "accept", "doctor", "wait"] {
+    for attendu in ["launch", "status", "lessons", "plan", "findings", "accept", "doctor", "wait"] {
         assert!(citees.contains(attendu), "la skill ne cite pas `lydite {attendu}` : {citees:?}");
     }
     let dossier = neuf("connus");
