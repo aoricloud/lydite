@@ -444,11 +444,30 @@ fn remarques_justes() -> String {
 const SANS_REMARQUE: &str = "remarques 2\n\nrejoue\n    La preuve de la vague est verte.\n\nnon rejoue\n    Rien.\n";
 
 #[test]
+fn le_juge_laisse_passer_une_butee_a_un_chemin_protege_du_profil_absent_du_depart() {
+    let racine = racine("relecture-juge-butee");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(vec!["x".into()], Duration::from_secs(1));
+    let (bac, depart) = bac_neuf(&depot, &kraken, "butee");
+    ecrire(&bac, REMARQUES, &remarques_justes());
+    ecrire(&bac, ".agents/skills", "");
+    let mut droits = fs::metadata(bac.join(".agents/skills")).unwrap().permissions();
+    droits.set_readonly(true);
+    fs::set_permissions(bac.join(".agents/skills"), droits).unwrap();
+    // Sans les chemins protégés du profil, la butée est un changement ; avec eux, le juge lit les remarques.
+    let refus = juger(&bac, &depart, &[]).unwrap_err();
+    assert!(refus.code == Code::BacTouche && refus.preuve.contains(r#"".agents/skills""#), "{refus}");
+    assert_eq!(juger(&bac, &depart, profil.proteges()).map(|(remarques, _)| remarques.len()), Ok(2));
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
 fn le_juge_ne_prend_que_remarques_kraken_seul_ordinaire_et_lisible() {
     let racine = racine("relecture-juge");
     let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     commiter(&depot, &[("suivi.txt", "1\n"), (".gitignore", "ignore/\n")]);
-    let juge = |bac: &Path, depart: &str| juger(bac, depart);
+    let profil = Profil::faux(vec!["x".into()], Duration::from_secs(1));
+    let juge = |bac: &Path, depart: &str| juger(bac, depart, profil.proteges());
     // Absent : 7014.
     let (bac_a, depart) = bac_neuf(&depot, &kraken, "absent");
     let refus = juge(&bac_a, &depart).unwrap_err();
