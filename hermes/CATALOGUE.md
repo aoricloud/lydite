@@ -61,7 +61,7 @@ capabilities:
 | 9. No core override | `no core override — no runtime rebinds of Hermes core`. |
 | 10. Dependencies | None (standard library only). |
 | 11. Credentials through Hermes | `get_secret("LYDITE_CLE_FOURNISSEUR")` from `agent.secret_scope`; no `.env`, no `auth.json`; a test forbids those strings and `os.getenv` / `os.environ[`. |
-| 12. Approvals respected | `pre_tool_call` returns `approve` for every launch, showing the repository, the work, the proof, the profile and the target branch in at most nine rows; a plan is shown by its file name, its size, its number of tasks, its proof line and the SHA-256 of its bytes, not its text. Nothing bypasses a guard; no Hermes child process is spawned; no shell. `lydite_lecons` and `lydite_plan` start nothing and write nothing, so they ask no approval. `lydite_findings` starts nothing and asks no approval; a plan it wrote is launched like any plan, after the human's approval, and only under a required wall, which the plugin checks with `lydite profil` (read-only). |
+| 12. Approvals respected | `pre_tool_call` returns `approve` for every launch, showing the repository, the work, the proof, the profile and the target branch in at most nine rows; a plan is shown by its file name, its size, its number of tasks, its proof line and the SHA-256 of its bytes, not its text. Nothing bypasses a guard; no Hermes child process is spawned; no shell. `lydite_lecons` and `lydite_plan` start nothing and write nothing, so they ask no approval. `lydite_findings` runs the Lydite binary (`lydite findings`, read-only) and nothing else: it starts no wave and asks no approval; a plan it wrote carries its origin (a `report` line), is launched like any plan, after the human's approval, and Lydite itself refuses it unless the profile requires the wall (6037). |
 | 13. Risky behavior disclosed | See "Disclosures" below and the README. |
 | 14. Truthful metadata | `requires_hermes: ">=0.23.0"` (the release it was validated on), same in `plugin.yaml`; `version` is the pinned code's. |
 | 17. No unscannable executables | No compiled binary, no `.pyc` in the plugin (a test checks the file headers); its only non-text files are the PNG images under `docs/`. The Lydite binary is **not** shipped nor downloaded: it must already be on the machine. Lydite's release binaries are built by the repository's own GitHub Actions and carry a build attestation. |
@@ -73,7 +73,8 @@ capabilities:
   its sandbox wall when the wall is required (`exige`, the default, or `natif`; see "A requested wall" below), on the model of a Lydite profile a human accepted. They are not Hermes agents.
 - **Shell commands.** None through a shell. One external program (`lydite`) is started with an argument list:
   `lydite lancer ...` (detached, long-running), `lydite etat` (read-only), `lydite lecons <folder>` (read-only) and
-  `lydite plan <file>` (read-only) and `lydite profil <name>` (read-only). Lydite itself runs `git`, `gh` and the
+  `lydite plan <file>` (read-only) and `lydite findings <report>` (read-only, and with `--plan <id> --verify <proof>`
+  to write a plan on its standard output). Lydite itself runs `git`, `gh` and the
   `claude` process on the host, with the human's GitHub login; only the commands of a hand run in Claude Code's
   sandbox, and the user's proof command is replayed in the wall (by srt under `mur = exige`, by Lydite's native wall
   under `mur = natif`).
@@ -100,7 +101,7 @@ capabilities:
 - **File writes.** The plans written by `lydite_findings`, mode 0600, under the plugin's data folder, and nothing
   anywhere else.
 - **Third-party text.** The titles and the claims of a report enter a worker's instruction, quoted as data, bounded
-  and without a line break; and such a plan only runs under a required wall.
+  and without a line break; and such a plan only runs under a required wall, which Lydite checks itself.
 - **Telemetry.** None.
 - **Platforms.** Linux only; the tools hide themselves elsewhere.
 - **Honest limit.** A worker runs with `--permission-mode acceptEdits --permission-prompts none` inside Lydite's

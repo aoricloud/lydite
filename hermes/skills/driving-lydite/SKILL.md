@@ -2,7 +2,7 @@
 name: driving-lydite
 description: Hand a coding job to Lydite and report what it recorded. Use when the user asks to give Lydite an issue, an objective or a plan file, or asks where a Lydite wave stands. Lydite runs isolated Claude Code workers, replays the user's proof command itself and opens a pull request.
 license: MIT
-compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat, lydite_lecons, lydite_plan and lydite_findings; anywhere else the same steps are the commands lydite launch, lydite status, lydite lessons and lydite plan. lydite_findings has no equivalent command outside Hermes.
+compatibility: Linux, with the lydite binary installed. In Hermes, the lydite plugin provides the tools lydite_lancer, lydite_etat, lydite_lecons, lydite_plan and lydite_findings; anywhere else the same steps are the commands lydite launch, lydite status, lydite lessons and lydite plan. lydite_findings runs lydite findings (read-only) and nothing else; the plan it writes carries its origin.
 ---
 
 # Driving Lydite
