@@ -662,16 +662,16 @@ fn une_cle_de_m5_hors_de_son_domaine_blanche_ou_redite_est_refusee() {
         assert!(!refus.correction.trim().is_empty(), "{refus}");
         assert_eq!(refus.to_string().lines().count(), 4, "{refus}");
     }
-    // Une clé inconnue d'une tâche nomme les dix qu'une tâche connaît, et la correction aussi.
+    // Une clé inconnue d'une tâche nomme les onze qu'une tâche connaît, et la correction aussi.
     let refus = refuse_en(lire_en(&[&ENTETE[..], &["tache a", "role : critique", "    x"]].concat(), Mode::Main));
     let liste = concat!(
-        "(`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256` ",
-        "ou `red`)"
+        "(`depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256`, `red` ",
+        "ou `place`)"
     );
     assert!(refus.preuve.ends_with(liste), "{refus}");
     let forme = concat!(
-        "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256` et `red` ",
-        "(les trois dernières"
+        "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256`, `red` et `place` ",
+        "(les quatre dernières"
     );
     assert!(refus.correction.contains(forme), "{refus}");
 }
@@ -869,6 +869,127 @@ fn la_cle_sha256_refusee_dit_son_code_et_sa_ligne() {
             assert!(refus.correction.contains("`sha256 : <file> : <hash>`") || code == blanc, "{refus}");
         }
     }
+}
+
+/// La correction de toute ligne `place` refusée.
+const CORRECTION_PLACE: &str = "Write `place : <file> : <sha256>`: a file as in `fichiers`, covered by them, outside \
+                                `.github/`, `.git`, `.claude` and `.agents/skills/`; its content is the file of the \
+                                same path under the folder `<plan file>.files/`, next to the plan.";
+
+#[test]
+fn place_dans_un_plan_decoupe_est_refuse_en_6018_et_dit_pourquoi() {
+    // Un plan écrit par une main ne fait jamais écrire Lydite : même une ligne juste est refusée, sur sa ligne.
+    let ligne = format!("place : src/a.rs : {EMPREINTE_A}");
+    let suite = ["tache a", "fichiers : src/", &ligne, "    x"];
+    let [_, decoupe] = lire_aux_deux_modes(&suite[..]);
+    let refus = refuse_en(decoupe.lecture);
+    assert_eq!(refus.code, Code::PlanLigne, "{refus}");
+    let numero = decoupe.numeros[2];
+    let debut = format!("ligne {numero} {} : ", cite(&ligne));
+    assert!(refus.preuve.starts_with(&debut), "la preuve devait citer la ligne {numero} : {refus}");
+    assert!(refus.preuve.contains("split by a hand"), "{refus}");
+    assert_eq!(refus.correction, CORRECTION_PLACE, "{refus}");
+}
+
+#[test]
+fn la_cle_place_se_lit_dans_l_ordre_devient_une_epingle_et_se_repete() {
+    let a = format!("place : src/a.rs : {EMPREINTE_A}");
+    let b = format!("place : README.md : {EMPREINTE_B}");
+    let c = format!("sha256 : src/c.rs : {EMPREINTE_A}");
+    let suite = ["tache a", "fichiers : src/ README.md", "critique : oui", &a, &c, &b, "    x", "tache b", "    y"];
+    let [main, _] = lire_aux_deux_modes(&suite[..]);
+    let (plan, _) = main.lecture.unwrap();
+    let [t, autre] = &plan.taches[..] else { panic!("{plan:?}") };
+    let (rs, md) = (("src/a.rs".to_string(), EMPREINTE_A.to_string()), ("README.md".to_string(), EMPREINTE_B.into()));
+    assert_eq!(t.poses, [rs.clone(), md.clone()]);
+    // Chaque fichier posé est aussi une épingle `sha256`, dans l'ordre des lignes, entre celles du `sha256`.
+    assert_eq!(t.empreintes, [rs, ("src/c.rs".to_string(), EMPREINTE_A.to_string()), md]);
+    assert!(t.critique);
+    // Une tâche sans ligne `place` n'en pose aucune, et une copie non plus.
+    assert!(autre.poses.is_empty() && autre.empreintes.is_empty(), "{autre:?}");
+    assert!(Plan::copies("o", None, 2).taches.iter().all(|t| t.poses.is_empty()));
+    // Sans `fichiers`, rien ne borne la tâche ; le même fichier, sous la même empreinte, se pose dans deux tâches.
+    let ligne = format!("place : tests/a.rs : {EMPREINTE_A}");
+    let plan = lire_apres_entete(&["tache a", &ligne, "    x", "tache b", &ligne, "    y"]).unwrap();
+    assert!(plan.taches.iter().all(|t| t.poses == [("tests/a.rs".to_string(), EMPREINTE_A.to_string())]));
+}
+
+#[test]
+fn la_cle_place_refusee_dit_son_code_et_sa_ligne() {
+    let (ligne, chemin, blanc) = (Code::PlanLigne, Code::PlanChemin, Code::PlanBlanc);
+    let (a, b) = (EMPREINTE_A, EMPREINTE_B);
+    let (majuscules, courte) = (a.to_uppercase(), &a[..63]);
+    let sous = |fichier: &str, empreinte: &str| format!("place : {fichier} : {empreinte}");
+    let (place_a, place_b) = (sous("src/a.rs", a), sous("src/a.rs", b));
+    let (epingle_a, epingle_b) = (format!("sha256 : src/a.rs : {a}"), format!("sha256 : src/a.rs : {b}"));
+    // Chaque cas : la suite du plan après l'en-tête, le code du refus, le rang dans la suite de la ligne qu'il cite.
+    let cas: Vec<(Vec<String>, Code, usize)> = vec![
+        (lignes(&["tache a", "place : src/a.rs", "    x"]), chemin, 1),
+        (lignes(&["tache a", "place : src/a.rs :", "    x"]), chemin, 1),
+        (lignes(&["tache a", "place : src/a.rs : ", "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("/src/a.rs", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("src/../a.rs", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("src/a rs", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("src/a\u{7}rs", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("src/a,rs", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("src/", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", "fichiers : src/", &sous("doc/a.rs", a), "    x"]), chemin, 2),
+        (lignes(&["tache a", &sous(".github/x", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous(".GitHub/workflows/ci.yml", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous(".github", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("a/.git/x", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous(".Claude/x", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous(".agents/skills/x/SKILL.md", a), "    x"]), chemin, 1),
+        (lignes(&["tache a", &sous("src/a.rs", &majuscules), "    x"]), ligne, 1),
+        (lignes(&["tache a", &sous("src/a.rs", courte), "    x"]), ligne, 1),
+        (lignes(&["tache a", &sous("src/a.rs", &format!("{a}0")), "    x"]), ligne, 1),
+        (lignes(&["tache a", &sous("src/a.rs", &format!("{}g", &a[..63])), "    x"]), ligne, 1),
+        (lignes(&["tache a", &place_a, &place_a, "    x"]), ligne, 2),
+        (lignes(&["tache a", &place_a, &place_b, "    x"]), ligne, 2),
+        (lignes(&["tache a", &place_a, &epingle_a, "    x"]), ligne, 2),
+        (lignes(&["tache a", &epingle_a, &place_a, "    x"]), ligne, 2),
+        (lignes(&["tache a", &place_a, &epingle_b, "    x"]), ligne, 2),
+        (lignes(&["tache a", &epingle_a, &place_b, "    x"]), ligne, 2),
+        (lignes(&["tache a", &place_a, "    x", "tache b", &place_b, "    y"]), ligne, 4),
+        (lignes(&["tache a", &place_a, "    x", "tache b", &epingle_b, "    y"]), ligne, 4),
+        (lignes(&["tache a", &epingle_a, "    x", "tache b", &place_b, "    y"]), ligne, 4),
+        (lignes(&["tache a", "place :", "    x"]), blanc, 1),
+        (lignes(&["tache a", "place :  \t", "    x"]), blanc, 1),
+    ];
+    for (suite, code, rang) in cas {
+        let suite: Vec<&str> = suite.iter().map(String::as_str).collect();
+        let [main, _] = lire_aux_deux_modes(&suite);
+        let refus = refuse_en(main.lecture);
+        assert_eq!(refus.code, code, "{suite:?} : {refus}");
+        let (numero, texte) = (main.numeros[rang], &main.lignes[main.numeros[rang] - 1]);
+        let debut = format!("ligne {numero} {} : ", cite(texte));
+        assert!(refus.preuve.starts_with(&debut), "la preuve devait citer la ligne {numero} : {refus}");
+        if code == blanc {
+            assert!(refus.correction.contains("Write `place : <file> : <sha256>`"), "{refus}");
+            assert!(refus.correction.contains("or remove the line"), "{refus}");
+        } else if main.lignes[main.numeros[rang] - 1].starts_with("sha256") {
+            // La ligne refusée est celle d'un `sha256` : sa correction est la sienne.
+            assert!(refus.correction.starts_with("Write `sha256 : <file> : <hash>`"), "{refus}");
+        } else {
+            assert_eq!(refus.correction, CORRECTION_PLACE, "{suite:?} : {refus}");
+        }
+    }
+}
+
+#[test]
+fn place_refuse_le_github_de_la_racine_et_sha256_ne_change_pas() {
+    // La forge refuse `.github/` à la racine à une main : `place` le refuse, mais `sha256` n'a pas changé.
+    let (lieu, ailleurs) = (".github/x", "a/.github/x");
+    let epingle = format!("sha256 : {lieu} : {EMPREINTE_A}");
+    assert!(lire_apres_entete(&["tache a", &epingle, "    x"]).is_ok());
+    // Un dossier `.github` qui n'est pas à la racine n'est pas celui de la forge.
+    let place = format!("place : {ailleurs} : {EMPREINTE_A}");
+    assert!(lire_apres_entete(&["tache a", &place, "    x"]).is_ok());
+    let refus = refuse_en(lire_en(
+        &[&ENTETE[..], &["tache a", &format!("place : {lieu} : {EMPREINTE_A}"), "    x"]].concat(),
+        Mode::Main,
+    ));
+    assert!(refus.preuve.contains("under `.github/`"), "{refus}");
 }
 
 /// Ces lignes, en `String`.

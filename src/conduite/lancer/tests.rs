@@ -3896,6 +3896,7 @@ mod quota {
             corrige: false,
             role: crate::coeur::fil::Role::Main,
             preparation: None,
+            poses: &[],
             baux: Baux::new(),
             rangs: HashMap::new(),
             taches: vec![Etat::Attente],
@@ -4301,6 +4302,7 @@ mod coupure {
             corrige: false,
             role: crate::coeur::fil::Role::Main,
             preparation: None,
+            poses: &[],
             baux: Baux::new(),
             rangs: HashMap::new(),
             taches: vec![Etat::Attente],
@@ -4735,6 +4737,379 @@ mod rouge {
         // Sa consigne ne dit rien du rouge.
         let consigne = fs::read_to_string(racine.join("consigne-1.txt")).unwrap();
         assert!(!consigne.contains("Red first") && !consigne.contains("RED:"), "{consigne}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+}
+
+/// Les fichiers que Lydite pose lui-même dans le bac de la tâche, avant sa main (clé `place` du plan).
+mod pose {
+    use super::*;
+    #[cfg(unix)]
+    use crate::conduite::mener::{Lieu, mener_sur};
+    #[cfg(unix)]
+    use crate::conduite::relecture::Origine;
+
+    const FICHIER: &str = "donnees/t.txt";
+
+    /// Le plan d'une tâche `a`, bornée à `FICHIER`, qui le pose avec ces `octets`.
+    #[cfg(unix)]
+    fn plan_posant(octets: &[u8]) -> Plan {
+        let place = format!("place : {FICHIER} : {}", hex(&sha256(octets)));
+        let fichiers = format!("fichiers : {FICHIER}");
+        plan(&["plan 1", "objectif : Poser", "preuve : exit 0", "tache a", &fichiers, &place, "    Garder le fichier"])
+    }
+
+    /// Le contenu que la ligne de commande passe à la vague pour ce plan.
+    #[cfg(unix)]
+    fn posees(octets: &[u8]) -> Vec<Posee> {
+        vec![Posee { tache: "a".into(), fichier: FICHIER.into(), octets: octets.to_vec() }]
+    }
+
+    /// Une fausse main qui recopie `FICHIER` de son bac, tel qu'elle le trouve en partant, dans `vu-<k>-<n>.bin` de
+    /// `dir` (`k` : le rang de sa tâche, `n` : 1 à sa première tentative) ; s'il manque, elle pose `absent-<k>-<n>` et
+    /// écrit `ecrit.txt`, pour avoir changé un chemin. Elle garde sa consigne dans `consigne-<k>-<n>.txt` de `dir`.
+    /// Avec `change`, elle réécrit `FICHIER` à sa première tentative, ce que le plan interdit. Son compte et ses
+    /// copies vivent dans `dir`, hors du bac ; elle n'agit que dans son bac.
+    #[cfg(unix)]
+    fn main_qui_recopie(dir: &Path, change: bool) -> Vec<String> {
+        let d = dir.to_string_lossy();
+        let change =
+            if change { format!("if [ $n = 1 ]; then printf 'changé' > '{FICHIER}'; fi\n") } else { String::new() };
+        let corps = format!(
+            "d='{d}'\nk=$(basename \"$(pwd)\")\nk=${{k##*-}}\nn=0\n\
+             if [ -f \"$d/compte-$k\" ]; then n=$(cat \"$d/compte-$k\"); fi\n\
+             n=$((n+1))\necho $n > \"$d/compte-$k\"\ncat > \"$d/consigne-$k-$n.txt\"\n\
+             if [ -f '{FICHIER}' ]; then cp '{FICHIER}' \"$d/vu-$k-$n.bin\"; \
+             else : > \"$d/absent-$k-$n\"; echo x > ecrit.txt; fi\n\
+             {change}echo 'PREUVE: vert'\n"
+        );
+        let script = dir.join("recopie.sh");
+        fs::write(&script, corps).unwrap();
+        vec!["sh".into(), script.to_string_lossy().into_owned()]
+    }
+
+    /// Ce que la main a trouvé de `FICHIER` à sa tentative `n` de la tâche `k`.
+    #[cfg(unix)]
+    fn vu(racine: &Path, k: usize, n: usize) -> Option<Vec<u8>> {
+        fs::read(racine.join(format!("vu-{k}-{n}.bin"))).ok()
+    }
+
+    /// La consigne que la main a reçue à sa tentative `n` de la tâche `k`, en fins de ligne `\n`.
+    #[cfg(unix)]
+    fn consigne_vue(racine: &Path, k: usize, n: usize) -> String {
+        let octets = fs::read(racine.join(format!("consigne-{k}-{n}.txt"))).unwrap();
+        String::from_utf8_lossy(&octets).replace("\r\n", "\n")
+    }
+
+    /// Valide dans `depot` ce que le test y a écrit : un commit de plus, dont `HEAD` est la nouvelle base.
+    fn valider(depot: &Path, message: &str) -> String {
+        git(depot, &["add", "-A"]);
+        git(depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", message]);
+        git(depot, &["rev-parse", "HEAD"])
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn la_main_trouve_en_partant_le_fichier_pose_et_la_branche_de_la_vague_le_garde_a_l_octet() {
+        let racine = racine("pose-trouvee");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let base = git(&depot, &["rev-parse", "HEAD"]);
+        // Des octets qu'aucune conversion ne laisse intacts : un CRLF, un octet hors de l'UTF-8, un NUL.
+        let octets: &[u8] = b"alpha\r\nbeta\xff\x00\r\n";
+        let profil = Profil::faux(main_qui_recopie(&racine, false), DELAI);
+        let liens = Liens { poses: &posees(octets), pause: Some(Duration::ZERO), ..Liens::default() };
+        let menee = lancer_avec(&depot, &kraken, &profil, &plan_posant(octets), BAIL, &base, liens).unwrap();
+        assemblee("a", &menee.issues[0].1);
+        // La main l'a trouvé en partant, octet pour octet, et n'a pas eu à l'écrire.
+        assert_eq!(vu(&racine, 1, 1).as_deref(), Some(octets));
+        // La branche de la vague le garde sous l'empreinte du plan, et le dépôt visé n'a rien reçu.
+        let branche = menee.branche.expect("la branche d'une vague à plan");
+        let gardee = empreinte_gardee(&depot, Arbre::Commit(&branche), FICHIER, BORNE_EMPREINTE);
+        assert_eq!(gardee, Ok(Gardee::Empreinte(hex(&sha256(octets)))));
+        assert_eq!(fichiers(&depot, &branche), [FICHIER]);
+        // Le fichier posé est une épingle `sha256` de la tâche : le gel note ses empreintes avant la fusion.
+        let attendu = ["tâche a", "bail 1", "début 1", "fin 1 Vert Constate", "verdict Prise Constate"];
+        assert_eq!(histoire_de(&fil(&kraken), 1), [&attendu[..], &["gel", "empreintes", "fusion"]].concat());
+        rien_derriere(&racine, &base);
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn une_main_qui_change_le_fichier_pose_est_rouge_et_sa_relance_le_retrouve_pose_de_nouveau() {
+        let racine = racine("pose-changee");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let base = git(&depot, &["rev-parse", "HEAD"]);
+        let octets: &[u8] = b"alpha\nbeta\n";
+        // À sa première tentative, la main réécrit le fichier posé après l'avoir copié.
+        let profil = Profil::faux(main_qui_recopie(&racine, true), DELAI);
+        let liens = Liens { poses: &posees(octets), pause: Some(Duration::ZERO), ..Liens::default() };
+        let menee = lancer_avec(&depot, &kraken, &profil, &plan_posant(octets), BAIL, &base, liens).unwrap();
+        assemblee("a", &menee.issues[0].1);
+        // La première tentative est rouge, pour le fichier que la main a changé ; la relance, dans le même bac, le
+        // trouve de nouveau tel que le plan le pose, non tel que la première l'a laissé.
+        let evenements = fil(&kraken);
+        let erreur = fin_de(&evenements, 1);
+        assert!(erreur.contains(FICHIER) && erreur.contains("git stores the SHA-256"), "{erreur}");
+        assert_eq!(vu(&racine, 1, 1).as_deref(), Some(octets));
+        assert_eq!(vu(&racine, 1, 2).as_deref(), Some(octets));
+        assert!(consigne_vue(&racine, 1, 2).contains(&format!("Tentative précédente échouée :\n{erreur}")));
+        let attendu = [
+            "tâche a",
+            "bail 1",
+            "début 1",
+            "fin 1 Rouge Constate",
+            "bail 2",
+            "début 2",
+            "fin 2 Vert Constate",
+            "verdict Prise Constate",
+            "gel",
+            "empreintes",
+            "fusion",
+        ];
+        assert_eq!(histoire_de(&evenements, 1), attendu);
+        let branche = menee.branche.expect("la branche d'une vague à plan");
+        let gardee = empreinte_gardee(&depot, Arbre::Commit(&branche), FICHIER, BORNE_EMPREINTE);
+        assert_eq!(gardee, Ok(Gardee::Empreinte(hex(&sha256(octets)))));
+        rien_derriere(&racine, &base);
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_fichier_ordinaire_deja_dans_la_base_est_remplace_et_le_diff_le_montre() {
+        let racine = racine("pose-remplace");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        ecrire(&depot, FICHIER, "ancien\n");
+        let base = valider(&depot, "ancien");
+        let octets: &[u8] = b"neuf\n";
+        let profil = Profil::faux(main_qui_recopie(&racine, false), DELAI);
+        let liens = Liens { poses: &posees(octets), pause: Some(Duration::ZERO), ..Liens::default() };
+        let menee = lancer_avec(&depot, &kraken, &profil, &plan_posant(octets), BAIL, &base, liens).unwrap();
+        assemblee("a", &menee.issues[0].1);
+        // La main a trouvé le neuf, et la branche de la vague le garde : le diff de la base à elle le montre.
+        assert_eq!(vu(&racine, 1, 1).as_deref(), Some(octets));
+        let branche = menee.branche.expect("la branche d'une vague à plan");
+        assert_eq!(git(&depot, &["diff", "--name-only", &base, &branche]), FICHIER);
+        assert_eq!(git(&depot, &["show", &format!("{branche}:{FICHIER}")]), "neuf");
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_contenu_en_crlf_dans_un_depot_text_auto_reste_en_crlf_dans_le_commit() {
+        let racine = racine("pose-crlf");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        // La base dit `* text=auto` : git y normaliserait ce `\r\n` en `\n` par tout autre chemin que la pose.
+        ecrire(&depot, ".gitattributes", "* text=auto\n");
+        let base = valider(&depot, "normalise");
+        let octets: &[u8] = b"une\r\ndeux\r\n";
+        let profil = Profil::faux(main_qui_recopie(&racine, false), DELAI);
+        let liens = Liens { poses: &posees(octets), pause: Some(Duration::ZERO), ..Liens::default() };
+        let menee = lancer_avec(&depot, &kraken, &profil, &plan_posant(octets), BAIL, &base, liens).unwrap();
+        assemblee("a", &menee.issues[0].1);
+        assert_eq!(vu(&racine, 1, 1).as_deref(), Some(octets));
+        let branche = menee.branche.expect("la branche d'une vague à plan");
+        let gardee = empreinte_gardee(&depot, Arbre::Commit(&branche), FICHIER, BORNE_EMPREINTE);
+        assert_eq!(gardee, Ok(Gardee::Empreinte(hex(&sha256(octets)))));
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[test]
+    fn poser_un_fichier_inscrit_les_octets_tels_quels_sous_text_auto_et_efface_son_temporaire() {
+        let racine = racine("pose-directe");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        ecrire(&depot, ".gitattributes", "* text=auto\n");
+        let base = valider(&depot, "normalise");
+        let bac = bac(&depot, &kraken, "main-pose-1", &base).unwrap();
+        let octets: &[u8] = b"une\r\ndeux\r\n";
+        let temporaire = racine.join("pose.tmp");
+        poser_un_fichier(&bac, &temporaire, FICHIER, octets).unwrap();
+        assert!(!temporaire.exists(), "le temporaire est effacé");
+        // Git garde les octets tels quels, dans l'index du bac, en fichier ordinaire, et un `git add` n'y change rien.
+        let attendue = Ok(Gardee::Empreinte(hex(&sha256(octets))));
+        assert_eq!(empreinte_gardee(&bac, Arbre::Index, FICHIER, BORNE_EMPREINTE), attendue);
+        assert!(git(&bac, &["ls-files", "-s", "--", FICHIER]).starts_with("100644 "));
+        git(&bac, &["add", "--", FICHIER]);
+        assert_eq!(empreinte_gardee(&bac, Arbre::Index, FICHIER, BORNE_EMPREINTE), attendue);
+        // Un temporaire qui ne peut pas s'écrire est une erreur, et rien ne s'inscrit au chemin donné.
+        let sans_dossier = racine.join("absent").join("pose.tmp");
+        assert!(poser_un_fichier(&bac, &sans_dossier, "donnees/autre.txt", octets).is_err());
+        assert_eq!(empreinte_gardee(&bac, Arbre::Index, "donnees/autre.txt", BORNE_EMPREINTE), Ok(Gardee::Absent));
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn une_base_qui_garde_un_lien_ou_un_dossier_au_chemin_pose_est_refusee_en_6036_avant_tout_bac_et_tout_fil() {
+        let octets: &[u8] = b"alpha\n";
+        for (cas, mode) in [("lien", "120000"), ("dossier", "040000")] {
+            let racine = racine(&format!("pose-refusee-{cas}"));
+            let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+            if cas == "lien" {
+                fs::create_dir_all(depot.join("donnees")).unwrap();
+                std::os::unix::fs::symlink("ailleurs", depot.join(FICHIER)).unwrap();
+            } else {
+                ecrire(&depot, "donnees/t.txt/x.txt", "x");
+            }
+            let base = valider(&depot, cas);
+            let profil = Profil::faux(main_qui_recopie(&racine, false), DELAI);
+            let programme = std::ffi::OsString::from("gh-absent");
+            let lieu = Lieu {
+                profil: &profil,
+                depot: &depot,
+                dossier: &kraken,
+                gh: &programme,
+                personnel: Some(&racine),
+                ci: (Duration::from_millis(10), Duration::from_secs(60)),
+            };
+            let contenu = posees(octets);
+            let liens = Liens { poses: &contenu, ..Liens::default() };
+            let refus = mener_sur(&lieu, &plan_posant(octets), &base, liens, None, Origine::Plan).unwrap_err();
+            assert_eq!(refus.code, Code::FichierPoseRefuse, "{cas} : {refus}");
+            let dit_le_mode = refus.preuve.contains(&format!("mode {mode}"));
+            assert!(refus.preuve.contains(FICHIER) && dit_le_mode, "{cas} : {refus}");
+            // Rien n'est parti : ni dossier de Lydite (donc ni bac, ni fil, ni verrou), ni main.
+            assert!(!kraken.exists(), "{cas} : le dossier de Lydite ne devait pas naître : {:?}", noms(&kraken));
+            assert!(!racine.join("compte-1").exists(), "{cas} : la main est partie");
+            let _ = fs::remove_dir_all(&racine);
+        }
+    }
+
+    /// Mène sur `visee` (le dépôt visé) la vague qui pose `FICHIER` depuis `base`, et rend son refus : le test dit
+    /// que c'est le 6036 de la base, qu'aucun dossier de Lydite (donc ni bac, ni fil) n'est né et qu'aucune main n'est
+    /// partie.
+    #[cfg(unix)]
+    fn refus_de_la_base(racine: &Path, visee: &Path, base: &str) -> Refus {
+        let (kraken, octets): (_, &[u8]) = (racine.join("lydite"), b"alpha\n");
+        let profil = Profil::faux(main_qui_recopie(racine, false), DELAI);
+        let programme = std::ffi::OsString::from("gh-absent");
+        let lieu = Lieu {
+            profil: &profil,
+            depot: visee,
+            dossier: &kraken,
+            gh: &programme,
+            personnel: Some(racine),
+            ci: (Duration::from_millis(10), Duration::from_secs(60)),
+        };
+        let contenu = posees(octets);
+        let liens = Liens { poses: &contenu, ..Liens::default() };
+        let refus = mener_sur(&lieu, &plan_posant(octets), base, liens, None, Origine::Plan).unwrap_err();
+        assert_eq!(refus.code, Code::FichierPoseRefuse, "{refus}");
+        assert!(!kraken.exists(), "le dossier de Lydite ne devait pas naître : {:?}", noms(&kraken));
+        assert!(!racine.join("compte-1").exists(), "la main est partie");
+        refus
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_fichier_ordinaire_de_la_base_a_la_place_d_un_dossier_parent_est_refuse_en_6036_qui_nomme_le_parent() {
+        let racine = racine("pose-parent-fichier");
+        let depot = depot(&racine);
+        // `donnees` est un fichier de la base : `donnees/t.txt` n'y peut pas être posé.
+        ecrire(&depot, "donnees", "pas un dossier\n");
+        let base = valider(&depot, "donnees");
+        let refus = refus_de_la_base(&racine, &depot, &base);
+        assert!(refus.preuve.contains("its parent `donnees`") && refus.preuve.contains(FICHIER), "{refus}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_lien_symbolique_de_la_base_a_la_place_d_un_parent_est_refuse_en_6036_qui_nomme_le_parent() {
+        let racine = racine("pose-parent-lien");
+        let depot = depot(&racine);
+        // Un lien `donnees` de la base : `ls-tree` ne traverse pas un lien, il ne voit donc rien à `donnees/t.txt`.
+        std::os::unix::fs::symlink("ailleurs", depot.join("donnees")).unwrap();
+        let base = valider(&depot, "lien");
+        let refus = refus_de_la_base(&racine, &depot, &base);
+        assert!(refus.preuve.contains("its parent `donnees`") && refus.preuve.contains("mode 120000"), "{refus}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_depot_vise_sous_dossier_de_la_racine_est_juge_depuis_la_racine_pour_le_chemin_pose_et_ses_parents() {
+        let racine = racine("pose-sous-dossier");
+        let depot = depot(&racine);
+        // Le dépôt visé est `sous`, un dossier de la racine du dépôt ; les chemins du plan sont relatifs à la racine.
+        let visee = depot.join("sous");
+        ecrire(&depot, "sous/x.txt", "x\n");
+        // Un lien de la base au chemin posé : lu depuis `sous`, `donnees/t.txt` n'y serait rien.
+        fs::create_dir_all(depot.join("donnees")).unwrap();
+        std::os::unix::fs::symlink("ailleurs", depot.join(FICHIER)).unwrap();
+        let base = valider(&depot, "lien");
+        let refus = refus_de_la_base(&racine, &visee, &base);
+        assert!(refus.preuve.contains(FICHIER) && refus.preuve.contains("mode 120000"), "{refus}");
+        let _ = fs::remove_dir_all(&racine);
+        // Un lien à la place du parent `donnees`, de même.
+        let racine = super::racine("pose-sous-dossier-parent");
+        let depot = super::depot(&racine);
+        ecrire(&depot, "sous/x.txt", "x\n");
+        std::os::unix::fs::symlink("ailleurs", depot.join("donnees")).unwrap();
+        let base = valider(&depot, "lien");
+        let refus = refus_de_la_base(&racine, &depot.join("sous"), &base);
+        assert!(refus.preuve.contains("its parent `donnees`"), "{refus}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_geste_rate_de_la_pose_refuse_la_tache_en_nommant_le_fichier_et_n_en_laisse_aucun_temporaire() {
+        let racine = racine("pose-ratee");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        // Un fichier ordinaire `donnees` dans la base : `donnees/t.txt` ne peut pas entrer dans l'index du bac.
+        ecrire(&depot, "donnees", "pas un dossier\n");
+        let base = valider(&depot, "donnees");
+        let octets: &[u8] = b"alpha\n";
+        let profil = Profil::faux(main_qui_recopie(&racine, false), DELAI);
+        let liens = Liens { poses: &posees(octets), pause: Some(Duration::ZERO), ..Liens::default() };
+        let menee = lancer_avec(&depot, &kraken, &profil, &plan_posant(octets), BAIL, &base, liens).unwrap();
+        let refus = menee.issues[0].1.as_ref().unwrap_err();
+        assert!(refus.starts_with("refusée (7009) : "), "{refus}");
+        assert!(refus.contains(FICHIER) && refus.contains("is not placed in its sandbox"), "{refus}");
+        // Ni bail ni début : la main n'est pas partie. Son bac demeure, et le temporaire de Lydite est effacé.
+        assert_eq!(histoire_de(&fil(&kraken), 1), ["tâche a", "refus 7009"]);
+        assert!(!racine.join("compte-1").exists(), "la main est partie");
+        assert!(bac_de(&kraken, &menee.id, 1).is_dir());
+        let restes = trouves(&kraken, &|nom| nom.starts_with("pose-") && nom.ends_with(".tmp"));
+        assert!(restes.is_empty(), "le temporaire reste : {restes:?}");
+        let _ = fs::remove_dir_all(&racine);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn la_consigne_dit_les_fichiers_poses_avant_les_epingles_et_une_tache_sans_place_n_en_recoit_ni_pose_ni_ligne() {
+        let racine = racine("pose-sans-place");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let base = git(&depot, &["rev-parse", "HEAD"]);
+        let octets: &[u8] = b"alpha\n";
+        // La tâche `a` pose le fichier ; `b`, indépendante, n'a aucune ligne `place`, et le fichier d'`a` n'est pas à
+        // elle.
+        let place = format!("place : {FICHIER} : {}", hex(&sha256(octets)));
+        let bornes = format!("fichiers : {FICHIER}");
+        let entete = ["plan 1", "objectif : o", "preuve : exit 0"];
+        let plan = plan(&[&entete[..], &["tache a", &bornes, &place, "    A", "tache b", "    B"]].concat());
+        let profil = Profil::faux(main_qui_recopie(&racine, false), DELAI);
+        let liens = Liens { poses: &posees(octets), pause: Some(Duration::ZERO), ..Liens::default() };
+        let menee = lancer_avec(&depot, &kraken, &profil, &plan, BAIL, &base, liens).unwrap();
+        for (id, issue) in &menee.issues {
+            assemblee(id, issue);
+        }
+        assert_eq!(vu(&racine, 1, 1).as_deref(), Some(octets));
+        assert_eq!(vu(&racine, 2, 1), None, "rien ne se pose dans le bac de la tâche sans place");
+        assert!(racine.join("absent-2-1").exists());
+        // La ligne de la tâche `a` vient avant le titre des épingles ; `b`, libre, reçoit celui des épingles (le
+        // fichier posé d'`a` est aussi une épingle) mais aucune ligne de pose.
+        let dit = "Lydite placed these files itself before you started; keep them byte for byte:";
+        let ligne = format!("{dit} {FICHIER}\n");
+        let (posee, epingles) = (consigne_vue(&racine, 1, 1), "These files must have exactly this SHA-256");
+        let (debut, titre) = (posee.find(&ligne), posee.find(epingles));
+        assert!(debut.is_some() && debut < titre, "{posee}");
+        let sans = consigne_vue(&racine, 2, 1);
+        assert!(sans.contains(epingles) && !sans.contains("Lydite placed"), "{sans}");
+        let branche = menee.branche.expect("la branche d'une vague à plan");
+        assert_eq!(fichiers(&depot, &branche), [FICHIER, "ecrit.txt"]);
         let _ = fs::remove_dir_all(&racine);
     }
 }
