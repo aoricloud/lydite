@@ -6,6 +6,7 @@ use std::process::Command;
 use crate::branchements::git::{faire, geste, lieux};
 use crate::coeur::empreinte::{hex, sha256};
 use crate::coeur::erreur::{Code, Refus, nommee};
+use crate::coeur::natif::TOUJOURS_REFUSES;
 
 /// Un bac neuf : un worktree du dépôt sous `<dossier>/bacs/<id>`, sur la branche `lydite/<id>`, posée sur `depart` (un
 /// sha, ou `HEAD` du dépôt). Le dossier est un chemin absolu (voir `dossier::dossier`) : git le lit depuis le dépôt.
@@ -173,6 +174,8 @@ pub(crate) fn sans_claude(bac: &Path, depart: &str) -> Result<(), Refus> {
 
 /// Une butée du mur : une entrée directe de `.claude/` qui est un fichier ordinaire (ni lien ni dossier), vide, et sans
 /// droit d'écriture. Le bac à sable de Claude Code en pose aux chemins qu'il interdit d'écrire ; elle ne porte rien.
+/// Seul le nom est jugé, et `nom` est lu avec `.claude/` : l'appelant tient ce nom d'un `.claude` qui est un vrai
+/// dossier ([`butees_du_bac`]), ou de git, qui ne descend pas dans un lien ([`sans_claude`]).
 fn est_une_butee(bac: &Path, nom: &str) -> bool {
     let Some(reste) = nom.strip_prefix(".claude/") else { return false };
     if reste.is_empty() || reste.contains('/') {
@@ -181,8 +184,18 @@ fn est_une_butee(bac: &Path, nom: &str) -> bool {
     est_un_fichier_vide_en_lecture_seule(bac, nom)
 }
 
-/// Le chemin `nom` du bac est un fichier ordinaire (ni lien ni dossier), vide, et sans droit d'écriture.
+/// Le chemin `nom` du bac est un fichier ordinaire (ni lien ni dossier), vide, et sans droit d'écriture, et chacun de
+/// ses dossiers ancêtres dans le bac est un vrai dossier, ni un lien ni une jonction : `symlink_metadata` suit tout
+/// composant intermédiaire, et un fichier derrière un lien vers un dossier hors du bac n'est pas du bac.
 fn est_un_fichier_vide_en_lecture_seule(bac: &Path, nom: &str) -> bool {
+    let mut ancetre = bac.to_path_buf();
+    let mut noms = nom.split('/').filter(|morceau| !morceau.is_empty()).peekable();
+    while let Some(morceau) = noms.next() {
+        ancetre.push(morceau);
+        if noms.peek().is_some() && !fs::symlink_metadata(&ancetre).is_ok_and(|meta| meta.file_type().is_dir()) {
+            return false;
+        }
+    }
     fs::symlink_metadata(bac.join(nom))
         .is_ok_and(|meta| meta.file_type().is_file() && meta.len() == 0 && meta.permissions().readonly())
 }
@@ -217,17 +230,42 @@ pub(crate) fn butees_protegees(bac: &Path, depart: &str, proteges: &[String]) ->
     chemins
 }
 
-/// Les butées du mur du bac : les entrées directes de `.claude/` à sa racine qui sont des butées ([`est_une_butee`]),
-/// puis celles à un chemin protégé absent ([`butees_protegees`]), en chemins relatifs au bac. Vide si `.claude/` n'y
-/// est pas, ou ne se lit pas, et si aucune butée protégée n'y est.
+/// Les butées du mur à la racine du bac : les noms de [`TOUJOURS_REFUSES`] qui s'y écrivent sans dossier (`.bashrc`,
+/// `.vscode`, `.mcp.json`...) et qui sont un fichier ordinaire vide en lecture seule, absent du commit `depart` du bac.
+/// Le bac à sable de Claude Code pose une butée à chaque chemin qu'il interdit d'écrire et qui n'existe pas. Ceux de
+/// `.claude/` sont [`est_une_butee`] ; ceux qui ont un dossier dans leur nom ne sont pas ici.
+fn butees_de_la_racine(bac: &Path, depart: &str) -> Vec<String> {
+    TOUJOURS_REFUSES
+        .iter()
+        .filter(|nom| !nom.contains('/'))
+        .filter(|nom| est_un_fichier_vide_en_lecture_seule(bac, nom))
+        .filter(|nom| absent_du_depart(bac, depart, nom))
+        .map(|nom| nom.to_string())
+        .collect()
+}
+
+/// Les butées du mur du bac, en chemins relatifs au bac, triées, chacune une fois : les entrées directes de `.claude/`
+/// qui sont des butées ([`est_une_butee`]) absentes du commit `depart`, comme à la racine, celles de la racine à un nom
+/// de [`TOUJOURS_REFUSES`] absent du départ ([`butees_de_la_racine`]), puis celles à un chemin protégé absent
+/// ([`butees_protegees`]). `.claude/` ne se lit que si c'est un vrai dossier du bac, ni un lien ni une jonction :
+/// `read_dir` suivrait le lien vers un dossier hors du bac, et ce qui s'y trouve n'est pas du bac. Ce que ces noms ont
+/// en commun est une forme, un fichier ordinaire vide et sans droit d'écriture ; Kraken ne teste pas d'où il vient.
+/// D'ordinaire, le bac à sable de Claude Code pose de tels fichiers aux chemins qu'il interdit d'écrire et les retire à
+/// la fin de la commande, et une commande passée en arrière-plan, encore en cours quand la session finit, meurt sans
+/// les retirer. Vide si `.claude/` n'est pas un dossier, ou ne se lit pas, et si aucune autre butée n'y est.
 pub(crate) fn butees_du_bac(bac: &Path, depart: &str, proteges: &[String]) -> Vec<String> {
-    let mut noms: Vec<String> = fs::read_dir(bac.join(".claude"))
+    let claude = bac.join(".claude");
+    let vrai_dossier = fs::symlink_metadata(&claude).is_ok_and(|meta| meta.file_type().is_dir());
+    let entrees = if vrai_dossier { fs::read_dir(&claude).ok() } else { None };
+    let mut noms: Vec<String> = entrees
         .into_iter()
         .flatten()
         .filter_map(|entree| entree.ok()?.file_name().into_string().ok())
         .map(|nom| format!(".claude/{nom}"))
         .filter(|chemin| est_une_butee(bac, chemin))
+        .filter(|chemin| absent_du_depart(bac, depart, chemin))
         .collect();
+    noms.extend(butees_de_la_racine(bac, depart));
     noms.extend(butees_protegees(bac, depart, proteges));
     noms.sort();
     noms.dedup();

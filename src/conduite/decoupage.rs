@@ -35,7 +35,7 @@ use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-use crate::branchements::bac::retirer;
+use crate::branchements::bac::{butees_du_bac, retirer};
 use crate::branchements::dossier::{Fil, tenir};
 use crate::branchements::git::{faire, geste};
 use crate::coeur::empreinte::{hex, sha256};
@@ -181,7 +181,7 @@ fn decouper_de(
     // tâche rendue critique si la source est une issue.
     let lu: Mutex<Option<(Plan, Vec<u8>)>> = Mutex::new(None);
     let juge = |bac: &Path| -> Result<(), String> {
-        let pris = juger(bac, base, &demande).map_err(|refus| en_erreur(&refus))?;
+        let pris = juger(bac, base, profil.proteges(), &demande).map_err(|refus| en_erreur(&refus))?;
         *lu.lock().unwrap_or_else(PoisonError::into_inner) = Some(pris);
         Ok(())
     };
@@ -217,7 +217,7 @@ fn decouper_de(
             issue: Err(refus_en_clair(code.numero(), code.regle(), &erreur.to_string(), NON_NOTE)),
         });
     }
-    retirer_le_bac(depot, dossier, "the splitter's sandbox", &main, base, &[PLAN]);
+    retirer_le_bac(depot, dossier, "the splitter's sandbox", &main, base, &[PLAN], profil.proteges());
     Ok(Decoupage { main, issue: Ok(Decoupe { vague: menee.id, plan, texte }) })
 }
 
@@ -294,8 +294,9 @@ fn consigne(source: &Source<'_>, preuve: &str) -> String {
 /// Le juge du découpeur, sur son bac parti de `depart` : [`PLAN`] y est son seul changement (7014, ou 7009 si git ne le
 /// dit pas), puis il se lit en plan découpé contre la `demande` de Kraken, 1 Mo au plus et un octet de plus pour voir
 /// qu'il dépasse (6016 à 6021, 6024 à 6026 ; une lecture ratée, 6006). Rend le plan et ses octets, ou le refus.
-fn juger(bac: &Path, depart: &str, demande: &Demande<'_>) -> Result<(Plan, Vec<u8>), Refus> {
-    seul_change(bac, depart, PLAN, &[])?;
+/// `proteges` sont les chemins protégés du profil sous lequel tourne le découpeur ([`seul_change`]).
+fn juger(bac: &Path, depart: &str, proteges: &[String], demande: &Demande<'_>) -> Result<(Plan, Vec<u8>), Refus> {
+    seul_change(bac, depart, PLAN, &[], proteges)?;
     let chemin = bac.join(PLAN);
     let mut octets = Vec::new();
     let borne = TAILLE_MAX as u64 + 1;
@@ -321,18 +322,30 @@ fn chemins_de(depot: &Path, base: &str) -> Result<Vec<String>, Refus> {
 
 /// Retire le bac du découpeur, `qui` étant « the splitter's sandbox » (ou celui du relecteur, `relecture.rs`), et sa
 /// branche, une fois son travail au fil : les `fichiers` que Kraken lui a fait écrire (ici [`PLAN`]) s'effacent,
-/// ceux qui manquent ne comptant pas, puis `bac::retirer`, sans forcer, ôte le worktree, son dossier temporaire et la
-/// branche `lydite/<main>` si elle est encore sur la base. Un retrait raté s'écrit sur stderr, et le reste du bac
-/// demeure : git refuse de retirer un worktree qui garde un fichier non suivi qu'il n'ignore pas.
-pub(crate) fn retirer_le_bac(depot: &Path, dossier: &Path, qui: &str, main: &str, base: &str, fichiers: &[&str]) {
+/// ceux qui manquent ne comptant pas, ainsi que les fichiers qui ont la forme d'une butée du mur dans son bac
+/// ([`butees_du_bac`], parties de `base`, avec les `proteges` du profil sous lequel tournait la main) : ils ne portent
+/// rien, et git ne retirerait pas le worktree pour eux. Puis `bac::retirer`, sans forcer, ôte le worktree, son dossier
+/// temporaire et la branche `lydite/<main>` si elle est encore sur la base. Un retrait raté s'écrit sur stderr, et le
+/// reste du bac demeure : git refuse de retirer un worktree qui garde un fichier non suivi qu'il n'ignore pas, et rien
+/// d'autre n'est forcé.
+pub(crate) fn retirer_le_bac(
+    depot: &Path,
+    dossier: &Path,
+    qui: &str,
+    main: &str,
+    base: &str,
+    fichiers: &[&str],
+    proteges: &[String],
+) {
     let bac = dossier.join("bacs").join(main);
     let branche = format!("lydite/{main}");
-    let efface = |fichier: &&str| match fs::remove_file(bac.join(fichier)) {
+    let efface = |fichier: &str| match fs::remove_file(bac.join(fichier)) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(format!("removing {}: {e}", bac.join(fichier).display())),
         _ => Ok(()),
     };
-    let retrait =
-        fichiers.iter().try_for_each(efface).and_then(|()| retirer(depot, &bac, Some((&branche, base)), faire));
+    let butees = butees_du_bac(&bac, base, proteges);
+    let mut a_effacer = fichiers.iter().copied().chain(butees.iter().map(String::as_str));
+    let retrait = a_effacer.try_for_each(efface).and_then(|()| retirer(depot, &bac, Some((&branche, base)), faire));
     if let Err(vu) = retrait {
         eprintln!("{qui} is not removed, and stays: {vu}");
     }

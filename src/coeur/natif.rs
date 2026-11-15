@@ -44,7 +44,13 @@ use std::path::{Path, PathBuf};
 /// Les fichiers et dossiers que la main n'écrit jamais dans le bac, s'ils y existent : ce qui s'exécute à la
 /// prochaine ouverture de la forge, du shell ou de l'éditeur, et les commandes et agents de Claude Code. L'appelant
 /// donne cette liste dans [`Regles::toujours`].
-// raccourci : un fichier de cette liste qui n'existe pas encore n'est pas refusé, à monter si une preuve en crée un
+///
+/// Second rôle : chacun de ses noms sans `/` est aussi, à la racine d'un bac, un nom de butée (un fichier que le bac
+/// à sable de Claude Code pose), que les refus 7013 et 7014 ne comptent pas quand il en a la forme (fichier
+/// ordinaire, vide, sans droit d'écriture, non suivi, absent du commit de départ). Y ajouter un nom pour le mur
+/// relâche donc aussi ces deux refus pour ce nom.
+// raccourci : un fichier de cette liste qui n'existe pas encore n'est pas refusé, à monter si une preuve en crée un ;
+// et un nom ajouté ici sans `/` devient aussi une butée pour 7013 et 7014 (voir ci-dessus)
 pub(crate) const TOUJOURS_REFUSES: [&str; 13] = [
     ".gitconfig",
     ".gitmodules",

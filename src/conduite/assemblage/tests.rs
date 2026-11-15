@@ -1,7 +1,7 @@
 use super::*;
 use crate::branchements::bac::{bac, sans_claude};
 use crate::coeur::empreinte::{hex, sha256};
-use crate::essais::{depot, ecrire, etat_de_claude, git, pour_sh, racine, script};
+use crate::essais::{BUTEES_DU_RELECTEUR, depot, ecrire, etat_de_claude, git, lier, pour_sh, racine, script};
 use std::fs;
 use std::process::Command;
 use std::time::Duration;
@@ -821,6 +821,146 @@ fn butee(bac: &Path, chemin: &str) {
 }
 
 #[test]
+fn seul_change_laisse_passer_les_vingt_trois_butees_d_un_relecteur_mort() {
+    let (racine, depot, kraken, base) = vise("seul-butees");
+    let bac = prise(&depot, &kraken, "relecteur", &base, &[("REMARQUES.lydite", "remarques 2\n")]);
+    for chemin in BUTEES_DU_RELECTEUR {
+        butee(&bac, chemin);
+    }
+    assert_eq!(seul_change(&bac, &base, "REMARQUES.lydite", &[], &[]), Ok(()));
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn chemins_changes_laisse_passer_les_vingt_trois_butees_d_une_main_de_tache_dont_une_commande_est_morte() {
+    let (racine, depot, kraken, base) = vise_avec_fichiers("changes-butees-racine");
+    let bac = prise(&depot, &kraken, "t", &base, &[("src/a.txt", "fait\n")]);
+    for chemin in BUTEES_DU_RELECTEUR {
+        butee(&bac, chemin);
+    }
+    // Sans chemin protégé, puis avec ceux d'un profil : les butées de la racine ne comptent ni d'un côté ni de l'autre.
+    assert_eq!(super::chemins_changes(&bac, &base, &[]).unwrap(), ["src/a.txt"]);
+    let profil = profil().avec_proteges(&["vendor/"]);
+    assert_eq!(super::chemins_changes(&bac, &base, profil.proteges()).unwrap(), ["src/a.txt"]);
+    // Une de ces butées ajoutée à l'index compte : le contrôle ci-dessus peut échouer.
+    git(&bac, &["add", "-f", ".bashrc"]);
+    assert_eq!(super::chemins_changes(&bac, &base, &[]).unwrap(), [".bashrc", "src/a.txt"]);
+    assert_eq!(super::chemins_changes(&bac, &base, profil.proteges()).unwrap(), [".bashrc", "src/a.txt"]);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn seul_change_refuse_en_7014_un_nom_de_butee_qui_n_en_est_pas_une() {
+    // Un `.bashrc` non vide, vide mais qu'on peut écrire, présent au départ, suivi (ajouté à l'index), un dossier :
+    // chacun reste le refus 7014, qui le cite ; un nom hors des listes, de même. Le lien a son test, sous Unix.
+    let (racine, depot, kraken, _) = vise("seul-pas-butees");
+    ecrire(&depot, ".gitconfig", "");
+    git(&depot, &["add", "-A"]);
+    git(&depot, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "gitconfig"]);
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    /// Ce que la main fait dans son bac.
+    type Pose = fn(&Path);
+    let cas: [(&str, Pose); 7] = [
+        ("non-vide", |bac| {
+            butee(bac, ".bashrc");
+            regler_ecriture(bac, ".bashrc", true);
+            fs::write(bac.join(".bashrc"), "x").unwrap();
+            regler_ecriture(bac, ".bashrc", false);
+        }),
+        ("inscriptible", |bac| ecrire(bac, ".bashrc", "")),
+        ("present-au-depart", |bac| {
+            // Le fichier suivi du départ quitte l'index, puis une butée le remplace : il n'est pas absent du départ.
+            git(bac, &["rm", "-q", "--cached", ".gitconfig"]);
+            fs::remove_file(bac.join(".gitconfig")).unwrap();
+            butee(bac, ".gitconfig");
+        }),
+        ("suivi", |bac| {
+            butee(bac, ".bashrc");
+            git(bac, &["add", "-f", ".bashrc"]);
+        }),
+        ("dossier", |bac| ecrire(bac, ".bashrc/x", "")),
+        ("hors-des-listes", |bac| butee(bac, ".autrerc")),
+        ("claude-inscriptible", |bac| ecrire(bac, ".claude/loop.md", "")),
+    ];
+    let cite = [".bashrc", ".bashrc", ".gitconfig", ".bashrc", ".bashrc/x", ".autrerc", ".claude/loop.md"];
+    for ((nom, pose), cite) in cas.into_iter().zip(cite) {
+        let bac = prise(&depot, &kraken, nom, &base, &[("REMARQUES.lydite", "remarques 2\n")]);
+        pose(&bac);
+        let refus = seul_change(&bac, &base, "REMARQUES.lydite", &[], &[]).unwrap_err();
+        assert_eq!(refus.code, Code::BacTouche, "{nom}: {refus}");
+        assert!(refus.preuve.contains(&format!("{cite:?}")), "{nom}: {refus}");
+    }
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[cfg(unix)]
+#[test]
+fn seul_change_refuse_en_7014_un_bashrc_qui_est_un_lien_vers_un_fichier_vide_en_lecture_seule() {
+    let (racine, depot, kraken, base) = vise("seul-lien-butee");
+    let bac = prise(&depot, &kraken, "relecteur", &base, &[("REMARQUES.lydite", "remarques 2\n")]);
+    // La cible a la forme d'une butée, mais elle est hors du bac, sous le dossier temporaire du test.
+    butee(&racine, "cible-vide");
+    std::os::unix::fs::symlink(racine.join("cible-vide"), bac.join(".bashrc")).unwrap();
+    let refus = seul_change(&bac, &base, "REMARQUES.lydite", &[], &[]).unwrap_err();
+    assert_eq!(refus.code, Code::BacTouche, "{refus}");
+    assert!(refus.preuve.contains(r#"".bashrc""#), "{refus}");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn seul_change_laisse_passer_une_butee_a_un_chemin_protege_absent_du_depart_mais_pas_celle_de_l_index() {
+    // Un dépôt sans `.agents/` : la butée du chemin protégé d'office (les leçons) est posée dans un dossier que le
+    // bac à sable crée pour elle.
+    let (racine, depot, kraken, base) = vise("seul-butee-protegee");
+    assert!(!depot.join(".agents").exists());
+    let profil = profil();
+    let bac = prise(&depot, &kraken, "relecteur", &base, &[("REMARQUES.lydite", "remarques 2\n")]);
+    butee(&bac, ".agents/skills");
+    // Sans les chemins protégés du profil, la butée est un changement : le contrôle peut échouer.
+    let refus = seul_change(&bac, &base, "REMARQUES.lydite", &[], &[]).unwrap_err();
+    assert_eq!(refus.code, Code::BacTouche, "{refus}");
+    assert!(refus.preuve.contains(r#"".agents/skills""#), "{refus}");
+    assert_eq!(seul_change(&bac, &base, "REMARQUES.lydite", &[], profil.proteges()), Ok(()));
+    // Ajoutée à l'index, elle compte : le refus 7014, qui la cite.
+    git(&bac, &["add", "-f", ".agents/skills"]);
+    let refus = seul_change(&bac, &base, "REMARQUES.lydite", &[], profil.proteges()).unwrap_err();
+    assert_eq!(refus.code, Code::BacTouche, "{refus}");
+    assert!(refus.preuve.contains(r#"".agents/skills""#), "{refus}");
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn un_nom_de_butee_sous_la_racine_n_est_pas_une_butee() {
+    // Avec une vraie butée `.bashrc` à la racine, un `src/.bashrc` non suivi, vide et en lecture seule reste un
+    // changement.
+    let (racine, depot, kraken, base) = vise_avec_fichiers("butee-sous-la-racine");
+    let bac = prise(&depot, &kraken, "relecteur", &base, &[("REMARQUES.lydite", "remarques 2\n")]);
+    butee(&bac, ".bashrc");
+    butee(&bac, "src/.bashrc");
+    let refus = seul_change(&bac, &base, "REMARQUES.lydite", &[], &[]).unwrap_err();
+    assert_eq!(refus.code, Code::BacTouche, "{refus}");
+    assert!(refus.preuve.contains(r#"besides REMARQUES.lydite: "src/.bashrc""#), "{refus}");
+    // La main d'une tâche : le vrai changement et `src/.bashrc`, sans la butée de la racine.
+    let bac = prise(&depot, &kraken, "t", &base, &[("src/a.txt", "fait\n")]);
+    butee(&bac, ".bashrc");
+    butee(&bac, "src/.bashrc");
+    assert_eq!(super::chemins_changes(&bac, &base, &[]).unwrap(), ["src/.bashrc", "src/a.txt"]);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn chemins_changes_rend_un_bashrc_qui_est_un_lien_vers_un_fichier_vide_en_lecture_seule() {
+    let (racine, depot, kraken, base) = vise_avec_fichiers("changes-lien-butee");
+    let bac = prise(&depot, &kraken, "t", &base, &[("src/a.txt", "fait\n")]);
+    // La cible a la forme d'une butée, mais elle est hors du bac, sous le dossier temporaire du test.
+    butee(&racine, "cible-vide");
+    if lier(&racine.join("cible-vide"), &bac.join(".bashrc")) {
+        assert_eq!(super::chemins_changes(&bac, &base, &[]).unwrap(), [".bashrc", "src/a.txt"]);
+    }
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
 fn le_gel_epargne_les_butees_du_mur() {
     let (racine, depot, kraken, base) = vise("gel-butees");
     let profil = profil();
@@ -835,6 +975,31 @@ fn le_gel_epargne_les_butees_du_mur() {
     // Le commit du gel ne porte que le vrai changement.
     assert_eq!(git(&bac, &["diff", "--name-only", &base, "HEAD"]), "travail.txt");
     assert_ne!(assemblage.tete(), base.as_str());
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn le_gel_ne_commite_pas_une_butee_de_la_racine_et_ne_la_prend_pas_pour_un_7021() {
+    let (racine, depot, kraken, base) = vise("gel-butees-racine");
+    let profil = profil();
+    let mut assemblage = ouvrir(&depot, &kraken, &profil, "v", &base, PREUVE).unwrap();
+    // Sans `fichiers`, puis avec ceux de la tâche : le gel est jugé de même, et la butée n'y entre pas.
+    let permis = chemins(&["b.txt"]);
+    for (k, id, fichier, fichiers) in [(1, "a", "a.txt", None), (2, "b", "b.txt", Some(permis.as_slice()))] {
+        let bac = prise(&depot, &kraken, id, &base, &[(fichier, id)]);
+        for chemin in BUTEES_DU_RELECTEUR {
+            butee(&bac, chemin);
+        }
+        let (_, issue) = assemblage.fusionner(&bac, &base, id, fichiers, k, |_, _| Ok(()));
+        let sha = issue.unwrap_or_else(|refus| panic!("{id} : {refus}"));
+        assert_eq!(assemblage.tete(), sha.as_str(), "{id}");
+        // Le commit du gel ne porte que le vrai changement : aucune des butées de la racine n'y est.
+        assert_eq!(git(&bac, &["diff", "--name-only", &base, "HEAD"]), fichier, "{id}");
+        // Le même diff voit une butée dès qu'elle est à l'index : le contrôle ci-dessus peut échouer.
+        git(&bac, &["add", "-f", ".bashrc"]);
+        assert_eq!(git(&bac, &["diff", "--cached", "--name-only"]), ".bashrc", "{id}");
+    }
+    assert_eq!(fichiers(&depot, "lydite/vague-v"), ["a.txt", "b.txt"]);
     let _ = fs::remove_dir_all(&racine);
 }
 
@@ -954,14 +1119,14 @@ fn un_fichier_vide_en_lecture_seule_a_un_chemin_non_protege_reste_un_chemin_chan
     let profil = profil();
     let permis = chemins(&["src/"]);
     let bac = prise(&depot, &kraken, "t", &base, &[("src/a.txt", "fait\n")]);
-    butee(&bac, ".bashrc");
-    let attendu = [".bashrc", "src/a.txt"];
+    butee(&bac, ".autrerc");
+    let attendu = [".autrerc", "src/a.txt"];
     assert_eq!(super::chemins_changes(&bac, &base, profil.proteges()).unwrap(), attendu);
     // Il n'est pas protégé : pas de 7018 ; mais il n'est pas dans les `fichiers` de la tâche : 7013.
     assert_eq!(proteges_tenus(&bac, &base, "t", profil.proteges()), Ok(()));
     let refus = super::fichiers_tenus(&bac, &base, "t", &permis, profil.proteges()).unwrap_err();
     assert_eq!(refus.code, Code::HorsFichiers);
-    assert!(refus.preuve.ends_with(r#": ".bashrc""#), "{refus}");
+    assert!(refus.preuve.ends_with(r#": ".autrerc""#), "{refus}");
     let _ = fs::remove_dir_all(&racine);
 }
 
