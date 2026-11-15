@@ -798,7 +798,8 @@ fn epingles_gelees(
 ///
 /// Un fichier qui a la forme d'une butée du mur ([`butees_du_bac`], du départ du bac, des `proteges` du profil sous
 /// lequel tourne la main) ne compte pas parmi les non-suivis : ordinaire, vide, sans droit d'écriture, absent du
-/// départ, à un nom que le mur interdit d'écrire. Kraken ne teste pas d'où il vient ; d'ordinaire, le bac à sable de
+/// départ, à une entrée directe de `.claude/` (n'importe laquelle), à un nom de la racine que le mur interdit toujours
+/// d'écrire, ou à un chemin protégé. Kraken ne teste pas d'où il vient ; d'ordinaire, le bac à sable de
 /// Claude Code l'a posé et sa session morte ne l'a pas retiré. Les `proteges` sont ceux que la main reçoit : le bac à
 /// sable pose aussi une butée à un chemin protégé absent du départ. Tout le reste compte : un fichier non vide ou
 /// qu'on peut écrire, un lien, un dossier, un nom hors de ces listes, un chemin suivi ou présent au départ.

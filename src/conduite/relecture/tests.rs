@@ -856,6 +856,32 @@ fn une_relecture_sans_bloquante_laisse_la_forge_pousser_la_tete_de_la_vague() {
     let _ = fs::remove_dir_all(&essai.racine);
 }
 
+#[cfg(unix)]
+#[test]
+fn un_relecteur_qui_laisse_une_butee_a_un_chemin_protege_absent_du_depot_est_pris_et_son_bac_retire() {
+    // Le faux relecteur écrit ses remarques, puis laisse `.agents/skills` vide en lecture seule dans un dépôt qui n'a
+    // pas `.agents/` : son juge (`juger`, dans `Relecture::relecteur`) lit ses remarques malgré elle, et le retrait
+    // (`retirer_le_bac`, dans `Relecture::mener`) l'efface avec le bac. Seuls les chemins protégés du profil de la
+    // vague, que `Relecture` passe aux deux, les y font passer.
+    let essai = Essai::nouveau("relecture-butee-protegee");
+    assert!(!essai.depot.join(".agents").exists());
+    essai.remarques(1, SANS_REMARQUE);
+    essai.marque("butee");
+    let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    assert_eq!(essai.mener(&plan, None), ExitCode::SUCCESS);
+    let fil = essai.fil();
+    let ouvertes = ouvertes(&fil);
+    let [_, r] = &ouvertes[..] else { panic!("la vague, puis le relecteur : {ouvertes:?}") };
+    // Le juge a pris les remarques à la première tentative : aucune relance, une fin verte.
+    assert!(essai.garde("relecture-2").is_none(), "le relecteur n'a pas été relancé");
+    assert_eq!(fins_de(&fil, r).iter().map(|(couleur, _)| *couleur).collect::<Vec<_>>(), [Couleur::Vert]);
+    assert!(fil.iter().any(|e| matches!(e, Evenement::Relecture { vague, n: 0, bloquantes: 0, .. } if vague == r)));
+    // Son bac et sa branche sont retirés, la butée comprise.
+    assert!(!essai.bacs().iter().any(|nom| nom.starts_with(&format!("main-{r}"))), "{:?}", essai.bacs());
+    assert_eq!(git(&essai.depot, &["branch", "--list", &format!("lydite/main-{r}-1")]), "");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
 #[test]
 fn une_lecon_ecrite_par_une_main_n_atteint_ni_le_relecteur_ni_la_correction() {
     // Les leçons se lisent au commit de base de la vague : une leçon fausse (6031 si elle était lue) qui arrive à la
