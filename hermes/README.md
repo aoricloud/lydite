@@ -50,7 +50,7 @@ what is missing.
 
 | Tool | What it does |
 | --- | --- |
-| `lydite_lancer` | Starts `lydite lancer <profile> --issue <n> --decouper --verifier "<proof>" --depot <repo> --pr main` in the background and returns at once with an id (Lydite 0.4 still reads those French words as doubles of its English ones: `lydite launch ... --split --verify ...`). Also takes `objective` (instead of `issue`), `plan` (instead of both: a plan file written by hand, with its own models, files and `preuve :` line; see below), `profile`, `pr`, and `observe` (show the plan, build nothing). |
+| `lydite_lancer` | Starts `lydite lancer <profile> --issue <n> --decouper --verifier "<proof>" --depot <repo> --pr main` in the background and returns at once with an id (Lydite 0.5 still reads those French words as doubles of its English ones: `lydite launch ... --split --verify ...`). Also takes `objective` (instead of `issue`), `plan` (instead of both: a plan file written by hand, with its own models, files and `preuve :` line; see below), `profile`, `pr`, and `observe` (show the plan, build nothing). |
 | `lydite_etat` | Returns `lydite etat` (what Lydite itself recorded: tasks, proofs, pull request, CI) and the launches made from this plugin, with the end of a launch's log when given its `id`. |
 | `lydite_lecons` | Returns the lessons of a repository: the written rules Lydite learned there from past mistakes and gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Without `name`, the list of each lesson's name, rule and files; with `name`, one lesson in full. It is read-only, and Lydite checks the lessons first. Nothing is approved, because nothing is started or written. |
 | `lydite_plan` | Runs `lydite plan <file>` on a plan file and returns what Lydite accepts or refuses, and why: the plan's SHA-256, its number of tasks, its proof line and the tasks that will wait for one another because they share a file, or Lydite's refusal (its code, its rule, what was seen, the fix). It starts nothing and costs nothing, so nothing is approved: use it to fix a plan with the human before approving a launch. |
@@ -193,7 +193,7 @@ hermes config set tools.tool_search.enabled off
   timeout, with the closed list of variables and no provider key), and `lydite plan <file>` (read-only, 30 s timeout,
   with the closed list of variables and no provider key), and `lydite findings <report>` (read-only, 30 s timeout,
   same closed list; with `--plan <id> --verify <proof>` it writes a plan on its standard output, which the plugin saves;
-  it starts no wave). The plugin starts these French words; Lydite 0.4
+  it starts no wave). The plugin starts these French words; Lydite 0.5
   still reads them as doubles of its English ones (`launch`, `status`, `lessons`). Lydite in turn runs `git`, `gh` and the `claude`
   process on the host, with your GitHub login; only the commands of a hand run in Claude Code's sandbox, and the proof
   command is replayed in the wall (by srt under `mur = exige`, by Lydite's native wall under `mur = natif`); those are
