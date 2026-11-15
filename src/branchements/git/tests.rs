@@ -1,8 +1,8 @@
 //! Les tests des gestes git.
 use super::*;
-#[cfg(unix)]
-use crate::essais::neuf;
 use crate::essais::{depot_neuf as depot, ecrire, git};
+#[cfg(unix)]
+use crate::essais::{lier, neuf};
 use std::ffi::OsStr;
 use std::fs;
 
@@ -165,12 +165,6 @@ fn un_git_qui_echoue_n_est_pas_un_fichier_absent_pour_la_lecture_d_un_fichier_ep
     let vu = empreinte_gardee(&dir, Arbre::Commit(inconnu), "a.txt", BORNE_EMPREINTE);
     assert!(vu.as_ref().is_err_and(|erreur| erreur.contains("ls-tree")), "{vu:?}");
     let _ = fs::remove_dir_all(&dir);
-}
-
-/// Un lien symbolique du bac vers `cible` : `false` si le système ne le permet pas (Windows sans le droit).
-#[cfg(unix)]
-fn lier(cible: &Path, lien: &Path) -> bool {
-    std::os::unix::fs::symlink(cible, lien).is_ok()
 }
 
 #[cfg(unix)]

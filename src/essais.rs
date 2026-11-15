@@ -298,7 +298,8 @@ pub(crate) fn main_qui_ecrit_la_ci(dir: &Path) -> Vec<String> {
 /// - si sa consigne nomme `PLAN.lydite`, il est le découpeur, à sa tentative `n` (1, puis 2 une fois posée la marque
 ///   `decoupe-1` de `dir`) : il garde sa consigne dans `consigne-<n>.txt` de `dir` et son `PATH` dans
 ///   `path-decoupeur-<n>.txt`, copie `plan-<n>.lydite` de `dir`, s'il est là, en `PLAN.lydite` à la racine de son bac,
-///   et écrit `autre.txt` dans son bac si `toucher-<n>` est dans `dir` ;
+///   écrit `autre.txt` dans son bac si `toucher-<n>` est dans `dir`, et, si `butee` y est (sous Unix seulement), laisse
+///   `.agents/skills` à son bac, un fichier vide sans droit d'écriture, comme le mur d'un chemin protégé absent ;
 /// - sinon, il est la main d'une tâche : il garde son `PATH` dans `path-<bac>.txt` de `dir`, et sa consigne dans
 ///   `sortie/<bac>.txt` de son bac, que `fichiers : sortie/` couvre.
 ///
@@ -347,6 +348,8 @@ pub(crate) fn faux_decoupeur(dir: &Path) -> Vec<String> {
              printf 'PATH=%s\\n' \"$PATH\" > \"$d/path-decoupeur-$n.txt\"\n\
              if [ -f \"$d/plan-$n.lydite\" ]; then cp \"$d/plan-$n.lydite\" PLAN.lydite; fi\n\
              if [ -f \"$d/toucher-$n\" ]; then echo touche > autre.txt; fi\n\
+             if [ -f \"$d/butee\" ] && [ ! -e .agents/skills ]; then mkdir -p .agents; : > .agents/skills; \
+             chmod a-w .agents/skills; fi\n\
              else\n\
              printf 'PATH=%s\\n' \"$PATH\" > \"$d/path-$bac.txt\"\n\
              mkdir -p sortie\n\
@@ -371,8 +374,9 @@ pub(crate) fn faux_decoupeur(dir: &Path) -> Vec<String> {
 ///   `path-relecteur-<n>.txt`, le `DIFF.lydite` de son bac dans `diff-<n>.txt` (ou `sans-diff-<n>` s'il n'y en a
 ///   pas), de même son `PREUVE.lydite` dans `preuve-<n>.txt` (ou `sans-preuve-<n>`), copie `remarques-<n>.lydite` de
 ///   `dir`, s'il est là, en `REMARQUES.lydite` à la racine de son bac, ôte
-///   l'`autre.txt` d'une tentative d'avant, en écrit un dans son bac si `toucher-<n>` est dans `dir`, et dit dans sa
-///   réponse qu'il n'y a rien de bloquant si `dit-rien-de-bloquant` y est ;
+///   l'`autre.txt` d'une tentative d'avant, en écrit un dans son bac si `toucher-<n>` est dans `dir`, laisse
+///   `.agents/skills` à son bac, un fichier vide sans droit d'écriture, si `butee` y est (sous Unix seulement), et dit
+///   dans sa réponse qu'il n'y a rien de bloquant si `dit-rien-de-bloquant` y est ;
 /// - sinon, il est la main d'une tâche : il garde sa consigne dans `sortie/<bac>.txt` de son bac si elle dit « critique
 ///   », dans `autre/<bac>.txt` sinon, et y copie de même `gros.txt` de `dir`, s'il est là, en `gros-<bac>.txt` ;
 ///   si `ecrire-lecon` est dans `dir`, celle qui écrit sous `sortie/` écrit aussi une leçon fausse,
@@ -449,6 +453,8 @@ pub(crate) fn faux_relecteur(dir: &Path) -> Vec<String> {
              if [ -f \"$d/remarques-$n.lydite\" ]; then cp \"$d/remarques-$n.lydite\" REMARQUES.lydite; fi\n\
              rm -f autre.txt\n\
              if [ -f \"$d/toucher-$n\" ]; then echo touche > autre.txt; fi\n\
+             if [ -f \"$d/butee\" ] && [ ! -e .agents/skills ]; then mkdir -p .agents; : > .agents/skills; \
+             chmod a-w .agents/skills; fi\n\
              if [ -f \"$d/dit-rien-de-bloquant\" ]; then echo 'There is nothing blocking in my review.'; fi\n\
              else\n\
              dossier=autre\n\
@@ -734,8 +740,9 @@ pub(crate) fn ecrire(dir: &Path, chemin: &str, contenu: &str) {
 }
 
 /// Pose `lien`, un lien symbolique vers `cible` (un dossier ou un fichier existant). Sous Windows, un lien ne se pose
-/// qu'avec le droit de le faire : sans lui, la fonction le dit sur stderr et rend `false`, et le test saute ce qui
-/// demande le lien. Toute autre erreur est une panique.
+/// qu'avec le droit de le faire : sans lui, hors de la CI (variable d'environnement `CI` posée), la fonction le dit sur
+/// stderr et rend `false`, et le test saute ce qui demande le lien. Dans la CI, dont les Windows posent leurs liens,
+/// comme pour toute autre erreur, c'est une panique : un test de liens ne passe pas à vide sans le dire.
 pub(crate) fn lier(cible: &Path, lien: &Path) -> bool {
     #[cfg(unix)]
     let pose = std::os::unix::fs::symlink(cible, lien);
@@ -745,14 +752,30 @@ pub(crate) fn lier(cible: &Path, lien: &Path) -> bool {
     } else {
         std::os::windows::fs::symlink_file(cible, lien)
     };
+    issue_du_lien(pose, lien, cfg!(windows) && env::var_os("CI").is_none())
+}
+
+/// Ce que [`lier`] fait d'une pose : `true` si elle a réussi ; son échec est dit sur stderr et rend `false` si `tolere`
+/// (Windows hors de la CI), sinon c'est une panique.
+fn issue_du_lien(pose: io::Result<()>, lien: &Path, tolere: bool) -> bool {
     match pose {
         Ok(()) => true,
-        Err(e) if cfg!(windows) => {
+        Err(e) if tolere => {
             eprintln!("lien symbolique non posé, faute du droit de le faire : {e}");
             false
         }
         Err(e) => panic!("lien symbolique {} : {e}", lien.display()),
     }
+}
+
+#[test]
+fn un_lien_non_pose_n_est_tolere_que_hors_de_la_ci_et_sous_windows() {
+    let refus = || Err(io::Error::from(io::ErrorKind::PermissionDenied));
+    let lien = Path::new("/srv/lien");
+    assert!(issue_du_lien(Ok(()), lien, false));
+    assert!(!issue_du_lien(refus(), lien, true));
+    let panique = std::panic::catch_unwind(|| issue_du_lien(refus(), Path::new("/srv/lien"), false));
+    assert!(panique.is_err(), "hors de la tolérance, un lien non posé est une panique");
 }
 
 /// Les vingt-trois butées qu'un relecteur a laissées à la fin de sa session (Claude Code 2.1.317) : onze à la racine
