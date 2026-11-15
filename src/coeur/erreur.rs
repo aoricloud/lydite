@@ -262,13 +262,13 @@ codes! {
         "A hand changes only the paths of its task's `fichiers`; any other path turns its attempt red. A file \
          shaped like a wall stop is not counted, whoever laid it: an empty, read-only, untracked ordinary file, \
          absent from the starting commit and under no linked folder, directly under `.claude/`, at the root \
-         under a name of the always-refused list, or at a path the profile protects.";
+         under one of the names the wall never lets a hand write (`.gitconfig`, `.gitmodules`, `.bashrc`, \
+         `.bash_profile`, `.zshrc`, `.zprofile`, `.profile`, `.ripgreprc`, `.mcp.json`, `.vscode`, `.idea`), or at \
+         a path the profile protects.";
     BacTouche = 7014, "vague.bac_touche",
         "The splitter and the reviewer write only their own file, an ordinary one that the repository does not \
-         ignore, at the root of their worktree; nothing else changes there. A file shaped \
-         like a wall stop is not counted, whoever laid it: an empty, read-only, untracked ordinary file, absent \
-         from the starting commit and under no linked folder, directly under `.claude/`, at the root under a \
-         name of the always-refused list, or at a path the profile protects.";
+         ignore, at the root of their worktree; nothing else changes there. A file shaped like a wall stop, as \
+         rule 7013 describes it, is not counted.";
     RemarquesIllisibles = 7015, "vague.remarques_illisibles",
         "The reviewer's file follows the `remarques 2` format; otherwise its attempt is red.";
     RelectureManquee = 7016, "vague.relecture_manquee",
