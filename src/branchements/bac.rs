@@ -175,8 +175,9 @@ pub(crate) fn sans_claude(bac: &Path, depart: &str) -> Result<(), Refus> {
 /// Une butée du mur : une entrée directe de `.claude/` qui est un fichier ordinaire (ni lien ni dossier), vide, et sans
 /// droit d'écriture. Le bac à sable de Claude Code en pose aux chemins qu'il interdit d'écrire ; elle ne porte rien.
 /// Le nom est jugé (`.claude/` puis un seul morceau), puis la forme du fichier et chacun de ses dossiers ancêtres dans
-/// le bac, `.claude` compris, qui doivent être de vrais dossiers ([`est_un_fichier_vide_en_lecture_seule`]) : cette
-/// fonction ne laisse rien à l'appelant.
+/// le bac, `.claude` compris, qui doivent être de vrais dossiers ([`est_un_fichier_vide_en_lecture_seule`]). Il reste à
+/// l'appelant de vérifier que le fichier est non suivi et absent du commit de départ (`absent_du_depart` dans
+/// `butees_du_bac`, les autres appels git dans `sans_claude`).
 fn est_une_butee(bac: &Path, nom: &str) -> bool {
     let Some(reste) = nom.strip_prefix(".claude/") else { return false };
     if reste.is_empty() || reste.contains('/') {
