@@ -1,5 +1,5 @@
 name: lydite
-version: 0.4.0
+version: 0.5.0
 description: "Hand a GitHub issue or an objective, plus the test that proves it, to a Lydite wave from the chat: Claude Code sessions on the model of the Lydite profile, the proof replayed by Lydite itself, and a pull request that states what was proved."
 author: aoricloud
 license: MIT
