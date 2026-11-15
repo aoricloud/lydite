@@ -174,8 +174,9 @@ pub(crate) fn sans_claude(bac: &Path, depart: &str) -> Result<(), Refus> {
 
 /// Une butée du mur : une entrée directe de `.claude/` qui est un fichier ordinaire (ni lien ni dossier), vide, et sans
 /// droit d'écriture. Le bac à sable de Claude Code en pose aux chemins qu'il interdit d'écrire ; elle ne porte rien.
-/// Seul le nom est jugé, et `nom` est lu avec `.claude/` : l'appelant tient ce nom d'un `.claude` qui est un vrai
-/// dossier ([`butees_du_bac`]), ou de git, qui ne descend pas dans un lien ([`sans_claude`]).
+/// Le nom est jugé (`.claude/` puis un seul morceau), puis la forme du fichier et chacun de ses dossiers ancêtres dans
+/// le bac, `.claude` compris, qui doivent être de vrais dossiers ([`est_un_fichier_vide_en_lecture_seule`]) : cette
+/// fonction ne laisse rien à l'appelant.
 fn est_une_butee(bac: &Path, nom: &str) -> bool {
     let Some(reste) = nom.strip_prefix(".claude/") else { return false };
     if reste.is_empty() || reste.contains('/') {
@@ -248,7 +249,9 @@ fn butees_de_la_racine(bac: &Path, depart: &str) -> Vec<String> {
 /// qui sont des butées ([`est_une_butee`]) absentes du commit `depart`, comme à la racine, celles de la racine à un nom
 /// de [`TOUJOURS_REFUSES`] absent du départ ([`butees_de_la_racine`]), puis celles à un chemin protégé absent
 /// ([`butees_protegees`]). `.claude/` ne se lit que si c'est un vrai dossier du bac, ni un lien ni une jonction :
-/// `read_dir` suivrait le lien vers un dossier hors du bac, et ce qui s'y trouve n'est pas du bac. Ce que ces noms ont
+/// `read_dir` suivrait le lien vers un dossier hors du bac, et ce qui s'y trouve n'est pas du bac. Cette garde
+/// (`vrai_dossier`) évite de lister un dossier hors du bac ; le contrôle des ancêtres de [`est_une_butee`] vient après
+/// la lecture et ne l'évite pas : il écarte seulement ce qui y a été lu. Ce que ces noms ont
 /// en commun est une forme, un fichier ordinaire vide et sans droit d'écriture ; Kraken ne teste pas d'où il vient.
 /// D'ordinaire, le bac à sable de Claude Code pose de tels fichiers aux chemins qu'il interdit d'écrire et les retire à
 /// la fin de la commande, et une commande passée en arrière-plan, encore en cours quand la session finit, meurt sans

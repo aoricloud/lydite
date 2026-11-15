@@ -1114,7 +1114,7 @@ fn un_fichier_non_vide_ou_inscriptible_a_un_chemin_protege_reste_le_refus_7018()
 }
 
 #[test]
-fn un_fichier_vide_en_lecture_seule_a_un_chemin_non_protege_reste_un_chemin_change() {
+fn un_fichier_vide_en_lecture_seule_a_un_nom_hors_des_listes_reste_un_chemin_change() {
     let (racine, depot, kraken, base) = vise_avec_fichiers("butee-non-protegee");
     let profil = profil();
     let permis = chemins(&["src/"]);

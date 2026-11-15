@@ -896,6 +896,29 @@ fn retirer_le_bac_n_efface_pas_un_fichier_vide_suivi_sous_claude_meme_en_lecture
 
 #[cfg(unix)]
 #[test]
+fn un_decoupeur_qui_laisse_une_butee_a_un_chemin_protege_absent_du_depot_est_pris_et_son_bac_retire() {
+    // Le faux découpeur écrit son plan, puis laisse `.agents/skills` vide en lecture seule dans un dépôt qui n'a pas
+    // `.agents/` : le juge (`juger`) lit le plan malgré elle, et le retrait (`retirer_le_bac`) l'efface avec le bac.
+    // Le profil de l'essai est celui que `decouper` reçoit : seuls ses chemins protégés peuvent les y faire passer.
+    let essai = Essai::nouveau("decoupe-butee-protegee");
+    assert!(!essai.depot.join(".agents").exists());
+    let base = git(&essai.depot, &["rev-parse", "HEAD"]);
+    essai.poser(1, &plan_juste());
+    fs::write(essai.faux.join("butee"), "").unwrap();
+    let decoupage = decouper(&essai.depot, &essai.kraken, &essai.profil, OBJECTIF, VERIFIER, &base, DELAI).unwrap();
+    let decoupe = match decoupage.issue {
+        Ok(decoupe) => decoupe,
+        Err(dehors) => panic!("le découpage n'est pas pris : {dehors}"),
+    };
+    assert_eq!(decoupe.plan.taches.len(), 2);
+    // Le juge a pris le plan à la première tentative : aucune relance n'a eu lieu.
+    assert!(essai.faux.join("decoupe-1").exists() && !essai.faux.join("decoupe-2").exists());
+    decoupeur_retire(&essai, &decoupe.vague);
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[cfg(unix)]
+#[test]
 fn retirer_le_bac_retire_le_bac_d_un_relecteur_dont_une_butee_est_a_un_chemin_protege_absent_du_depart() {
     // Un dépôt sans `.agents/` : la butée des leçons, protégées d'office, est dans un dossier créé pour elle.
     let essai = Essai::nouveau("retrait-butee-protegee");
