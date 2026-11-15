@@ -259,14 +259,16 @@ codes! {
         "Every step of the wave is noted in the thread before it acts; a failed note stops the starts and the \
          merges.";
     HorsFichiers = 7013, "vague.hors_fichiers",
-        "A hand changes only the paths of its task's `fichiers`; any other path turns its attempt red. A sandbox \
-         stub (an empty, read-only, untracked ordinary file, absent from the starting commit, at a path where the \
-         sandbox places stubs) is not counted.";
+        "A hand changes only the paths of its task's `fichiers`; any other path turns its attempt red. A file \
+         shaped like a wall stop is not counted, whoever laid it: an empty, read-only, untracked ordinary file, \
+         absent from the starting commit and under no linked folder, directly under `.claude/`, at the root \
+         under a name of the always-refused list, or at a path the profile protects.";
     BacTouche = 7014, "vague.bac_touche",
         "The splitter and the reviewer write only their own file, an ordinary one that the repository does not \
-         ignore, at the root of their worktree; nothing else changes there. A sandbox stub (an empty, read-only, \
-         untracked ordinary file, absent from the starting commit, at a path where the sandbox places stubs) is \
-         not counted.";
+         ignore, at the root of their worktree; nothing else changes there. A file shaped \
+         like a wall stop is not counted, whoever laid it: an empty, read-only, untracked ordinary file, absent \
+         from the starting commit and under no linked folder, directly under `.claude/`, at the root under a \
+         name of the always-refused list, or at a path the profile protects.";
     RemarquesIllisibles = 7015, "vague.remarques_illisibles",
         "The reviewer's file follows the `remarques 2` format; otherwise its attempt is red.";
     RelectureManquee = 7016, "vague.relecture_manquee",
@@ -275,7 +277,8 @@ codes! {
     BloquantesRestantes = 7017, "vague.bloquantes_restantes",
         "Blocking remarks are worth a single correction; not assembled, nothing is pushed.";
     CheminProtege = 7018, "vague.chemin_protege",
-        "A hand changes no path that its profile protects (proteges), neither by an edit nor by a command.";
+        "A hand changes no path that its profile protects (proteges), neither by an edit nor by a command. A file \
+         shaped like a wall stop, as rule 7013 describes it, is not counted.";
     PlafondAtteint = 7019, "vague.plafond_atteint",
         "A hand that reaches its spending cap is stopped and not retried; its task is refused, and what \
          follows is for the human.";
