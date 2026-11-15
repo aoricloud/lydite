@@ -212,6 +212,32 @@ fn la_page_des_refus_suit_les_codes() {
     );
 }
 
+/// La règle 7013 nomme les noms sans `/` de `TOUJOURS_REFUSES`, et elle n'en nomme pas d'autre dans sa parenthèse.
+#[test]
+fn la_regle_7013_nomme_les_noms_de_la_liste_toujours_refusee() {
+    let regle = Code::HorsFichiers.regle();
+    let debut = regle.find("the names the wall never lets a hand write (").expect("la parenthèse de la liste");
+    let apres = &regle[debut..];
+    let ouvre = apres.find('(').expect("une parenthèse ouvrante") + 1;
+    let ferme = apres.find(')').expect("une parenthèse fermante");
+    let liste = &apres[ouvre..ferme];
+    let attendus: Vec<&str> =
+        crate::coeur::natif::TOUJOURS_REFUSES.iter().copied().filter(|nom| !nom.contains('/')).collect();
+    assert!(!attendus.is_empty(), "la constante garde des noms sans `/`");
+    for nom in &attendus {
+        assert!(liste.contains(&format!("`{nom}`")), "la règle 7013 ne nomme pas `{nom}` : {liste}");
+    }
+    // Chaque nom entre accents graves dans la parenthèse, et qui commence par un point, est dans la constante.
+    for (i, morceau) in liste.split('`').enumerate() {
+        if i % 2 == 1 && morceau.starts_with('.') {
+            assert!(
+                attendus.contains(&morceau),
+                "la règle 7013 nomme `{morceau}`, absent de TOUJOURS_REFUSES : {liste}"
+            );
+        }
+    }
+}
+
 #[test]
 fn le_refus_s_affiche_en_quatre_lignes() {
     let regle = Code::ProfilInconnu.regle();

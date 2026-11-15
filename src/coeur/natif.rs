@@ -49,8 +49,11 @@ use std::path::{Path, PathBuf};
 /// à sable de Claude Code pose), que les refus 7013, 7014 et 7018 et le gel ne comptent pas quand il en a la
 /// forme (fichier ordinaire, vide, sans droit d'écriture, non suivi, absent du commit de départ). Y ajouter un nom
 /// pour le mur relâche donc aussi ces refus pour ce nom.
+///
+/// La règle 7013 (`docs/refusals.md`) nomme ces noms sans `/`, dans l'ordre d'ici ; un test de `erreur` tient la
+/// phrase d'accord avec cette constante.
 // raccourci : un fichier de cette liste qui n'existe pas encore n'est pas refusé, à monter si une preuve en crée un ;
-// et un nom ajouté ici sans `/` devient aussi une butée pour 7013 et 7014 (voir ci-dessus)
+// et un nom ajouté ici sans `/` devient aussi une butée pour 7013, 7014 et 7018 et le gel (voir ci-dessus)
 pub(crate) const TOUJOURS_REFUSES: [&str; 13] = [
     ".gitconfig",
     ".gitmodules",
