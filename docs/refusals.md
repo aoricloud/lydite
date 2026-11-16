@@ -69,7 +69,7 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 7014 | `vague.bac_touche` | The splitter and the reviewer write only their own file, an ordinary one that the repository does not ignore, at the root of their worktree; nothing else changes there. A file shaped like a wall stop, as rule 7013 describes it, is not counted. |
 | 7015 | `vague.remarques_illisibles` | The reviewer's file follows the `remarques 2` format; otherwise its attempt is red. |
 | 7016 | `vague.relecture_manquee` | The work of a critical task is pushed only once reviewed; a review that is set aside, and nothing is pushed. |
-| 7017 | `vague.bloquantes_restantes` | Blocking remarks are worth a single correction; not assembled, nothing is pushed. |
+| 7017 | `vague.bloquantes_restantes` | Blocking remarks are worth a single correction; not assembled, or blocking again at the second review, nothing is pushed. |
 | 7018 | `vague.chemin_protege` | A hand changes no path that its profile protects (proteges), neither by an edit nor by a command. A file shaped like a wall stop, as rule 7013 describes it, is not counted. |
 | 7019 | `vague.plafond_atteint` | A hand that reaches its spending cap is stopped and not retried; its task is refused, and what follows is for the human. |
 | 7020 | `vague.bloquante_hors_de_portee` | A blocking remark targets a file that the correction cannot touch; the wave stops before any correction and nothing is pushed. |

@@ -22,7 +22,7 @@ use crate::conduite::decoupage::Decoupage;
 use crate::conduite::lancer::{Liens, Menee, base_du_depot, duree_du_bail, lancer_avec, poses_posables};
 use crate::conduite::publication;
 use crate::conduite::publication::Proposition;
-use crate::conduite::relecture::{Origine, Prise, Relue, relire, relire_issue};
+use crate::conduite::relecture::{Origine, Prise, Relue, Seconde, relire, relire_issue};
 use crate::conduite::tentative::Pris;
 
 /// Ce que `lancer` demande.
@@ -179,8 +179,9 @@ fn liens_de_la_relance(lecons: &[Lecon]) -> Liens<'_> {
 
 /// La vague du plan, partie de `base` avec ses liens de découpage, de relecture et de correction, dite comme toute
 /// vague (`dire`) ; puis la relecture du travail de ses tâches critiques (`relecture::relire`), dite sur stderr : une
-/// relecture classée (7016) ou une correction qui ne s'assemble pas (7017) s'écrit comme refus, rien ne se pousse, et
-/// le code est 1. Corrigée, la vague finit à la tête de la correction, d'où part la forge. Puis, avec `proposition`,
+/// relecture classée (7016), ou une correction qui ne s'assemble pas ou dont la seconde relecture a des bloquantes
+/// (7017), s'écrit comme refus, rien ne se pousse, et le code est 1. Corrigée, la vague finit à la tête de la
+/// correction, d'où part la forge, et sa seconde relecture prise se dit sur stderr. Puis, avec `proposition`,
 /// sa forge jusqu'à sa PR (`publication.rs`), qui rend le code, et dont une CI rouge se relance par une vague de plus,
 /// sans lien, dite de même. Sans forge, le code est 0 si chaque tâche est prise et sa prise constatée, 1 sinon. Sur
 /// chacune de ses sorties une fois la vague partie, publiée ou non, elle note au fil le sceau de fin (`vague.sceau`) ;
@@ -230,12 +231,15 @@ pub(crate) fn mener_sur(
     let relire = if origine == Origine::Issue { relire_issue } else { relire };
     let corrigee = match relire(lieu.depot, lieu.dossier, lieu.profil, plan, &menee, base, bail) {
         Relue::Aucune => None,
-        Relue::Prise(Prise { main, n, bloquantes, correction }) => {
+        Relue::Prise(Prise { main, n, bloquantes, correction, seconde }) => {
             eprintln!("relecture prise : {main} · {n} remarques, dont {bloquantes} bloquantes");
             if let Some(corrigee) = &correction {
                 let main = corrigee.issues.first().map_or("", |(main, _)| main.as_str());
                 let tete = corrigee.tete.as_deref().unwrap_or_default();
                 eprintln!("correction assemblée : {main} · la vague finit à {tete}");
+            }
+            if let Some(Seconde { main, n }) = &seconde {
+                eprintln!("second review taken: {main} · {n} remarks, none blocking");
             }
             correction
         }
