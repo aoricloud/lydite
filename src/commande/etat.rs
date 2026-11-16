@@ -9,7 +9,7 @@ use crate::branchements::dossier::{lire, lire_avec_lancements, sonder};
 use crate::coeur::erreur::Refus;
 use crate::coeur::fil::{
     self, Evenement, Foi, LancementLu, Lecture, Main, Note, SceauLu, SceauVague, Vague, Verdict, correction_de, etat,
-    relecture_de,
+    relecture_de, relectures_de,
 };
 use crate::coeur::texte;
 use crate::conduite::publication::recu_de;
@@ -311,10 +311,11 @@ fn bloc(vague: &Vague, vagues: &[Vague], notes: &[Note], maintenant: &str, inter
         .assemblage
         .iter()
         .map(|(branche, preuve)| format!("branch: {} · proof: {}", texte::en_ligne(branche), texte::en_ligne(preuve)));
-    let relecture = match (relecture_de(vagues, &vague.id), relecteur_de(vagues, &vague.id)) {
-        (Some(relecture), _) => Some(format!("Review: {} remarks, {} blocking", relecture.n, relecture.bloquantes)),
-        (None, Some(relecteur)) => Some(ligne_du_relecteur(relecteur, maintenant, interrompue)),
-        (None, None) => None,
+    let relectures = relectures_de(vagues, &vague.id);
+    let relecture = match (relectures.is_empty(), relecteur_de(vagues, &vague.id)) {
+        (false, _) => Some(ligne_de_la_relecture(&relectures)),
+        (true, Some(relecteur)) => Some(ligne_du_relecteur(relecteur, maintenant, interrompue)),
+        (true, None) => None,
     };
     let correction = correction_de(vagues, &vague.id).into_iter().flat_map(|correction| {
         lignes_des_mains(correction, maintenant, interrompue).into_iter().map(|ligne| format!("Correction: {ligne}"))
@@ -349,6 +350,15 @@ fn ligne_du_recu(vagues: &[Vague], notes: &[Note], id: &str) -> String {
     let efforts = recu.ligne_d_effort();
     let lignes = std::iter::once(recu.ligne()).chain([efforts]).chain(recu.ligne_de_mesure());
     lignes.chain(recu.ligne_des_fichiers_verifies()).collect::<Vec<_>>().join("\n")
+}
+
+/// La ligne des relectures prises d'une vague, `relectures` n'étant pas vide : `Review: <n> remarks, <b> blocking`, et
+/// pour une vague relue deux fois, `Review: <n1> remarks, <b1> blocking. Second review: <n2> remarks, <b2> blocking`.
+/// Ce sont les deux premières relectures que le fil note.
+fn ligne_de_la_relecture(relectures: &[&fil::Relecture]) -> String {
+    let dit = |relecture: &fil::Relecture| format!("{} remarks, {} blocking", relecture.n, relecture.bloquantes);
+    let seconde = relectures.get(1).map(|seconde| format!(". Second review: {}", dit(seconde))).unwrap_or_default();
+    format!("Review: {}{seconde}", dit(relectures[0]))
 }
 
 /// La ligne d'un relecteur que le fil lie à une vague, sans relecture prise : `Review: main-<id>-1 · set aside (7016)

@@ -3229,6 +3229,49 @@ fn au_rejeu_les_liens_de_m5_se_gardent() {
 }
 
 #[test]
+fn une_vague_relue_deux_fois_rend_ses_deux_relectures_et_son_dernier_verdict() {
+    let (t, t2) = ("a".repeat(40), "b".repeat(40));
+    let relecture = |relecteur: &str, n, bloquantes| Evenement::Relecture {
+        vague: relecteur.into(),
+        relue: "v".into(),
+        n,
+        bloquantes,
+        remarques: "remarques 1".into(),
+    };
+    let verdict = |relecteur: &str, sha: &str| Evenement::VerdictRelecture {
+        vague: relecteur.into(),
+        relue: "v".into(),
+        sha: sha.into(),
+        profil: None,
+        empreinte: None,
+        modele: None,
+    };
+    let evenements = [
+        Evenement::Relecteur { vague: "r".into(), relue: "v".into() },
+        relecture("r", 3, 1),
+        verdict("r", &t),
+        Evenement::Correction { vague: "c".into(), corrige: "v".into() },
+        Evenement::Relecteur { vague: "s".into(), relue: "v".into() },
+        relecture("s", 1, 0),
+        verdict("s", &t2),
+    ];
+    let vagues = etat(&evenements);
+    let premiere = Relecture { relue: "v".into(), n: 3, bloquantes: 1 };
+    let seconde = Relecture { relue: "v".into(), n: 1, bloquantes: 0 };
+    // Toutes, dans l'ordre du journal ; la dernière est celle de `relecture_de`.
+    assert_eq!(relectures_de(&vagues, "v"), [&premiere, &seconde]);
+    assert_eq!(relecture_de(&vagues, "v"), Some(&seconde));
+    // Le dernier verdict noté sur la vague relue est celui de la seconde relecture, sur la tête de la correction.
+    let jugement = vagues.iter().find(|vague| vague.id == "v").and_then(|vague| vague.jugement.as_ref()).unwrap();
+    assert_eq!((jugement.relecteur.as_str(), jugement.sha.as_str()), ("s", t2.as_str()));
+    // Une vague qu'aucune relecture n'a relue n'en rend aucune, et une relue une fois en rend une.
+    assert!(relectures_de(&vagues, "autre").is_empty());
+    let une = etat(&evenements[..3]);
+    assert_eq!(relectures_de(&une, "v"), [&premiere]);
+    assert_eq!(relecture_de(&une, "v"), Some(&premiere));
+}
+
+#[test]
 fn un_lecteur_d_avant_m5_ignore_les_types_de_m5_sans_trou() {
     // Les cinq types de M5 ne changent pas `v` : un lecteur qui ne les connaît pas les ignore, et leur `seq` compte
     // dans leur séance. Rendus inconnus, ils laissent le fil d'avant, sans trou.

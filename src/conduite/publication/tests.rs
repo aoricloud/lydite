@@ -2066,6 +2066,86 @@ fn la_ligne_du_corps_dit_le_commit_relu_et_rejoue() {
     );
 }
 
+/// La seconde relecture de `v`, par le relecteur `s`, sans bloquante ou avec, jugée sur `jugee`.
+fn seconde_relecture(bloquantes: usize, jugee: &str) -> [Evenement; 3] {
+    [
+        Evenement::Relecteur { vague: "s".into(), relue: "v".into() },
+        Evenement::Relecture { vague: "s".into(), relue: "v".into(), n: 1, bloquantes, remarques: "s".into() },
+        Evenement::VerdictRelecture {
+            vague: "s".into(),
+            relue: "v".into(),
+            sha: jugee.into(),
+            profil: None,
+            empreinte: None,
+            modele: None,
+        },
+    ]
+}
+
+#[test]
+fn une_seconde_relecture_sans_bloquante_pousse_la_tete_de_la_correction_rejouee_par_elle() {
+    let (t, t2, autre) = ("a".repeat(40), "c".repeat(40), "d".repeat(40));
+    // `v` relue sur `t` avec une bloquante, corrigée par `c` en `t2` (seul `c` a un `vague.fusion` sur `t2`), puis
+    // relue sans bloquante sur `t2`.
+    let mut notes = relue_notee(1, &t, "v", &[&t2]);
+    notes.extend(seconde_relecture(0, &t2));
+    assert_eq!(controle(&notes, &t2).unwrap(), format!("Reviewed and replayed on commit {t2}."));
+    // Seule la tête jugée part : ni la première, ni une autre.
+    for tete in [&t, &autre] {
+        let refus = controle(&notes, tete).unwrap_err();
+        assert_eq!(refus.code, Code::RelectureManquee, "{tete}");
+        assert!(refus.preuve.contains(tete.as_str()) && refus.preuve.contains(&t2), "{}", refus.preuve);
+    }
+    // « replayed » ne s'écrit que si un `vague.fusion` de `v` ou de `c` porte `t2` : celui d'une autre n'y fait rien.
+    let mut sans_fusion = relue_notee(1, &t, "v", &[]);
+    sans_fusion.push(Evenement::Fusion { vague: "autre".into(), main: 1, sha: t2.clone(), verif: String::new() });
+    sans_fusion.extend(seconde_relecture(0, &t2));
+    assert_eq!(controle(&sans_fusion, &t2).unwrap(), format!("Reviewed and not replayed on commit {t2}."));
+    // Celui de `v` suffit toujours.
+    let mut de_v = sans_fusion.clone();
+    de_v.push(Evenement::Fusion { vague: "v".into(), main: 1, sha: t2.clone(), verif: String::new() });
+    assert_eq!(controle(&de_v, &t2).unwrap(), format!("Reviewed and replayed on commit {t2}."));
+    // Une seconde relecture à bloquantes : la correction `c` n'a pas de tête autre que la jugée, le refus 7016 d'avant.
+    let mut bloquee = relue_notee(1, &t, "v", &[&t2]);
+    bloquee.extend(seconde_relecture(1, &t2));
+    let refus = controle(&bloquee, &t2).unwrap_err();
+    assert_eq!(refus.code, Code::RelectureManquee);
+    assert!(refus.preuve.contains("no head other than the reviewed head"), "{}", refus.preuve);
+}
+
+#[test]
+fn la_ligne_de_relecture_dit_les_deux_relectures_d_une_vague_relue_deux_fois() {
+    let ligne = |notes: &[Evenement]| ligne_de_relecture(&etat(notes), "v");
+    let relecture = |relecteur: &str, n, bloquantes| Evenement::Relecture {
+        vague: relecteur.into(),
+        relue: "v".into(),
+        n,
+        bloquantes,
+        remarques: "SECRET-DE-LA-RELECTURE".into(),
+    };
+    let correction = Evenement::Correction { vague: "c".into(), corrige: "v".into() };
+    // Sans relecture : aucune ligne.
+    assert_eq!(ligne(std::slice::from_ref(&correction)), None);
+    // Une seule relecture, corrigée ou non : la ligne d'avant, au caractère près.
+    let corrigee = ligne(&[relecture("r", 3, 1), correction.clone()]);
+    assert_eq!(corrigee.unwrap(), "Review: 3 remarks, 1 blocking, corrected.");
+    assert_eq!(ligne(&[relecture("r", 3, 0)]).unwrap(), "Review: 3 remarks, 0 blocking.");
+    assert_eq!(ligne(&[relecture("r", 1, 0)]).unwrap(), "Review: 1 remark, 0 blocking.");
+    // Deux relectures : la seconde s'ajoute, « remark » au singulier pour chacune.
+    let deux = [relecture("r", 3, 1), correction.clone(), relecture("s", 2, 0)];
+    assert_eq!(
+        ligne(&deux).unwrap(),
+        "Review: 3 remarks, 1 blocking, corrected. Second review: 2 remarks, 0 blocking."
+    );
+    let singuliers = [relecture("r", 1, 1), correction, relecture("s", 1, 0)];
+    assert_eq!(
+        ligne(&singuliers).unwrap(),
+        "Review: 1 remark, 1 blocking, corrected. Second review: 1 remark, 0 blocking."
+    );
+    // Rien que des nombres.
+    assert!(!ligne(&deux).unwrap().contains("SECRET"));
+}
+
 #[test]
 fn une_vague_relue_dont_la_tete_n_est_pas_jugee_ne_pousse_rien() {
     let lieu = lieu("forge-verdict");
