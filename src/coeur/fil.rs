@@ -204,8 +204,12 @@
 //!   `main.lancement` du relecteur, des jetons ; `null` pour une main nue, qui n'en note pas. Une note de Kraken, sans
 //!   `foi`. Type neuf, il ne change pas `v`. Au rejeu, la vague relue garde le dernier verdict noté sur elle.
 //! - `vague.correction {vague, corrige}` : la correction `vague`, une vague d'une tâche, corrige la vague `corrige`,
-//!   une autre, que la relecture a dite à corriger. Avant tout départ de la correction. Elle n'a pas de seconde
-//!   relecture, et les notes `forge.*` de la vague corrigée restent à la vague corrigée.
+//!   une autre, que la relecture a dite à corriger. Avant tout départ de la correction. La correction n'a pas de
+//!   relecture à elle, mais la vague corrigée peut en avoir une seconde, qui la suit : une `vague.relecture` de plus
+//!   de même `relue`, notée par la vague d'un autre relecteur, et son `vague.verdict`, de même `relue`, dont le `sha`
+//!   est la tête de la correction (son dernier `vague.fusion`). Le rejeu rend alors toutes les relectures de la vague
+//!   par `relectures_de`, la dernière par `relecture_de`, et garde le dernier verdict en `jugement`. Les notes
+//!   `forge.*` de la vague corrigée restent à la vague corrigée.
 //! - `vague.relecteur {vague, relue}` : la vague `vague`, celle du relecteur, relit la vague `relue`, une autre. Avant
 //!   tout départ du relecteur. Ce n'est pas une relecture : `vague.relecture` reste notée une fois la relecture prise,
 //!   et une relecture classée n'en note toujours aucune.
@@ -1863,6 +1867,12 @@ pub(crate) fn porter_issues(vagues: &mut [Vague], issues: &[IssueVague]) {
 /// Ce que la dernière relecture notée de la vague `id` a rendu.
 pub(crate) fn relecture_de<'a>(vagues: &'a [Vague], id: &str) -> Option<&'a Relecture> {
     vagues.iter().rev().filter_map(|vague| vague.relecture.as_ref()).find(|relecture| relecture.relue == id)
+}
+
+/// Toutes les relectures notées de la vague `id`, dans l'ordre où le rejeu connaît leurs vagues de relecteur (celui du
+/// journal : un relecteur est connu dès sa première note) : la dernière est celle que rend [`relecture_de`].
+pub(crate) fn relectures_de<'a>(vagues: &'a [Vague], id: &str) -> Vec<&'a Relecture> {
+    vagues.iter().filter_map(|vague| vague.relecture.as_ref()).filter(|relecture| relecture.relue == id).collect()
 }
 
 /// La dernière correction notée de la vague `id`.

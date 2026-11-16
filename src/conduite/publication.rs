@@ -33,6 +33,7 @@ use crate::branchements::github::{Ci, Forge, GIT_FORGE, PrOuverte, a_pousser, di
 use crate::coeur::erreur::{Code, Refus, queue};
 use crate::coeur::fil::{
     self, Base, Couleur, Evenement, Foi, Note, Role, SceauVague, Vague, correction_de, etat, relecture_de,
+    relectures_de,
 };
 use crate::coeur::plan::{Plan, TAILLE_MAX, Tache};
 use crate::coeur::profil::{EFFORT_PAR_DEFAUT, SANS_A1, SANS_LECTURE};
@@ -332,13 +333,19 @@ fn reglages_changes<'a>(chemins: impl IntoIterator<Item = &'a str>) -> Vec<Strin
 
 /// La ligne du corps de la PR qui dit la relecture de la vague `id`, d'après les vagues que le fil rejoue :
 /// `Review: <n> remarks, <b> blocking, corrected.` si le fil note une correction de la vague, sans
-/// `, corrected` sinon ; `None` si la vague n'a pas été relue. Rien que des nombres : le texte des remarques n'est
-/// jamais publié.
+/// `, corrected` sinon ; `None` si la vague n'a pas été relue. Une vague relue deux fois (la seconde après sa
+/// correction) ajoute ` Second review: <n2> remarks, <b2> blocking.` : les deux premières relectures que le fil note.
+/// Rien que des nombres : le texte des remarques n'est jamais publié.
 fn ligne_de_relecture(vagues: &[Vague], id: &str) -> Option<String> {
-    let relecture = relecture_de(vagues, id)?;
+    let relectures = relectures_de(vagues, id);
+    let (premiere, seconde) = (relectures.first()?, relectures.get(1));
     let corrigees = if correction_de(vagues, id).is_some() { ", corrected" } else { "" };
-    let remarques = if relecture.n == 1 { "remark" } else { "remarks" };
-    Some(format!("Review: {} {remarques}, {} blocking{corrigees}.", relecture.n, relecture.bloquantes))
+    let dit = |relecture: &fil::Relecture| {
+        let remarques = if relecture.n == 1 { "remark" } else { "remarks" };
+        format!("{} {remarques}, {} blocking", relecture.n, relecture.bloquantes)
+    };
+    let seconde = seconde.map(|seconde| format!(" Second review: {}.", dit(seconde))).unwrap_or_default();
+    Some(format!("Review: {}{corrigees}.{seconde}", dit(premiere)))
 }
 
 /// Le nombre de lignes du bloc `non rejoue` que le corps de la PR montre, et leur longueur, en caractères.
@@ -410,7 +417,10 @@ fn derniere_tete(evenements: &[Evenement], id: &str) -> Option<String> {
 ///   second review, and replayed on commit <tête>. »
 /// - Sinon, le refus 7016, dont la preuve nomme la tête à pousser et celle qu'il fallait.
 ///
-/// Une vague n'a qu'une relecture : la correction d'une relecture plus ancienne de la même vague ne s'y voit donc pas.
+/// C'est la dernière relecture de la vague qui compte, et son verdict, le dernier noté. Une vague relue une seconde
+/// fois après sa correction `c` est donc jugée sur la tête de `c` : sans bloquante, seule part cette tête, et
+/// « replayed » se cherche aussi dans `c`. Avec des bloquantes, la correction `c` n'a plus de tête autre que la
+/// jugée : le refus 7016 ci-dessus.
 ///
 /// « replayed » ne s'écrit que si un `vague.fusion` de la vague ou de sa correction porte le commit.
 fn controler_la_tete(vagues: &[Vague], evenements: &[Evenement], id: &str, tete: &str) -> Result<String, Refus> {
@@ -432,7 +442,10 @@ fn controler_la_tete(vagues: &[Vague], evenements: &[Evenement], id: &str, tete:
         if tete != jugee {
             return Err(refus(format!("the head to push {tete} is not the reviewed head {jugee} of wave {id}")));
         }
-        return Ok(if rejouee_sur(evenements, &[id], jugee) {
+        // Après une seconde relecture, la tête jugée est celle de la correction : sa preuve a été rejouée par elle.
+        let correction = correction_de(vagues, id).map(|correction| correction.id.as_str());
+        let ids: Vec<&str> = std::iter::once(id).chain(correction).collect();
+        return Ok(if rejouee_sur(evenements, &ids, jugee) {
             format!("Reviewed and replayed on commit {jugee}.")
         } else {
             format!("Reviewed and not replayed on commit {jugee}.")
