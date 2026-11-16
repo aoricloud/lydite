@@ -376,7 +376,11 @@ pub(crate) fn faux_decoupeur(dir: &Path) -> Vec<String> {
 ///   `dir`, s'il est là, en `REMARQUES.lydite` à la racine de son bac, ôte
 ///   l'`autre.txt` d'une tentative d'avant, en écrit un dans son bac si `toucher-<n>` est dans `dir`, laisse
 ///   `.agents/skills` à son bac, un fichier vide sans droit d'écriture, si `butee` y est (sous Unix seulement), et dit
-///   dans sa réponse qu'il n'y a rien de bloquant si `dit-rien-de-bloquant` y est ;
+///   dans sa réponse qu'il n'y a rien de bloquant si `dit-rien-de-bloquant` y est. Second relecteur, celui qui relit
+///   la tête de la correction (son bac porte `sortie/correction.txt`), il fait de même sous des noms préfixés de
+///   `seconde-` : sa marque `seconde-relecture-<n>`, `seconde-consigne-relecteur-<n>.txt`, `seconde-diff-<n>.txt`,
+///   `seconde-preuve-<n>.txt`, `seconde-remarques-<n>.lydite`, `seconde-toucher-<n>`, et ainsi de suite : ses
+///   remarques et ses tentatives sont les siennes, non celles du premier ;
 /// - sinon, il est la main d'une tâche : il garde sa consigne dans `sortie/<bac>.txt` de son bac si elle dit « critique
 ///   », dans `autre/<bac>.txt` sinon, et y copie de même `gros.txt` de `dir`, s'il est là, en `gros-<bac>.txt` ;
 ///   si `ecrire-lecon` est dans `dir`, celle qui écrit sous `sortie/` écrit aussi une leçon fausse,
@@ -414,18 +418,21 @@ pub(crate) fn faux_relecteur(dir: &Path) -> Vec<String> {
              echo corrige> sortie\\correction.txt\r\n\
              goto fin\r\n\
              :relecteur\r\n\
+             set \"p=\"\r\n\
+             if exist sortie\\correction.txt set p=seconde-\r\n\
              set n=1\r\n\
-             if exist \"%d%\\relecture-1\" set n=2\r\n\
-             type nul > \"%d%\\relecture-%n%\"\r\n\
-             copy /y \"%TEMP%\\consigne.txt\" \"%d%\\consigne-relecteur-%n%.txt\" > nul\r\n\
-             set PATH > \"%d%\\path-relecteur-%n%.txt\"\r\n\
-             if exist DIFF.lydite copy /y DIFF.lydite \"%d%\\diff-%n%.txt\" > nul\r\n\
-             if not exist DIFF.lydite type nul > \"%d%\\sans-diff-%n%\"\r\n\
-             if exist PREUVE.lydite copy /y PREUVE.lydite \"%d%\\preuve-%n%.txt\" > nul\r\n\
-             if not exist PREUVE.lydite type nul > \"%d%\\sans-preuve-%n%\"\r\n\
-             if exist \"%d%\\remarques-%n%.lydite\" copy /y \"%d%\\remarques-%n%.lydite\" REMARQUES.lydite > nul\r\n\
+             if exist \"%d%\\%p%relecture-1\" set n=2\r\n\
+             type nul > \"%d%\\%p%relecture-%n%\"\r\n\
+             copy /y \"%TEMP%\\consigne.txt\" \"%d%\\%p%consigne-relecteur-%n%.txt\" > nul\r\n\
+             set PATH > \"%d%\\%p%path-relecteur-%n%.txt\"\r\n\
+             if exist DIFF.lydite copy /y DIFF.lydite \"%d%\\%p%diff-%n%.txt\" > nul\r\n\
+             if not exist DIFF.lydite type nul > \"%d%\\%p%sans-diff-%n%\"\r\n\
+             if exist PREUVE.lydite copy /y PREUVE.lydite \"%d%\\%p%preuve-%n%.txt\" > nul\r\n\
+             if not exist PREUVE.lydite type nul > \"%d%\\%p%sans-preuve-%n%\"\r\n\
+             if exist \"%d%\\%p%remarques-%n%.lydite\" copy /y \"%d%\\%p%remarques-%n%.lydite\" REMARQUES.lydite > \
+             nul\r\n\
              if exist autre.txt del autre.txt\r\n\
-             if exist \"%d%\\toucher-%n%\" echo touche> autre.txt\r\n\
+             if exist \"%d%\\%p%toucher-%n%\" echo touche> autre.txt\r\n\
              if exist \"%d%\\dit-rien-de-bloquant\" echo There is nothing blocking in my review.\r\n\
              :fin\r\n\
              echo PREUVE: vert\r\n"
@@ -443,16 +450,21 @@ pub(crate) fn faux_relecteur(dir: &Path) -> Vec<String> {
              if [ -f \"$d/hors-fichiers\" ]; then echo dehors > dehors.txt; fi\n\
              if [ ! -f \"$d/ne-rien-faire\" ]; then mkdir -p sortie; echo corrige > sortie/correction.txt; fi\n\
              elif grep -q 'REMARQUES\\.lydite' \"$TMPDIR/consigne.txt\"; then\n\
+             p=\n\
+             if [ -f sortie/correction.txt ]; then p=seconde-; fi\n\
              n=1\n\
-             if [ -f \"$d/relecture-1\" ]; then n=2; fi\n\
-             : > \"$d/relecture-$n\"\n\
-             cp \"$TMPDIR/consigne.txt\" \"$d/consigne-relecteur-$n.txt\"\n\
-             printf 'PATH=%s\\n' \"$PATH\" > \"$d/path-relecteur-$n.txt\"\n\
-             if [ -f DIFF.lydite ]; then cp DIFF.lydite \"$d/diff-$n.txt\"; else : > \"$d/sans-diff-$n\"; fi\n\
-             if [ -f PREUVE.lydite ]; then cp PREUVE.lydite \"$d/preuve-$n.txt\"; else : > \"$d/sans-preuve-$n\"; fi\n\
-             if [ -f \"$d/remarques-$n.lydite\" ]; then cp \"$d/remarques-$n.lydite\" REMARQUES.lydite; fi\n\
+             if [ -f \"$d/${{p}}relecture-1\" ]; then n=2; fi\n\
+             : > \"$d/${{p}}relecture-$n\"\n\
+             cp \"$TMPDIR/consigne.txt\" \"$d/${{p}}consigne-relecteur-$n.txt\"\n\
+             printf 'PATH=%s\\n' \"$PATH\" > \"$d/${{p}}path-relecteur-$n.txt\"\n\
+             if [ -f DIFF.lydite ]; then cp DIFF.lydite \"$d/${{p}}diff-$n.txt\"; \
+             else : > \"$d/${{p}}sans-diff-$n\"; fi\n\
+             if [ -f PREUVE.lydite ]; then cp PREUVE.lydite \"$d/${{p}}preuve-$n.txt\"; \
+             else : > \"$d/${{p}}sans-preuve-$n\"; fi\n\
+             if [ -f \"$d/${{p}}remarques-$n.lydite\" ]; then \
+             cp \"$d/${{p}}remarques-$n.lydite\" REMARQUES.lydite; fi\n\
              rm -f autre.txt\n\
-             if [ -f \"$d/toucher-$n\" ]; then echo touche > autre.txt; fi\n\
+             if [ -f \"$d/${{p}}toucher-$n\" ]; then echo touche > autre.txt; fi\n\
              if [ -f \"$d/butee\" ] && [ ! -e .agents/skills ]; then mkdir -p .agents; : > .agents/skills; \
              chmod a-w .agents/skills; fi\n\
              if [ -f \"$d/dit-rien-de-bloquant\" ]; then echo 'There is nothing blocking in my review.'; fi\n\

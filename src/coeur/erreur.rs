@@ -275,7 +275,8 @@ codes! {
         "The work of a critical task is pushed only once reviewed; a review that is set aside, and nothing is \
          pushed.";
     BloquantesRestantes = 7017, "vague.bloquantes_restantes",
-        "Blocking remarks are worth a single correction; not assembled, nothing is pushed.";
+        "Blocking remarks are worth a single correction; not assembled, or blocking again at the second review, \
+         nothing is pushed.";
     CheminProtege = 7018, "vague.chemin_protege",
         "A hand changes no path that its profile protects (proteges), neither by an edit nor by a command. A file \
          shaped like a wall stop, as rule 7013 describes it, is not counted.";

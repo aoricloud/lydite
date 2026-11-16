@@ -7,10 +7,12 @@
 //!
 //! - si sa consigne commence la correction (`Corrige au plus petit`), elle garde sa consigne dans `correction.txt` et
 //!   écrit `sortie/correction.txt` dans son bac ;
-//! - si sa consigne nomme `REMARQUES.lydite`, elle est le relecteur, à sa tentative `n` (1, puis 2 une fois posée la
-//!   marque `relecteur-1`) : elle garde son `PATH` dans `path-relecteur-<n>.txt` et le `DIFF.lydite` de son bac dans
-//!   `diff-<n>.txt` (et son `PREUVE.lydite` dans `preuve-lydite-<n>.txt`), copie `remarques-<n>.lydite` en
-//!   `REMARQUES.lydite` à la racine de son bac, puis joue elle-même
+//! - si sa consigne nomme `REMARQUES.lydite`, elle est le relecteur, à son lancement `n` (1, puis 2 une fois posée la
+//!   marque `relecteur-1` : la relance du premier relecteur, ou le second relecteur, celui de la tête de la
+//!   correction, après un premier pris à sa première tentative) : elle garde son `PATH` dans
+//!   `path-relecteur-<n>.txt` et le `DIFF.lydite` de son bac dans `diff-<n>.txt` (et son `PREUVE.lydite` dans
+//!   `preuve-lydite-<n>.txt`), copie `remarques-<n>.lydite` en `REMARQUES.lydite` à la racine de son bac, puis joue
+//!   elle-même
 //!   `lydite remarques REMARQUES.lydite`, que son `PATH` doit trouver, et en garde la sortie dans `preuve-<n>.txt` et
 //!   le code dans `code-<n>.txt` ;
 //! - sinon, elle est la main d'une tâche : elle écrit sa consigne dans `sortie/<bac>.txt` de son bac si elle dit «
@@ -252,6 +254,12 @@ fn remarques_justes() -> String {
         "non rejoue",
         "    Le réseau n'est pas joué.",
     ])
+}
+
+/// Des remarques sans remarque, leurs deux blocs seuls : celles du second relecteur, qui relit la tête de la
+/// correction.
+fn sans_remarque() -> String {
+    texte(&["remarques 2", "", "rejoue", "    Vert.", "", "non rejoue", "    Rien."])
 }
 
 /// La valeur du `PATH` que la fausse claude a gardée : la ligne `PATH=<valeur>`, le nom en toute casse.
@@ -636,21 +644,22 @@ fn l_effort_d_une_tache_remplace_celui_du_profil_pour_ses_deux_tentatives_et_se_
     );
     fs::write(essai.racine.join("plan.lydite"), plan_a_efforts("low", "low")).unwrap();
     essai.remarques(1, &remarques_justes());
+    essai.remarques(2, &sans_remarque());
     let sortie = essai.lancer();
     assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
     let fil = essai.fil();
-    // Au fil, chaque lancement dit l'effort de sa tentative : `low` aux tâches, `high` à la correction, rien au
-    // relecteur, dont le profil ne pose pas l'effort.
+    // Au fil, chaque lancement dit l'effort de sa tentative : `low` aux tâches, `high` à la correction, rien aux deux
+    // relecteurs (le second relit la tête de la correction), dont le profil ne pose pas l'effort.
     let lancements = lignes_de(&fil, "main.lancement");
     let de = |modele: &str| -> Vec<&str> {
         let cle = format!(r#""modele":"{modele}""#);
         lancements.iter().copied().filter(|ligne| ligne.contains(&cle)).collect()
     };
     let (taches, correction, relecteur) = (de("haiku"), de("sonnet"), de("claude-opus-5-5"));
-    assert_eq!((taches.len(), correction.len(), relecteur.len()), (2, 1, 1), "{lancements:?}");
+    assert_eq!((taches.len(), correction.len(), relecteur.len()), (2, 1, 2), "{lancements:?}");
     assert!(taches.iter().all(|ligne| ligne.contains(r#""modele":"haiku","effort":"low","mur""#)), "{taches:?}");
     assert!(correction[0].contains(r#""modele":"sonnet","effort":"high","mur""#), "{correction:?}");
-    assert!(!relecteur[0].contains(r#""effort":"#), "{relecteur:?}");
+    assert!(relecteur.iter().all(|ligne| !ligne.contains(r#""effort":"#)), "{relecteur:?}");
     // `lydite etat` dit l'effort de chaque rôle de la vague, et du défaut de Claude Code pour le relecteur.
     let etat = essai.etat();
     let dit_etat = String::from_utf8_lossy(&etat.stdout).into_owned();
@@ -703,12 +712,17 @@ fn un_effort_de_tache_hors_des_efforts_permis_du_profil_est_refuse_en_6033_avant
 fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     let essai = Essai::nouveau("relue", Some("claude-opus-5-5"));
     essai.remarques(1, &remarques_justes());
+    // Le second relecteur, qui relit la tête de la correction, est le second lancement de relecteur : rien de bloquant.
+    essai.remarques(2, &sans_remarque());
     let sortie = essai.lancer();
     assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
     let fil = essai.fil();
     let ouvertes = vagues(&fil);
-    let [v, r, c] = &ouvertes[..] else { panic!("la vague, le relecteur, la correction : {fil}") };
-    // Sur stderr : les tâches, puis la relecture et la correction assemblée, d'où la vague finit.
+    let [v, r, c, s] = &ouvertes[..] else {
+        panic!("la vague, le relecteur, la correction, le second relecteur : {fil}")
+    };
+    // Sur stderr : les tâches, puis la relecture, la correction assemblée, d'où la vague finit, et la seconde
+    // relecture.
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     let t2 = {
         let fusions = lignes_de(&fil, "vague.fusion");
@@ -718,13 +732,20 @@ fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     };
     assert!(erreur.contains(&format!("relecture prise : main-{r}-1 · 2 remarques, dont 1 bloquantes\n")), "{erreur}");
     assert!(erreur.contains(&format!("correction assemblée : main-{c}-1 · la vague finit à {t2}\n")), "{erreur}");
-    // La relecture est au fil, avec le texte du relecteur ; la correction est liée à la vague relue.
-    let notee = lignes_de(&fil, "vague.relecture");
-    let [notee] = &notee[..] else { panic!("{fil}") };
+    assert!(erreur.contains(&format!("second review taken: main-{s}-1 · 0 remarks, none blocking\n")), "{erreur}");
+    // Les deux relectures sont au fil, avec le texte de chaque relecteur ; la correction est liée à la vague relue.
+    let notees = lignes_de(&fil, "vague.relecture");
+    let [notee, seconde] = &notees[..] else { panic!("{fil}") };
     assert!(
         notee.contains(&format!(r#""vague":"{r}","relue":"{v}","n":2,"bloquantes":1,"remarques":"remarques 2"#)),
         "{notee}"
     );
+    assert!(
+        seconde.contains(&format!(r#""vague":"{s}","relue":"{v}","n":0,"bloquantes":0,"remarques":"remarques 2"#)),
+        "{seconde}"
+    );
+    let verdicts = lignes_de(&fil, "vague.verdict");
+    assert!(verdicts.last().is_some_and(|verdict| verdict.contains(&format!(r#""sha":"{t2}""#))), "{fil}");
     assert!(fil.contains(&format!(r#""type":"vague.correction","vague":"{c}","corrige":"{v}""#)), "{fil}");
     // Les modèles : `modele` aux tâches, la clé `relecteur` du profil au relecteur (ici une valeur qui n'est pas son
     // défaut), `relance` à la correction.
@@ -770,7 +791,7 @@ fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     let etat = essai.etat();
     let montre = String::from_utf8_lossy(&etat.stdout);
     assert_eq!(etat.status.code(), Some(0), "{montre}");
-    assert!(montre.contains("Review: 2 remarks, 1 blocking\n"), "{montre}");
+    assert!(montre.contains("Review: 2 remarks, 1 blocking. Second review: 0 remarks, 0 blocking\n"), "{montre}");
     assert!(montre.contains(&format!("Correction: main-{c}-1 correction : assembled")), "{montre}");
     let _ = fs::remove_dir_all(&essai.racine);
 }
