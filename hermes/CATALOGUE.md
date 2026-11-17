@@ -32,7 +32,7 @@ tier: community
 category: automation
 requires_hermes: ">=0.23.0"
 docs_url: https://github.com/aoricloud/lydite/tree/<sha>/hermes
-version: "0.4.0"
+version: "0.5.0"
 image: https://raw.githubusercontent.com/aoricloud/lydite/<sha>/hermes/docs/banner.png
 screenshots:
   - https://raw.githubusercontent.com/aoricloud/lydite/<sha>/hermes/docs/screenshot-approval.png
