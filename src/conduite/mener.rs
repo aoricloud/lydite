@@ -284,6 +284,9 @@ pub(crate) fn decouper_cmd(lieu: &Lieu<'_>, o: &Options) -> Result<ExitCode, Ref
     if let (Some(proposition), Some(issue)) = (proposition.as_mut(), &issue) {
         proposition.fermer_l_issue(issue.numero);
     }
+    if let Some(proposition) = proposition.as_mut() {
+        proposition.proteger(lieu.profil.proteges());
+    }
     let base = match &proposition {
         Some(proposition) => proposition.base.clone(),
         None => base_du_depot(lieu.depot)?,
