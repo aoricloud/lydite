@@ -1796,6 +1796,165 @@ fn le_rangement_retire_comme_la_forge_lance_ses_gestes_git() {
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
+/// Les butées que le bac à sable de Claude Code laisse dans un bac quand une commande de la main finit en arrière-plan,
+/// encore en cours à la fin de sa session : des fichiers vides en lecture seule sous `.claude/`.
+const BUTEES: [&str; 4] = [".claude/settings.json", ".claude/settings.local.json", ".claude/hooks", ".claude/skills"];
+
+/// Rend ce fichier sans droit d'écriture.
+fn en_lecture_seule(fichier: &Path) {
+    let mut droits = fs::metadata(fichier).unwrap().permissions();
+    droits.set_readonly(true);
+    fs::set_permissions(fichier, droits).unwrap();
+}
+
+/// Pose dans `bac` les [`BUTEES`], chacune un fichier vide en lecture seule, et vérifie que git les voit non suivies :
+/// tant qu'elles sont là, `git worktree remove` sans forcer refuse le bac.
+fn poser_les_butees(bac: &Path) {
+    for butee in BUTEES {
+        ecrire(bac, butee, "");
+        en_lecture_seule(&bac.join(butee));
+    }
+    let vus = git(bac, &["status", "--porcelain", "--untracked-files=all"]);
+    assert!(BUTEES.iter().all(|butee| vus.contains(&format!("?? {butee}"))), "{vus}");
+}
+
+/// La branche `refs/heads/<nom>` du dépôt, vide si elle n'y est pas.
+fn branche_du_depot(depot: &Path, nom: &str) -> String {
+    git(depot, &["for-each-ref", "--format=%(objectname)", &format!("refs/heads/{nom}")])
+}
+
+#[test]
+fn le_rangement_efface_les_butees_d_un_bac_pousse_puis_le_retire_avec_sa_branche() {
+    let lieu = lieu("forge-rangement-butees");
+    let proposition = lieu.proposition();
+    let menee = lieu.vague(&proposition, &plan_de_a());
+    let (tete, id) = (menee.tete.clone().unwrap(), menee.issues[0].0.clone());
+    assert!(menee.issues[0].1.is_ok(), "a est assemblée : {:?}", menee.issues);
+    let bacs = lieu.kraken.join("bacs");
+    let (bac, vague) = (bacs.join(&id), bacs.join(format!("vague-{}", menee.id)));
+    let (temporaire, branche) = (temporaire_de(&bac).unwrap(), format!("lydite/{id}"));
+    // Avant le rangement : le bac de a, son dossier temporaire, et sa branche sur son gel, que la tête poussée porte.
+    assert!(bac.is_dir() && temporaire.is_dir() && vague.is_dir());
+    assert_eq!(branche_du_depot(&lieu.depot, &branche), git(&bac, &["rev-parse", "HEAD"]));
+    // Une commande de la main, passée en arrière-plan, est morte sans retirer les butées du mur.
+    poser_les_butees(&bac);
+    let fil = Fil::seance(&lieu.kraken, "humain");
+    proposition.ranger(&fil, &menee, &tete, false).unwrap();
+    // Le bac, son dossier temporaire et sa branche sont retirés, puis le worktree de la vague.
+    assert!(!bac.exists(), "le bac de a est retiré");
+    assert!(!temporaire.exists(), "son dossier temporaire est retiré");
+    assert_eq!(branche_du_depot(&lieu.depot, &branche), "", "sa branche est retirée");
+    assert!(!vague.exists(), "le worktree de la vague est retiré");
+    // Le rangement, noté une fois, les liste.
+    let retires = [bac.display().to_string(), temporaire.display().to_string(), branche, vague.display().to_string()];
+    let notes = lieu.forge_du_fil(&menee.id);
+    assert!(matches!(&notes[..], [Evenement::Rangement { retires: vus, .. }] if *vus == retires), "{notes:?}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+/// Le texte du fichier non suivi que garde le bac de la première tâche, dans
+/// [`un_bac_qui_garde_un_vrai_fichier_non_suivi_reste_avec_sa_branche`].
+const TRAVAIL: &str = "un travail qui n'est nulle part ailleurs";
+
+#[test]
+fn un_bac_qui_garde_un_vrai_fichier_non_suivi_reste_avec_sa_branche() {
+    let lieu = lieu("forge-rangement-garde");
+    // La base porte `.claude/agents`, un fichier vide : en lecture seule dans un bac, il a la forme d'une butée, mais
+    // le commit du bac le porte.
+    let base = sur(&lieu.depot, &lieu.base(), &[(".claude/agents", "")], "agents");
+    git(&lieu.depot, &["push", "-q", "origin", &format!("{base}:refs/heads/main")]);
+    let proposition = lieu.proposition();
+    let plan = plan(&[
+        "plan 1",
+        "objectif : Ecrire a et b",
+        "preuve : exit 0",
+        "tache a",
+        "    Ecrire a",
+        "tache b",
+        "depend : a",
+        "    Ecrire b",
+    ]);
+    let menee = lieu.vague(&proposition, &plan);
+    let tete = menee.tete.clone().unwrap();
+    let [(garde, a), (range, b)] = &menee.issues[..] else { panic!("{:?}", menee.issues) };
+    assert!(a.is_ok() && b.is_ok(), "{:?}", menee.issues);
+    let bacs = lieu.kraken.join("bacs");
+    let (bac_garde, bac_range) = (bacs.join(garde), bacs.join(range));
+    let vague = bacs.join(format!("vague-{}", menee.id));
+    let (branche_garde, branche_range) = (format!("lydite/{garde}"), format!("lydite/{range}"));
+    let (temporaire_garde, temporaire_range) = (temporaire_de(&bac_garde).unwrap(), temporaire_de(&bac_range).unwrap());
+    assert!(temporaire_garde.is_dir() && temporaire_range.is_dir());
+    let gel_garde = branche_du_depot(&lieu.depot, &branche_garde);
+    assert_eq!(gel_garde, git(&bac_garde, &["rev-parse", "HEAD"]));
+    // Les deux bacs portent les butées ; le premier garde aussi un vrai fichier non suivi, non vide, et son
+    // `.claude/agents` suivi passe en lecture seule.
+    poser_les_butees(&bac_garde);
+    poser_les_butees(&bac_range);
+    ecrire(&bac_garde, "travail.txt", TRAVAIL);
+    let agents = bac_garde.join(".claude/agents");
+    en_lecture_seule(&agents);
+    assert_eq!(git(&bac_garde, &["ls-files", ".claude/agents"]), ".claude/agents", "le commit du bac le porte");
+    let fil = Fil::seance(&lieu.kraken, "humain");
+    proposition.ranger(&fil, &menee, &tete, false).unwrap();
+    // Le premier bac reste, son travail et sa branche avec lui ; son fichier suivi qui a la forme d'une butée est là.
+    assert_eq!(fs::read_to_string(bac_garde.join("travail.txt")).unwrap(), TRAVAIL);
+    assert_eq!(branche_du_depot(&lieu.depot, &branche_garde), gel_garde, "sa branche reste");
+    assert!(temporaire_garde.is_dir(), "son dossier temporaire reste");
+    let meta = fs::symlink_metadata(&agents).expect("Lydite n'efface pas un fichier que le commit du bac porte");
+    assert!(meta.is_file() && meta.len() == 0 && meta.permissions().readonly(), "{meta:?}");
+    // L'autre bac et le worktree de la vague sont retirés, et le rangement ne liste qu'eux.
+    assert!(!bac_range.exists() && !temporaire_range.exists() && !vague.exists());
+    assert_eq!(branche_du_depot(&lieu.depot, &branche_range), "");
+    let retires = [
+        bac_range.display().to_string(),
+        temporaire_range.display().to_string(),
+        branche_range,
+        vague.display().to_string(),
+    ];
+    let notes = lieu.forge_du_fil(&menee.id);
+    assert!(matches!(&notes[..], [Evenement::Rangement { retires: vus, .. }] if *vus == retires), "{notes:?}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn le_retrait_rate_d_un_bac_qui_reste_se_dit_sur_stderr() {
+    // L'essai d'avant, rejoué seul dans un second processus de ce binaire d'essais, dont stderr se lit.
+    let essai = "conduite::publication::tests::un_bac_qui_garde_un_vrai_fichier_non_suivi_reste_avec_sa_branche";
+    let sortie = Command::new(env::current_exe().unwrap()).args(["--exact", essai, "--nocapture"]).output().unwrap();
+    let (dit, erreur) = (String::from_utf8_lossy(&sortie.stdout), String::from_utf8_lossy(&sortie.stderr));
+    // Un essai passé : un nom qui change ne laisse pas l'épreuve passer à vide.
+    assert!(sortie.status.success() && dit.contains("1 passed"), "{dit}\n{erreur}");
+    let entete = "removal failed, the rest of this worktree remains: ";
+    let lignes: Vec<&str> = erreur.lines().filter(|ligne| ligne.starts_with(entete)).collect();
+    // Une ligne, pour le seul bac qui reste, où git dit pourquoi.
+    assert_eq!(lignes.len(), 1, "{erreur}");
+    assert!(lignes[0].contains("untracked files"), "{erreur}");
+}
+
+#[test]
+fn une_vague_dont_aucun_retrait_ne_reussit_ne_note_aucun_rangement() {
+    let lieu = lieu("forge-rangement-aucun");
+    let proposition = lieu.proposition();
+    let menee = lieu.vague(&proposition, &plan_de_a());
+    let (tete, id) = (menee.tete.clone().unwrap(), menee.issues[0].0.clone());
+    assert!(menee.issues[0].1.is_ok(), "a est assemblée : {:?}", menee.issues);
+    let bacs = lieu.kraken.join("bacs");
+    let (bac, vague) = (bacs.join(&id), bacs.join(format!("vague-{}", menee.id)));
+    // Le bac de a et le worktree de la vague gardent chacun un vrai fichier non suivi, en plus des butées.
+    for worktree in [&bac, &vague] {
+        poser_les_butees(worktree);
+        ecrire(worktree, "travail.txt", TRAVAIL);
+    }
+    let fil = Fil::seance(&lieu.kraken, "humain");
+    proposition.ranger(&fil, &menee, &tete, false).unwrap();
+    // Rien n'est retiré, et rien ne se note.
+    assert!(bac.join("travail.txt").is_file() && vague.join("travail.txt").is_file());
+    assert_eq!(branche_du_depot(&lieu.depot, &format!("lydite/{id}")), git(&bac, &["rev-parse", "HEAD"]));
+    assert_eq!(mots(&lieu.forge_du_fil(&menee.id)), Vec::<String>::new());
+    assert!(!lieu.fil().iter().any(|note| matches!(note, Evenement::Rangement { .. })), "aucun forge.rangement");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
 #[test]
 fn une_vague_sans_tache_assemblee_n_a_rien_a_pousser_8004() {
     let lieu = lieu("forge-vide");
