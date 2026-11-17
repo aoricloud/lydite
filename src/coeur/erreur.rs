@@ -158,10 +158,11 @@ codes! {
         "A plan is UTF-8 text, a leading BOM tolerated; a plan in UTF-16 is rewritten in UTF-8.";
     PlanLigne = 6018, "lancer.plan_ligne",
         "In column 0, a plan line is empty, `tache <id>` within the limit of 10,000 tasks, or a known key \
-         (`objectif`, `preuve` and `report` in the header; `depend`, `preuve`, `modele`, `relance`, `effort`, \
-         `fichiers`, `critique`, `exact`, `sha256`, `red` and `place` under a task), once only and in its place, \
-         before the indented lines; an indented line follows a task. A plan with `report` has no `place` line, and \
-         each of its tasks has a `red` line and `critique : oui`.";
+         (`objectif`, `preuve`, `report` and `forme` in the header; `depend`, `preuve`, `modele`, `relance`, \
+         `effort`, `fichiers`, `critique`, `exact`, `sha256`, `red` and `place` under a task), once only and in its \
+         place, before the indented lines; an indented line follows a task. A plan split by a hand carries neither \
+         `report` nor `forme`. A plan with `report` has no `place` line, and each of its tasks has a `red` line and \
+         `critique : oui`.";
     PlanIdentifiant = 6019, "lancer.plan_identifiant",
         "A task id is a word of ASCII letters and digits, `-` and `_`, unique in the plan.";
     PlanDependance = 6020, "lancer.plan_dependance",

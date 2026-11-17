@@ -210,6 +210,42 @@ fn le_recu_d_une_pr_dit_not_proved_pour_un_plan_a_report_et_rien_pour_un_autre()
 }
 
 #[test]
+fn le_corps_dit_la_mise_en_forme_sous_la_ligne_proof_et_sans_forme_ne_change_pas() {
+    let v = "1761901500000_11_0";
+    let sans = "plan 1\nobjectif : Un test\npreuve : cargo test\n\ntache a\n    Ecrire a\n";
+    let avec = sans.replacen("preuve : cargo test\n", "preuve : cargo test\nforme : cargo fmt\n", 1);
+    let (sans, avec) = (Plan::lire(sans.as_bytes()).unwrap(), Plan::lire(avec.as_bytes()).unwrap());
+    assert_eq!(avec.forme.as_deref(), Some("cargo fmt"));
+    let evenements = vague_impossible(v, &["x"], false);
+    let (vagues, notes) = (etat(&evenements), notes_de(&evenements));
+    let recu = recu_de(&vagues, &notes, v);
+    let vague = vagues.iter().find(|vague| vague.id == v).unwrap();
+    let (texte_sans, texte_avec) =
+        (corps(&sans, vague, None, None, &recu, &[], &[]), corps(&avec, vague, None, None, &recu, &[], &[]));
+    let ligne = "\nFormatting: cargo fmt, run by Lydite after each hand.";
+    assert!(texte_avec.contains(&format!("\n\nProof: cargo test → green{ligne}\n\n")), "{texte_avec}");
+    // Sans `forme`, le corps est celui d'avant : la ligne ôtée, les deux corps sont les mêmes.
+    assert!(!texte_sans.contains("Formatting"), "{texte_sans}");
+    assert_eq!(texte_avec.replacen(ligne, "", 1), texte_sans);
+}
+
+#[test]
+fn la_relance_d_une_ci_rouge_reprend_la_forme_du_plan() {
+    let lignes =
+        ["plan 1", "objectif : Ecrire a", "preuve : cargo test", "tache a", "fichiers : a.txt", "    Ecrire a"];
+    let sans = plan(&lignes);
+    let mut avec_forme = lignes.to_vec();
+    avec_forme.insert(3, "forme : cargo fmt");
+    let avec = plan(&avec_forme);
+    let relance = plan_de_relance(&avec, &assemblees(&avec), 7, "boom\n");
+    assert_eq!(relance.forme.as_deref(), Some("cargo fmt"));
+    // Rien d'autre ne change : la relance d'un plan sans `forme` n'en a pas, et elle est la même au reste près.
+    let d_avant = plan_de_relance(&sans, &assemblees(&sans), 7, "boom\n");
+    assert_eq!(d_avant.forme, None);
+    assert_eq!(Plan { forme: None, ..relance }, d_avant);
+}
+
+#[test]
 fn le_corps_garde_set_aside_pour_une_tache_classee_rouge_apres_sa_relance() {
     let plan = Plan::lire(b"plan 1\nobjectif : Un test\npreuve : cargo test\n\ntache a\n    Ecrire a.txt\n").unwrap();
     let v = "1761901500000_11_0";
@@ -1704,6 +1740,7 @@ fn un_plan_sans_exact_ni_epingle_rend_la_tache_ci_d_avant() {
         objectif: "Make the CI of PR 7 green".into(),
         preuve: Some("cargo test".into()),
         rapport: None,
+        forme: None,
         taches: vec![tache],
     };
     assert_eq!(relance, attendu);

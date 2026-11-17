@@ -62,6 +62,7 @@ fn un_plan_se_lit() {
         objectif: "Ajouter la commande etat".into(),
         preuve: Some("cargo test".into()),
         rapport: None,
+        forme: None,
         taches: vec![
             tache("types", &[], None, "Écrire les types."),
             tache("etat", &["types", "fil"], None, "Écrire etat."),
@@ -1084,6 +1085,89 @@ fn report_dans_un_plan_decoupe_est_refuse_en_6018_sur_sa_ligne() {
     assert!(refus.preuve.contains("split by a hand carries no `report` line"), "{refus}");
     // Le même plan, à la main, se lit.
     assert!(lire_en(&plan, Mode::Main).is_ok());
+}
+
+/// La ligne `forme` des tests : une commande de mise en forme.
+const FORME: &str = "forme : cargo fmt";
+
+/// Lit un plan : l'en-tête, cette ligne `forme` (la 4e), puis ces lignes.
+fn lire_avec_forme(forme: &str, suite: &[&str]) -> Result<Plan, Refus> {
+    lire(&[&ENTETE[..], &[forme], suite].concat())
+}
+
+#[test]
+fn la_cle_forme_se_lit_dans_l_en_tete_et_son_absence_ne_change_rien() {
+    // Les blancs autour du `:` et du bout de la ligne ne comptent pas ; la commande garde ses blancs du milieu.
+    for ligne in [FORME, "forme:cargo fmt", "forme :   cargo fmt  "] {
+        let plan = lire_avec_forme(ligne, &["tache a", "    x"]).unwrap();
+        assert_eq!(plan.forme.as_deref(), Some("cargo fmt"), "{ligne:?}");
+    }
+    let plan = lire_avec_forme("forme : cargo fmt --all  -- --emit files", &["tache a", "    x"]).unwrap();
+    assert_eq!(plan.forme.as_deref(), Some("cargo fmt --all  -- --emit files"));
+    // Avec `report`, dans l'un ou l'autre ordre.
+    let suite = ["tache a", "red : declared", "critique : oui", "    x"];
+    for entete in [[RAPPORT, FORME], [FORME, RAPPORT]] {
+        let plan = lire(&[&ENTETE[..], &entete, &suite].concat()).unwrap();
+        assert_eq!(plan.forme.as_deref(), Some("cargo fmt"));
+        assert!(plan.rapport.is_some());
+    }
+    // Sans ligne `forme`, le plan est celui d'avant : aucune mise en forme, le reste à l'identique.
+    let sans = lire_apres_entete(&["tache a", "    x"]).unwrap();
+    assert_eq!(sans.forme, None);
+    let avec = lire_avec_forme(FORME, &["tache a", "    x"]).unwrap();
+    assert_eq!(Plan { forme: None, ..avec }, sans);
+}
+
+#[test]
+fn la_cle_forme_redite_blanche_ou_sous_une_tache_est_refusee() {
+    // Redite : 6018, sur la seconde ligne.
+    let redite = lire_avec_forme(FORME, &["forme : rustfmt", "tache a", "    x"]);
+    let refus = refus_cite(redite, Code::PlanLigne, 5, "forme : rustfmt");
+    assert!(refus.preuve.contains("la clé « forme » est déjà donnée dans l'en-tête"), "{refus}");
+    // Blanche : 6021, sur sa ligne.
+    for ligne in ["forme :", "forme :  \t"] {
+        let refus = refus_cite(lire_avec_forme(ligne, &["tache a", "    x"]), Code::PlanBlanc, 4, ligne);
+        assert!(refus.preuve.contains("la clé « forme » est blanche"), "{refus}");
+    }
+    // Sous une tâche : 6018, une clé que la tâche n'a pas.
+    let refus = refus_cite(lire_apres_entete(&["tache a", FORME, "    x"]), Code::PlanLigne, 5, FORME);
+    assert!(refus.preuve.contains("la clé « forme » n'est pas une clé d'une tâche"), "{refus}");
+    // L'en-tête la nomme parmi ses clés : une clé inconnue de l'en-tête le dit.
+    let inconnue = lire_avec_forme("format : cargo fmt", &["tache a", "    x"]);
+    let refus = refus_cite(inconnue, Code::PlanLigne, 4, "format : cargo fmt");
+    assert!(refus.preuve.contains("`objectif`, `preuve`, `report` ou `forme`"), "{refus}");
+}
+
+#[test]
+fn forme_dans_un_plan_decoupe_est_refusee_en_6018_sur_sa_ligne() {
+    // Une main qui découpe ne choisit pas une commande que Lydite joue : même juste, la ligne est refusée.
+    let suite = ["tache a", "fichiers : src/", "modele : haiku", "    x"];
+    let plan = [&ENTETE[..], &[FORME], &suite].concat();
+    for mode in [Mode::Decoupe(None), Mode::Decoupe(Some(&demande(&["src/a.rs".to_string()])))] {
+        let refus = refuse_en(lire_en(&plan, mode));
+        assert_eq!(refus.code, Code::PlanLigne, "{refus}");
+        let debut = format!("ligne 4 {} : ", cite(FORME));
+        assert!(refus.preuve.starts_with(&debut), "la preuve devait citer la ligne 4 : {refus}");
+        assert!(refus.preuve.contains("split by a hand carries no `forme` line"), "{refus}");
+        assert!(refus.correction.contains("Remove the `forme` line"), "{refus}");
+    }
+    // Blanche aussi : la ligne est refusée pour ce qu'elle est, avant sa valeur.
+    let blanche = [&ENTETE[..], &["forme :"], &suite].concat();
+    assert_eq!(refuse_en(lire_en(&blanche, Mode::Decoupe(None))).code, Code::PlanLigne);
+    // Le même plan, découpé sans la ligne, se lit ; à la main, avec elle, aussi.
+    let sans = [&ENTETE[..], &suite].concat();
+    let (lu, _) = lire_en(&sans, Mode::Decoupe(None)).unwrap();
+    assert_eq!(lu.forme, None);
+    let (lu, _) = lire_en(&plan, Mode::Main).unwrap();
+    assert_eq!(lu.forme.as_deref(), Some("cargo fmt"));
+}
+
+#[test]
+fn les_copies_n_ont_pas_de_forme() {
+    for n in [1, 3] {
+        assert_eq!(Plan::copies("o", Some("cargo test"), n).forme, None);
+        assert_eq!(Plan::copies("o", None, n).forme, None);
+    }
 }
 
 #[test]
