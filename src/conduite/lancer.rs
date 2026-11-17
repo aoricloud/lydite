@@ -1479,9 +1479,9 @@ fn usages_de(
     }
     let total = [UsageModele { modele: modele.into(), jetons: *jetons, micro_dollars: *micro_dollars, base: None }];
     let lignes = if modeles.is_empty() { &total[..] } else { &modeles[..] };
-    // Le forfait ne vaut que sous un profil sans fournisseur : sous un `api`, ce que la main dit de sa clé et de sa
-    // base ne compte pas.
-    let abonnement = profil.variable_de_la_cle().is_none() && constat.source_cle.as_deref() == Some("none");
+    // Le forfait ne vaut que pour une main qui ne parle pas à un fournisseur (le relecteur sous `api_relecteur`
+    // compris) : chez un `api`, ce que la main dit de sa clé et de sa base ne compte pas.
+    let abonnement = !profil.parle_a_un_fournisseur() && constat.source_cle.as_deref() == Some("none");
     lignes
         .iter()
         .map(|ligne| {

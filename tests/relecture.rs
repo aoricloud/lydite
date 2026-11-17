@@ -6,17 +6,17 @@
 //! demandes de contrôle par `controle-<modele>.jsonl`, recopie son entrée dans son dossier temporaire, puis :
 //!
 //! - si sa consigne commence la correction (`Corrige au plus petit`), elle garde sa consigne dans `correction.txt` et
-//!   écrit `sortie/correction.txt` dans son bac ;
+//!   son environnement dans `env-correction.txt`, et écrit `sortie/correction.txt` dans son bac ;
 //! - si sa consigne nomme `REMARQUES.lydite`, elle est le relecteur, à son lancement `n` (1, puis 2 une fois posée la
 //!   marque `relecteur-1` : la relance du premier relecteur, ou le second relecteur, celui de la tête de la
 //!   correction, après un premier pris à sa première tentative) : elle garde son `PATH` dans
-//!   `path-relecteur-<n>.txt` et le `DIFF.lydite` de son bac dans `diff-<n>.txt` (et son `PREUVE.lydite` dans
-//!   `preuve-lydite-<n>.txt`), copie `remarques-<n>.lydite` en `REMARQUES.lydite` à la racine de son bac, puis joue
-//!   elle-même
+//!   `path-relecteur-<n>.txt`, son environnement dans `env-relecteur-<n>.txt`, et le `DIFF.lydite` de son bac dans
+//!   `diff-<n>.txt` (et son `PREUVE.lydite` dans `preuve-lydite-<n>.txt`), copie `remarques-<n>.lydite` en
+//!   `REMARQUES.lydite` à la racine de son bac, puis joue elle-même
 //!   `lydite remarques REMARQUES.lydite`, que son `PATH` doit trouver, et en garde la sortie dans `preuve-<n>.txt` et
 //!   le code dans `code-<n>.txt` ;
-//! - sinon, elle est la main d'une tâche : elle écrit sa consigne dans `sortie/<bac>.txt` de son bac si elle dit «
-//!   critique », dans `autre/<bac>.txt` sinon.
+//! - sinon, elle est la main d'une tâche : elle garde son environnement dans `env-<bac>.txt`, et écrit sa consigne dans
+//!   `sortie/<bac>.txt` de son bac si elle dit « critique », dans `autre/<bac>.txt` sinon.
 //!
 //! Elle finit par l'ouverture et le résultat de `fin.jsonl`. Tout ce qu'elle garde est à côté d'elle. Le profil d'essai
 //! exige le mur, donne `haiku` aux tâches, `sonnet` à la relance, et `opus` au relecteur : trois modèles, trois
@@ -24,9 +24,26 @@
 //! propre processus (l'environnement va à l'enfant seul, par `Command::env`), ne lance un vrai `claude` ou un vrai
 //! `gh`, ni ne cherche à sortir d'un bac.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+
+/// L'API d'un fournisseur d'essai, et son hôte, que le fil note : ni la fausse claude ni aucun test ne la joint.
+const API: &str = "https://api.exemple.test/anthropic";
+const HOTE: &str = "api.exemple.test";
+
+/// La variable d'environnement qui tient la clé du fournisseur d'essai, et cette clé : un leurre que Lydite ne doit
+/// écrire nulle part.
+const VARIABLE: &str = "LYDITE_ESSAI_CLE";
+const LEURRE: &str = "leurre-de-la-cle-7c2e";
+
+/// Ce que l'humain a chez lui du côté d'Anthropic : son jeton, sa clé et son URL, sur Lydite seul.
+const HUMAIN: [(&str, &str); 3] = [
+    ("ANTHROPIC_AUTH_TOKEN", "jeton-de-l-humain"),
+    ("ANTHROPIC_API_KEY", "cle-de-l-humain"),
+    ("ANTHROPIC_BASE_URL", "https://humain.exemple.test"),
+];
 
 /// La preuve de la vague, que Kraken prête aux mains des tâches et de la correction, et celle qu'il prête au relecteur.
 const VERIFIER: &str = "git status";
@@ -119,11 +136,13 @@ const FAUSSE_WINDOWS: &[&str] = &[
     "set dossier=autre",
     r#"findstr /l /c:"critique" "%TEMP%\entree.jsonl" > nul"#,
     "if not errorlevel 1 set dossier=sortie",
+    r#"set > "%ici%env-%bac%.txt""#,
     "if not exist %dossier% mkdir %dossier%",
     r#"copy /y "%TEMP%\entree.jsonl" "%dossier%\%bac%.txt" > nul"#,
     "goto fin",
     ":correction",
     r#"copy /y "%TEMP%\entree.jsonl" "%ici%correction.txt" > nul"#,
+    r#"set > "%ici%env-correction.txt""#,
     "if not exist sortie mkdir sortie",
     r#"echo corrige> sortie\correction.txt"#,
     "goto fin",
@@ -132,6 +151,7 @@ const FAUSSE_WINDOWS: &[&str] = &[
     r#"if exist "%ici%relecteur-1" set n=2"#,
     r#"type nul > "%ici%relecteur-%n%""#,
     r#"set PATH > "%ici%path-relecteur-%n%.txt""#,
+    r#"set > "%ici%env-relecteur-%n%.txt""#,
     r#"if exist DIFF.lydite copy /y DIFF.lydite "%ici%diff-%n%.txt" > nul"#,
     r#"if exist PREUVE.lydite copy /y PREUVE.lydite "%ici%preuve-lydite-%n%.txt" > nul"#,
     r#"if exist "%ici%remarques-%n%.lydite" copy /y "%ici%remarques-%n%.lydite" REMARQUES.lydite > nul"#,
@@ -156,6 +176,7 @@ const FAUSSE_UNIX: &[&str] = &[
     r#"cat > "$TMPDIR/entree.jsonl""#,
     r#"if grep -q 'Corrige au plus petit' "$TMPDIR/entree.jsonl"; then"#,
     r#"cp "$TMPDIR/entree.jsonl" "$ici/correction.txt""#,
+    r#"env > "$ici/env-correction.txt""#,
     "mkdir -p sortie",
     "echo corrige > sortie/correction.txt",
     r#"elif grep -q 'REMARQUES\.lydite' "$TMPDIR/entree.jsonl"; then"#,
@@ -163,6 +184,7 @@ const FAUSSE_UNIX: &[&str] = &[
     r#"if [ -f "$ici/relecteur-1" ]; then n=2; fi"#,
     r#": > "$ici/relecteur-$n""#,
     r#"printf 'PATH=%s\n' "$PATH" > "$ici/path-relecteur-$n.txt""#,
+    r#"env > "$ici/env-relecteur-$n.txt""#,
     r#"if [ -f DIFF.lydite ]; then cp DIFF.lydite "$ici/diff-$n.txt"; fi"#,
     r#"if [ -f PREUVE.lydite ]; then cp PREUVE.lydite "$ici/preuve-lydite-$n.txt"; fi"#,
     r#"if [ -f "$ici/remarques-$n.lydite" ]; then cp "$ici/remarques-$n.lydite" REMARQUES.lydite; fi"#,
@@ -171,6 +193,7 @@ const FAUSSE_UNIX: &[&str] = &[
     "else",
     "dossier=autre",
     r#"if grep -q 'critique' "$TMPDIR/entree.jsonl"; then dossier=sortie; fi"#,
+    r#"env > "$ici/env-$bac.txt""#,
     r#"mkdir -p "$dossier""#,
     r#"cp "$TMPDIR/entree.jsonl" "$dossier/$bac.txt""#,
     "fi",
@@ -465,6 +488,26 @@ impl Essai {
     /// `lydite etat`.
     fn etat(&self) -> Output {
         self.kraken().arg("etat").output().unwrap()
+    }
+
+    /// L'environnement que la fausse claude a gardé dans ce fichier, les noms en majuscules : sous Windows, ils ne
+    /// tiennent pas à la casse.
+    fn variables(&self, nom: &str) -> BTreeMap<String, String> {
+        let garde = self.garde(nom);
+        let paires = garde.lines().filter_map(|ligne| ligne.split_once('='));
+        paires.map(|(nom, valeur)| (nom.to_ascii_uppercase(), valeur.to_string())).collect()
+    }
+}
+
+/// Aucun fichier de ce dossier, à toute profondeur, ne porte ce texte.
+fn rien_n_ecrit(dossier: &Path, texte: &str) {
+    for entree in fs::read_dir(dossier).unwrap() {
+        let chemin = entree.unwrap().path();
+        if chemin.is_dir() {
+            rien_n_ecrit(&chemin, texte);
+        } else if let Ok(octets) = fs::read(&chemin) {
+            assert!(!String::from_utf8_lossy(&octets).contains(texte), "{} porte « {texte} »", chemin.display());
+        }
     }
 }
 
@@ -824,5 +867,59 @@ fn un_relecteur_sans_fichier_classe_la_relecture_et_rien_ne_se_pousse() {
     let fusions = lignes_de(&fil, "vague.fusion");
     assert!(fusions.last().unwrap().contains(&format!(r#""sha":"{tete}""#)), "{fil}");
     assert_eq!(essai.etat().status.code(), Some(1));
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn sous_api_relecteur_le_relecteur_parle_chez_anthropic_et_les_autres_mains_chez_le_fournisseur() {
+    // Le profil nomme un fournisseur, `relecteur = opus` et `api_relecteur = anthropic`. Le premier relecteur a une
+    // remarque bloquante : la correction part, puis le second relecteur relit sa tête.
+    let essai = Essai::nouveau("relecteur-anthropic", Some("opus"));
+    essai.poser_les_efforts(&format!("api = {API}\ncle = {VARIABLE}\napi_relecteur = anthropic\n"), &[]);
+    essai.remarques(1, &remarques_justes());
+    essai.remarques(2, &sans_remarque());
+    let mut commande = essai.kraken();
+    commande.envs(HUMAIN).env(VARIABLE, LEURRE);
+    commande.args(["lancer", "essai", "--plan"]).arg(essai.racine.join("plan.lydite")).arg("--depot");
+    let sortie = commande.arg(&essai.depot).output().unwrap();
+    assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
+    let fil = essai.fil();
+    let ouvertes = vagues(&fil);
+    let [v, r, c, s] = &ouvertes[..] else {
+        panic!("la vague, le relecteur, la correction, le second relecteur : {fil}")
+    };
+    // Les `main.fournisseur` de chaque vague, qui portent tous l'hôte du fournisseur.
+    let fournisseurs = lignes_de(&fil, "main.fournisseur");
+    assert!(fournisseurs.iter().all(|ligne| ligne.contains(&format!(r#""fournisseur":"{HOTE}""#))), "{fil}");
+    let notes = |vague: &str| fournisseurs.iter().filter(|l| l.contains(&format!(r#""vague":"{vague}""#))).count();
+    // (a) Les mains des tâches et de la correction parlent au fournisseur : son URL, sa clé, ni le jeton de l'humain ni
+    // la variable que `cle` nomme ; le fil note le fournisseur de chacune.
+    let parlent = [format!("env-main-{v}-1.txt"), format!("env-main-{v}-2.txt"), "env-correction.txt".to_string()];
+    for garde in &parlent {
+        let variables = essai.variables(garde);
+        assert_eq!(variables.get("ANTHROPIC_BASE_URL").map(String::as_str), Some(API), "{garde}");
+        assert_eq!(variables.get("ANTHROPIC_API_KEY").map(String::as_str), Some(LEURRE), "{garde}");
+        let jeton = variables.get("ANTHROPIC_AUTH_TOKEN");
+        assert!(jeton.is_none(), "{garde} : {jeton:?}");
+        assert!(!variables.contains_key(VARIABLE), "{garde} : {VARIABLE} passe");
+    }
+    assert_eq!((notes(v), notes(c)), (2, 1), "{fil}");
+    // (b) Les deux relecteurs parlent chez Anthropic, sous la connexion de l'humain : ni l'URL ni la clé du
+    // fournisseur, ni la variable que `cle` nomme, mais le jeton, la clé et l'URL de l'humain tels quels ; ils partent
+    // sous `opus`, et le fil ne note aucun fournisseur pour eux.
+    for n in [1, 2] {
+        let garde = format!("env-relecteur-{n}.txt");
+        let variables = essai.variables(&garde);
+        for (nom, valeur) in HUMAIN {
+            assert_eq!(variables.get(nom).map(String::as_str), Some(valeur), "{garde} : {nom}");
+        }
+        assert!(!variables.contains_key(VARIABLE), "{garde} : {VARIABLE} passe");
+    }
+    assert_eq!((modeles_de(&fil, r), modeles_de(&fil, s)), ("opus".to_string(), "opus".to_string()));
+    assert_eq!((notes(r), notes(s)), (0, 0), "{fil}");
+    // (c) La clé n'est écrite nulle part de ce que Lydite écrit : ni dans son dossier, fil compris, ni sur ses sorties.
+    rien_n_ecrit(&essai.dossier, LEURRE);
+    let (stdout, stderr) = (String::from_utf8_lossy(&sortie.stdout), String::from_utf8_lossy(&sortie.stderr));
+    assert!(!stdout.contains(LEURRE) && !stderr.contains(LEURRE), "{}", dit(&sortie));
     let _ = fs::remove_dir_all(&essai.racine);
 }

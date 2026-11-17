@@ -263,6 +263,7 @@ that reaches it is stopped, and its task comes back to you. With another provide
 | `plafond` | the most one hand may spend, in dollars |
 | `delai_main`, `delai_preuve` | how long a hand, and a replay of your proof, may run, in seconds |
 | `api`, `cle`, `prix` | another provider: its URL, the name of the variable that holds its key, its prices |
+| `api_relecteur = anthropic` | with `api` and `cle`: the reviewer talks to Anthropic, under your Claude login, while the other hands talk to the provider |
 | `proteges`, `efforts_permis` | paths no hand may change; the efforts a plan may ask (see [A profile](#a-profile)) |
 | `tache`, `objectif`, `preuve`, `fichiers`, `depend`, `critique` | plan: a task, its objective, its proof, its files, the tasks it waits for, whether it is reviewed |
 
@@ -284,6 +285,13 @@ mur = exige
 
 Set `decoupeur` and `relecteur` too: they default to `opus`, a name your provider may not know. An optional `prix`
 line gives the provider's prices, so that receipts carry a cost.
+
+To have critical work reviewed by Claude while the provider does the rest, add `api_relecteur = anthropic`: the
+reviewer (both its attempts, at the first review and at the second) then talks to Anthropic under your Claude Code
+login, like the hand of a profile without `api`, and `relecteur` names a Claude model (`opus` by default). It gets
+neither the provider's URL nor its key, nor the variable that `cle` names. Under your subscription its usage counts
+as subscription usage, and a quota does not ask `prix` for its model. The tasks' hands, their retries, the hand that
+fixes a review's remarks and the splitter stay with the provider. `lydite profile` says so in one more row.
 
 **Windows.** The wall (the sandbox) is required everywhere, Windows included: a profile with no `mur` line, and the built-in `claude` profile, require it. But Claude Code's sandbox and srt do not hold under Windows, so the wall check fails there (6028) before any hand. To launch anyway, knowingly, write `mur = demande` in the profile (for the built-in profile, a file `profils/claude.profil` that repeats its text with `mur = demande`), then `lydite accept <name>`. Under a requested wall the hand's commands may run outside Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed outside the wall. Lydite also refuses `--issue` there (6029), and replays your proof through `cmd /C`. WSL2 gives you the Linux path, wall included.
 

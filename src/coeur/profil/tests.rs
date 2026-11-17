@@ -1004,6 +1004,111 @@ fn un_prix_sans_api_ou_mal_forme_est_refuse_avec_sa_ligne() {
     assert!(refus.preuve.contains("chaque clé s'écrit une fois"), "{refus}");
 }
 
+/// Le profil d'un fournisseur dont le relecteur parle chez Anthropic, avec un prix pour `opus` chez le fournisseur.
+const RELECTEUR_CHEZ_ANTHROPIC: &str = "sorte = claude\napi = https://api.exemple.test:8443/anthropic\n\
+                                        cle = CLE_ESSAI\nrelecteur = opus\napi_relecteur = anthropic\n\
+                                        prix = opus 1 2\n";
+
+#[test]
+fn api_relecteur_seule_est_le_refus_6027_sur_sa_ligne() {
+    let lieu = absolu("k").join("profils").join("essai.profil").display().to_string();
+    let refus = lu("# un relecteur\napi_relecteur = anthropic\nsorte = claude\n").err().unwrap();
+    assert_eq!(refus.code, Code::Fournisseur, "{refus}");
+    assert_eq!(refus.preuve, format!("{lieu}:2 : « api_relecteur » est seule : elle se donne avec api et cle"));
+    assert!(refus.correction.starts_with("Ajoute les lignes « api = "), "{refus}");
+    assert!(refus.correction.contains("ou retire la ligne 2"), "{refus}");
+    assert!(refus.correction.ends_with("lydite accepter essai."), "{refus}");
+    // Avec `api` et `cle`, la même ligne se lit.
+    let profil = lu("sorte = claude\napi = https://a.exemple.test\napi_relecteur = anthropic\ncle = X\n").unwrap();
+    assert!(claude(&profil).relecteur_chez_anthropic);
+    assert!(!claude(&lu(FOURNISSEUR).unwrap()).relecteur_chez_anthropic);
+}
+
+#[test]
+fn api_relecteur_ne_vaut_que_anthropic_et_ne_s_ecrit_qu_une_fois() {
+    for valeur in ["deepseek", "Anthropic", "anthropic, deepseek", "https://api.anthropic.com"] {
+        let ligne = format!("api_relecteur = {valeur}");
+        let refus = lu(&format!("{FOURNISSEUR}{ligne}\n")).err().expect(valeur);
+        assert_eq!(refus.code, Code::ProfilLigneRefusee, "{valeur} : {refus}");
+        assert!(refus.preuve.ends_with(&format!(":4 : « {ligne} » : api_relecteur vaut anthropic")), "{refus}");
+    }
+    let refus = lu(&format!("{FOURNISSEUR}api_relecteur = anthropic\napi_relecteur = anthropic\n")).err().unwrap();
+    assert_eq!(refus.code, Code::ProfilLigneRefusee, "{refus}");
+    assert!(refus.preuve.contains(":5 : « api_relecteur = anthropic » : chaque clé s'écrit une fois"), "{refus}");
+}
+
+#[test]
+fn l_empreinte_change_avec_api_relecteur() {
+    let texte = format!("{FOURNISSEUR}api_relecteur = anthropic\n");
+    let sans = claude(&lu(FOURNISSEUR).unwrap()).empreinte.clone();
+    let avec = claude(&lu(&texte).unwrap()).empreinte.clone();
+    assert_ne!(sans, avec);
+    assert_eq!(avec, hex(&sha256(avec_mur_demande(&texte).as_bytes())));
+}
+
+#[test]
+fn sous_api_relecteur_le_relecteur_n_a_pas_de_fournisseur_mais_perd_la_variable_de_la_cle() {
+    let profil = fourni(RELECTEUR_CHEZ_ANTHROPIC, LEURRE);
+    let chez_le_fournisseur =
+        Fournisseur { api: "https://api.exemple.test:8443/anthropic", cle: LEURRE, variable: "CLE_ESSAI" };
+    // Le relecteur : ni fournisseur, ni prix, ni hôte déclaré ; seule la variable que `cle` nomme lui est retirée,
+    // et la preuve que Kraken rejoue ne la reçoit pas non plus.
+    let relecteur = profil.pour_le_relecteur();
+    assert_eq!(relecteur.fournisseur(), None);
+    assert!(!relecteur.parle_a_un_fournisseur());
+    assert_eq!(relecteur.environnement(), Some(Environnement::SansLaCle("CLE_ESSAI")));
+    assert_eq!(relecteur.variable_de_la_cle(), Some("CLE_ESSAI"));
+    assert_eq!(relecteur.prix("opus"), None);
+    let demande = relecteur.demande(&absolu("bac"), None, false);
+    assert!(!demande.argv.is_empty(), "le relecteur part");
+    for arg in &demande.argv {
+        assert!(!arg.contains(LEURRE) && !arg.contains("api.exemple.test"), "{arg}");
+    }
+    let declaration = demande.declaration.expect("le relecteur déclare");
+    assert_eq!((declaration.fournisseur.clone(), declaration.fournisseur("v", 1, 1)), (None, None));
+    // Sa copie aux modèles de sa tâche, que la vague du relecteur lance, reste chez Anthropic.
+    let copie = relecteur.avec_modeles(Some("opus"), Some("opus"));
+    assert_eq!(copie.environnement(), Some(Environnement::SansLaCle("CLE_ESSAI")));
+    // La main du profil, la correction et le découpeur restent chez le fournisseur, et le profil ne bouge pas.
+    for (role, garde) in [
+        ("main", profil.avec_modeles(None, None)),
+        ("correction", profil.pour_la_correction()),
+        ("decoupeur", profil.pour_le_decoupeur()),
+    ] {
+        assert_eq!(garde.fournisseur(), Some(chez_le_fournisseur), "{role}");
+        assert!(garde.parle_a_un_fournisseur(), "{role}");
+        assert_eq!(garde.environnement(), Some(Environnement::Fournisseur(chez_le_fournisseur)), "{role}");
+        assert_eq!(garde.prix("opus"), profil.prix("opus"), "{role}");
+        assert!(garde.prix("opus").is_some(), "{role}");
+        let declaration = garde.demande(&absolu("bac"), None, true).declaration.expect(role);
+        assert_eq!(declaration.fournisseur.as_deref(), Some("api.exemple.test:8443"), "{role}");
+    }
+    // Sans la clé, le relecteur reste chez le fournisseur, comme aujourd'hui.
+    let sans = fourni(&RELECTEUR_CHEZ_ANTHROPIC.replace("api_relecteur = anthropic\n", ""), LEURRE);
+    let relecteur = sans.pour_le_relecteur();
+    assert_eq!(relecteur.environnement(), Some(Environnement::Fournisseur(chez_le_fournisseur)));
+    let declaration = relecteur.demande(&absolu("bac"), None, false).declaration.unwrap();
+    assert_eq!(declaration.fournisseur.as_deref(), Some("api.exemple.test:8443"));
+    // Sans fournisseur, aucun environnement.
+    assert_eq!(borne("sorte = claude\n").pour_le_relecteur().environnement(), None);
+}
+
+#[test]
+fn lydite_profil_dit_le_relecteur_chez_anthropic_sous_api_relecteur_seulement() {
+    let avec = lu(RELECTEUR_CHEZ_ANTHROPIC).unwrap().rangees();
+    let sans = lu(&RELECTEUR_CHEZ_ANTHROPIC.replace("api_relecteur = anthropic\n", "")).unwrap().rangees();
+    let rangee = "reviewer: opus, at Anthropic (the hands at api.exemple.test:8443)".to_string();
+    let place = avec.iter().position(|vue| *vue == rangee).unwrap_or_else(|| panic!("{avec:?}"));
+    assert_eq!(avec[place - 1], "model: sonnet; retry: sonnet", "après la rangée du modèle : {avec:?}");
+    assert!(!sans.iter().any(|vue| vue.starts_with("reviewer: ")), "{sans:?}");
+    // Hors de cette rangée et de l'empreinte, les rangées sont les mêmes.
+    let sans_empreinte = |rangees: &[String]| -> Vec<String> {
+        rangees.iter().filter(|vue| !vue.starts_with("fingerprint: ") && **vue != rangee).cloned().collect()
+    };
+    assert_eq!(sans_empreinte(&avec), sans_empreinte(&sans));
+    assert_eq!(avec.len(), sans.len() + 1);
+}
+
 #[test]
 fn les_urls_d_api_et_les_noms_de_variable_ont_leur_grammaire() {
     // L'hôte, port compris, que le fil note.
