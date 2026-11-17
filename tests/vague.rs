@@ -1276,6 +1276,135 @@ fn une_vague_a_report_sous_un_mur_natif_note_vague_rapport_et_etat_compte_ses_no
     assert!(recu.contains("1 impossible") && recu.ends_with(" · Not proved (declared): 1"), "{recu}");
 }
 
+/// Ce que rend la vague d'une tâche dont la fausse claude écrit `a.txt` : la sortie du lancement, le fil, le dépôt
+/// visé et la branche de la vague (vide si la dernière ligne ne la dit pas).
+struct VagueFormee {
+    sortie: Output,
+    fil: String,
+    depot: PathBuf,
+    branche: String,
+}
+
+/// Joue, dans la racine `nom`, sous un profil `essai` qui exige le mur (le faux srt joue la commande), la vague d'une
+/// tâche dont la fausse claude écrit `ecrit` dans `a.txt`, puis finit vert. Le dépôt visé porte deux scripts : la
+/// preuve, `verifier`, qui passe sans `a.txt` (sur la base) et ne passe sinon que si `a.txt` est la seule ligne `bien`,
+/// et `former`, qui réécrit `a.txt` en `bien`. Avec `forme`, l'en-tête du plan porte `forme : <commande de former>`.
+fn vague_formee(nom: &str, ecrit: &str, forme: bool) -> VagueFormee {
+    let racine = racine(nom);
+    let depot = depot(&racine);
+    let (dossier, main) = (racine.join("lydite"), racine.join("main"));
+    fs::create_dir_all(dossier.join("profils")).unwrap();
+    fs::create_dir_all(&main).unwrap();
+    // Les deux scripts du dépôt, sur sa base : des commandes sans blanc ni signe, que le profil prête à la main.
+    let (preuve, mise_en_forme) = if cfg!(windows) {
+        let verifier = ["@echo off", "if not exist a.txt exit /b 0", "findstr /x bien a.txt", "exit /b %errorlevel%"];
+        script(&depot.join("verifier.cmd"), &verifier.map(String::from));
+        script(&depot.join("former.cmd"), &["@echo off", ">a.txt echo bien", "exit /b 0"].map(String::from));
+        ("cmd /c verifier.cmd", "cmd /c former.cmd")
+    } else {
+        script(&depot.join("verifier.sh"), &["[ ! -f a.txt ] || grep -qx bien a.txt".to_string()]);
+        script(&depot.join("former.sh"), &["echo bien > a.txt".to_string()]);
+        ("sh verifier.sh", "sh former.sh")
+    };
+    git(&depot, &["add", "-A"]);
+    let identite = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"];
+    git(&depot, &[&identite[..], &["commit", "-q", "-m", "scripts"]].concat());
+    // La fausse claude : elle répond aux contrôles, lit sa consigne, écrit a.txt, puis finit vert.
+    let (controle_jsonl, fin_jsonl) = (main.join("controle.jsonl"), main.join("fin.jsonl"));
+    let (fausse, srt, lignes, faux_srt) = if cfg!(windows) {
+        let lignes = vec![
+            "@echo off".to_string(),
+            // PowerShell rend le dossier courant en nom long, la règle de Lydite le garde tel quel : `%CD%` aussi.
+            "set \"bac_cd=%CD%\"".to_string(),
+            format!(
+                "powershell -NoProfile -Command \"$p=$env:bac_cd; $r='//'+$p.Substring(0,1).ToLower()\
+                 +$p.Substring(2).Replace('\\','/'); \
+                 [Console]::Out.Write((Get-Content -Raw '{}').Replace('@BAC@',$r))\"",
+                controle_jsonl.display()
+            ),
+            r#"findstr "^" > nul"#.to_string(),
+            format!(">a.txt echo {ecrit}"),
+            format!(r#"type "{}""#, fin_jsonl.display()),
+            "exit /b 0".to_string(),
+        ];
+        let faux_srt = vec!["@echo off", r#"if "%~5"=="true" exit /b 0"#, "%~5", "exit /b %errorlevel%"];
+        (main.join("fausse-claude.cmd"), racine.join("faux-srt.cmd"), lignes, faux_srt)
+    } else {
+        let lignes = vec![
+            "#!/bin/sh".to_string(),
+            format!(r#"sed "s|@BAC@|/$(pwd)|g" '{}'"#, controle_jsonl.display()),
+            "cat > /dev/null".to_string(),
+            format!("echo {ecrit} > a.txt"),
+            format!("cat '{}'", fin_jsonl.display()),
+        ];
+        let faux_srt = vec!["#!/bin/sh", "shift 2", r#"exec "$@""#];
+        (main.join("fausse-claude.sh"), racine.join("faux-srt.sh"), lignes, faux_srt)
+    };
+    script(&fausse, &lignes);
+    script(&srt, &faux_srt.into_iter().map(String::from).collect::<Vec<_>>());
+    fs::write(&controle_jsonl, controle(&racine, &dossier, &depot, preuve)).unwrap();
+    fs::write(&fin_jsonl, format!("{OUVERTURE}\n{RESULTAT}\n")).unwrap();
+    let profil = format!(
+        "sorte = claude\nprogramme = {}\nmodele = haiku\nrelance = haiku\nmur = exige\ndelai_main = 120\n\
+         delai_preuve = 60\n",
+        fausse.display()
+    );
+    fs::write(dossier.join("profils").join("essai.profil"), profil).unwrap();
+    let kraken = || {
+        let mut commande = Command::new(env!("CARGO_BIN_EXE_lydite"));
+        commande
+            .current_dir(&racine)
+            .env("LYDITE_DOSSIER", &dossier)
+            .env("LYDITE_CLAUDE", racine.join("claude-absent"))
+            .env("LYDITE_SRT", &srt);
+        avec_leurres(&mut commande, &racine);
+        commande
+    };
+    let accepte = kraken().args(["accepter", "essai"]).output().unwrap();
+    assert_eq!(accepte.status.code(), Some(0), "{}", String::from_utf8_lossy(&accepte.stderr));
+    let (ligne_preuve, ligne_forme) = (format!("preuve : {preuve}"), format!("forme : {mise_en_forme}"));
+    let mut lignes = vec!["plan 1", "objectif : o", ligne_preuve.as_str()];
+    if forme {
+        lignes.push(&ligne_forme);
+    }
+    lignes.extend(["", "tache a", "    Écrire a.txt"]);
+    let chemin = plan(&racine, "plan.txt", &lignes);
+    let sortie = kraken().args(["lancer", "essai", "--plan"]).arg(&chemin).arg("--depot").arg(&depot).output().unwrap();
+    let erreur = String::from_utf8_lossy(&sortie.stderr).replace("\r\n", "\n");
+    let derniere = erreur.lines().last().unwrap_or_default();
+    let branche = derniere.strip_prefix("branche de la vague : ").unwrap_or_default().to_string();
+    let fil = fs::read_to_string(dossier.join("fil.jsonl")).unwrap_or_default();
+    VagueFormee { sortie, fil, depot, branche }
+}
+
+/// Les types des événements d'un fil, chacun une fois.
+fn types_du_fil(fil: &str) -> std::collections::BTreeSet<String> {
+    fil.lines().filter_map(|ligne| champ_texte(ligne, "type")).map(String::from).collect()
+}
+
+#[test]
+fn une_vague_a_forme_met_en_forme_le_travail_de_la_main_avant_la_preuve_sans_type_d_evenement_de_plus() {
+    // La main laisse `a.txt` mal formé ; la mise en forme du plan le réécrit avant la preuve, qui ne passe qu'ainsi.
+    let formee = vague_formee("forme", "mal", true);
+    let erreur = String::from_utf8_lossy(&formee.sortie.stderr);
+    assert_eq!(formee.sortie.status.code(), Some(0), "la tâche est assemblée : {erreur}");
+    assert!(!formee.branche.is_empty(), "{erreur}");
+    // La branche de la vague porte le fichier mis en forme.
+    let a = git(&formee.depot, &["show", &format!("{}:a.txt", formee.branche)]).replace("\r\n", "\n");
+    assert_eq!(a.trim(), "bien", "{erreur}");
+    // La même vague sans `forme`, d'une main qui écrit d'elle-même le fichier en forme : assemblée de même.
+    let temoin = vague_formee("sans-forme", "bien", false);
+    let dit = String::from_utf8_lossy(&temoin.sortie.stderr);
+    assert_eq!(temoin.sortie.status.code(), Some(0), "le témoin est assemblé : {dit}");
+    let (avec, sans) = (types_du_fil(&formee.fil), types_du_fil(&temoin.fil));
+    assert!(sans.contains("main.fin") && sans.contains("vague.fin"), "la lecture des types trouve : {sans:?}");
+    let de_plus: Vec<&String> = avec.difference(&sans).collect();
+    assert!(de_plus.is_empty(), "aucun type d'événement de plus avec `forme` : {de_plus:?}");
+    for vague in [&formee, &temoin] {
+        let _ = fs::remove_dir_all(vague.depot.parent().unwrap());
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn la_meme_vague_sans_report_ne_compte_aucun_not_proved_ni_ne_note_vague_rapport() {

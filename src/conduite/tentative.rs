@@ -130,6 +130,9 @@ pub(crate) type Juge<'a> = &'a (dyn Fn(&Path) -> Result<(), String> + Sync);
 ///
 /// `sans_a1` (le réglage `sans-a1` de la clé `mesure`, d'un banc de mesure) retire `HONNETETE` et `PERIMETRE`, et rien
 /// d'autre : la liste des fichiers, les textes exacts, le rouge, `COMMIT` et la preuve restent.
+///
+/// `forme` (la clé `forme` du plan) ajoute, après la preuve, une phrase qui dit à la main que Lydite joue cette
+/// commande dans son bac avant de rejouer la preuve ; sans `forme`, la consigne ne change pas d'un octet.
 #[allow(clippy::too_many_arguments)]
 fn consigne(
     objectif: &str,
@@ -143,6 +146,7 @@ fn consigne(
     pretee: bool,
     socle: &str,
     sans_a1: bool,
+    forme: Option<&str>,
 ) -> String {
     let debut = match (sans_a1, fichiers) {
         (false, Some(fichiers)) => format!("{PERIMETRE} Your files: {}", fichiers.join(" ")),
@@ -187,7 +191,14 @@ fn consigne(
         ),
         (None, _) => PREUVE.into(),
     };
-    format!("{socle}\n\n{}\n\n{honnetete}{perimetre}{preuve}", avec_precedente(objectif, precedente))
+    let apres = match forme {
+        Some(commande) => format!(
+            "\n\nAfter you, Lydite runs `{commande}` in your sandbox before replaying the proof: do not format \
+             yourself."
+        ),
+        None => String::new(),
+    };
+    format!("{socle}\n\n{}\n\n{honnetete}{perimetre}{preuve}{apres}", avec_precedente(objectif, precedente))
 }
 
 /// L'objectif, puis l'erreur de la tentative d'avant s'il y en a une. C'est toute la consigne d'une main jugée par
@@ -205,8 +216,8 @@ fn avec_precedente(objectif: &str, precedente: Option<&str>) -> String {
 /// d'avant ; sinon c'est une main de tâche, avec ses fichiers, ses textes exacts, les fichiers que Lydite a posés
 /// (`place`, une ligne, avant les épingles ; rien sans `place`), ses épingles `sha256` (un couple
 /// fichier et empreinte chacune : celles de sa tâche, puis celles des autres tâches que ses `fichiers` couvrent), son
-/// `rouge` (les lignes du rouge d'abord, après les épingles ; sans `red`, la consigne ne change pas d'un octet) et sa
-/// preuve.
+/// `rouge` (les lignes du rouge d'abord, après les épingles ; sans `red`, la consigne ne change pas d'un octet), sa
+/// preuve, puis, avec `forme` (la commande de mise en forme du plan), la phrase qui la dit ; un juge n'en a jamais.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn consigne_de(
     profil: &Profil,
@@ -219,6 +230,7 @@ pub(crate) fn consigne_de(
     verifier: Option<&str>,
     precedente: Option<&str>,
     juge: bool,
+    forme: Option<&str>,
 ) -> String {
     let depart = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs();
     let socle = socle(depart, profil.delai_main());
@@ -227,7 +239,8 @@ pub(crate) fn consigne_de(
     } else {
         let sans_a1 = profil.mesure().sans_a1;
         let pretee = profil.prete(verifier);
-        consigne(objectif, fichiers, exacts, poses, epingles, rouge, verifier, precedente, pretee, &socle, sans_a1)
+        let (avant, socle) = (precedente, socle.as_str());
+        consigne(objectif, fichiers, exacts, poses, epingles, rouge, verifier, avant, pretee, socle, sans_a1, forme)
     }
 }
 
@@ -256,6 +269,12 @@ pub(crate) fn consigne_de(
 /// l'URL de son API et sa clé, et perd la variable que `cle` nomme (voir `partir`) ; sous `api_relecteur`, le profil du
 /// relecteur ne nomme plus de fournisseur, et sa main ne perd que cette variable ([`Profil::environnement`]). La preuve
 /// que Kraken rejoue ne reçoit rien du fournisseur ([`rejouer`]).
+///
+/// `forme` est la commande de mise en forme du plan (sa clé `forme`). Pour une main de tâche dont la preuve se rejoue
+/// (ni juge, ni main déclarée impossible, ni main sans commande), Lydite la joue juste avant la preuve, dans le même
+/// bac et de la même façon ([`mettre_en_forme`]). Son échec n'arrête rien : la preuve juge, et la fin de sa sortie,
+/// sous `formatting failed: <forme>`, précède celle de la preuve dans le `verif` rendu ; réussie, elle n'ajoute rien.
+/// Ce qu'elle change dans le bac est jugé ensuite comme le travail de la main.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn tenter(
     profil: &Profil,
@@ -266,6 +285,7 @@ pub(crate) fn tenter(
     journal: &Path,
     juge: Option<Juge<'_>>,
     lecons: Option<&Path>,
+    forme: Option<&str>,
 ) -> (Option<Constat>, Option<String>, Result<Pris, Echec>) {
     let mut verif = None;
     let Demande { argv, declaration } = profil.demande_avec(bac, verifier, precedente.is_some(), lecons);
@@ -294,14 +314,29 @@ pub(crate) fn tenter(
         match (juge, verifier) {
             (Some(juge), _) => juge(bac).map(|()| Pris { sortie, prouve: true }).map_err(Echec::Erreur),
             (None, Some(commande)) => {
+                // La mise en forme du plan, juste avant la preuve, dans le même bac et de la même façon ; ratée, elle
+                // n'arrête rien : la preuve juge.
+                let ratee = forme.and_then(|forme| mettre_en_forme(profil, forme, bac, journal));
                 let (fin, rejeu) = rejouer(profil, commande, bac, journal);
-                verif = fin;
+                verif = match (ratee, fin) {
+                    (Some(ratee), Some(fin)) => Some(format!("{ratee}\n{fin}")),
+                    (ratee, fin) => ratee.or(fin),
+                };
                 rejeu.map(|()| Pris { sortie, prouve: true }).map_err(Echec::Erreur)
             }
             (None, None) => annonce_vert(sortie).map(|sortie| Pris { sortie, prouve: false }).map_err(Echec::Erreur),
         }
     });
     (constat, verif, verdict)
+}
+
+/// La mise en forme `forme` du plan, jouée dans le bac comme la preuve ([`rejouer`] : le même mur, le même délai, la
+/// même reprise d'une commande tuée du dehors). `None` si elle réussit ; ratée (un code non nul, le délai, une
+/// commande qui ne part pas), la fin de sa sortie (à défaut, son erreur) sous la ligne `formatting failed: <forme>`.
+fn mettre_en_forme(profil: &Profil, forme: &str, bac: &Path, journal: &Path) -> Option<String> {
+    let (fin, issue) = rejouer(profil, forme, bac, journal);
+    let erreur = issue.err()?;
+    Some(format!("formatting failed: {forme}\n{}", fin.unwrap_or(erreur)))
 }
 
 /// L'échec d'une main qui a rendu `erreur` : une coupure de l'API si son constat en a lu une (`statut`), sinon une

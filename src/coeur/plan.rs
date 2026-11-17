@@ -6,6 +6,7 @@
 //! objectif : <une ligne>
 //! preuve : <commande de la vague>
 //! report : <scan id> <finding id>
+//! forme : <commande de mise en forme>
 //!
 //! tache <id>
 //! depend : <id> <id>
@@ -35,8 +36,8 @@
 //!
 //! Les clés sont fermées, et chacune se donne une fois au plus, hors `exact`, `sha256`, `red` et `place` :
 //!
-//! - dans l'en-tête, avant la première tâche : `objectif` et `preuve`, obligatoires l'une et l'autre, et `report`,
-//!   facultative (voir plus bas) ;
+//! - dans l'en-tête, avant la première tâche : `objectif` et `preuve`, obligatoires l'une et l'autre, puis `report`
+//!   et `forme`, facultatives (voir plus bas) ;
 //! - sous `tache <id>`, avant l'objectif, toutes facultatives : `depend`, des ids séparés par des blancs (aucun, si
 //!   elle est vide) ; `preuve`, que ne porte aucune tâche d'un plan découpé ; `modele` et `relance`, les modèles de la
 //!   première tentative de la tâche et de sa relance, en `[a-z0-9.-]` sans `-` de tête, comme au profil, dont ils
@@ -99,6 +100,13 @@
 //! pour un rapport : le refus cite la ligne `tache`), et une tâche sans `critique : oui` (sans relecture, une vague
 //! née d'un rapport ne se relit pas, et sa relance de CI perdrait son origine : chaque tâche est critique, et le refus
 //! cite la ligne `tache`) ; en 6021, une valeur blanche.
+//!
+//! La clé d'en-tête `forme : <commande>` (par exemple `forme : cargo fmt`) nomme une commande de mise en forme, que
+//! Lydite joue lui-même dans le bac de chaque main de tâche, la main finie, juste avant de rejouer la preuve, et de la
+//! même façon qu'elle (`tentative::tenter`) : la preuve garde son contrôle de forme, et c'est elle qui juge. Le plan la
+//! porte (`Plan::forme`) ; les plans que Lydite construit lui-même (copies, découpeur, relecteur) n'en ont pas, la
+//! correction d'une relecture et la relance d'une CI rouge reprennent celle du plan. Refusés : en 6018, `forme` dans
+//! un plan découpé (une main qui découpe ne choisit pas une commande que Lydite joue) ; en 6021, une valeur blanche.
 //!
 //! Ce que le plan dit :
 //!
@@ -175,7 +183,7 @@ const DECOUPEES_MAX: usize = 12;
 pub(crate) const FICHIERS_MAX: usize = 100;
 
 /// Les clés de l'en-tête, puis celles d'une tâche.
-const CLES_ENTETE: [&str; 3] = ["objectif", "preuve", "report"];
+const CLES_ENTETE: [&str; 4] = ["objectif", "preuve", "report", "forme"];
 const CLES_TACHE: [&str; 11] =
     ["depend", "preuve", "modele", "relance", "effort", "fichiers", "critique", "exact", "sha256", "red", "place"];
 
@@ -191,7 +199,8 @@ const REECRIRE: &str = concat!(
 /// La correction d'une ligne hors de la forme du plan.
 const FORME: &str = concat!(
     "Une ligne de plan est vide, `tache <id>`, `<clé> : <valeur>`, ou indentée (l'objectif de la tâche qui la ",
-    "précède). Avant la première tâche, les clés sont `objectif`, `preuve` et `report` ; sous `tache <id>`, `depend`, ",
+    "précède). Avant la première tâche, les clés sont `objectif`, `preuve`, `report` et `forme` ; sous `tache <id>`, ",
+    "`depend`, ",
     "`preuve`, ",
     "`modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256`, `red` et `place` (les quatre dernières ",
     "peuvent se répéter), puis l'objectif en lignes indentées ; chaque autre clé une fois."
@@ -228,6 +237,12 @@ const REPORT: &str = concat!(
     "Write `report : <scan id> <finding id>`: `scan_` and 24 lowercase hexadecimal digits, one space, then `hsf_` or ",
     "`cand_` and 24 lowercase hexadecimal digits, and nothing else; a plan that carries it places no file (no `place` ",
     "line) and gives every task a `red` line and `critique : oui`."
+);
+
+/// La correction d'une ligne `forme` dans un plan découpé.
+const SANS_FORME: &str = concat!(
+    "Remove the `forme` line: only the human names, in a plan written by hand, the formatting command that Lydite ",
+    "runs in each hand's sandbox."
 );
 
 /// La valeur de `red` qui dit que le plan ne connaît pas le fichier du test.
@@ -278,6 +293,9 @@ pub(crate) struct Plan {
     /// L'origine d'un plan né d'un rapport de hermes-security : le scan, puis le constat, ceux de la ligne `report`.
     /// `None` sans elle, pour des copies comme pour un plan écrit à la main.
     pub(crate) rapport: Option<(String, String)>,
+    /// La commande de mise en forme de la ligne `forme`, que Lydite joue lui-même dans le bac de chaque main de tâche,
+    /// après la main et avant de rejouer la preuve. `None` sans elle, pour des copies, le découpeur et le relecteur.
+    pub(crate) forme: Option<String>,
     pub(crate) taches: Vec<Tache>,
 }
 
@@ -405,7 +423,8 @@ impl Plan {
             objectif: objectif.to_string(),
             ..Tache::default()
         };
-        Plan { objectif: objectif.to_string(), preuve: None, rapport: None, taches: (1..=n).map(tache).collect() }
+        let taches = (1..=n).map(tache).collect();
+        Plan { objectif: objectif.to_string(), preuve: None, rapport: None, forme: None, taches }
     }
 }
 
@@ -425,6 +444,8 @@ struct Lecteur<'a, 'd> {
     preuve: Option<&'a str>,
     /// La ligne `report` de l'en-tête, avec le scan et le constat qu'elle nomme.
     rapport: Option<(&'a str, &'a str)>,
+    /// La ligne `forme` de l'en-tête : la commande de mise en forme.
+    forme: Option<&'a str>,
     taches: Vec<Brouillon<'a>>,
     /// Le rang dans `taches` de chaque id vu.
     ids: HashMap<&'a str, usize>,
@@ -493,7 +514,16 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             Mode::Decoupe(Some(demande)) => Some(Base::new(demande.chemins)),
             Mode::Main | Mode::Decoupe(None) => None,
         };
-        Lecteur { mode, base, objectif: None, preuve: None, rapport: None, taches: Vec::new(), ids: HashMap::new() }
+        Lecteur {
+            mode,
+            base,
+            objectif: None,
+            preuve: None,
+            rapport: None,
+            forme: None,
+            taches: Vec::new(),
+            ids: HashMap::new(),
+        }
     }
 
     /// Lit une ligne après la première.
@@ -592,7 +622,7 @@ impl<'a, 'd> Lecteur<'a, 'd> {
         let (cle, valeur) = (cle.trim(), valeur.trim());
         let entete = self.taches.is_empty();
         let (permises, lieu, liste): (&[&str], _, _) = if entete {
-            (&CLES_ENTETE, "de l'en-tête", "`objectif`, `preuve` ou `report`")
+            (&CLES_ENTETE, "de l'en-tête", "`objectif`, `preuve`, `report` ou `forme`")
         } else {
             (
                 &CLES_TACHE,
@@ -645,9 +675,16 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             let quoi = "a plan split by a hand carries no `report` line, which only a plan born of a report has";
             return Err(refus(Code::PlanLigne, ligne, quoi, REPORT));
         }
+        // Lydite joue la commande de `forme` lui-même, dans le bac de chaque main : une main qui découpe n'en choisit
+        // aucune, blanche ou non.
+        if cle == "forme" && matches!(self.mode, Mode::Decoupe(_)) {
+            let quoi = "a plan split by a hand carries no `forme` line, since Lydite itself runs its command";
+            return Err(refus(Code::PlanLigne, ligne, quoi, SANS_FORME));
+        }
         let donnee = match self.taches.last() {
             None if cle == "objectif" => self.objectif.is_some(),
             None if cle == "preuve" => self.preuve.is_some(),
+            None if cle == "forme" => self.forme.is_some(),
             None => self.rapport.is_some(),
             Some(tache) => tache.donnee(cle),
         };
@@ -666,6 +703,10 @@ impl<'a, 'd> Lecteur<'a, 'd> {
                     return Err(refus(Code::PlanLigne, ligne, quoi, REPORT));
                 };
                 self.rapport = Some(rapport);
+                return Ok(());
+            }
+            if cle == "forme" {
+                self.forme = Some(valeur);
                 return Ok(());
             }
             demandee(self.mode, ligne, cle, valeur)?;
@@ -1015,7 +1056,9 @@ impl<'a, 'd> Lecteur<'a, 'd> {
             return Err(refus(Code::PlanDependance, ligne, quoi, correction));
         }
         let attentes = en_serie(&mut taches, &dependances);
-        Ok((Plan { objectif: objectif.to_string(), preuve: Some(preuve.to_string()), rapport, taches }, attentes))
+        let (objectif, preuve, forme) =
+            (objectif.to_string(), Some(preuve.to_string()), self.forme.map(str::to_string));
+        Ok((Plan { objectif, preuve, rapport, forme, taches }, attentes))
     }
 }
 

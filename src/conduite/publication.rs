@@ -1,7 +1,7 @@
 //! La forge : la PR d'une vague à `--pr`, avant comme après la vague. Chaque geste est une fonction, testable seule,
 //! dans l'ordre de publication, et aucun n'écrit au fil. [`avant_la_vague`] et [`Proposition::apres_la_vague`]
 //! les enchaînent, et la seconde note chacun dans une séance à elle : `forge.poussee` avant le push, `forge.pr`,
-//! `forge.ci` et `forge.refus` après, `forge.rangement` avant de retirer.
+//! `forge.ci` et `forge.refus` après, `forge.rangement` après les retraits, et seulement s'il a retiré quelque chose.
 //!
 //! - Avant la vague, rien ne part tant que tout n'est pas lu : le distant `origin` ([`distant`], 8001), la base qu'il
 //!   porte ([`Forge::base_distante`], 8002), `gh` connecté à son hôte ([`Forge::connecte`], 8003).
@@ -88,6 +88,8 @@ fn plan_de_relance(plan: &Plan, issues: &Issues, numero: u64, contexte: &str) ->
         objectif: format!("Make the CI of PR {numero} green"),
         preuve: plan.preuve.clone(),
         rapport: None,
+        // La tâche `ci` est une main de tâche : la mise en forme du plan se joue avant chacune de ses preuves.
+        forme: plan.forme.clone(),
         taches: vec![tache],
     }
 }
@@ -210,7 +212,8 @@ fn fichiers_epingles(plan: &Plan) -> Vec<&str> {
 /// diff de la base à la tête change (`reglages`, voir [`reglages_changes`] : chaque chemin écrit en code, ou
 /// `path with an unreadable name` s'il porte un caractère de contrôle ou une apostrophe inverse ; vingt au plus, puis
 /// « … and <k> more »), ou « none » ; puis
-/// l'objectif du plan ; `Proof: <preuve de la vague> → green` ; les tâches assemblées,
+/// l'objectif du plan ; `Proof: <preuve de la vague> → green`, et sous elle, pour un plan à `forme` seulement,
+/// `Formatting: <commande>, run by Lydite after each hand.` ; les tâches assemblées,
 /// `<id>: <première ligne de son objectif>` ; les tâches dehors, `<id>: refused (<code>): <règle>` pour un refus,
 /// `<id>: impossible (declared)` si la main porte le verdict `impossible` (sans sa raison : le corps ne reprend
 /// jamais un texte écrit par une main), `<id>: set aside` pour toute autre ; puis la ligne de la relecture,
@@ -262,7 +265,10 @@ pub(crate) fn corps(
             }
         }
     }
-    let preuve = format!("Proof: {} → green", plan.preuve.as_deref().unwrap_or_default());
+    let mut preuve = format!("Proof: {} → green", plan.preuve.as_deref().unwrap_or_default());
+    if let Some(forme) = &plan.forme {
+        preuve.push_str(&format!("\nFormatting: {forme}, run by Lydite after each hand."));
+    }
     let relue = relecture.unwrap_or_default().to_string();
     let changes = if reglages.is_empty() {
         "none".to_string()
