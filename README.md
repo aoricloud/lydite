@@ -266,6 +266,7 @@ that reaches it is stopped, and its task comes back to you. With another provide
 | `api_relecteur = anthropic` | with `api` and `cle`: the reviewer talks to Anthropic, under your Claude login, while the other hands talk to the provider |
 | `proteges`, `efforts_permis` | paths no hand may change; the efforts a plan may ask (see [A profile](#a-profile)) |
 | `tache`, `objectif`, `preuve`, `fichiers`, `depend`, `critique` | plan: a task, its objective, its proof, its files, the tasks it waits for, whether it is reviewed |
+| `forme` | plan header: a formatting command that Lydite runs in each hand's sandbox before replaying your proof |
 
 The French commands and flags of earlier versions (`lancer`, `--verifier`, `--depot`…) are still read.
 
@@ -538,6 +539,8 @@ To turn it on, write `mur = natif` in the profile, then accept it again (`lydite
 Its limits: it covers the wall check and the replay of your proof only. The commands of a Claude Code hand still run under Claude Code's own sandbox, which needs bubblewrap and socat according to Claude Code's sandboxing page, as with `mur = exige`: neither the 6028 check nor `lydite doctor` tries it, and a hand that Claude Code reports outside it is stopped before its task. Its network filter decides by name: a domain in `reseau` is allowed on all its ports, even when it resolves to this machine's own public address, and an IPv4 address written in `reseau` is joined as written, loopback and private ones included. Its log, `reseau.journal` in the state folder, has no dates and no size bound. srt stays the default.
 
 ### Plans
+
+*(Not in 0.4.0.)* The optional header key `forme : <command>` (for example `forme : cargo fmt`), given once, names a formatting command: Lydite runs it itself in the sandbox of each task's hand, once the hand is done and just before replaying the proof, the way it replays the proof (the same wall and the same `delai_preuve`), for the retry, the correction of a review and the retry of a red CI too, never for the hands that split or review. Your proof keeps its own format check and is the judge: a formatting command that fails stops nothing, and the end of its output, under `formatting failed: <command>`, comes before the proof's. What it changes counts as the hand's work (`fichiers` and `exact` hold for it). A plan split by a hand never carries it (6018); a blank value is refused (6021); a plan without this key does not change.
 
 In a plan, the repeatable task key `exact : <file> : <text>` makes Lydite check itself, byte for byte and without a
 model, that the text appears in that file of the task (the file must be covered by the task's `fichiers`); a hand that

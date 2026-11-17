@@ -256,7 +256,28 @@ fn un_plan_sans_exact_ni_epingle_rend_la_correction_d_avant() {
         fichiers: Some(vec!["sortie/".into(), "doc/lisez.md".into()]),
         ..Tache::default()
     };
-    assert_eq!(correction, Plan { objectif, preuve: Some("exit 0".into()), rapport: None, taches: vec![tache] });
+    let preuve = Some("exit 0".into());
+    assert_eq!(correction, Plan { objectif, preuve, rapport: None, forme: None, taches: vec![tache] });
+}
+
+#[test]
+fn la_correction_reprend_la_forme_du_plan_et_le_relecteur_n_en_a_pas() {
+    let avec = PLAN.replacen("preuve : exit 0\n", "preuve : exit 0\nforme : cargo fmt\n", 1);
+    assert_ne!(avec, PLAN);
+    let (plan, sans) = (Plan::lire(avec.as_bytes()).unwrap(), Plan::lire(PLAN.as_bytes()).unwrap());
+    assert_eq!(plan.forme.as_deref(), Some("cargo fmt"));
+    let profil = claude("sorte = claude\n");
+    let remarques = [remarque("sortie/a.txt", None, true, "Perdu.")];
+    let (critiques, assemblees) = critiques_et_assemblees(&plan);
+    let correction = plan_de_la_correction(&profil, &plan, &critiques, &assemblees, &remarques);
+    // La correction est une main de tâche : sa mise en forme est celle du plan, et rien d'autre ne change.
+    assert_eq!(correction.forme.as_deref(), Some("cargo fmt"));
+    let (critiques_sans, assemblees_sans) = critiques_et_assemblees(&sans);
+    let d_avant = plan_de_la_correction(&profil, &sans, &critiques_sans, &assemblees_sans, &remarques);
+    assert_eq!(d_avant.forme, None);
+    assert_eq!(Plan { forme: None, ..correction }, d_avant);
+    // Le relecteur est jugé par Kraken : il n'en a jamais.
+    assert_eq!(plan_du_relecteur(&profil, &plan, &critiques, &[]).forme, None);
 }
 
 #[test]
