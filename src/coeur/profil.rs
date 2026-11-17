@@ -43,6 +43,14 @@
 //!     d'une de ces lignes. Seule la main reçoit le fournisseur, `ANTHROPIC_BASE_URL` et `ANTHROPIC_API_KEY`, un
 //!     `ANTHROPIC_AUTH_TOKEN` hérité retiré : sa preuve n'a ni ces deux variables ni celle que `cle` nomme. Le fil
 //!     note l'hôte de `api` à chaque lancement. Le mur, les réglages et les règles de la main ne changent pas ;
+//!   - `api_relecteur`, avec `api` et `cle` seulement, de seule valeur `anthropic` : le relecteur (ses deux
+//!     tentatives, à la première relecture comme à la seconde) parle chez Anthropic, sous la connexion Claude Code de
+//!     l'humain, comme la main d'un profil sans `api` ; `relecteur` nomme alors un modèle de Claude. Sa main ne reçoit
+//!     ni `ANTHROPIC_BASE_URL` ni `ANTHROPIC_API_KEY`, garde un `ANTHROPIC_AUTH_TOKEN` hérité, mais ne reçoit pas la
+//!     variable que `cle` nomme : la clé du fournisseur ne va qu'aux mains qui lui parlent. Le fil ne note pas de
+//!     fournisseur pour elle, son usage se compte au forfait sous l'abonnement, et un quota ne lui demande pas de
+//!     `prix`. Les mains des tâches, leur relance, la main qui corrige une relecture et le découpeur restent chez le
+//!     fournisseur. Seule, c'est le refus 6027 ;
 //!   - `prix`, avec `api` seulement : le prix des modèles chez ce fournisseur, une liste à virgules, un élément par
 //!     modèle : son nom, dans le domaine de `modele`, puis de deux à quatre décimaux positifs, le prix d'un million de
 //!     jetons d'entrée, de sortie, de cache lu, de cache écrit, en dollars, six décimales au plus
@@ -137,7 +145,7 @@ const INTEGRE: &str =
     "sorte = claude\nmodele = sonnet\nrelance = sonnet\nmur = exige\ndelai_main = 3600\ndelai_preuve = 300\n";
 
 /// Les clés d'un profil, et aucune autre.
-const CLES: [&str; 24] = [
+const CLES: [&str; 25] = [
     "sorte",
     "programme",
     "modele",
@@ -151,6 +159,7 @@ const CLES: [&str; 24] = [
     "efforts_permis",
     "api",
     "cle",
+    "api_relecteur",
     "prix",
     "outils",
     "mcp",
@@ -327,6 +336,11 @@ struct Claude {
     efforts_permis: Option<Vec<String>>,
     /// Le fournisseur que le profil nomme, `None` pour une main qui parle chez Anthropic.
     fournisseur: Option<FournisseurDuProfil>,
+    /// `api_relecteur = anthropic` : le relecteur parle chez Anthropic, et non chez le fournisseur.
+    relecteur_chez_anthropic: bool,
+    /// Le nom de la variable que `cle` nomme, pour une main qui ne parle pas au fournisseur du profil (le relecteur
+    /// sous `api_relecteur`) : sa main ne la reçoit pas. `None` sinon.
+    cle_retiree: Option<String>,
     /// Les prix déclarés (`prix`) : le modèle, puis ses [`Prix`]. Vide sans `api`.
     prix: Vec<(String, Prix)>,
     /// Le mur du profil (`mur`) : demandé, exigé et rejoué par srt, ou exigé et rejoué par le mur natif.
@@ -380,6 +394,17 @@ impl std::fmt::Debug for Fournisseur<'_> {
             .field("variable", &self.variable)
             .finish()
     }
+}
+
+/// Ce que l'environnement d'une main Claude reçoit et perd du fournisseur de son profil ([`Profil::environnement`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Environnement<'a> {
+    /// La main parle au fournisseur : l'URL de son API et sa clé lui sont posées, la variable qui la tient et un
+    /// `ANTHROPIC_AUTH_TOKEN` hérité lui sont retirés.
+    Fournisseur(Fournisseur<'a>),
+    /// La main parle chez Anthropic, sous la connexion de l'humain, sous un profil qui nomme un fournisseur (le
+    /// relecteur sous `api_relecteur`) : seule la variable que `cle` nomme lui est retirée.
+    SansLaCle(&'a str),
 }
 
 /// Le fournisseur d'une main Claude, quand son profil en nomme un : une API au format d'Anthropic, et la variable
@@ -504,8 +529,9 @@ impl Profil {
     }
 
     /// Ce que `lydite profil` dit de ce profil, une rangée par ligne, dans l'ordre : le nom et sa source, l'empreinte,
-    /// le modèle et la relance, l'effort de chaque rôle, le mur, la preuve, le plafond par main, les deux délais. Tout
-    /// vient du profil lu, et rien d'autre n'est lu. Une main brute n'a pas de fichier : une seule rangée.
+    /// le modèle et la relance, le relecteur chez Anthropic sous `api_relecteur` seulement, l'effort de chaque rôle, le
+    /// mur, la preuve, le plafond par main, les deux délais. Tout vient du profil lu, et rien d'autre n'est lu. Une
+    /// main brute n'a pas de fichier : une seule rangée.
     pub(crate) fn rangees(&self) -> Vec<String> {
         let Sorte::Claude(claude) = &self.sorte else { return vec!["raw hand: no profile to read".into()] };
         let source = claude.fichier.as_ref().map_or_else(|| "built-in".to_string(), |f| f.display().to_string());
@@ -523,10 +549,16 @@ impl Profil {
                 "replayed outside the wall",
             ),
         };
-        vec![
+        let chez_anthropic = claude.fournisseur.as_ref().filter(|_| claude.relecteur_chez_anthropic);
+        let relecteur = chez_anthropic.map(|fournisseur| {
+            format!("reviewer: {}, at Anthropic (the hands at {})", claude.relecteur, fournisseur.hote)
+        });
+        let tete = [
             format!("profile: {} ({source})", claude.nom),
             format!("fingerprint: {}", claude.empreinte),
             format!("model: {}; retry: {}", claude.modele, claude.relance),
+        ];
+        let reste = [
             format!(
                 "effort: {}; retry: {}; splitter: {}; reviewer: {}",
                 effort_dit(&claude.effort),
@@ -540,7 +572,8 @@ impl Profil {
             format!("ceiling per hand: ${}", self.plafond()),
             format!("hand timeout: {} s", self.delai_main.as_secs()),
             format!("proof timeout: {} s", self.delai_preuve.as_secs()),
-        ]
+        ];
+        tete.into_iter().chain(relecteur).chain(reste).collect()
     }
 
     /// Les réglages de mesure du profil (clé `mesure`) ; aucun pour une main brute.
@@ -601,10 +634,20 @@ impl Profil {
         self.avec_efforts(effort, effort)
     }
 
-    /// Le profil du relecteur : celui-ci, à l'effort `effort_relecteur` pour ses deux tentatives.
+    /// Le profil du relecteur : celui-ci, à l'effort `effort_relecteur` pour ses deux tentatives. Sous
+    /// `api_relecteur = anthropic`, il ne nomme plus de fournisseur ni de prix : sa main parle chez Anthropic, sous la
+    /// connexion de l'humain, et la variable que `cle` nomme lui reste retirée ([`Profil::environnement`]).
     pub(crate) fn pour_le_relecteur(&self) -> Profil {
         let effort = self.effort_relecteur();
-        self.avec_efforts(effort, effort)
+        let mut copie = self.avec_efforts(effort, effort);
+        if let Sorte::Claude(claude) = &mut copie.sorte
+            && claude.relecteur_chez_anthropic
+            && let Some(fournisseur) = claude.fournisseur.take()
+        {
+            claude.cle_retiree = Some(fournisseur.cle);
+            claude.prix.clear();
+        }
+        copie
     }
 
     /// Le profil de la main de correction de la relecture : celui-ci, à l'effort `effort_relance` pour ses deux
@@ -681,11 +724,29 @@ impl Profil {
         })
     }
 
-    /// Le nom de la variable d'environnement qui tient la clé du fournisseur, `None` sans fournisseur : la preuve que
-    /// Kraken rejoue ne la reçoit pas, car la clé ne va qu'à la main.
+    /// Ce que l'environnement de la main reçoit et perd du fournisseur du profil : son URL, sa clé et la variable qui
+    /// la tient, à retirer, si elle lui parle ([`Profil::fournisseur`]) ; la seule variable à retirer si elle parle
+    /// chez Anthropic sous un profil qui nomme un fournisseur (le relecteur sous `api_relecteur`) ; `None` sinon.
+    pub(crate) fn environnement(&self) -> Option<Environnement<'_>> {
+        if let Some(fournisseur) = self.fournisseur() {
+            return Some(Environnement::Fournisseur(fournisseur));
+        }
+        let Sorte::Claude(claude) = &self.sorte else { return None };
+        claude.cle_retiree.as_deref().map(Environnement::SansLaCle)
+    }
+
+    /// La main parle au fournisseur que le profil nomme (`api`), et non chez Anthropic : faux sans fournisseur, une
+    /// main brute comprise, et pour le relecteur sous `api_relecteur`.
+    pub(crate) fn parle_a_un_fournisseur(&self) -> bool {
+        matches!(&self.sorte, Sorte::Claude(claude) if claude.fournisseur.is_some())
+    }
+
+    /// Le nom de la variable d'environnement qui tient la clé du fournisseur, `None` si le profil n'en nomme aucun : la
+    /// preuve que Kraken rejoue ne la reçoit pas, car la clé ne va qu'aux mains qui lui parlent. Le profil du
+    /// relecteur sous `api_relecteur` la nomme encore.
     pub(crate) fn variable_de_la_cle(&self) -> Option<&str> {
         let Sorte::Claude(claude) = &self.sorte else { return None };
-        claude.fournisseur.as_ref().map(|fournisseur| fournisseur.cle.as_str())
+        claude.fournisseur.as_ref().map(|fournisseur| fournisseur.cle.as_str()).or(claude.cle_retiree.as_deref())
     }
 
     /// Les chemins qu'aucune main ne change : [`LECONS`], toujours (sans la clé `proteges`, et pour une main brute
@@ -1306,7 +1367,8 @@ pub(crate) struct ListesDuMur {
 /// pour le profil intégré, et `kraken_claude` la valeur de `LYDITE_CLAUDE`, programme d'un profil qui n'en nomme
 /// pas. Une ligne fausse est le refus 6009, qui la nomme par `<chemin>:<n>` avec la règle de son cas ; un profil qui
 /// ne dit pas sa sorte, le refus 6010. Un fournisseur mal donné (voir `api` et `cle`) est le refus 6027 : une URL qui
-/// n'est pas en https, un nom hors de `[A-Z0-9_]`, une des deux clés seule. Il ne lit pas l'environnement : la clé se
+/// n'est pas en https, un nom hors de `[A-Z0-9_]`, une des deux clés seule, `prix` ou `api_relecteur` sans elles. Il
+/// ne lit pas l'environnement : la clé se
 /// lit au lancement, par [`Profil::fournir`].
 pub(crate) fn lire(
     nom: &str,
@@ -1330,6 +1392,8 @@ pub(crate) fn lire(
         effort_relecteur: None,
         efforts_permis: None,
         fournisseur: None,
+        relecteur_chez_anthropic: false,
+        cle_retiree: None,
         prix: Vec::new(),
         mur: Mur::Exige,
         outils: Vec::new(),
@@ -1350,6 +1414,8 @@ pub(crate) fn lire(
     // `api` (sa ligne, sa valeur, son hôte) et `cle` (sa ligne, sa valeur), réunies après la lecture.
     let (mut api, mut variable) = (None, None);
     let mut ligne_prix = 0;
+    // La ligne de `api_relecteur`, 0 sans elle.
+    let mut ligne_api_relecteur = 0;
     let mut proteges = vec![LECONS.to_string()];
     let mut mesure = Mesure::default();
     for (i, ligne) in texte.strip_prefix('\u{feff}').unwrap_or(texte).split('\n').enumerate() {
@@ -1418,6 +1484,8 @@ pub(crate) fn lire(
                 let regle = "cle est le nom d'une variable d'environnement, en [A-Z0-9_], jamais la clé elle-même";
                 return Err(fournisseur_refuse(&lieu, nom, n, "cle", regle));
             }
+            "api_relecteur" if valeur == "anthropic" => ligne_api_relecteur = n,
+            "api_relecteur" => return refus("api_relecteur vaut anthropic"),
             "prix" => {
                 let mut prix: Vec<(String, Prix)> = Vec::new();
                 for element in &elements {
@@ -1533,6 +1601,17 @@ pub(crate) fn lire(
             ),
         ));
     }
+    if ligne_api_relecteur != 0 && claude.fournisseur.is_none() {
+        return Err(Refus::new(
+            Code::Fournisseur,
+            format!("{lieu}:{ligne_api_relecteur} : « api_relecteur » est seule : elle se donne avec api et cle"),
+            format!(
+                "Ajoute les lignes « api = https://<hôte>/<chemin> » et « cle = <NOM_DE_LA_VARIABLE> » à {lieu}, ou \
+                 retire la ligne {ligne_api_relecteur}, puis accepte le profil : lydite accepter {nom}."
+            ),
+        ));
+    }
+    claude.relecteur_chez_anthropic = ligne_api_relecteur != 0;
     if !sorte {
         return Err(Refus::new(
             Code::ProfilIncomplet,

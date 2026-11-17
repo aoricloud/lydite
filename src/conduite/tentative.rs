@@ -253,8 +253,9 @@ pub(crate) fn consigne_de(
 /// a ; une main brute n'en reçoit pas.
 ///
 /// Si le profil nomme un fournisseur ([`Profil::fournisseur`]), la main, le découpeur et le relecteur compris, reçoit
-/// l'URL de son API et sa clé, et perd la variable que `cle` nomme (voir `partir`) ; la preuve que Kraken rejoue ne
-/// reçoit rien du fournisseur ([`rejouer`]).
+/// l'URL de son API et sa clé, et perd la variable que `cle` nomme (voir `partir`) ; sous `api_relecteur`, le profil du
+/// relecteur ne nomme plus de fournisseur, et sa main ne perd que cette variable ([`Profil::environnement`]). La preuve
+/// que Kraken rejoue ne reçoit rien du fournisseur ([`rejouer`]).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn tenter(
     profil: &Profil,
@@ -276,7 +277,7 @@ pub(crate) fn tenter(
     });
     // raccourci : ce que la main écrit entre au fil tel quel, et une main qui y recopierait sa clé l'y écrirait ;
     // monter (masquer la valeur de la clé dans ce qu'elle rend) si une main d'un fournisseur la répète
-    let fournisseur = profil.fournisseur();
+    let fournisseur = profil.environnement();
     // Sous un mur exigé seul, le dossier temporaire est recréé vide avant la main ([`temporaire`]).
     let (constat, jeu) = match profil.exige().then(|| temporaire(bac, true)).transpose() {
         Err(erreur) => (attendu.as_ref().map(|_| Constat::default()), Err(ErreurMain::Autre(erreur))),
