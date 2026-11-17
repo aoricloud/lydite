@@ -3879,6 +3879,30 @@ mod quota {
     }
 
     #[test]
+    fn sous_api_relecteur_l_usage_du_relecteur_se_compte_au_forfait_sous_l_abonnement() {
+        // Le relecteur parle chez Anthropic, sous l'abonnement de l'humain : sa ligne `none` et `list` est au forfait,
+        // au coût que Claude Code annonce. Les mains du fournisseur, sous le même constat, ne le sont pas.
+        let profil = profil_lu(&format!("{AVEC_PRIX}api_relecteur = anthropic\n"));
+        let ligne = modele_de("claude-opus-5-5", jetons(1_000_000, 0, 0, 0, 0), 900, Some("list"));
+        let constat = constat_de(Some("none"), jetons(1_000_000, 0, 0, 0, 0), 900, vec![ligne]);
+        let relecteur = usages_de("v", 1, 1, "opus", &profil.pour_le_relecteur(), &constat);
+        assert_eq!(dit(&relecteur), [("claude-opus-5-5".to_string(), 900, Base::Forfait)]);
+        let mains = [
+            ("main", profil.clone()),
+            ("correction", profil.pour_la_correction()),
+            ("decoupeur", profil.pour_le_decoupeur()),
+        ];
+        for (role, main) in mains {
+            let lignes = usages_de("v", 1, 1, "opus", &main, &constat);
+            assert_eq!(dit(&lignes), [("claude-opus-5-5".to_string(), 0, Base::Inconnu)], "{role}");
+        }
+        // Sans la clé, le relecteur parle au fournisseur : pas de forfait.
+        let sans = profil_lu(AVEC_PRIX).pour_le_relecteur();
+        let lignes = usages_de("v", 1, 1, "opus", &sans, &constat);
+        assert_eq!(dit(&lignes), [("claude-opus-5-5".to_string(), 0, Base::Inconnu)]);
+    }
+
+    #[test]
     fn un_resultat_perime_note_son_usage_juste_avant_sa_perimee_et_il_compte_pour_le_quota() {
         let racine = racine("perimee-usage");
         let (depot, kraken) = (depot(&racine), racine.join("lydite"));
@@ -4202,6 +4226,39 @@ mod quota {
         let (issue, histoire, _) = lancer_a_api("quota-avec-prix", &avec_prix, Some("100\n"));
         assert!(issue.unwrap_err().starts_with("cannot start lydite-claude-introuvable"));
         assert_eq!(&histoire[..2], ["vague 1", "bail 1"]);
+    }
+
+    #[test]
+    fn sous_api_relecteur_le_relecteur_part_sous_quota_sans_prix_pour_son_modele() {
+        // Le profil n'a pas de prix pour `opus`, sous un quota posé : le relecteur, chez Anthropic, part (et ne tient
+        // pas faute de programme) ; la main et la correction, chez le fournisseur, sont refusées en 6030.
+        let texte = "sorte = claude\nprogramme = lydite-claude-introuvable\nmodele = opus\nrelance = opus\n\
+                     api = https://api.exemple.test/anthropic\ncle = CLE_ESSAI\napi_relecteur = anthropic\n\
+                     prix = autre-modele 1 2\n";
+        for (role, part) in [("relecteur", true), ("main", false), ("correction", false)] {
+            let racine = racine(&format!("quota-api-relecteur-{role}"));
+            let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+            poser_le_quota(&kraken, "100\n");
+            let mut profil = profil_declare(texte, &kraken, &depot);
+            profil.fournir(|nom| (nom == "CLE_ESSAI").then(|| OsString::from("leurre"))).unwrap();
+            let profil = match role {
+                "relecteur" => profil.pour_le_relecteur(),
+                "correction" => profil.pour_la_correction(),
+                _ => profil,
+            };
+            let (id, issue) =
+                lancer(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL).unwrap().1.remove(0);
+            let histoire = histoire_de_la_vague(&kraken);
+            if part {
+                assert!(issue.unwrap_err().starts_with("cannot start lydite-claude-introuvable"), "{role}");
+                assert_eq!(&histoire[..2], ["vague 1", "bail 1"], "{role}");
+            } else {
+                let texte = refusee(&id, &issue, 6030);
+                assert!(texte.contains("opus") && texte.contains("api.exemple.test"), "{role} : {texte}");
+                assert_eq!(histoire, ["vague 1", "refus 6030"], "{role}");
+            }
+            let _ = fs::remove_dir_all(&racine);
+        }
     }
 
     #[test]

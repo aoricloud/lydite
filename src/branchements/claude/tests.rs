@@ -1,6 +1,7 @@
 //! Les tests de la main Claude Code : son processus, son dialogue et son dossier temporaire.
 use super::*;
 use crate::coeur::json::{self, Json};
+use crate::coeur::profil::Fournisseur;
 use crate::coeur::protocole::{Jetons, Usage, UsageModele};
 use crate::essais::mains::{DELAI, arbre, bac_jetable, profil_borne};
 use crate::essais::{ARBRE, effacer, marque, meurt};
@@ -737,7 +738,7 @@ fn la_main_ne_recoit_pas_l_epuration_de_l_environnement_des_commandes_avec_ou_sa
         if cfg!(windows) { vec!["cmd".into(), "/C".into(), "set".into()] } else { vec!["env".into()] };
     let api = "https://api.exemple.test/anthropic";
     let fourni = Fournisseur { api, cle: "leurre-de-la-cle", variable: "CLE_ESSAI" };
-    for fournisseur in [None, Some(fourni)] {
+    for fournisseur in [None, Some(Environnement::Fournisseur(fourni)), Some(Environnement::SansLaCle("CLE_ESSAI"))] {
         let sortie = jouer(&liste, &bac, "", DELAI, None, false, fournisseur).1.unwrap();
         let vues: Vec<_> = sortie
             .lines()
