@@ -135,7 +135,8 @@ fn executer() -> Result<ExitCode, Refus> {
     let Some(base) = pr else {
         return mener_sur(&lieu, &plan, &base_du_depot(&depot)?, liens, None, Origine::Plan);
     };
-    let proposition = publication::avant_la_vague(&gh, &dossier, &depot, &base)?;
+    let mut proposition = publication::avant_la_vague(&gh, &dossier, &depot, &base)?;
+    proposition.proteger(profil.proteges());
     if let Some(ecart) = proposition.ecart_de_head() {
         eprintln!("{ecart}");
     }

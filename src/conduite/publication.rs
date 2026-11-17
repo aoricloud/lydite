@@ -17,8 +17,9 @@
 //! - Le reçu dit le rouge d'abord pour un plan qui a des tâches à `red` : `Red first: <n> of <m> tasks`, où `<n>`
 //!   compte les tâches dont le rouge tient encore à la tête publiée ([`rouges_tenus`]) ; la relance de la CI en porte
 //!   les épingles, comme la correction d'une relecture.
-//! - Enfin le rangement de ce qui est poussé ([`Proposition::ranger`]), relance comprise ; les deux gestes de git d'un
-//!   retrait ([`retirer`]) passent par la forge comme les autres.
+//! - Enfin le rangement de ce qui est poussé ([`Proposition::ranger`]), relance comprise : les butées du mur de chaque
+//!   worktree s'effacent ([`butees_du_bac`]), puis les deux gestes de git d'un retrait ([`retirer`]) passent par la
+//!   forge comme les autres, et ce qui a été retiré se note ensuite.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -26,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Duration;
 
-use crate::branchements::bac::{retirer, temporaire_de};
+use crate::branchements::bac::{butees_du_bac, retirer, temporaire_de};
 use crate::branchements::dossier::{self, Fil};
 use crate::branchements::git::{Arbre, BORNE_EMPREINTE, Gardee, empreinte_gardee, faire_borne, racines};
 use crate::branchements::github::{Ci, Forge, GIT_FORGE, PrOuverte, a_pousser, distant, en_echec};
@@ -494,6 +495,9 @@ pub(crate) struct Proposition<'a> {
     pub(crate) base: String,
     /// L'issue que la PR ferme à sa fusion (`Closes #<n>` dans son corps), `None` hors de la source « issue ».
     issue: Option<u64>,
+    /// Les chemins protégés du profil de la vague ([`Proposition::proteger`]), dont [`Proposition::ranger`] efface les
+    /// butées du mur ; vide tant que l'appelant ne les a pas donnés.
+    proteges: Vec<String>,
 }
 
 /// Avant la vague, à `--pr` : le distant `origin` du dépôt visé (8001), la tête distante de la base `branche` (8002),
@@ -507,7 +511,7 @@ pub(crate) fn avant_la_vague<'a>(
     let forge = Forge { gh, dossier, depot, distant: distant(dossier, depot)? };
     let base = forge.base_distante(branche)?;
     forge.connecte()?;
-    Ok(Proposition { forge, branche: branche.into(), base, issue: None })
+    Ok(Proposition { forge, branche: branche.into(), base, issue: None, proteges: Vec::new() })
 }
 
 /// Ce qui arrête la forge avant la fin de sa publication.
@@ -566,6 +570,12 @@ impl Proposition<'_> {
     /// La PR fermera l'issue `numero` à sa fusion : son corps porte `Closes #<numero>` ([`corps`]).
     pub(crate) fn fermer_l_issue(&mut self, numero: u64) {
         self.issue = Some(numero);
+    }
+
+    /// Les chemins protégés du profil sous lequel la vague tourne (`Profil::proteges`) : au rangement, la butée du mur
+    /// à un chemin protégé absent s'efface comme celles de `.claude/` ([`butees_du_bac`]).
+    pub(crate) fn proteger(&mut self, proteges: &[String]) {
+        self.proteges = proteges.to_vec();
     }
 
     /// La ligne que stderr reçoit si le `HEAD` du dépôt visé n'est pas la base distante : la vague part de celle-ci, et
@@ -882,13 +892,20 @@ impl Proposition<'_> {
     /// fois son worktree retiré ([`retirer`]) ; un bac posé par l'ancien programme porte une branche `kraken/<id>`
     /// que ce rangement ne cherche pas : la migration du dossier d'état la renomme ; puis le worktree de la
     /// vague, si sa tête en est un. Les bacs des tâches dehors restent, car leur travail, jamais gelé, n'est nulle
-    /// part ailleurs. La branche de la vague relancée reste aussi, qui porte la PR ; celle d'une
-    /// relance (`sa_branche`) se retire avec son worktree si elle est un ancêtre de `poussee`. Ce qui va se retirer
-    /// se note d'abord (`forge.rangement`, sous la vague du bac), et une note ratée arrête la forge ; un retrait raté
-    /// s'écrit sur stderr, et le reste de son worktree demeure. Les gestes de git d'un retrait passent par la forge
-    /// comme les autres ([`Forge::faire`] et [`GIT_FORGE`]) : un git qui attend une réponse ou s'éternise (un fichier
-    /// du bac tenu par un processus, un pilote de filtre du dépôt visé) est tué à son délai, le retrait est raté, et
-    /// la forge ne reste pas suspendue, PR ouverte.
+    /// part ailleurs. La branche de la vague relancée reste aussi, qui porte la PR ; celle d'une relance
+    /// (`sa_branche`) se retire avec son worktree si elle est un ancêtre de `poussee`. Avant son retrait, chaque
+    /// worktree perd ses butées du mur ([`butees_du_bac`], parties de son `HEAD`, avec les chemins protégés du profil
+    /// de la vague, [`Proposition::proteger`]) : des fichiers vides en lecture seule que le bac à sable de Claude Code
+    /// laisse quand une commande de la main finit en arrière-plan, qui ne portent rien, et pour lesquels git ne
+    /// retirerait pas le worktree. Rien d'autre ne s'efface, et [`retirer`] ne force pas : un fichier non suivi qui
+    /// n'est pas une butée, ou un fichier qui a la forme d'une butée mais que le commit du worktree porte, le garde,
+    /// avec sa branche. Un retrait raté, butées ou git, s'écrit sur stderr, et le reste de son worktree demeure. Ce qui
+    /// a été retiré se note ensuite (`forge.rangement`, sous la vague du bac) : pour chaque worktree dont le retrait a
+    /// réussi, le worktree, son dossier temporaire s'il existait, sa branche si elle était à retirer ; rien pour un
+    /// retrait raté, et aucune note si rien n'a été retiré. Une note ratée arrête la forge. Les gestes de git d'un
+    /// retrait passent par la forge comme les autres ([`Forge::faire`] et [`GIT_FORGE`]) : un git qui attend une
+    /// réponse ou s'éternise (un fichier du bac tenu par un processus, un pilote de filtre du dépôt visé) est tué à son
+    /// délai, le retrait est raté, et la forge ne reste pas suspendue, PR ouverte.
     fn ranger(&self, fil: &Fil, menee: &Menee, poussee: &str, sa_branche: bool) -> Result<(), String> {
         let bacs = self.forge.dossier.join("bacs");
         let mut retraits: Vec<(PathBuf, Option<(String, String)>)> = Vec::new();
@@ -904,26 +921,43 @@ impl Proposition<'_> {
             let branche = menee.branche.as_deref().filter(|_| sa_branche);
             retraits.push((worktree, branche.and_then(|nom| self.branche_dans(nom, poussee))));
         }
-        if retraits.is_empty() {
-            return Ok(());
-        }
-        let mut retires = Vec::new();
-        for (worktree, branche) in &retraits {
-            retires.push(worktree.display().to_string());
-            let temporaire = temporaire_de(worktree).filter(|temporaire| temporaire.exists());
-            retires.extend(temporaire.map(|temporaire| temporaire.display().to_string()));
-            retires.extend(branche.iter().map(|(nom, _)| nom.clone()));
-        }
-        noter(fil, &Evenement::Rangement { vague: menee.id.clone(), retires })?;
         // Les deux gestes de git d'un retrait se jouent comme tout geste de la forge : ses variables et son délai.
         let par_la_forge = |mut geste: Command| {
             geste.envs(GIT_FORGE);
             self.forge.faire(geste, None)
         };
+        let mut retires = Vec::new();
         for (worktree, branche) in &retraits {
-            let branche = branche.as_ref().map(|(nom, valeur)| (nom.as_str(), valeur.as_str()));
-            if let Err(vu) = retirer(self.forge.depot, worktree, branche, par_la_forge) {
+            // Lu avant le retrait, qui l'efface.
+            let temporaire = temporaire_de(worktree).filter(|temporaire| temporaire.exists());
+            let en_branche = branche.as_ref().map(|(nom, valeur)| (nom.as_str(), valeur.as_str()));
+            let retrait = self
+                .effacer_les_butees(worktree)
+                .and_then(|()| retirer(self.forge.depot, worktree, en_branche, par_la_forge));
+            if let Err(vu) = retrait {
                 eprintln!("removal failed, the rest of this worktree remains: {vu}");
+                continue;
+            }
+            retires.push(worktree.display().to_string());
+            retires.extend(temporaire.map(|temporaire| temporaire.display().to_string()));
+            retires.extend(branche.iter().map(|(nom, _)| nom.clone()));
+        }
+        if retires.is_empty() {
+            return Ok(());
+        }
+        noter(fil, &Evenement::Rangement { vague: menee.id.clone(), retires })
+    }
+
+    /// Efface les butées du mur du `worktree` ([`butees_du_bac`], parties de son `HEAD`, avec les chemins protégés de
+    /// la vague), et rien d'autre. Une butée déjà partie ne compte pas ; un effacement raté se nomme.
+    fn effacer_les_butees(&self, worktree: &Path) -> Result<(), String> {
+        for butee in butees_du_bac(worktree, "HEAD", &self.proteges) {
+            let chemin = worktree.join(&butee);
+            match std::fs::remove_file(&chemin) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(format!("erasing {}: {e}", chemin.display()));
+                }
+                _ => {}
             }
         }
         Ok(())

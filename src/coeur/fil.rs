@@ -184,8 +184,9 @@
 //! - `forge.refus {vague, code, regle, preuve, correction}` : la forge ne va pas plus loin pour la vague. Une
 //!   décision de Kraken, sans `main` ni `foi`, comme `vague.refus` : `code` est le numéro d'un code, un entier de
 //!   1000 à 9999, et `regle`, `preuve` et `correction` sont les trois textes de son refus.
-//! - `forge.rangement {vague, retires}` : ce que Kraken va retirer des bacs et des branches de la vague, une liste dans
-//!   `retires`, un chemin ou une branche par ligne. Notée avant d'agir.
+//! - `forge.rangement {vague, retires}` : ce que Lydite a retiré des bacs et des branches de la vague, une liste dans
+//!   `retires`, un chemin ou une branche par ligne. Notée après avoir agi : un worktree dont le retrait a raté n'y est
+//!   pas, ni rien de ce qui devait partir avec lui, et sans rien de retiré, aucune note.
 //! - `vague.decoupage {vague, taches, empreinte, plan}` : le découpage `vague`, une vague de copies d'une main, le
 //!   découpeur, a pris un plan de `taches` tâches. `plan` est son texte, tel que le découpeur l'a écrit, et `empreinte`
 //!   son SHA-256 en 64 hexadécimaux minuscules. Une décision de Kraken, sans `foi`. Notée une fois le découpage pris,
@@ -496,7 +497,8 @@ pub(crate) enum Evenement {
     /// `forge.refus` : la forge ne va pas plus loin pour la vague. Une décision de Kraken, sans `main` ni `foi` :
     /// `code` est le numéro d'un code (1000 à 9999), suivi des trois textes de son refus.
     RefusForge { vague: String, code: u16, regle: String, preuve: String, correction: String },
-    /// `forge.rangement` : ce que Kraken va retirer, un chemin ou une branche par élément. Notée avant d'agir.
+    /// `forge.rangement` : ce que Lydite a retiré, un chemin ou une branche par élément. Notée après avoir agi, et
+    /// seulement si quelque chose a été retiré.
     Rangement { vague: String, retires: Vec<String> },
     /// `vague.decoupage` : le découpage `vague`, une vague de copies du découpeur, a pris un plan de `taches` tâches
     /// (1 à 10 000), dont `plan` est le texte et `empreinte` le SHA-256, en 64 hexadécimaux minuscules.
