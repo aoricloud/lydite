@@ -56,12 +56,12 @@ capabilities:
 | 2. Exact SHA pin | `sha` is the commit of a release tag, the one `hermes plugins validate` passed on. |
 | 3. No self-updating code | The plugin fetches nothing and replaces no file. |
 | 5. Owner submission | Submitted by the owner of the repository. |
-| 6. Capabilities match | `provides_tools` and `provides_hooks` are the registered ones; `tests/test_manifeste.py` checks it on every push, and `hermes plugins validate` says "matches registrations". No `capabilities:` consent entry is needed (no override). |
+| 6. Capabilities match | `provides_tools` and `provides_hooks` are the registered ones; `tests/test_manifeste.py` checks it in CI, on every pull request and every push to `main` that touches `hermes/`, and `hermes plugins validate` says "matches registrations". No `capabilities:` consent entry is needed (no override). |
 | 7. Install scanner | `security scan — safe` on 0.23.0. |
 | 9. No core override | `no core override — no runtime rebinds of Hermes core`. |
 | 10. Dependencies | None (standard library only). |
 | 11. Credentials through Hermes | `get_secret("LYDITE_CLE_FOURNISSEUR")` from `agent.secret_scope`; no `.env`, no `auth.json`; a test forbids those strings and `os.getenv` / `os.environ[`. |
-| 12. Approvals respected | `pre_tool_call` returns `approve` for every launch, showing the repository, the work, the proof, the profile and the target branch in at most nine rows; a plan is shown by its file name, its size, its number of tasks, its proof line and the SHA-256 of its bytes, not its text. Nothing bypasses a guard; no Hermes child process is spawned; no shell. `lydite_lecons` and `lydite_plan` start nothing and write nothing, so they ask no approval. `lydite_findings` runs the Lydite binary (`lydite findings`, read-only) and nothing else: it starts no wave and asks no approval; a plan it wrote carries its origin (a `report` line) and is launched like any plan, after the human's approval; Lydite itself refuses a plan that carries that line unless the profile requires the wall (6037). A plan whose line was removed, or written by hand from a report, goes as a plan written by hand, and the human's reading of the plan before approving is what holds; the approval message says the origin (`report <scan> <id>` or `none (written by hand)`). |
+| 12. Approvals respected | `pre_tool_call` returns `approve` for every launch, showing the repository, the work, the proof, the profile and the target branch in at most nine rows; a plan is shown by its file name, its size, its number of tasks, its proof line and the SHA-256 of its bytes, not its text. Nothing bypasses a guard; no Hermes agent or subagent is spawned (the plugin starts only `lydite`, and Lydite starts the workers); no shell. `lydite_lecons` and `lydite_plan` start nothing and write nothing, so they ask no approval. `lydite_findings` runs the Lydite binary (`lydite findings`, read-only) and nothing else: it starts no wave and asks no approval; a plan it wrote carries its origin (a `report` line) and is launched like any plan, after the human's approval; Lydite itself refuses a plan that carries that line unless the profile requires the wall (6037). A plan whose line was removed, or written by hand from a report, goes as a plan written by hand, and the human's reading of the plan before approving is what holds; the approval message says the origin (`report <scan> <id>` or `none (written by hand)`); with `observe`, its branch row says `plan only`. |
 | 13. Risky behavior disclosed | See "Disclosures" below and the README. |
 | 14. Truthful metadata | `requires_hermes: ">=0.23.0"` (the release it was validated on), same in `plugin.yaml`; `version` is the pinned code's. |
 | 17. No unscannable executables | No compiled binary, no `.pyc` in the plugin (a test checks the file headers); its only non-text files are the PNG images under `docs/`. The Lydite binary is **not** shipped nor downloaded: it must already be on the machine. Lydite's release binaries are built by the repository's own GitHub Actions and carry a build attestation. |
@@ -69,8 +69,7 @@ capabilities:
 ## Disclosures (for the PR description)
 
 - **What it is.** A launcher: five tools that run the already-installed `lydite` binary, read its state, check a plan
-  file, read a repository's lessons and write plans from a findings report. The coding workers are Claude Code sessions that Lydite starts itself, behind
-  its sandbox wall when the wall is required (`exige`, the default, or `natif`; see "A requested wall" below), on the model of a Lydite profile a human accepted. They are not Hermes agents.
+  file, read a repository's lessons and write plans from a findings report. The coding workers are Claude Code sessions that Lydite starts itself, on the model of a Lydite profile a human accepted. Each session runs on the machine; only its commands are in Claude Code's sandbox, under a required wall (`exige`, the default, or `natif`; see "A requested wall" below). They are not Hermes agents.
 - **Shell commands.** None through a shell. One external program (`lydite`) is started with an argument list:
   `lydite lancer ...` (detached, long-running), `lydite etat` (read-only), `lydite lecons <folder>` (read-only) and
   `lydite plan <file>` (read-only) and `lydite findings <report>` (read-only, and with `--plan <id> --verify <proof>`
@@ -84,7 +83,8 @@ capabilities:
   for a plan that carries the `report` line that `lydite_findings` writes; a plan without that line is not held to it.
 - **Network.** None from the plugin. Lydite and its workers reach the model provider named in the profile and GitHub.
 - **Background process.** One detached `lydite lancer` per launch (minutes to hours), at most one per Lydite folder,
-  its log under the plugin's data folder; the last 20 launches are kept.
+  its log under the plugin's data folder (the one Hermes gives the plugin, or, without it, `<temporary folder>/lydite`);
+  the last 20 launches are kept.
 - **Stored credentials.** None stored by the plugin. The optional provider key lives in Hermes' own `.env`
   (created, set to mode 600, then filled in an editor, never on a command line, or through `hermes secrets`)
   and is handed to the Lydite process through one environment variable.
@@ -93,8 +93,9 @@ capabilities:
   the plan file named in a `lydite_plan` call, to fingerprint its bytes and count its tasks; and the lesson files of
   the repository named in a `lydite_lecons` call (`.agents/skills/*/SKILL.md`, 4096 bytes each at most, never
   following a link out of that folder); the report file named in a `lydite_findings` call (4 MiB at most) and the
-  files of the repository that the report cites, of which only the existence is looked at. Nothing else outside the
-  plugin's own folder.
+  files of the repository that the report cites, of which only the existence is looked at (a finding that cites a file
+  which is not in the repository is set aside); and `/proc/<pid>/cmdline` of a launch it made, to tell whether that
+  launch still runs. Nothing else outside the plugin's own folder.
 
   Read the plan file before you approve: Hermes shows its name and its SHA-256, not its text. A human can check it
   with `sha256sum <file>`.
@@ -106,8 +107,8 @@ capabilities:
   written by hand, and the human's reading of the plan before approving is what holds.
 - **Telemetry.** None.
 - **Platforms.** Linux only; the tools hide themselves elsewhere.
-- **Honest limit.** A worker runs with `--permission-mode acceptEdits --permission-prompts none` inside Lydite's
-  wall when the wall is required (`exige`, the default, or `natif`; see "A requested wall" above), so what it may do is what the accepted profile lends it and the wall allows, not what a per-command prompt
+- **Honest limit.** A worker runs with `--permission-mode acceptEdits --permission-prompts none`; its Claude Code
+  session runs on the machine, and when the wall is required (`exige`, the default, or `natif`; see "A requested wall" above) its commands run in Claude Code's sandbox. So what it may do is what the accepted profile lends it and the wall allows, not what a per-command prompt
   would ask. The launch itself is approved by the human in Hermes before anything starts.
 
 ## What a reviewer can run
