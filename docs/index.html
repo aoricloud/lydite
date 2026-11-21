@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lydite: a harness for coding agents, with independent verification</title>
-<meta name="description" content="Lydite runs coding agents (called hands) on your repository, each hand’s commands behind a sandbox wall, replays your proof command itself, and opens a pull request only for what passed, with a receipt.">
+<meta name="description" content="Lydite runs coding agents (called hands) on your repository, each hand’s commands behind a sandbox wall by default, replays your proof command itself, and, with --pr, opens a pull request only for what passed, with a receipt.">
 <link rel="canonical" href="https://aoricloud.github.io/lydite/">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://aoricloud.github.io/lydite/">
 <meta property="og:title" content="Lydite: a harness for coding agents, with independent verification">
-<meta property="og:description" content="Lydite runs coding agents (called hands) on your repository, each hand’s commands behind a sandbox wall, replays your proof command itself, and opens a pull request only for what passed, with a receipt.">
+<meta property="og:description" content="Lydite runs coding agents (called hands) on your repository, each hand’s commands behind a sandbox wall by default, replays your proof command itself, and, with --pr, opens a pull request only for what passed, with a receipt.">
 <meta property="og:image" content="https://aoricloud.github.io/lydite/assets/social-preview.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
@@ -214,7 +214,7 @@ pre.cmd .c { color: var(--cendre); }
 <div><h1>Lydite</h1>
 <p class="sous-titre">A harness for coding agents, with independent verification.</p>
 <p class="signature">The agents’ word is never the proof.</p></div>
-<div><p class="lead">Lydite runs coding agents (called <em>hands</em>) on your repository, each hand’s commands behind a sandbox wall, replays your proof command itself, and opens a pull request only for what passed, with a receipt.</p>
+<div><p class="lead">Lydite runs coding agents (called <em>hands</em>) on your repository, each hand’s commands behind a sandbox wall by default, replays your proof command itself, and, with <code>--pr</code>, opens a pull request only for what passed, with a receipt.</p>
 <p class="actions"><a class="btn plein" href="#recu">Read a real receipt</a><a class="btn" href="#installer">Install</a></p></div>
 </div>
 <figure class="planche">
@@ -368,7 +368,7 @@ pre.cmd .c { color: var(--cendre); }
 <li data-k="pale"><b>Each task goes to a hand, in its own git worktree and branch.</b><span>Under a required wall, the hand’s commands run behind it, with a filtered network exit.</span></li>
 <li data-k="pierre"><b>When a hand says it is done, Lydite replays your proof itself.</b><span>Under a required wall, in a new sandboxed process. Green: the work is merged into the wave’s branch, and the proof is replayed after every merge. Red: one retry, with the error given to the hand, then the task is set aside.</span></li>
 <li data-k="or"><b>The tasks a plan marks critical are reviewed by another hand.</b><span>It gets the diff and the replayed proof, and must say what was replayed and what was not.</span></li>
-<li data-k="or"><b>Lydite pushes the branch, opens the pull request with its receipt, and reads the CI.</b><span>It never merges. Merging is your rule.</span></li>
+<li data-k="or"><b>With <code>--pr</code>, Lydite pushes the branch, opens the pull request with its receipt, and reads the CI.</b><span>You, or your repository’s merge rule, merge. Lydite never does.</span></li>
 </ol>
 </div></section>
 <section class="sec" id="recu"><div class="enveloppe">
@@ -411,13 +411,13 @@ pre.cmd .c { color: var(--cendre); }
 </div></section>
 <section class="sec" id="refus"><div class="enveloppe">
 <p class="sur"><i class="trait creux"></i>What Lydite refuses to do</p>
-<h2>What sets it apart is what it will not do</h2>
+<h2>What it will not do</h2>
 <p class="chapo">Each numbered refusal says what it saw and what to do.</p>
 <ul class="refus">
-<li><span class="code">always</span><div><b>It never merges.</b><span>It opens the pull request and reads its CI. Merging is your rule.</span></div></li>
+<li><span class="code">always</span><div><b>It never merges.</b><span>With <code>--pr</code>, it opens the pull request and reads its CI. You, or your repository’s merge rule, merge. Lydite never does.</span></div></li>
 <li><span class="code">always</span><div><b>It never takes a hand’s word.</b><span>A fact a hand only declared is shown as declared, never as observed.</span></div></li>
 <li><span class="code">6022</span><div><b>It starts nothing if your proof is already red.</b><span>On the base commit, a red proof proves nothing afterwards.</span></div></li>
-<li><span class="code">6028</span><div><b>It starts nothing if the wall does not start.</b><span>Before any hand, it runs <code>true</code> under the wall that will replay your proof: that shows the wall starts, not what it closes.</span></div></li>
+<li><span class="code">6028</span><div><b>Under a required wall, the default, it starts nothing if the wall does not start.</b><span>Before any hand, it runs <code>true</code> under the wall that will replay your proof: that shows the wall starts, not what it closes.</span></div></li>
 <li><span class="code">7013</span><div><b>It keeps a hand inside its task.</b><span>A change outside the task’s list of files is refused. A hand does not run <code>git commit</code>: Lydite commits.</span></div></li>
 <li><span class="code">8005</span><div><b>It does not publish what should stay yours.</b><span>A change under <code>.github/</code>, a path of your machine, or a line of your <code>garde</code> file.</span></div></li>
 <li><span class="code">always</span><div><b>It does not push a hand to cheat.</b><span>A hand that finds a test no honest code can pass says <code>IMPOSSIBLE</code>. Lydite sets the task aside, replays nothing, retries nothing and merges nothing from it. The reason is the hand’s word, shown as declared.</span></div></li>
@@ -438,7 +438,7 @@ pre.cmd .c { color: var(--cendre); }
 <h3>Mycelium Lab</h3><p>The growth of a mycelium colony, hypha by hypha.</p>
 <p class="compte"><i class="trait"></i><b>37</b> of 60 merged pull requests carry a receipt<br><b>159</b> hands · <b>1</b> retry · <b>0</b> tasks set aside</p>
 <p class="liens"><a href="https://aoricloud.github.io/mycelium-lab/">Run it in your browser</a><a href="https://github.com/aoricloud/mycelium-lab">Repository</a></p></li>
-<li class="banc"><img src="assets/physarum-lab.jpg" alt="A path found through a maze, from Physarum Lab" loading="lazy">
+<li class="banc"><img src="assets/physarum-lab.jpg" alt="A cyan line with right angles on a dark background, from Physarum Lab" loading="lazy">
 <h3>Physarum Lab</h3><p>The slime mold <i>Physarum polycephalum</i>: a network of tubes that grows and finds its way.</p>
 <p class="compte"><i class="trait"></i><b>12</b> of 13 merged pull requests carry a receipt<br><b>83</b> hands · <b>0</b> retries · <b>0</b> tasks set aside</p>
 <p class="liens"><a href="https://github.com/aoricloud/physarum-lab">Repository</a></p></li>
@@ -461,22 +461,22 @@ mkdir -p ~/.local/bin &amp;&amp; install -m 755 lydite-*-linux-x86_64/lydite lyd
 lydite doctor</pre>
 <pre class="cmd"><span class="c"># checks the wall and your proof, runs one hand that splits the objective, prints the plan, stops</span>
 lydite launch first "Add a test for the empty-input case of parse()" --split --verify "cargo test" --dry-run</pre>
-<p class="petit">The wall needs bubblewrap and socat, then <code>srt</code> (or, with the native wall, <code>lydite-reseau</code>), and a profile that you write and accept. <a href="https://github.com/aoricloud/lydite#try-it">The README has every step</a>.</p>
+<p class="petit">The wall needs bubblewrap and socat, then <code>srt</code>, which comes through Node and npm (with <code>mur = natif</code> in the profile, srt is not needed, and <code>lydite-reseau</code> filters the network when the profile names domains), and a profile that you write and accept. <a href="https://github.com/aoricloud/lydite#try-it">The README has every step</a>.</p>
 </div>
 <ul class="depuis">
 <li><b>From a shell</b><code>lydite launch</code>, <code>lydite status</code>, <code>lydite wait</code>.</li>
 <li><b>From Claude Code or another agent</b><code>lydite skill</code> prints the skill an agent follows to drive Lydite.</li>
-<li><b>From Hermes</b>A plugin with five tools, in the Hermes Agent plugin catalogue. The workers stay Lydite’s own.</li>
+<li><b>From Hermes</b>A plugin with five tools, of rank <code>community</code> in the Hermes Agent plugin catalogue. The workers stay Lydite’s own.</li>
 </ul>
 </div>
 </div></section>
 <section class="sec" id="limites"><div class="enveloppe">
 <p class="sur"><i class="trait creux"></i>Not replayed</p>
 <h2>What this page cannot show you</h2>
-<p class="chapo">A receipt ends with what nobody saw replayed. So does this page. Status: early.</p>
+<p class="chapo">After a review, a receipt ends with what the reviewer says was not replayed. So does this page. Status: early.</p>
 <ul class="limites">
 <li><i class="trait creux"></i><div><b>Anyone but us.</b>Lydite has only run on our own repositories. We know of no one else who has run it yet.</div></li>
-<li><i class="trait creux"></i><div><b>The wall outside Linux.</b>It only works there. On Windows it does not hold, and Lydite says so before it starts.</div></li>
+<li><i class="trait creux"></i><div><b>The wall outside Linux.</b>It only works there. On Windows it does not hold: under the default profile, Lydite refuses before any hand (6028); under a requested wall (<code>mur = demande</code>), chosen knowingly, it says nothing.</div></li>
 <li><i class="trait creux"></i><div><b>Your tests.</b>A green proof is worth what your proof is worth. Lydite does not judge whether your tests are good.</div></li>
 <li><i class="trait creux"></i><div><b>The native wall around the hands.</b>It holds the wall check and the replay of your proof, not yet the hands’ commands, which stay under Claude Code’s sandbox.</div></li>
 </ul>
