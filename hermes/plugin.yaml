@@ -22,11 +22,11 @@ config_schema:
     type: str
     default: claude
     label: "Default profile"
-    description: "Name of the Lydite profile that sets the workers' model, wall and provider. It must have been accepted by a human with `lydite accepter <name>`."
+    description: "Name of the Lydite profile that sets the workers' model, wall and provider. It must have been accepted by a human with `lydite accept <name>`."
   cle_nom:
     type: str
     label: "Provider key variable"
-    description: "Name of the environment variable that the profile's `cle` line names (e.g. a DeepSeek key). Empty: no key is passed, the workers use the Claude Code login of the account."
+    description: "Name of the environment variable that the profile's `cle` line names (e.g. a DeepSeek key). Empty: no key is passed, which is right only for a profile with no `cle` line (otherwise Lydite refuses, 6027)."
   cle:
     type: secret
     env: LYDITE_CLE_FOURNISSEUR

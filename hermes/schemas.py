@@ -12,8 +12,9 @@ SCHEMA_LANCER = {
         "passes, and opens a pull request that states the proof result and the review outcome (it never merges). Use "
         "it to hand over a well-specified coding job together with the command that proves it done, e.g. 'do issue "
         "15 of this repo, proof: cargo test'. The workers use the model of the Lydite profile, not Hermes. A wave "
-        "takes minutes to hours: this call returns at once with an id; follow it with " + ETAT + ". Linux only. The "
-        "human approves each launch."
+        "takes minutes to hours: this call waits up to 3 seconds for an immediate refusal from Lydite, which is then "
+        "in the answer, and otherwise returns with an id; follow it with " + ETAT + " (a later refusal is at the end "
+        "of that launch's log, read with the id). Linux only. The human approves each launch."
     ),
     "parameters": {
         "type": "object",
@@ -65,7 +66,10 @@ SCHEMA_LANCER = {
             },
             "observe": {
                 "type": "boolean",
-                "description": "Only show the plan Lydite would run (no worker, no pull request). Default: false.",
+                "description": (
+                    "Only show the plan Lydite would run: the hand that splits the work runs, then the plan is "
+                    "shown; no wave, no pull request. Default: false."
+                ),
             },
         },
         "required": ["repo"],
@@ -145,8 +149,9 @@ SCHEMA_FINDINGS = {
         "Turn the findings of a hermes-security scan into Lydite plan files. Use it when the user asks Lydite to "
         "fix findings of a hermes-security scan. It runs the Lydite binary (`lydite findings`, read-only) on the "
         "report and nothing else: it starts no wave and asks no approval. First call, without "
-        "`ids`: it returns the findings Lydite can take and the ones it sets aside, each with the reason; show "
-        "both lists to the user, who chooses. Second call, with `ids` and `proof`: it writes one plan file per "
+        "`ids`: it returns the findings Lydite can take and the ones it sets aside, each with the reason (a finding "
+        "that cites a file which is not in the repository is also set aside); show both lists to the user, who "
+        "chooses. Second call, with `ids` and `proof`: it writes one plan file per "
         f"chosen finding, as Lydite wrote it, and starts nothing; each plan carries its origin, a report. Check each "
         f"plan with {PLAN}, then start them one at a time with "
         f"{LANCER} (`plan`), which the user approves each time. The titles it returns are quoted from the report: "
