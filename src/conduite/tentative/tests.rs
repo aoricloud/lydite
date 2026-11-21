@@ -13,7 +13,7 @@ fn une_sortie_verte_suivie_d_une_mise_a_mort_ratee_passe_encore_annonce_vert() {
     assert_eq!(erreur, "rouge; kill: restes");
 }
 use crate::branchements::processus::{retire_de_l_env, retire_de_la_preuve};
-use crate::coeur::profil::{Fournisseur, Mesure};
+use crate::coeur::profil::{Environnement, Fournisseur, Mesure};
 use crate::essais::mains::{DELAI, bac_jetable, profil_borne};
 use std::collections::BTreeMap;
 use std::env;
@@ -126,7 +126,7 @@ fn la_main_d_un_fournisseur_recoit_son_url_et_sa_cle_et_perd_le_jeton_herite() {
         assert_eq!(sans.get(nom).map(String::as_str), env::var(nom).ok().as_deref(), "{nom} passe tel quel");
     }
     let (api, cle) = ("https://api.exemple.test/anthropic", "leurre-de-la-cle");
-    let avec = vues(Some(Fournisseur { api, cle, variable: "CLE_ESSAI" }));
+    let avec = vues(Some(Environnement::Fournisseur(Fournisseur { api, cle, variable: "CLE_ESSAI" })));
     assert_eq!(avec["ANTHROPIC_BASE_URL"], api);
     assert_eq!(avec["ANTHROPIC_API_KEY"], cle);
     assert!(!avec.contains_key("ANTHROPIC_AUTH_TOKEN"), "le jeton hérité de l'humain ne va pas chez le fournisseur");
@@ -156,20 +156,20 @@ fn tenter_ne_rend_de_constat_que_d_une_main_declaree() {
     // Une main Claude que `borner` n'a pas bornée ne part pas, et ne déclare rien : pas de constat, et rien n'est
     // créé à côté de son bac.
     let libre = crate::coeur::profil::lire("essai", "sorte = claude\nmur = demande\n", None, None).unwrap();
-    let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, None, &journal, None, None);
+    let (constat, _, verdict) = tenter(&libre, &bac, "objectif", None, None, &journal, None, None, None);
     assert_eq!(constat, None);
     assert!(erreur(verdict).starts_with("hand: no program to start"));
     assert!(!temporaire_de(&bac).unwrap().exists());
     // Une main brute ne déclare rien : l'erreur de son départ, sans constat.
     let brute = Profil::faux(vec!["lydite-main-introuvable".into()], DELAI);
-    let (constat, verif, verdict) = tenter(&brute, &bac, "objectif", Some("exit 0"), None, &journal, None, None);
+    let (constat, verif, verdict) = tenter(&brute, &bac, "objectif", Some("exit 0"), None, &journal, None, None, None);
     assert_eq!((constat, verif), (None, None));
     assert!(erreur(verdict).starts_with("cannot start lydite-main-introuvable"));
     // Une main Claude déclare : Kraken rend le constat de ce qu'il en a lu, ici rien, et l'erreur de son départ. Un
     // constat vide est un constat : la vague le note, car la main était déclarée.
     let claude = profil_borne("sorte = claude\nprogramme = lydite-claude-introuvable\n", &dir);
     let (constat, verif, verdict) =
-        tenter(&claude, &bac, "objectif", Some("exit 0"), Some("échec"), &journal, None, None);
+        tenter(&claude, &bac, "objectif", Some("exit 0"), Some("échec"), &journal, None, None, None);
     assert_eq!((constat, verif), (Some(Constat::default()), None));
     assert!(erreur(verdict).starts_with("cannot start lydite-claude-introuvable"));
     let _ = fs::remove_dir_all(&dir);
@@ -194,7 +194,7 @@ fn consigne(
     pretee: bool,
     socle: &str,
 ) -> String {
-    super::consigne(objectif, fichiers, exacts, &[], &[], None, verifier, precedente, pretee, socle, false)
+    super::consigne(objectif, fichiers, exacts, &[], &[], None, verifier, precedente, pretee, socle, false, None)
 }
 
 #[test]
@@ -208,7 +208,8 @@ fn sans_a1_retire_honnetete_et_perimetre_et_rien_d_autre() {
         (None, &[][..], None, Some("avant"), false),
     ] {
         let pieces = |sans_a1| {
-            super::consigne("Écrire a", fichiers, exacts, &[], &[], None, verifier, precedente, pretee, "S", sans_a1)
+            let (avant, socle) = (precedente, "S");
+            super::consigne("Écrire a", fichiers, exacts, &[], &[], None, verifier, avant, pretee, socle, sans_a1, None)
         };
         let (pleine, nue) = (pieces(false), pieces(true));
         assert!(pleine.contains(HONNETETE) && pleine.contains(PERIMETRE), "{pleine}");
@@ -228,7 +229,7 @@ fn sans_a1_retire_honnetete_et_perimetre_et_rien_d_autre() {
 
 #[test]
 fn sans_a1_ne_laisse_pas_de_ligne_vide_en_trop() {
-    let nue = super::consigne("Écrire a", None, &[], &[], &[], None, None, None, false, "S", true);
+    let nue = super::consigne("Écrire a", None, &[], &[], &[], None, None, None, false, "S", true, None);
     assert!(nue.starts_with(&format!("S\n\nÉcrire a\n\n{COMMIT}\n\n")), "{nue}");
 }
 
@@ -238,14 +239,15 @@ fn le_profil_sans_a1_retire_les_deux_phrases_de_la_consigne_de_tache_seulement()
     let mesure = Mesure { sans_a1: true, ..Mesure::default() };
     let nue = Profil::faux(vec![], DELAI).avec_mesure(mesure);
     let (a, b) = (
-        consigne_de(&pleine, "Écrire a", None, &[], &[], &[], None, None, None, false),
-        consigne_de(&nue, "Écrire a", None, &[], &[], &[], None, None, None, false),
+        consigne_de(&pleine, "Écrire a", None, &[], &[], &[], None, None, None, false, None),
+        consigne_de(&nue, "Écrire a", None, &[], &[], &[], None, None, None, false, None),
     );
     assert!(a.contains(HONNETETE) && a.contains(PERIMETRE), "{a}");
     assert!(!b.contains(HONNETETE) && !b.contains(PERIMETRE) && b.contains(COMMIT), "{b}");
     // Une main jugée n'a jamais ces phrases : le réglage n'y change rien.
-    let juge =
-        |profil: &Profil| consigne_de(profil, "Juger", None, &[], &[], &[], None, Some("exit 0"), Some("avant"), true);
+    let juge = |profil: &Profil| {
+        consigne_de(profil, "Juger", None, &[], &[], &[], None, Some("exit 0"), Some("avant"), true, None)
+    };
     assert_eq!(juge(&pleine).split_once("\n\n").unwrap().1, juge(&nue).split_once("\n\n").unwrap().1);
 }
 
@@ -282,8 +284,20 @@ fn la_consigne_nomme_les_epingles_sha256_apres_les_textes_exacts_et_sans_epingle
     let exacts = [("src/a.rs".to_string(), "fn a() {}".to_string())];
     let (h1, h2) = ("1".repeat(64), "2".repeat(64));
     let epingles = [("src/a.rs".to_string(), h1.clone()), ("docs/x.md".to_string(), h2.clone())];
-    let avec =
-        super::consigne("Écrire a", Some(&fichiers), &exacts, &[], &epingles, None, None, None, false, "S", false);
+    let avec = super::consigne(
+        "Écrire a",
+        Some(&fichiers),
+        &exacts,
+        &[],
+        &epingles,
+        None,
+        None,
+        None,
+        false,
+        "S",
+        false,
+        None,
+    );
     let textes = "These texts must appear in your files byte for byte, as written here:\nsrc/a.rs: fn a() {}";
     let titre = "These files must have exactly this SHA-256, as git stores them:";
     // Une ligne de titre, puis une ligne par épingle, juste après les textes exacts.
@@ -291,7 +305,8 @@ fn la_consigne_nomme_les_epingles_sha256_apres_les_textes_exacts_et_sans_epingle
     let attendue = format!("S\n\nÉcrire a{FIXE} Your files: src/a.rs docs/\n{textes}\n{lignes}{SUITE}{PREUVE}");
     assert_eq!(avec, attendue);
     // Sans épingle, la consigne est celle d'avant, à l'octet : ni titre, ni ligne vide.
-    let sans = super::consigne("Écrire a", Some(&fichiers), &exacts, &[], &[], None, None, None, false, "S", false);
+    let sans =
+        super::consigne("Écrire a", Some(&fichiers), &exacts, &[], &[], None, None, None, false, "S", false, None);
     let d_avant = format!("S\n\nÉcrire a{FIXE} Your files: src/a.rs docs/\n{textes}{SUITE}{PREUVE}");
     assert_eq!(sans, d_avant);
     assert!(!sans.contains("SHA-256"), "{sans}");
@@ -303,8 +318,20 @@ fn la_consigne_nomme_les_fichiers_poses_en_une_ligne_avant_les_epingles_et_sans_
     let exacts = [("donnees/t.txt".to_string(), "alpha".to_string())];
     let poses = ["donnees/t.txt".to_string(), "donnees/u bin".to_string()];
     let epingle = [("donnees/t.txt".to_string(), "1".repeat(64))];
-    let avec =
-        super::consigne("Écrire a", Some(&fichiers), &exacts, &poses, &epingle, None, None, None, false, "S", false);
+    let avec = super::consigne(
+        "Écrire a",
+        Some(&fichiers),
+        &exacts,
+        &poses,
+        &epingle,
+        None,
+        None,
+        None,
+        false,
+        "S",
+        false,
+        None,
+    );
     let textes = "These texts must appear in your files byte for byte, as written here:\ndonnees/t.txt: alpha";
     let posee = "Lydite placed these files itself before you started; keep them byte for byte: \
                  donnees/t.txt donnees/u bin";
@@ -313,7 +340,7 @@ fn la_consigne_nomme_les_fichiers_poses_en_une_ligne_avant_les_epingles_et_sans_
     assert_eq!(avec, format!("S\n\nÉcrire a{FIXE} Your files: donnees/\n{lignes}{SUITE}{PREUVE}"));
     // Sans fichier posé : la consigne d'avant, à l'octet, sans la ligne.
     let sans =
-        super::consigne("Écrire a", Some(&fichiers), &exacts, &[], &epingle, None, None, None, false, "S", false);
+        super::consigne("Écrire a", Some(&fichiers), &exacts, &[], &epingle, None, None, None, false, "S", false, None);
     assert_eq!(sans, avec.replace(&format!("{posee}\n"), ""));
     assert!(!sans.contains("Lydite placed"), "{sans}");
 }
@@ -328,8 +355,20 @@ fn la_consigne_d_une_tache_a_fichiers_nommes_dit_le_rouge_d_abord_apres_les_epin
     let fichiers = ["src/".to_string(), "tests/".to_string()];
     let epingles = [("src/a.rs".to_string(), "1".repeat(64))];
     let rouge = Rouge::Nommes(vec!["tests/a.rs".to_string(), "tests/b.rs".to_string()]);
-    let avec =
-        super::consigne("Écrire a", Some(&fichiers), &[], &[], &epingles, Some(&rouge), None, None, false, "S", false);
+    let avec = super::consigne(
+        "Écrire a",
+        Some(&fichiers),
+        &[],
+        &[],
+        &epingles,
+        Some(&rouge),
+        None,
+        None,
+        false,
+        "S",
+        false,
+        None,
+    );
     let epingle =
         format!("These files must have exactly this SHA-256, as git stores them:\nsrc/a.rs: {}", "1".repeat(64));
     let titre = "Red first: Lydite replays the proof on the base plus only these files, and it must fail there; then \
@@ -344,7 +383,7 @@ fn la_consigne_d_une_tache_a_fichiers_nommes_dit_le_rouge_d_abord_apres_les_epin
 #[test]
 fn la_consigne_d_une_tache_a_declared_dit_de_nommer_chaque_fichier_du_test_par_une_ligne_red() {
     let rouge = Rouge::Declare;
-    let avec = super::consigne("Écrire a", None, &[], &[], &[], Some(&rouge), None, None, false, "S", false);
+    let avec = super::consigne("Écrire a", None, &[], &[], &[], Some(&rouge), None, None, false, "S", false, None);
     let titre = "Red first: Lydite replays the proof on the base plus only the test files you name, and it must fail \
                  there; then it must pass with your whole change.";
     let nommer = "Name each test file at the end of your answer, one line `RED: <file>` each.";
@@ -358,7 +397,7 @@ fn sans_red_la_consigne_est_celle_d_avant_a_l_octet_et_ne_dit_rien_du_rouge() {
     let exacts = [("src/a.rs".to_string(), "fn a() {}".to_string())];
     let (verifier, pretee) = (Some("cargo test"), true);
     let sans =
-        super::consigne("Écrire a", Some(&fichiers), &exacts, &[], &[], None, verifier, None, pretee, "S", false);
+        super::consigne("Écrire a", Some(&fichiers), &exacts, &[], &[], None, verifier, None, pretee, "S", false, None);
     let textes = "These texts must appear in your files byte for byte, as written here:\nsrc/a.rs: fn a() {}";
     let d_avant = format!(
         "S\n\nÉcrire a{FIXE} Your files: src/a.rs\n{textes}{SUITE}\n\nQuand tu auras fini, joue toi-même dans ton \
@@ -390,8 +429,8 @@ fn la_couche_fixe_d_une_tache_a_red_tient_sous_le_plafond_et_ne_cite_que_des_cod
         for (verifier, pretee) in [(None, false), (Some(""), false), (Some(""), true)] {
             // Une tâche qui pose un fichier (sa ligne fixe est comptée, son nom vide) est la plus chargée.
             let poses = [String::new()];
-            let fixe =
-                super::consigne("", Some(&[]), &[], &poses, &[], Some(&rouge), verifier, None, pretee, "", false);
+            let rouge = Some(&rouge);
+            let fixe = super::consigne("", Some(&[]), &[], &poses, &[], rouge, verifier, None, pretee, "", false, None);
             assert!(fixe.contains("Lydite placed these files"), "{fixe}");
             assert!(fixe.chars().count() <= PLAFOND, "{rouge:?} {verifier:?} {pretee} : {}", fixe.chars().count());
             assert_eq!(crate::essais::codes_inconnus(&fixe), Vec::<String>::new());
@@ -535,14 +574,14 @@ fn la_main_de_tache_et_la_main_jugee_recoivent_le_socle_en_tete() {
     let (dir, bac) = bac_jetable("socle");
     let journal = dir.join("journal.tmp");
     let main = Profil::faux(crate::essais::fausse_main(&dir), DELAI);
-    let texte = consigne_de(&main, "Écrire a", None, &[], &[], &[], None, None, None, false);
-    let _ = tenter(&main, &bac, &texte, None, None, &journal, None, None);
+    let texte = consigne_de(&main, "Écrire a", None, &[], &[], &[], None, None, None, false, None);
+    let _ = tenter(&main, &bac, &texte, None, None, &journal, None, None, None);
     let tache = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(tache.starts_with(TETE_DU_SOCLE), "{tache}");
     assert!(tache.contains(" UTC, in 60 minutes: keep the last minutes to say what is done and what is not.\n\n"));
     let juge = |_: &Path| Ok(());
-    let texte = consigne_de(&main, "Juger", None, &[], &[], &[], None, Some("exit 0"), Some("avant"), true);
-    let _ = tenter(&main, &bac, &texte, Some("exit 0"), Some("avant"), &journal, Some(&juge), None);
+    let texte = consigne_de(&main, "Juger", None, &[], &[], &[], None, Some("exit 0"), Some("avant"), true, None);
+    let _ = tenter(&main, &bac, &texte, Some("exit 0"), Some("avant"), &journal, Some(&juge), None, None);
     let jugee = fs::read_to_string(bac.join("entree.txt")).unwrap().replace("\r\n", "\n");
     assert!(jugee.starts_with(TETE_DU_SOCLE), "{jugee}");
     assert!(jugee.trim_end().ends_with("\n\nJuger\n\nTentative précédente échouée :\navant"), "{jugee}");
@@ -557,6 +596,110 @@ fn la_couche_fixe_de_la_main_de_tache_tient_sous_son_plafond_et_ne_cite_que_des_
         assert!(fixe.chars().count() <= PLAFOND, "{verifier:?} {pretee} : {} > {PLAFOND}", fixe.chars().count());
         assert_eq!(crate::essais::codes_inconnus(&fixe), Vec::<String>::new());
     }
+}
+
+/// Une main brute qui ne fait rien d'autre que dire `texte`.
+fn main_qui_dit(texte: &str) -> Profil {
+    let argv =
+        if cfg!(windows) { ["cmd", "/C", &format!("echo {texte}")] } else { ["sh", "-c", &format!("echo '{texte}'")] };
+    Profil::faux(argv.map(String::from).to_vec(), DELAI)
+}
+
+/// La mise en forme des essais : elle pose `forme.txt` dans le dossier où elle joue.
+const POSE_FORME: &str = "echo x > forme.txt";
+
+/// Une preuve qui ne passe que si `forme.txt` est dans le dossier où elle joue.
+const VOIT_FORME: &str = if cfg!(windows) { "type forme.txt" } else { "cat forme.txt" };
+
+#[test]
+fn la_mise_en_forme_se_joue_dans_le_bac_avant_la_preuve_et_reussie_n_ajoute_rien() {
+    let (dir, bac) = bac_jetable("forme-avant");
+    let journal = dir.join("journal.tmp");
+    let main = main_qui_dit("fait");
+    // Sans `forme`, la preuve ne voit pas `forme.txt` : elle rougit, et rien ne l'a posé.
+    let (_, _, verdict) = tenter(&main, &bac, "o", Some(VOIT_FORME), None, &journal, None, None, None);
+    assert!(verdict.is_err(), "{verdict:?}");
+    assert!(!bac.join("forme.txt").exists());
+    // Avec `forme`, la mise en forme pose le fichier dans le bac, avant la preuve, qui passe.
+    let (_, verif, verdict) = tenter(&main, &bac, "o", Some(VOIT_FORME), None, &journal, None, None, Some(POSE_FORME));
+    assert!(matches!(verdict, Ok(Pris { prouve: true, .. })), "{verdict:?}");
+    assert!(bac.join("forme.txt").is_file());
+    // Réussie, elle n'ajoute rien au texte rendu : la seule fin de la sortie de la preuve.
+    let verif = verif.unwrap().replace("\r\n", "\n");
+    assert_eq!(verif.trim(), "x", "{verif}");
+    assert!(!verif.contains("formatting failed"), "{verif}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn une_mise_en_forme_ratee_n_arrete_pas_la_preuve_et_sa_fin_precede_celle_de_la_preuve() {
+    let (dir, bac) = bac_jetable("forme-ratee");
+    let journal = dir.join("journal.tmp");
+    let main = main_qui_dit("fait");
+    let forme = "echo sortie-de-forme && exit 3";
+    for (preuve, verte) in [("echo sortie-de-preuve", true), ("echo sortie-de-preuve && exit 1", false)] {
+        let (_, verif, verdict) = tenter(&main, &bac, "o", Some(preuve), None, &journal, None, None, Some(forme));
+        // La preuve juge : verte, la tentative est prise ; rouge, elle rougit sur la preuve.
+        assert_eq!(verdict.is_ok(), verte, "{verdict:?}");
+        if let Err(echec) = &verdict {
+            assert!(matches!(echec, Echec::Erreur(texte) if texte.contains(preuve)), "{echec:?}");
+        }
+        let verif = verif.unwrap().replace("\r\n", "\n");
+        let tete = format!("formatting failed: {forme}\n");
+        assert!(verif.starts_with(&tete), "{verif}");
+        let (forme_dit, preuve_dit) = (verif.find("sortie-de-forme"), verif.find("sortie-de-preuve"));
+        assert!(forme_dit.is_some() && forme_dit < preuve_dit, "la fin de la mise en forme précède : {verif}");
+        assert_eq!(verif.matches("formatting failed").count(), 1, "{verif}");
+    }
+    // Une mise en forme qui ne part pas est ratée de même : son erreur, sous la même ligne.
+    let (_, verif, verdict) = tenter(&main, &bac, "o", Some("exit 0"), None, &journal, None, None, Some("  "));
+    assert!(verdict.is_ok(), "{verdict:?}");
+    assert!(verif.unwrap().starts_with("formatting failed:   \n"));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn la_mise_en_forme_ne_se_joue_jamais_pour_un_juge_ni_pour_une_main_declaree_impossible() {
+    let (dir, bac) = bac_jetable("forme-juge");
+    let journal = dir.join("journal.tmp");
+    let main = main_qui_dit("fait");
+    // Un juge : son verdict est le sien, et rien n'est mis en forme dans le bac.
+    let juge = |_: &Path| Ok(());
+    let (_, verif, verdict) =
+        tenter(&main, &bac, "o", Some("exit 0"), None, &journal, Some(&juge), None, Some(POSE_FORME));
+    assert!(verdict.is_ok() && verif.is_none(), "{verdict:?} {verif:?}");
+    assert!(!bac.join("forme.txt").exists(), "aucune mise en forme pour un juge");
+    // Une main déclarée impossible : rien ne se rejoue, ni la mise en forme, ni la preuve.
+    let impossible = main_qui_dit("IMPOSSIBLE: non");
+    let (_, verif, verdict) =
+        tenter(&impossible, &bac, "o", Some("exit 0"), None, &journal, None, None, Some(POSE_FORME));
+    assert!(matches!(verdict, Err(Echec::Impossible(_))), "{verdict:?}");
+    assert!(verif.is_none() && !bac.join("forme.txt").exists(), "{verif:?}");
+    // La même main de tâche, ni jugée ni impossible, la joue : la recherche trouve le fichier quand il y est.
+    let (_, _, verdict) = tenter(&main, &bac, "o", Some("exit 0"), None, &journal, None, None, Some(POSE_FORME));
+    assert!(verdict.is_ok() && bac.join("forme.txt").is_file(), "{verdict:?}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn la_consigne_dit_la_mise_en_forme_apres_la_preuve_et_sans_forme_ne_change_pas() {
+    let fichiers = ["src/a.rs".to_string()];
+    for (verifier, pretee) in [(Some("cargo test"), true), (Some("cargo test"), false), (None, false)] {
+        let de = |forme| {
+            super::consigne("Écrire a", Some(&fichiers), &[], &[], &[], None, verifier, None, pretee, "S", false, forme)
+        };
+        let phrase = "\n\nAfter you, Lydite runs `cargo fmt` in your sandbox before replaying the proof: do not \
+                      format yourself.";
+        assert_eq!(de(Some("cargo fmt")), format!("{}{phrase}", de(None)));
+        assert!(!de(None).contains("After you"), "{}", de(None));
+    }
+    // La consigne d'une main de tâche la dit ; celle d'un juge jamais.
+    let profil = Profil::faux(vec![], DELAI);
+    let tache =
+        consigne_de(&profil, "Écrire a", None, &[], &[], &[], None, Some("cargo test"), None, false, Some("cargo fmt"));
+    assert!(tache.ends_with("before replaying the proof: do not format yourself."), "{tache}");
+    let juge = consigne_de(&profil, "Juger", None, &[], &[], &[], None, Some("exit 0"), None, true, Some("cargo fmt"));
+    assert!(!juge.contains("cargo fmt") && !juge.contains("After you"), "{juge}");
 }
 
 #[test]

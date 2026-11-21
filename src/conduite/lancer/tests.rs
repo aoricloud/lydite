@@ -839,6 +839,7 @@ fn chaque_main_de_tache_recoit_ses_lecons_dans_un_fichier_nomme_par_son_sha_256(
         objectif: "o".into(),
         preuve: None,
         rapport: None,
+        forme: None,
         taches: vec![tache_de("1", Some(&["src/"])), tache_de("2", Some(&["tests/x.rs"])), tache_de("3", None)],
     };
     lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
@@ -933,8 +934,8 @@ fn une_main_sans_lecon_qui_lui_aille_ne_recoit_ni_fichier_ni_option() {
     let (depot, kraken) = (depot(&racine), racine.join("lydite"));
     commiter_les_lecons(&depot, &[("a-visee", texte_de_lecon("a-visee", &["src/a.rs"]))]);
     let profil = profil_declare("sorte = claude\nprogramme = lydite-claude-introuvable\n", &kraken, &depot);
-    let plan =
-        Plan { objectif: "o".into(), preuve: None, rapport: None, taches: vec![tache_de("1", Some(&["docs/"]))] };
+    let taches = vec![tache_de("1", Some(&["docs/"]))];
+    let plan = Plan { objectif: "o".into(), preuve: None, rapport: None, forme: None, taches };
     lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
     assert!(consignes(&kraken).is_empty(), "ni fichier de leçons");
     // Sans leçon au dépôt, de même ; et une main nue ne reçoit rien, même avec des leçons.
@@ -1091,6 +1092,7 @@ fn la_consigne_d_une_main_declaree_dit_ses_lecons_donnees_ecartees_et_son_system
         objectif: "o".into(),
         preuve: None,
         rapport: None,
+        forme: None,
         taches: vec![tache_de("1", Some(&["src/"])), tache_de("2", Some(&["tests/x.rs"]))],
     };
     lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
@@ -2997,6 +2999,112 @@ fn une_main_qui_ne_change_rien_est_rouge_relancee_puis_classee_et_rien_n_est_ass
     let _ = fs::remove_dir_all(&racine);
 }
 
+/// Une fausse main qui écrit `texte` dans `dedans.txt`, et rien d'autre : elle garde sa consigne dans
+/// `consigne-<n>.txt` de `dir`, `n` étant 1 à sa première tentative et 2 ensuite, puis finit sur `PREUVE: vert`.
+fn main_dedans(dir: &Path, texte: &str) -> Vec<String> {
+    let d = dir.to_string_lossy();
+    if cfg!(windows) {
+        let script = dir.join("dedans.bat");
+        let corps = format!(
+            "@echo off\r\nset \"d={d}\"\r\nset n=1\r\nif exist \"%d%\\marque\" set n=2\r\n\
+             findstr \"^\" > \"%d%\\consigne-%n%.txt\"\r\necho {texte}> dedans.txt\r\ntype nul > \"%d%\\marque\"\r\n\
+             echo PREUVE: vert\r\n"
+        );
+        fs::write(&script, corps).unwrap();
+        vec![script.to_string_lossy().into_owned()]
+    } else {
+        let script = dir.join("dedans.sh");
+        let corps = format!(
+            "d='{d}'\nn=1\nif [ -f \"$d/marque\" ]; then n=2; fi\ncat > \"$d/consigne-$n.txt\"\n\
+             echo {texte} > dedans.txt\n: > \"$d/marque\"\necho 'PREUVE: vert'\n"
+        );
+        fs::write(&script, corps).unwrap();
+        vec!["sh".into(), script.to_string_lossy().into_owned()]
+    }
+}
+
+/// La consigne que `main_dedans` a gardée à sa tentative `n`, dans `racine`, en fins de ligne `\n`.
+fn consigne_gardee(racine: &Path, n: usize) -> String {
+    let octets = fs::read(racine.join(format!("consigne-{n}.txt"))).unwrap();
+    String::from_utf8_lossy(&octets).replace("\r\n", "\n")
+}
+
+/// Le plan d'une tâche `a` qui peut changer `dedans.txt`, avec ces lignes d'en-tête après la preuve et ces clés de
+/// tâche.
+fn plan_dedans(entete: &[&str], cles: &[&str]) -> Plan {
+    let debut = ["plan 1", "objectif : Écrire dedans.txt", "preuve : exit 0"];
+    let tache = ["tache a", "fichiers : dedans.txt"];
+    plan(&[&debut[..], entete, &tache, cles, &["    Écrire dedans.txt"]].concat())
+}
+
+#[test]
+fn un_fichier_hors_des_fichiers_change_par_la_mise_en_forme_est_refuse_comme_celui_d_une_main() {
+    // Sans `forme`, la main qui n'écrit que `dedans.txt` est assemblée.
+    {
+        let racine = racine("forme-temoin");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let profil = Profil::faux(main_dedans(&racine, "dedans"), DELAI);
+        let (_, issues) = lancer(&depot, &kraken, &profil, &plan_dedans(&[], &[]), BAIL).unwrap();
+        assemblee(&issues[0].0, &issues[0].1);
+        let _ = fs::remove_dir_all(&racine);
+    }
+    // La même main, quand la mise en forme du plan écrit `dehors.txt` : la tentative rougit du refus 7013, comme si la
+    // main l'avait écrit, et la relance part avec cette erreur ; la seconde rougit de même, et la tâche est classée.
+    let racine = racine("forme-hors-fichiers");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let base = git(&depot, &["rev-parse", "HEAD"]);
+    let profil = Profil::faux(main_dedans(&racine, "dedans"), DELAI);
+    let plan = plan_dedans(&["forme : echo dehors > dehors.txt"], &[]);
+    let (branche, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    assert!(issues[0].1.is_err(), "{:?}", issues[0]);
+    let evenements = fil(&kraken);
+    let attendu = [
+        "tâche a",
+        "bail 1",
+        "début 1",
+        "fin 1 Rouge Constate",
+        "bail 2",
+        "début 2",
+        "fin 2 Rouge Constate",
+        "verdict Classee Constate",
+    ];
+    assert_eq!(histoire_de(&evenements, 1), attendu);
+    let erreur = fin_de(&evenements, 1);
+    assert!(erreur.starts_with(&format!("7013 vague.hors_fichiers : {}", Code::HorsFichiers.regle())), "{erreur}");
+    assert!(erreur.contains(r#"outside its files ("dedans.txt"): "dehors.txt""#), "{erreur}");
+    // La consigne dit la mise en forme ; la relance reçoit l'erreur.
+    assert!(consigne_gardee(&racine, 1).contains("After you, Lydite runs `echo dehors > dehors.txt` in your sandbox"));
+    assert!(consigne_gardee(&racine, 2).contains(&format!("Tentative précédente échouée :\n{erreur}")));
+    assert!(fusions(&evenements).is_empty(), "rien n'est assemblé");
+    assert_eq!(git(&depot, &["rev-parse", &branche.expect("la branche d'une vague à plan")]), base);
+    let _ = fs::remove_dir_all(&racine);
+}
+
+#[test]
+fn un_texte_exact_change_par_la_mise_en_forme_est_refuse_comme_celui_d_une_main() {
+    let exact = ["exact : dedans.txt : alpha"];
+    // Sans `forme`, la main qui écrit le texte exact tient, et elle est assemblée.
+    {
+        let racine = racine("forme-exact-temoin");
+        let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+        let profil = Profil::faux(main_dedans(&racine, "alpha"), DELAI);
+        let (_, issues) = lancer(&depot, &kraken, &profil, &plan_dedans(&[], &exact), BAIL).unwrap();
+        assemblee(&issues[0].0, &issues[0].1);
+        let _ = fs::remove_dir_all(&racine);
+    }
+    // La même main, quand la mise en forme réécrit le fichier : la tentative rougit sur le texte manquant.
+    let racine = racine("forme-exact");
+    let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+    let profil = Profil::faux(main_dedans(&racine, "alpha"), DELAI);
+    let plan = plan_dedans(&["forme : echo beta > dedans.txt"], &exact);
+    let (_, issues) = lancer(&depot, &kraken, &profil, &plan, BAIL).unwrap();
+    assert!(issues[0].1.is_err(), "{:?}", issues[0]);
+    let erreur = fin_de(&fil(&kraken), 1);
+    assert!(erreur.contains("the text that the plan requires is missing from dedans.txt: alpha"), "{erreur}");
+    assert!(consigne_gardee(&racine, 2).contains(&format!("Tentative précédente échouée :\n{erreur}")));
+    let _ = fs::remove_dir_all(&racine);
+}
+
 /// Le plan d'une tâche `a` qui peut changer `dedans.txt`, où le plan exige le texte `alpha beta`.
 fn plan_exact() -> Plan {
     plan(&[
@@ -3879,6 +3987,30 @@ mod quota {
     }
 
     #[test]
+    fn sous_api_relecteur_l_usage_du_relecteur_se_compte_au_forfait_sous_l_abonnement() {
+        // Le relecteur parle chez Anthropic, sous l'abonnement de l'humain : sa ligne `none` et `list` est au forfait,
+        // au coût que Claude Code annonce. Les mains du fournisseur, sous le même constat, ne le sont pas.
+        let profil = profil_lu(&format!("{AVEC_PRIX}api_relecteur = anthropic\n"));
+        let ligne = modele_de("claude-opus-5-5", jetons(1_000_000, 0, 0, 0, 0), 900, Some("list"));
+        let constat = constat_de(Some("none"), jetons(1_000_000, 0, 0, 0, 0), 900, vec![ligne]);
+        let relecteur = usages_de("v", 1, 1, "opus", &profil.pour_le_relecteur(), &constat);
+        assert_eq!(dit(&relecteur), [("claude-opus-5-5".to_string(), 900, Base::Forfait)]);
+        let mains = [
+            ("main", profil.clone()),
+            ("correction", profil.pour_la_correction()),
+            ("decoupeur", profil.pour_le_decoupeur()),
+        ];
+        for (role, main) in mains {
+            let lignes = usages_de("v", 1, 1, "opus", &main, &constat);
+            assert_eq!(dit(&lignes), [("claude-opus-5-5".to_string(), 0, Base::Inconnu)], "{role}");
+        }
+        // Sans la clé, le relecteur parle au fournisseur : pas de forfait.
+        let sans = profil_lu(AVEC_PRIX).pour_le_relecteur();
+        let lignes = usages_de("v", 1, 1, "opus", &sans, &constat);
+        assert_eq!(dit(&lignes), [("claude-opus-5-5".to_string(), 0, Base::Inconnu)]);
+    }
+
+    #[test]
     fn un_resultat_perime_note_son_usage_juste_avant_sa_perimee_et_il_compte_pour_le_quota() {
         let racine = racine("perimee-usage");
         let (depot, kraken) = (depot(&racine), racine.join("lydite"));
@@ -4202,6 +4334,39 @@ mod quota {
         let (issue, histoire, _) = lancer_a_api("quota-avec-prix", &avec_prix, Some("100\n"));
         assert!(issue.unwrap_err().starts_with("cannot start lydite-claude-introuvable"));
         assert_eq!(&histoire[..2], ["vague 1", "bail 1"]);
+    }
+
+    #[test]
+    fn sous_api_relecteur_le_relecteur_part_sous_quota_sans_prix_pour_son_modele() {
+        // Le profil n'a pas de prix pour `opus`, sous un quota posé : le relecteur, chez Anthropic, part (et ne tient
+        // pas faute de programme) ; la main et la correction, chez le fournisseur, sont refusées en 6030.
+        let texte = "sorte = claude\nprogramme = lydite-claude-introuvable\nmodele = opus\nrelance = opus\n\
+                     api = https://api.exemple.test/anthropic\ncle = CLE_ESSAI\napi_relecteur = anthropic\n\
+                     prix = autre-modele 1 2\n";
+        for (role, part) in [("relecteur", true), ("main", false), ("correction", false)] {
+            let racine = racine(&format!("quota-api-relecteur-{role}"));
+            let (depot, kraken) = (depot(&racine), racine.join("lydite"));
+            poser_le_quota(&kraken, "100\n");
+            let mut profil = profil_declare(texte, &kraken, &depot);
+            profil.fournir(|nom| (nom == "CLE_ESSAI").then(|| OsString::from("leurre"))).unwrap();
+            let profil = match role {
+                "relecteur" => profil.pour_le_relecteur(),
+                "correction" => profil.pour_la_correction(),
+                _ => profil,
+            };
+            let (id, issue) =
+                lancer(&depot, &kraken, &profil, &Plan::copies("objectif", None, 1), BAIL).unwrap().1.remove(0);
+            let histoire = histoire_de_la_vague(&kraken);
+            if part {
+                assert!(issue.unwrap_err().starts_with("cannot start lydite-claude-introuvable"), "{role}");
+                assert_eq!(&histoire[..2], ["vague 1", "bail 1"], "{role}");
+            } else {
+                let texte = refusee(&id, &issue, 6030);
+                assert!(texte.contains("opus") && texte.contains("api.exemple.test"), "{role} : {texte}");
+                assert_eq!(histoire, ["vague 1", "refus 6030"], "{role}");
+            }
+            let _ = fs::remove_dir_all(&racine);
+        }
     }
 
     #[test]

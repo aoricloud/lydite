@@ -158,10 +158,11 @@ codes! {
         "A plan is UTF-8 text, a leading BOM tolerated; a plan in UTF-16 is rewritten in UTF-8.";
     PlanLigne = 6018, "lancer.plan_ligne",
         "In column 0, a plan line is empty, `tache <id>` within the limit of 10,000 tasks, or a known key \
-         (`objectif`, `preuve` and `report` in the header; `depend`, `preuve`, `modele`, `relance`, `effort`, \
-         `fichiers`, `critique`, `exact`, `sha256`, `red` and `place` under a task), once only and in its place, \
-         before the indented lines; an indented line follows a task. A plan with `report` has no `place` line, and \
-         each of its tasks has a `red` line and `critique : oui`.";
+         (`objectif`, `preuve`, `report` and `forme` in the header; `depend`, `preuve`, `modele`, `relance`, \
+         `effort`, `fichiers`, `critique`, `exact`, `sha256`, `red` and `place` under a task), once only and in its \
+         place, before the indented lines; an indented line follows a task. A plan split by a hand carries neither \
+         `report` nor `forme`. A plan with `report` has no `place` line, and each of its tasks has a `red` line and \
+         `critique : oui`.";
     PlanIdentifiant = 6019, "lancer.plan_identifiant",
         "A task id is a word of ASCII letters and digits, `-` and `_`, unique in the plan.";
     PlanDependance = 6020, "lancer.plan_dependance",
@@ -275,7 +276,8 @@ codes! {
         "The work of a critical task is pushed only once reviewed; a review that is set aside, and nothing is \
          pushed.";
     BloquantesRestantes = 7017, "vague.bloquantes_restantes",
-        "Blocking remarks are worth a single correction; not assembled, nothing is pushed.";
+        "Blocking remarks are worth a single correction; not assembled, or blocking again at the second review, \
+         nothing is pushed.";
     CheminProtege = 7018, "vague.chemin_protege",
         "A hand changes no path that its profile protects (proteges), neither by an edit nor by a command. A file \
          shaped like a wall stop, as rule 7013 describes it, is not counted.";

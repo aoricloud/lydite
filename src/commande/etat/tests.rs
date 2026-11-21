@@ -701,6 +701,8 @@ fn kraken_etat_montre_la_vague_relancee_avant_sa_relance() {
 const DECOUPAGE: &str = "1761900900000_7_0";
 const RELECTURE: &str = "1761901050000_7_0";
 const CORRECTION: &str = "1761901060000_7_0";
+/// Le relecteur de la seconde relecture, celle de la correction.
+const SECONDE: &str = "1761901070000_7_0";
 
 /// L'empreinte que porte le plan d'un découpage dans ces tests : celle d'un texte vide, que le fil ne recalcule pas.
 const EMPREINTE_DU_PLAN: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -788,6 +790,27 @@ fn kraken_etat_dit_la_chaine_d_une_vague_decoupee() {
         format!("Correction: main-{CORRECTION}-1 correction : assembled"),
     ];
     assert_eq!(etat_du_fil(&corrigee), (dit(&lignes), ExitCode::SUCCESS));
+    // Relue, corrigée, puis relue une seconde fois par un autre relecteur : la ligne dit les deux relectures, la
+    // correction suit, et le code est 0.
+    let seconde = [
+        vec![ouverture(SECONDE, 1, "Relire la correction")],
+        prise_de(SECONDE, 1),
+        vec![Evenement::Relecture {
+            vague: SECONDE.into(),
+            relue: V1.into(),
+            n: 1,
+            bloquantes: 0,
+            remarques: "remarques 1".into(),
+        }],
+    ]
+    .concat();
+    let deux =
+        [decoupee.clone(), relecture_rendue(V1, 3, 1), correction_de_la(V1, fusion(CORRECTION, 1)), seconde].concat();
+    let lignes = [
+        "Review: 3 remarks, 1 blocking. Second review: 1 remarks, 0 blocking".to_string(),
+        format!("Correction: main-{CORRECTION}-1 correction : assembled"),
+    ];
+    assert_eq!(etat_du_fil(&deux), (dit(&lignes), ExitCode::SUCCESS));
     // Une correction non assemblée : sa ligne dit son refus, et le code est 1.
     let refusee = correction_de_la(V1, refus(CORRECTION, 1, Code::PreuveRouge));
     let refusee = [decoupee.clone(), relecture_rendue(V1, 3, 1), refusee].concat();

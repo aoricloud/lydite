@@ -256,7 +256,28 @@ fn un_plan_sans_exact_ni_epingle_rend_la_correction_d_avant() {
         fichiers: Some(vec!["sortie/".into(), "doc/lisez.md".into()]),
         ..Tache::default()
     };
-    assert_eq!(correction, Plan { objectif, preuve: Some("exit 0".into()), rapport: None, taches: vec![tache] });
+    let preuve = Some("exit 0".into());
+    assert_eq!(correction, Plan { objectif, preuve, rapport: None, forme: None, taches: vec![tache] });
+}
+
+#[test]
+fn la_correction_reprend_la_forme_du_plan_et_le_relecteur_n_en_a_pas() {
+    let avec = PLAN.replacen("preuve : exit 0\n", "preuve : exit 0\nforme : cargo fmt\n", 1);
+    assert_ne!(avec, PLAN);
+    let (plan, sans) = (Plan::lire(avec.as_bytes()).unwrap(), Plan::lire(PLAN.as_bytes()).unwrap());
+    assert_eq!(plan.forme.as_deref(), Some("cargo fmt"));
+    let profil = claude("sorte = claude\n");
+    let remarques = [remarque("sortie/a.txt", None, true, "Perdu.")];
+    let (critiques, assemblees) = critiques_et_assemblees(&plan);
+    let correction = plan_de_la_correction(&profil, &plan, &critiques, &assemblees, &remarques);
+    // La correction est une main de tâche : sa mise en forme est celle du plan, et rien d'autre ne change.
+    assert_eq!(correction.forme.as_deref(), Some("cargo fmt"));
+    let (critiques_sans, assemblees_sans) = critiques_et_assemblees(&sans);
+    let d_avant = plan_de_la_correction(&profil, &sans, &critiques_sans, &assemblees_sans, &remarques);
+    assert_eq!(d_avant.forme, None);
+    assert_eq!(Plan { forme: None, ..correction }, d_avant);
+    // Le relecteur est jugé par Kraken : il n'en a jamais.
+    assert_eq!(plan_du_relecteur(&profil, &plan, &critiques, &[]).forme, None);
 }
 
 #[test]
@@ -572,6 +593,11 @@ impl Essai {
     /// Les remarques que le faux relecteur écrit à sa tentative `n`.
     fn remarques(&self, n: usize, texte: &str) {
         fs::write(self.faux.join(format!("remarques-{n}.lydite")), texte).unwrap();
+    }
+
+    /// Les remarques que le second relecteur, celui de la tête de la correction, écrit à sa tentative `n`.
+    fn secondes(&self, n: usize, texte: &str) {
+        fs::write(self.faux.join(format!("seconde-remarques-{n}.lydite")), texte).unwrap();
     }
 
     /// Pose une marque dans le dossier du faux relecteur : `toucher-1`, `hors-fichiers`, `ne-rien-faire`.
@@ -958,12 +984,15 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     distant_nu(&essai.racine, &essai.depot);
     let gh = gh_qui_suit(&essai.racine, &essai.depot);
     essai.remarques(1, &remarques_justes());
+    essai.secondes(1, SANS_REMARQUE);
     let base = essai.base();
     let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
     assert_eq!(essai.mener(&plan, Some(&gh)), ExitCode::SUCCESS);
     let fil = essai.fil();
     let ouvertes = ouvertes(&fil);
-    let [v, r, c] = &ouvertes[..] else { panic!("la vague, le relecteur, la correction : {ouvertes:?}") };
+    let [v, r, c, s] = &ouvertes[..] else {
+        panic!("la vague, le relecteur, la correction, le second relecteur : {ouvertes:?}")
+    };
     // La relecture a rendu deux remarques, dont une bloquante, et la correction est liée à la vague relue, avant
     // tout départ de sa tâche.
     assert!(fil.iter().any(
@@ -996,11 +1025,36 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     assert!(socle.starts_with(debut_du_socle), "{socle}");
     assert!(consigne.starts_with(objectif), "{consigne}");
     assert!(!consigne.contains("Un nom peu clair"), "une remarque à noter n'est pas à corriger : {consigne}");
+    // Le second relecteur a relu `t2` : sa relecture est notée sur la vague relue, puis son verdict, sur `t2`, du
+    // lancement de sa main ; aucune seconde correction ne part.
+    let relectures: Vec<(String, String, usize, usize)> = fil
+        .iter()
+        .filter_map(|e| match e {
+            Evenement::Relecture { vague, relue, n, bloquantes, .. } => {
+                Some((vague.clone(), relue.clone(), *n, *bloquantes))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(relectures, [(r.clone(), v.clone(), 2, 1), (s.clone(), v.clone(), 0, 0)]);
+    let verdicts: Vec<(String, String, String)> = fil
+        .iter()
+        .filter_map(|e| match e {
+            Evenement::VerdictRelecture { vague, relue, sha, .. } => Some((vague.clone(), relue.clone(), sha.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(verdicts, [(r.clone(), v.clone(), t.clone()), (s.clone(), v.clone(), t2.clone())]);
+    assert_eq!(fil.iter().filter(|e| matches!(e, Evenement::Correction { .. })).count(), 1, "une seule correction");
+    let relit = |e: &Evenement| matches!(e, Evenement::Relecteur { vague, relue } if vague == s && relue == v);
+    assert!(fil.iter().any(relit), "le second relecteur relit la vague du plan : {fil:?}");
+    assert_eq!(fins_de(&fil, s).iter().map(|(couleur, _)| *couleur).collect::<Vec<_>>(), [Couleur::Vert]);
     // Le texte des remarques n'est ni dans le corps de la PR, ni dans un commit poussé : il n'y reste que les nombres.
+    // La dernière relecture est la seconde : la PR dit la tête qu'elle a relue, et ses lignes non rejouées.
     let corps = essai.corps();
     let ligne = format!(
-        "Review: 2 remarks, 1 blocking, corrected.\nReviewed on commit {t}, corrected in {t2} without a \
-         second review, and replayed on commit {t2}.\nNot replayed (from the review):\n- `Le réseau n'est pas joué.`\n"
+        "Review: 2 remarks, 1 blocking, corrected. Second review: 0 remarks, 0 blocking.\nReviewed and replayed on \
+         commit {t2}.\nNot replayed (from the review):\n- `Rien.`\n"
     );
     assert!(corps.ends_with(&format!("\n\n{ligne}")), "{corps}");
     let messages = git(&essai.depot, &["log", "--format=%B", &format!("{base}..{t2}")]);
@@ -1010,8 +1064,8 @@ fn des_remarques_bloquantes_valent_une_correction_poussee_de_t2() {
     // `git grep` sort en 1 quand rien ne correspond : aucun fichier de la tête poussée ne porte le texte.
     let grep = std::process::Command::new("git").current_dir(&essai.depot).args(["grep", "-q", "SECRET", &t2]).status();
     assert_eq!(grep.unwrap().code(), Some(1), "l'arbre poussé ne porte pas le texte des remarques");
-    // Tout est rangé : les bacs de la vague, du relecteur et de la correction, leurs branches, le worktree de la
-    // vague et celui de la correction. La branche de la vague reste, qui porte la PR.
+    // Tout est rangé : les bacs de la vague, des deux relecteurs et de la correction, leurs branches, le worktree de
+    // la vague et celui de la correction. La branche de la vague reste, qui porte la PR.
     assert!(essai.bacs().is_empty(), "{:?}", essai.bacs());
     let branches = git(&essai.depot, &["for-each-ref", "--format=%(refname:short)", "refs/heads/lydite"]);
     assert_eq!(branches, branche);
@@ -1101,12 +1155,15 @@ fn une_reponse_qui_dit_rien_de_bloquant_ne_vaut_pas_moins_que_la_bloquante_du_fi
     // compte le fichier, jamais la réponse : la bloquante compte, et la correction part.
     let essai = Essai::nouveau("relecture-resume-sans-bloquante");
     essai.remarques(1, &remarques_justes());
+    essai.secondes(1, SANS_REMARQUE);
     essai.marque("dit-rien-de-bloquant");
     let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
     let _ = essai.mener(&plan, None);
     let fil = essai.fil();
     let ouvertes = ouvertes(&fil);
-    let [v, r, c] = &ouvertes[..] else { panic!("la vague, le relecteur, la correction : {ouvertes:?}") };
+    let [v, r, c, _] = &ouvertes[..] else {
+        panic!("la vague, le relecteur, la correction, le second relecteur : {ouvertes:?}")
+    };
     assert!(fil.iter().any(
         |e| matches!(e, Evenement::Relecture { vague, relue, n: 2, bloquantes: 1, .. } if vague == r && relue == v)
     ));
@@ -1162,6 +1219,117 @@ fn une_correction_non_assemblee_est_le_refus_7017_et_rien_ne_se_pousse() {
     assert!(dit.contains(&format!("Correction: main-{c}-1 correction : set aside")), "{dit}");
     assert!(dit.contains("refusée (7017) : "), "{dit}");
     assert_eq!(etat_dans(&essai.kraken), Ok(ExitCode::FAILURE));
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+/// Les relectures que le fil note : le relecteur, la vague relue, le nombre de remarques et celui des bloquantes.
+fn relectures_de(fil: &[Evenement]) -> Vec<(String, String, usize, usize)> {
+    let relecture = |e: &Evenement| match e {
+        Evenement::Relecture { vague, relue, n, bloquantes, .. } => {
+            Some((vague.clone(), relue.clone(), *n, *bloquantes))
+        }
+        _ => None,
+    };
+    fil.iter().filter_map(relecture).collect()
+}
+
+#[test]
+fn des_bloquantes_a_la_seconde_relecture_sont_le_refus_7017_sans_seconde_correction_et_rien_ne_se_pousse() {
+    let essai = Essai::nouveau("relecture-seconde-bloquante");
+    distant_nu(&essai.racine, &essai.depot);
+    let gh = gh_qui_suit(&essai.racine, &essai.depot);
+    essai.remarques(1, &remarques_justes());
+    essai.secondes(1, &remarques_justes());
+    let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    assert_eq!(essai.mener(&plan, Some(&gh)), ExitCode::FAILURE);
+    let fil = essai.fil();
+    let ouvertes = ouvertes(&fil);
+    // Quatre vagues, pas une de plus : aucune seconde correction ne part.
+    let [v, r, c, s] = &ouvertes[..] else {
+        panic!("la vague, le relecteur, la correction, le second relecteur : {ouvertes:?}")
+    };
+    assert_eq!(fil.iter().filter(|e| matches!(e, Evenement::Correction { .. })).count(), 1, "{fil:?}");
+    // La seconde relecture est notée, son verdict aussi, sur `t2`.
+    let t2 = tete_de(&fil, c);
+    assert_eq!(relectures_de(&fil), [(r.clone(), v.clone(), 2, 1), (s.clone(), v.clone(), 2, 1)]);
+    let verdict =
+        |e: &Evenement| matches!(e, Evenement::VerdictRelecture { vague, sha, .. } if vague == s && *sha == t2);
+    assert!(fil.iter().any(verdict), "{fil:?}");
+    // Le refus 7017 est noté sur la vague relue ; sa preuve nomme la seconde relecture, sa main et ses bloquantes.
+    let refus = refus_de_forge(&fil, v);
+    let [(7017, preuve)] = &refus[..] else { panic!("{refus:?}") };
+    let attendu =
+        format!("the second review main-{s}-1 of wave {v}, on head {t2} of correction {c}, has 1 blocking remark,");
+    assert!(preuve.starts_with(&attendu), "{preuve}");
+    rien_de_pousse(&essai);
+    assert!(Code::BloquantesRestantes.regle().contains("blocking again at the second review"));
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn un_second_relecteur_classe_laisse_pousser_t2_sans_seconde_relecture() {
+    let essai = Essai::nouveau("relecture-seconde-classee");
+    distant_nu(&essai.racine, &essai.depot);
+    let gh = gh_qui_suit(&essai.racine, &essai.depot);
+    essai.remarques(1, &remarques_justes());
+    // Le second relecteur n'écrit aucun fichier de remarques, à ses deux tentatives : il est classé.
+    let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    assert_eq!(essai.mener(&plan, Some(&gh)), ExitCode::SUCCESS);
+    let fil = essai.fil();
+    let ouvertes = ouvertes(&fil);
+    let [v, r, c, s] = &ouvertes[..] else {
+        panic!("la vague, le relecteur, la correction, le second relecteur : {ouvertes:?}")
+    };
+    assert!(essai.garde("seconde-relecture-2").is_some(), "le second relecteur a eu ses deux tentatives");
+    assert_eq!(fins_de(&fil, s).iter().map(|(couleur, _)| *couleur).collect::<Vec<_>>(), [Couleur::Rouge; 2]);
+    // Ce n'est pas un refus : aucune seconde relecture ne se note, ni son verdict, et `t2` est poussée.
+    assert_eq!(relectures_de(&fil), [(r.clone(), v.clone(), 2, 1)]);
+    let verdicts = fil.iter().filter(|e| matches!(e, Evenement::VerdictRelecture { .. })).count();
+    assert_eq!(verdicts, 1, "{fil:?}");
+    assert_eq!(refus_de_forge(&fil, v), []);
+    let (t, t2, branche) = (tete_de(&fil, v), tete_de(&fil, c), format!("lydite/vague-{v}"));
+    assert_eq!(essai.distante(&branche), Some(t2.clone()));
+    // La PR garde la ligne d'une correction sans seconde relecture, qui est alors vraie.
+    let corps = essai.corps();
+    let ligne = format!(
+        "Review: 2 remarks, 1 blocking, corrected.\nReviewed on commit {t}, corrected in {t2} without a \
+         second review, and replayed on commit {t2}.\nNot replayed (from the review):\n- `Le réseau n'est pas joué.`\n"
+    );
+    assert!(corps.ends_with(&format!("\n\n{ligne}")), "{corps}");
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn le_second_relecteur_lit_le_diff_et_la_preuve_de_t2() {
+    let essai = Essai::nouveau("relecture-seconde-t2");
+    essai.remarques(1, &remarques_justes());
+    essai.secondes(1, SANS_REMARQUE);
+    let base = essai.base();
+    let plan = Plan::lire(PLAN_DE_VAGUE.as_bytes()).unwrap();
+    assert_eq!(essai.mener(&plan, None), ExitCode::SUCCESS);
+    let fil = essai.fil();
+    let ouvertes = ouvertes(&fil);
+    let [v, _, c, _] = &ouvertes[..] else {
+        panic!("la vague, le relecteur, la correction, le second relecteur : {ouvertes:?}")
+    };
+    let (t, t2) = (tete_de(&fil, v), tete_de(&fil, c));
+    assert_ne!(t, t2);
+    // Son diff va de la base de la vague à `t2`, limité aux `fichiers` de la tâche critique : la correction y est.
+    let diff = essai.garde("seconde-diff-1.txt").expect("le second relecteur a vu DIFF.lydite");
+    let attendu =
+        git(&essai.depot, &["diff", "--no-color", "--no-ext-diff", "--no-textconv", &base, &t2, "--", "sortie/"]);
+    assert_eq!(diff.trim_end(), attendu.replace("\r\n", "\n"));
+    assert!(diff.contains("diff --git a/sortie/correction.txt b/sortie/correction.txt"), "{diff}");
+    assert!(diff.contains(&format!("sortie/main-{v}-1.txt")) && !diff.contains("autre/"), "{diff}");
+    let premier = essai.garde("diff-1.txt").expect("le premier relecteur a vu DIFF.lydite");
+    assert!(!premier.contains("sortie/correction.txt"), "le premier diff va à t : {premier}");
+    // Sa preuve est celle que le `vague.fusion` de la correction porte en `t2`, non celle de la vague.
+    let preuve = essai.garde("seconde-preuve-1.txt").expect("le second relecteur a vu PREUVE.lydite");
+    assert_eq!(preuve, texte_de_la_preuve(Some("exit 0"), &fil, c, &t2).replace("\r\n", "\n"));
+    let entete = format!("Proof command: exit 0\nReplayed green by Lydite on commit: {t2}\n");
+    assert!(preuve.starts_with(&entete), "{preuve}");
+    // La même consigne que le premier relecteur.
+    assert_eq!(essai.garde("seconde-consigne-relecteur-1.txt"), essai.garde("consigne-relecteur-1.txt"));
     let _ = fs::remove_dir_all(&essai.racine);
 }
 

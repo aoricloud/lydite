@@ -273,8 +273,10 @@ that reaches it is stopped, and its task comes back to you. With another provide
 | `plafond` | the most one hand may spend, in dollars |
 | `delai_main`, `delai_preuve` | how long a hand, and a replay of your proof, may run, in seconds |
 | `api`, `cle`, `prix` | another provider: its URL, the name of the variable that holds its key, its prices |
+| `api_relecteur = anthropic` | with `api` and `cle`: the reviewer talks to Anthropic, under your Claude login, while the other hands talk to the provider |
 | `proteges`, `efforts_permis` | paths no hand may change; the efforts a plan may ask (see [A profile](#a-profile)) |
 | `tache`, `objectif`, `preuve`, `fichiers`, `depend`, `critique` | plan: a task, its objective, its proof, its files, the tasks it waits for, whether it is reviewed |
+| `forme` | plan header: a formatting command that Lydite runs in each hand's sandbox before replaying your proof |
 
 The French commands and flags of earlier versions (`lancer`, `--verifier`, `--depot`…) are still read.
 
@@ -294,6 +296,13 @@ mur = exige
 
 Set `decoupeur` and `relecteur` too: they default to `opus`, a name your provider may not know. An optional `prix`
 line gives the provider's prices, so that receipts carry a cost.
+
+To have critical work reviewed by Claude while the provider does the rest, add `api_relecteur = anthropic`: the
+reviewer (both its attempts, at the first review and at the second) then talks to Anthropic under your Claude Code
+login, like the hand of a profile without `api`, and `relecteur` names a Claude model (`opus` by default). It gets
+neither the provider's URL nor its key, nor the variable that `cle` names. Under your subscription its usage counts
+as subscription usage, and a quota does not ask `prix` for its model. The tasks' hands, their retries, the hand that
+fixes a review's remarks and the splitter stay with the provider. `lydite profile` says so in one more row.
 
 **Windows.** The wall (the sandbox) is required everywhere, Windows included: a profile with no `mur` line, and the built-in `claude` profile, require it. But Claude Code's sandbox and srt do not hold under Windows, so the wall check fails there (6028) before any hand. To launch anyway, knowingly, write `mur = demande` in the profile (for the built-in profile, a file `profils/claude.profil` that repeats its text with `mur = demande`), then `lydite accept <name>`. Under a requested wall the hand's commands may run outside Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed outside the wall. Lydite also refuses `--issue` there (6029), and replays your proof through `cmd /C`. WSL2 gives you the Linux path, wall included.
 
@@ -538,6 +547,8 @@ To turn it on, write `mur = natif` in the profile, then accept it again (`lydite
 Its limits: it covers the wall check and the replay of your proof only. The commands of a Claude Code hand still run under Claude Code's own sandbox, which needs bubblewrap and socat according to Claude Code's sandboxing page, as with `mur = exige`: neither the 6028 check nor `lydite doctor` tries it, and a hand that Claude Code reports outside it is stopped before its task. Its network filter decides by name: a domain in `reseau` is allowed on all its ports, even when it resolves to this machine's own public address, and an IPv4 address written in `reseau` is joined as written, loopback and private ones included. Its log, `reseau.journal` in the state folder, has no dates and no size bound. srt stays the default.
 
 ### Plans
+
+*(Not in 0.4.0.)* The optional header key `forme : <command>` (for example `forme : cargo fmt`), given once, names a formatting command: Lydite runs it itself in the sandbox of each task's hand, once the hand is done and just before replaying the proof, the way it replays the proof (the same wall and the same `delai_preuve`), for the retry, the correction of a review and the retry of a red CI too, never for the hands that split or review. Your proof keeps its own format check and is the judge: a formatting command that fails stops nothing, and the end of its output, under `formatting failed: <command>`, comes before the proof's. What it changes counts as the hand's work (`fichiers` and `exact` hold for it). A plan split by a hand never carries it (6018); a blank value is refused (6021); a plan without this key does not change.
 
 In a plan, the repeatable task key `exact : <file> : <text>` makes Lydite check itself, byte for byte and without a
 model, that the text appears in that file of the task (the file must be covered by the task's `fichiers`); a hand that

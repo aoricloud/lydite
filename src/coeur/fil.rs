@@ -184,8 +184,9 @@
 //! - `forge.refus {vague, code, regle, preuve, correction}` : la forge ne va pas plus loin pour la vague. Une
 //!   décision de Kraken, sans `main` ni `foi`, comme `vague.refus` : `code` est le numéro d'un code, un entier de
 //!   1000 à 9999, et `regle`, `preuve` et `correction` sont les trois textes de son refus.
-//! - `forge.rangement {vague, retires}` : ce que Kraken va retirer des bacs et des branches de la vague, une liste dans
-//!   `retires`, un chemin ou une branche par ligne. Notée avant d'agir.
+//! - `forge.rangement {vague, retires}` : ce que Lydite a retiré des bacs et des branches de la vague, une liste dans
+//!   `retires`, un chemin ou une branche par ligne. Notée après avoir agi : un worktree dont le retrait a raté n'y est
+//!   pas, ni rien de ce qui devait partir avec lui, et sans rien de retiré, aucune note.
 //! - `vague.decoupage {vague, taches, empreinte, plan}` : le découpage `vague`, une vague de copies d'une main, le
 //!   découpeur, a pris un plan de `taches` tâches. `plan` est son texte, tel que le découpeur l'a écrit, et `empreinte`
 //!   son SHA-256 en 64 hexadécimaux minuscules. Une décision de Kraken, sans `foi`. Notée une fois le découpage pris,
@@ -204,8 +205,12 @@
 //!   `main.lancement` du relecteur, des jetons ; `null` pour une main nue, qui n'en note pas. Une note de Kraken, sans
 //!   `foi`. Type neuf, il ne change pas `v`. Au rejeu, la vague relue garde le dernier verdict noté sur elle.
 //! - `vague.correction {vague, corrige}` : la correction `vague`, une vague d'une tâche, corrige la vague `corrige`,
-//!   une autre, que la relecture a dite à corriger. Avant tout départ de la correction. Elle n'a pas de seconde
-//!   relecture, et les notes `forge.*` de la vague corrigée restent à la vague corrigée.
+//!   une autre, que la relecture a dite à corriger. Avant tout départ de la correction. La correction n'a pas de
+//!   relecture à elle, mais la vague corrigée peut en avoir une seconde, qui la suit : une `vague.relecture` de plus
+//!   de même `relue`, notée par la vague d'un autre relecteur, et son `vague.verdict`, de même `relue`, dont le `sha`
+//!   est la tête de la correction (son dernier `vague.fusion`). Le rejeu rend alors toutes les relectures de la vague
+//!   par `relectures_de`, la dernière par `relecture_de`, et garde le dernier verdict en `jugement`. Les notes
+//!   `forge.*` de la vague corrigée restent à la vague corrigée.
 //! - `vague.relecteur {vague, relue}` : la vague `vague`, celle du relecteur, relit la vague `relue`, une autre. Avant
 //!   tout départ du relecteur. Ce n'est pas une relecture : `vague.relecture` reste notée une fois la relecture prise,
 //!   et une relecture classée n'en note toujours aucune.
@@ -492,7 +497,8 @@ pub(crate) enum Evenement {
     /// `forge.refus` : la forge ne va pas plus loin pour la vague. Une décision de Kraken, sans `main` ni `foi` :
     /// `code` est le numéro d'un code (1000 à 9999), suivi des trois textes de son refus.
     RefusForge { vague: String, code: u16, regle: String, preuve: String, correction: String },
-    /// `forge.rangement` : ce que Kraken va retirer, un chemin ou une branche par élément. Notée avant d'agir.
+    /// `forge.rangement` : ce que Lydite a retiré, un chemin ou une branche par élément. Notée après avoir agi, et
+    /// seulement si quelque chose a été retiré.
     Rangement { vague: String, retires: Vec<String> },
     /// `vague.decoupage` : le découpage `vague`, une vague de copies du découpeur, a pris un plan de `taches` tâches
     /// (1 à 10 000), dont `plan` est le texte et `empreinte` le SHA-256, en 64 hexadécimaux minuscules.
@@ -1863,6 +1869,12 @@ pub(crate) fn porter_issues(vagues: &mut [Vague], issues: &[IssueVague]) {
 /// Ce que la dernière relecture notée de la vague `id` a rendu.
 pub(crate) fn relecture_de<'a>(vagues: &'a [Vague], id: &str) -> Option<&'a Relecture> {
     vagues.iter().rev().filter_map(|vague| vague.relecture.as_ref()).find(|relecture| relecture.relue == id)
+}
+
+/// Toutes les relectures notées de la vague `id`, dans l'ordre où le rejeu connaît leurs vagues de relecteur (celui du
+/// journal : un relecteur est connu dès sa première note) : la dernière est celle que rend [`relecture_de`].
+pub(crate) fn relectures_de<'a>(vagues: &'a [Vague], id: &str) -> Vec<&'a Relecture> {
+    vagues.iter().filter_map(|vague| vague.relecture.as_ref()).filter(|relecture| relecture.relue == id).collect()
 }
 
 /// La dernière correction notée de la vague `id`.

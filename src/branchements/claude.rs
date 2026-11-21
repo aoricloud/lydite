@@ -17,7 +17,7 @@ use crate::branchements::processus::{
     SORTIE, attendre, echeance, retire_de_l_env, sans_session, tuer_et_attendre, tuer_les_restes,
 };
 use crate::coeur::erreur::queue;
-use crate::coeur::profil::Fournisseur;
+use crate::coeur::profil::Environnement;
 use crate::coeur::protocole::{self, Attendu, Constat, DEMANDES, Ligne};
 
 /// Le temps qu'ont les quatre réponses de contrôle, puis l'ouverture, chacune, jamais plus que ce qui reste du délai de
@@ -31,8 +31,9 @@ const BORNE: Duration = Duration::from_secs(60);
 /// stream-json (voir protocole.rs) : ses réponses de contrôle se jugent contre `attendu` avant sa consigne, son
 /// ouverture dès qu'elle arrive, et sa sortie est le texte de son résultat. Au délai, sur un écart ou à une borne, son
 /// arbre meurt ; une erreur de délai commence par « hand: timed out (N s) ». `kraken` met le dossier de
-/// l'exécutable de Kraken en tête de son `PATH` ([`path_de_kraken`]). `fournisseur` est l'URL de l'API de la main, sa
-/// clé et le nom de la variable qui la tient, s'il y en a : ils vont à l'environnement de la main seule ([`partir`]).
+/// l'exécutable de Kraken en tête de son `PATH` ([`path_de_kraken`]). `fournisseur` est ce que l'environnement de la
+/// main reçoit et perd du fournisseur de son profil, s'il en nomme un : l'URL de l'API, sa clé et le nom de la variable
+/// qui la tient, ou ce seul nom pour une main qui parle chez Anthropic ; ils ne vont qu'à la main ([`partir`]).
 pub(crate) fn jouer(
     argv: &[String],
     bac: &Path,
@@ -40,7 +41,7 @@ pub(crate) fn jouer(
     delai: Duration,
     attendu: Option<&Attendu>,
     kraken: bool,
-    fournisseur: Option<Fournisseur>,
+    fournisseur: Option<Environnement>,
 ) -> (Option<Constat>, Result<String, ErreurMain>) {
     let mut constat = Constat::default();
     let jeu =
@@ -127,11 +128,13 @@ struct Partie {
 
 /// Lance la main dans le bac, sous `delai` : sa sortie et ses erreurs lues ligne à ligne dans des fils d'exécution, son
 /// entrée écrite dans un autre, son dossier temporaire à côté du bac, l'identité de Kraken pour ses commits, sans les
-/// variables que [`retire_de_l_env`] désigne, et, avec `kraken`, le `PATH` de [`path_de_kraken`]. Avec `fournisseur`,
-/// `(URL de l'API, clé, nom de la variable qui tient la clé)`, elle reçoit `ANTHROPIC_BASE_URL` et `ANTHROPIC_API_KEY`,
-/// et perd cette variable et un `ANTHROPIC_AUTH_TOKEN` hérité : le jeton de l'humain ne va pas chez un autre
-/// fournisseur, et la clé ne va qu'à la main. L'ordre compte : la variable est retirée avant que `ANTHROPIC_API_KEY` ne
-/// soit posée, car le profil peut nommer `ANTHROPIC_API_KEY` elle-même. Sans fournisseur, rien de cela ne change.
+/// variables que [`retire_de_l_env`] désigne, et, avec `kraken`, le `PATH` de [`path_de_kraken`]. Avec
+/// `Environnement::Fournisseur`, `(URL de l'API, clé, nom de la variable qui tient la clé)`, elle reçoit
+/// `ANTHROPIC_BASE_URL` et `ANTHROPIC_API_KEY`, et perd cette variable et un `ANTHROPIC_AUTH_TOKEN` hérité : le jeton
+/// de l'humain ne va pas chez un autre fournisseur, et la clé ne va qu'à la main. L'ordre compte : la variable est
+/// retirée avant que `ANTHROPIC_API_KEY` ne soit posée, car le profil peut nommer `ANTHROPIC_API_KEY` elle-même. Avec
+/// `Environnement::SansLaCle`, elle parle chez Anthropic sous la connexion de l'humain, et ne perd que la variable
+/// nommée. Sans fournisseur, rien de cela ne change.
 /// Elle ne pose pas `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, car avec elle Claude Code ouvre la session en `default` au
 /// lieu de `acceptEdits` et la main ne peut plus éditer. Un argv vide est une erreur, pas une panique.
 #[expect(clippy::expect_used, reason = "tuyaux demandés au lancement de l'enfant")]
@@ -140,7 +143,7 @@ fn partir(
     bac: &Path,
     delai: Duration,
     kraken: bool,
-    fournisseur: Option<Fournisseur>,
+    fournisseur: Option<Environnement>,
 ) -> Result<Partie, String> {
     let fin = echeance(delai);
     let Some((programme, args)) = argv.split_first() else {
@@ -150,12 +153,19 @@ fn partir(
     commande.args(args).current_dir(bac).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     // Ses commits sont ceux de Kraken : ni le nom ni l'adresse de l'humain.
     commande.envs(IDENTITE);
-    if let Some(fournisseur) = fournisseur {
-        commande
-            .env_remove("ANTHROPIC_AUTH_TOKEN")
-            .env_remove(fournisseur.variable)
-            .env("ANTHROPIC_BASE_URL", fournisseur.api)
-            .env("ANTHROPIC_API_KEY", fournisseur.cle);
+    match fournisseur {
+        Some(Environnement::Fournisseur(fournisseur)) => {
+            commande
+                .env_remove("ANTHROPIC_AUTH_TOKEN")
+                .env_remove(fournisseur.variable)
+                .env("ANTHROPIC_BASE_URL", fournisseur.api)
+                .env("ANTHROPIC_API_KEY", fournisseur.cle);
+        }
+        // Chez Anthropic, sous la connexion de l'humain : la clé du fournisseur ne va qu'aux mains qui lui parlent.
+        Some(Environnement::SansLaCle(variable)) => {
+            commande.env_remove(variable);
+        }
+        None => {}
     }
     if kraken {
         commande.env("PATH", path_de_kraken()?);

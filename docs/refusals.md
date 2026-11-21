@@ -32,7 +32,7 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 6015 | `lancer.dossier_sous_le_depot` | Lydite's folder is outside the target repository. |
 | 6016 | `lancer.plan_version` | A plan starts with its version, `plan 1`, which Lydite reads before anything else. |
 | 6017 | `lancer.plan_encodage` | A plan is UTF-8 text, a leading BOM tolerated; a plan in UTF-16 is rewritten in UTF-8. |
-| 6018 | `lancer.plan_ligne` | In column 0, a plan line is empty, `tache <id>` within the limit of 10,000 tasks, or a known key (`objectif`, `preuve` and `report` in the header; `depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256`, `red` and `place` under a task), once only and in its place, before the indented lines; an indented line follows a task. A plan with `report` has no `place` line, and each of its tasks has a `red` line and `critique : oui`. |
+| 6018 | `lancer.plan_ligne` | In column 0, a plan line is empty, `tache <id>` within the limit of 10,000 tasks, or a known key (`objectif`, `preuve`, `report` and `forme` in the header; `depend`, `preuve`, `modele`, `relance`, `effort`, `fichiers`, `critique`, `exact`, `sha256`, `red` and `place` under a task), once only and in its place, before the indented lines; an indented line follows a task. A plan split by a hand carries neither `report` nor `forme`. A plan with `report` has no `place` line, and each of its tasks has a `red` line and `critique : oui`. |
 | 6019 | `lancer.plan_identifiant` | A task id is a word of ASCII letters and digits, `-` and `_`, unique in the plan. |
 | 6020 | `lancer.plan_dependance` | A task depends only on other tasks of the plan, without a cycle. |
 | 6021 | `lancer.plan_blanc` | A plan has an objective, a proof and at least one task; each task has an objective, and a written `report`, `preuve`, `modele`, `relance` or `critique` is not blank (only `depend` may be). |
@@ -69,7 +69,7 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 7014 | `vague.bac_touche` | The splitter and the reviewer write only their own file, an ordinary one that the repository does not ignore, at the root of their worktree; nothing else changes there. A file shaped like a wall stop, as rule 7013 describes it, is not counted. |
 | 7015 | `vague.remarques_illisibles` | The reviewer's file follows the `remarques 2` format; otherwise its attempt is red. |
 | 7016 | `vague.relecture_manquee` | The work of a critical task is pushed only once reviewed; a review that is set aside, and nothing is pushed. |
-| 7017 | `vague.bloquantes_restantes` | Blocking remarks are worth a single correction; not assembled, nothing is pushed. |
+| 7017 | `vague.bloquantes_restantes` | Blocking remarks are worth a single correction; not assembled, or blocking again at the second review, nothing is pushed. |
 | 7018 | `vague.chemin_protege` | A hand changes no path that its profile protects (proteges), neither by an edit nor by a command. A file shaped like a wall stop, as rule 7013 describes it, is not counted. |
 | 7019 | `vague.plafond_atteint` | A hand that reaches its spending cap is stopped and not retried; its task is refused, and what follows is for the human. |
 | 7020 | `vague.bloquante_hors_de_portee` | A blocking remark targets a file that the correction cannot touch; the wave stops before any correction and nothing is pushed. |

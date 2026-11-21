@@ -210,6 +210,42 @@ fn le_recu_d_une_pr_dit_not_proved_pour_un_plan_a_report_et_rien_pour_un_autre()
 }
 
 #[test]
+fn le_corps_dit_la_mise_en_forme_sous_la_ligne_proof_et_sans_forme_ne_change_pas() {
+    let v = "1761901500000_11_0";
+    let sans = "plan 1\nobjectif : Un test\npreuve : cargo test\n\ntache a\n    Ecrire a\n";
+    let avec = sans.replacen("preuve : cargo test\n", "preuve : cargo test\nforme : cargo fmt\n", 1);
+    let (sans, avec) = (Plan::lire(sans.as_bytes()).unwrap(), Plan::lire(avec.as_bytes()).unwrap());
+    assert_eq!(avec.forme.as_deref(), Some("cargo fmt"));
+    let evenements = vague_impossible(v, &["x"], false);
+    let (vagues, notes) = (etat(&evenements), notes_de(&evenements));
+    let recu = recu_de(&vagues, &notes, v);
+    let vague = vagues.iter().find(|vague| vague.id == v).unwrap();
+    let (texte_sans, texte_avec) =
+        (corps(&sans, vague, None, None, &recu, &[], &[]), corps(&avec, vague, None, None, &recu, &[], &[]));
+    let ligne = "\nFormatting: cargo fmt, run by Lydite after each hand.";
+    assert!(texte_avec.contains(&format!("\n\nProof: cargo test → green{ligne}\n\n")), "{texte_avec}");
+    // Sans `forme`, le corps est celui d'avant : la ligne ôtée, les deux corps sont les mêmes.
+    assert!(!texte_sans.contains("Formatting"), "{texte_sans}");
+    assert_eq!(texte_avec.replacen(ligne, "", 1), texte_sans);
+}
+
+#[test]
+fn la_relance_d_une_ci_rouge_reprend_la_forme_du_plan() {
+    let lignes =
+        ["plan 1", "objectif : Ecrire a", "preuve : cargo test", "tache a", "fichiers : a.txt", "    Ecrire a"];
+    let sans = plan(&lignes);
+    let mut avec_forme = lignes.to_vec();
+    avec_forme.insert(3, "forme : cargo fmt");
+    let avec = plan(&avec_forme);
+    let relance = plan_de_relance(&avec, &assemblees(&avec), 7, "boom\n");
+    assert_eq!(relance.forme.as_deref(), Some("cargo fmt"));
+    // Rien d'autre ne change : la relance d'un plan sans `forme` n'en a pas, et elle est la même au reste près.
+    let d_avant = plan_de_relance(&sans, &assemblees(&sans), 7, "boom\n");
+    assert_eq!(d_avant.forme, None);
+    assert_eq!(Plan { forme: None, ..relance }, d_avant);
+}
+
+#[test]
 fn le_corps_garde_set_aside_pour_une_tache_classee_rouge_apres_sa_relance() {
     let plan = Plan::lire(b"plan 1\nobjectif : Un test\npreuve : cargo test\n\ntache a\n    Ecrire a.txt\n").unwrap();
     let v = "1761901500000_11_0";
@@ -1704,6 +1740,7 @@ fn un_plan_sans_exact_ni_epingle_rend_la_tache_ci_d_avant() {
         objectif: "Make the CI of PR 7 green".into(),
         preuve: Some("cargo test".into()),
         rapport: None,
+        forme: None,
         taches: vec![tache],
     };
     assert_eq!(relance, attendu);
@@ -1793,6 +1830,165 @@ fn le_rangement_retire_comme_la_forge_lance_ses_gestes_git() {
     // interactif), et sa commande écrivait dans les fichiers de la forge, qui la borne par son délai.
     let vu = fs::read_to_string(&temoin).expect("git a lancé le pilote du bac");
     assert!(vu.lines().all(|ligne| ligne.starts_with("1 0 never ") && ligne.contains(".sortie")), "{vu:?}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+/// Les butées que le bac à sable de Claude Code laisse dans un bac quand une commande de la main finit en arrière-plan,
+/// encore en cours à la fin de sa session : des fichiers vides en lecture seule sous `.claude/`.
+const BUTEES: [&str; 4] = [".claude/settings.json", ".claude/settings.local.json", ".claude/hooks", ".claude/skills"];
+
+/// Rend ce fichier sans droit d'écriture.
+fn en_lecture_seule(fichier: &Path) {
+    let mut droits = fs::metadata(fichier).unwrap().permissions();
+    droits.set_readonly(true);
+    fs::set_permissions(fichier, droits).unwrap();
+}
+
+/// Pose dans `bac` les [`BUTEES`], chacune un fichier vide en lecture seule, et vérifie que git les voit non suivies :
+/// tant qu'elles sont là, `git worktree remove` sans forcer refuse le bac.
+fn poser_les_butees(bac: &Path) {
+    for butee in BUTEES {
+        ecrire(bac, butee, "");
+        en_lecture_seule(&bac.join(butee));
+    }
+    let vus = git(bac, &["status", "--porcelain", "--untracked-files=all"]);
+    assert!(BUTEES.iter().all(|butee| vus.contains(&format!("?? {butee}"))), "{vus}");
+}
+
+/// La branche `refs/heads/<nom>` du dépôt, vide si elle n'y est pas.
+fn branche_du_depot(depot: &Path, nom: &str) -> String {
+    git(depot, &["for-each-ref", "--format=%(objectname)", &format!("refs/heads/{nom}")])
+}
+
+#[test]
+fn le_rangement_efface_les_butees_d_un_bac_pousse_puis_le_retire_avec_sa_branche() {
+    let lieu = lieu("forge-rangement-butees");
+    let proposition = lieu.proposition();
+    let menee = lieu.vague(&proposition, &plan_de_a());
+    let (tete, id) = (menee.tete.clone().unwrap(), menee.issues[0].0.clone());
+    assert!(menee.issues[0].1.is_ok(), "a est assemblée : {:?}", menee.issues);
+    let bacs = lieu.kraken.join("bacs");
+    let (bac, vague) = (bacs.join(&id), bacs.join(format!("vague-{}", menee.id)));
+    let (temporaire, branche) = (temporaire_de(&bac).unwrap(), format!("lydite/{id}"));
+    // Avant le rangement : le bac de a, son dossier temporaire, et sa branche sur son gel, que la tête poussée porte.
+    assert!(bac.is_dir() && temporaire.is_dir() && vague.is_dir());
+    assert_eq!(branche_du_depot(&lieu.depot, &branche), git(&bac, &["rev-parse", "HEAD"]));
+    // Une commande de la main, passée en arrière-plan, est morte sans retirer les butées du mur.
+    poser_les_butees(&bac);
+    let fil = Fil::seance(&lieu.kraken, "humain");
+    proposition.ranger(&fil, &menee, &tete, false).unwrap();
+    // Le bac, son dossier temporaire et sa branche sont retirés, puis le worktree de la vague.
+    assert!(!bac.exists(), "le bac de a est retiré");
+    assert!(!temporaire.exists(), "son dossier temporaire est retiré");
+    assert_eq!(branche_du_depot(&lieu.depot, &branche), "", "sa branche est retirée");
+    assert!(!vague.exists(), "le worktree de la vague est retiré");
+    // Le rangement, noté une fois, les liste.
+    let retires = [bac.display().to_string(), temporaire.display().to_string(), branche, vague.display().to_string()];
+    let notes = lieu.forge_du_fil(&menee.id);
+    assert!(matches!(&notes[..], [Evenement::Rangement { retires: vus, .. }] if *vus == retires), "{notes:?}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+/// Le texte du fichier non suivi que garde le bac de la première tâche, dans
+/// [`un_bac_qui_garde_un_vrai_fichier_non_suivi_reste_avec_sa_branche`].
+const TRAVAIL: &str = "un travail qui n'est nulle part ailleurs";
+
+#[test]
+fn un_bac_qui_garde_un_vrai_fichier_non_suivi_reste_avec_sa_branche() {
+    let lieu = lieu("forge-rangement-garde");
+    // La base porte `.claude/agents`, un fichier vide : en lecture seule dans un bac, il a la forme d'une butée, mais
+    // le commit du bac le porte.
+    let base = sur(&lieu.depot, &lieu.base(), &[(".claude/agents", "")], "agents");
+    git(&lieu.depot, &["push", "-q", "origin", &format!("{base}:refs/heads/main")]);
+    let proposition = lieu.proposition();
+    let plan = plan(&[
+        "plan 1",
+        "objectif : Ecrire a et b",
+        "preuve : exit 0",
+        "tache a",
+        "    Ecrire a",
+        "tache b",
+        "depend : a",
+        "    Ecrire b",
+    ]);
+    let menee = lieu.vague(&proposition, &plan);
+    let tete = menee.tete.clone().unwrap();
+    let [(garde, a), (range, b)] = &menee.issues[..] else { panic!("{:?}", menee.issues) };
+    assert!(a.is_ok() && b.is_ok(), "{:?}", menee.issues);
+    let bacs = lieu.kraken.join("bacs");
+    let (bac_garde, bac_range) = (bacs.join(garde), bacs.join(range));
+    let vague = bacs.join(format!("vague-{}", menee.id));
+    let (branche_garde, branche_range) = (format!("lydite/{garde}"), format!("lydite/{range}"));
+    let (temporaire_garde, temporaire_range) = (temporaire_de(&bac_garde).unwrap(), temporaire_de(&bac_range).unwrap());
+    assert!(temporaire_garde.is_dir() && temporaire_range.is_dir());
+    let gel_garde = branche_du_depot(&lieu.depot, &branche_garde);
+    assert_eq!(gel_garde, git(&bac_garde, &["rev-parse", "HEAD"]));
+    // Les deux bacs portent les butées ; le premier garde aussi un vrai fichier non suivi, non vide, et son
+    // `.claude/agents` suivi passe en lecture seule.
+    poser_les_butees(&bac_garde);
+    poser_les_butees(&bac_range);
+    ecrire(&bac_garde, "travail.txt", TRAVAIL);
+    let agents = bac_garde.join(".claude/agents");
+    en_lecture_seule(&agents);
+    assert_eq!(git(&bac_garde, &["ls-files", ".claude/agents"]), ".claude/agents", "le commit du bac le porte");
+    let fil = Fil::seance(&lieu.kraken, "humain");
+    proposition.ranger(&fil, &menee, &tete, false).unwrap();
+    // Le premier bac reste, son travail et sa branche avec lui ; son fichier suivi qui a la forme d'une butée est là.
+    assert_eq!(fs::read_to_string(bac_garde.join("travail.txt")).unwrap(), TRAVAIL);
+    assert_eq!(branche_du_depot(&lieu.depot, &branche_garde), gel_garde, "sa branche reste");
+    assert!(temporaire_garde.is_dir(), "son dossier temporaire reste");
+    let meta = fs::symlink_metadata(&agents).expect("Lydite n'efface pas un fichier que le commit du bac porte");
+    assert!(meta.is_file() && meta.len() == 0 && meta.permissions().readonly(), "{meta:?}");
+    // L'autre bac et le worktree de la vague sont retirés, et le rangement ne liste qu'eux.
+    assert!(!bac_range.exists() && !temporaire_range.exists() && !vague.exists());
+    assert_eq!(branche_du_depot(&lieu.depot, &branche_range), "");
+    let retires = [
+        bac_range.display().to_string(),
+        temporaire_range.display().to_string(),
+        branche_range,
+        vague.display().to_string(),
+    ];
+    let notes = lieu.forge_du_fil(&menee.id);
+    assert!(matches!(&notes[..], [Evenement::Rangement { retires: vus, .. }] if *vus == retires), "{notes:?}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn le_retrait_rate_d_un_bac_qui_reste_se_dit_sur_stderr() {
+    // L'essai d'avant, rejoué seul dans un second processus de ce binaire d'essais, dont stderr se lit.
+    let essai = "conduite::publication::tests::un_bac_qui_garde_un_vrai_fichier_non_suivi_reste_avec_sa_branche";
+    let sortie = Command::new(env::current_exe().unwrap()).args(["--exact", essai, "--nocapture"]).output().unwrap();
+    let (dit, erreur) = (String::from_utf8_lossy(&sortie.stdout), String::from_utf8_lossy(&sortie.stderr));
+    // Un essai passé : un nom qui change ne laisse pas l'épreuve passer à vide.
+    assert!(sortie.status.success() && dit.contains("1 passed"), "{dit}\n{erreur}");
+    let entete = "removal failed, the rest of this worktree remains: ";
+    let lignes: Vec<&str> = erreur.lines().filter(|ligne| ligne.starts_with(entete)).collect();
+    // Une ligne, pour le seul bac qui reste, où git dit pourquoi.
+    assert_eq!(lignes.len(), 1, "{erreur}");
+    assert!(lignes[0].contains("untracked files"), "{erreur}");
+}
+
+#[test]
+fn une_vague_dont_aucun_retrait_ne_reussit_ne_note_aucun_rangement() {
+    let lieu = lieu("forge-rangement-aucun");
+    let proposition = lieu.proposition();
+    let menee = lieu.vague(&proposition, &plan_de_a());
+    let (tete, id) = (menee.tete.clone().unwrap(), menee.issues[0].0.clone());
+    assert!(menee.issues[0].1.is_ok(), "a est assemblée : {:?}", menee.issues);
+    let bacs = lieu.kraken.join("bacs");
+    let (bac, vague) = (bacs.join(&id), bacs.join(format!("vague-{}", menee.id)));
+    // Le bac de a et le worktree de la vague gardent chacun un vrai fichier non suivi, en plus des butées.
+    for worktree in [&bac, &vague] {
+        poser_les_butees(worktree);
+        ecrire(worktree, "travail.txt", TRAVAIL);
+    }
+    let fil = Fil::seance(&lieu.kraken, "humain");
+    proposition.ranger(&fil, &menee, &tete, false).unwrap();
+    // Rien n'est retiré, et rien ne se note.
+    assert!(bac.join("travail.txt").is_file() && vague.join("travail.txt").is_file());
+    assert_eq!(branche_du_depot(&lieu.depot, &format!("lydite/{id}")), git(&bac, &["rev-parse", "HEAD"]));
+    assert_eq!(mots(&lieu.forge_du_fil(&menee.id)), Vec::<String>::new());
+    assert!(!lieu.fil().iter().any(|note| matches!(note, Evenement::Rangement { .. })), "aucun forge.rangement");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -2064,6 +2260,86 @@ fn la_ligne_du_corps_dit_le_commit_relu_et_rejoue() {
         controle(&[], &t2).unwrap(),
         format!("Not replayed on commit {t2}, not reviewed: no critical task was assembled.")
     );
+}
+
+/// La seconde relecture de `v`, par le relecteur `s`, sans bloquante ou avec, jugée sur `jugee`.
+fn seconde_relecture(bloquantes: usize, jugee: &str) -> [Evenement; 3] {
+    [
+        Evenement::Relecteur { vague: "s".into(), relue: "v".into() },
+        Evenement::Relecture { vague: "s".into(), relue: "v".into(), n: 1, bloquantes, remarques: "s".into() },
+        Evenement::VerdictRelecture {
+            vague: "s".into(),
+            relue: "v".into(),
+            sha: jugee.into(),
+            profil: None,
+            empreinte: None,
+            modele: None,
+        },
+    ]
+}
+
+#[test]
+fn une_seconde_relecture_sans_bloquante_pousse_la_tete_de_la_correction_rejouee_par_elle() {
+    let (t, t2, autre) = ("a".repeat(40), "c".repeat(40), "d".repeat(40));
+    // `v` relue sur `t` avec une bloquante, corrigée par `c` en `t2` (seul `c` a un `vague.fusion` sur `t2`), puis
+    // relue sans bloquante sur `t2`.
+    let mut notes = relue_notee(1, &t, "v", &[&t2]);
+    notes.extend(seconde_relecture(0, &t2));
+    assert_eq!(controle(&notes, &t2).unwrap(), format!("Reviewed and replayed on commit {t2}."));
+    // Seule la tête jugée part : ni la première, ni une autre.
+    for tete in [&t, &autre] {
+        let refus = controle(&notes, tete).unwrap_err();
+        assert_eq!(refus.code, Code::RelectureManquee, "{tete}");
+        assert!(refus.preuve.contains(tete.as_str()) && refus.preuve.contains(&t2), "{}", refus.preuve);
+    }
+    // « replayed » ne s'écrit que si un `vague.fusion` de `v` ou de `c` porte `t2` : celui d'une autre n'y fait rien.
+    let mut sans_fusion = relue_notee(1, &t, "v", &[]);
+    sans_fusion.push(Evenement::Fusion { vague: "autre".into(), main: 1, sha: t2.clone(), verif: String::new() });
+    sans_fusion.extend(seconde_relecture(0, &t2));
+    assert_eq!(controle(&sans_fusion, &t2).unwrap(), format!("Reviewed and not replayed on commit {t2}."));
+    // Celui de `v` suffit toujours.
+    let mut de_v = sans_fusion.clone();
+    de_v.push(Evenement::Fusion { vague: "v".into(), main: 1, sha: t2.clone(), verif: String::new() });
+    assert_eq!(controle(&de_v, &t2).unwrap(), format!("Reviewed and replayed on commit {t2}."));
+    // Une seconde relecture à bloquantes : la correction `c` n'a pas de tête autre que la jugée, le refus 7016 d'avant.
+    let mut bloquee = relue_notee(1, &t, "v", &[&t2]);
+    bloquee.extend(seconde_relecture(1, &t2));
+    let refus = controle(&bloquee, &t2).unwrap_err();
+    assert_eq!(refus.code, Code::RelectureManquee);
+    assert!(refus.preuve.contains("no head other than the reviewed head"), "{}", refus.preuve);
+}
+
+#[test]
+fn la_ligne_de_relecture_dit_les_deux_relectures_d_une_vague_relue_deux_fois() {
+    let ligne = |notes: &[Evenement]| ligne_de_relecture(&etat(notes), "v");
+    let relecture = |relecteur: &str, n, bloquantes| Evenement::Relecture {
+        vague: relecteur.into(),
+        relue: "v".into(),
+        n,
+        bloquantes,
+        remarques: "SECRET-DE-LA-RELECTURE".into(),
+    };
+    let correction = Evenement::Correction { vague: "c".into(), corrige: "v".into() };
+    // Sans relecture : aucune ligne.
+    assert_eq!(ligne(std::slice::from_ref(&correction)), None);
+    // Une seule relecture, corrigée ou non : la ligne d'avant, au caractère près.
+    let corrigee = ligne(&[relecture("r", 3, 1), correction.clone()]);
+    assert_eq!(corrigee.unwrap(), "Review: 3 remarks, 1 blocking, corrected.");
+    assert_eq!(ligne(&[relecture("r", 3, 0)]).unwrap(), "Review: 3 remarks, 0 blocking.");
+    assert_eq!(ligne(&[relecture("r", 1, 0)]).unwrap(), "Review: 1 remark, 0 blocking.");
+    // Deux relectures : la seconde s'ajoute, « remark » au singulier pour chacune.
+    let deux = [relecture("r", 3, 1), correction.clone(), relecture("s", 2, 0)];
+    assert_eq!(
+        ligne(&deux).unwrap(),
+        "Review: 3 remarks, 1 blocking, corrected. Second review: 2 remarks, 0 blocking."
+    );
+    let singuliers = [relecture("r", 1, 1), correction, relecture("s", 1, 0)];
+    assert_eq!(
+        ligne(&singuliers).unwrap(),
+        "Review: 1 remark, 1 blocking, corrected. Second review: 1 remark, 0 blocking."
+    );
+    // Rien que des nombres.
+    assert!(!ligne(&deux).unwrap().contains("SECRET"));
 }
 
 #[test]

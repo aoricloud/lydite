@@ -919,6 +919,9 @@ impl<'a> Vague<'a> {
         // Le rouge d'abord : une tâche à `red` qui a une preuve, hors d'un juge. Le dossier de Lydite et le dépôt se
         // prennent ici, comme `journal` : le fil d'exécution de la main ne touche pas à la vague.
         let rouge = if juge.is_none() { verifier.zip(tache.rouge.as_ref()) } else { None };
+        // La mise en forme du plan, que `tenter` joue avant la preuve d'une main de tâche ; jamais pour un juge. Ce
+        // qu'elle change se juge ensuite comme le travail de la main (`dans_ses_fichiers`, `textes_exacts`).
+        let forme = if juge.is_none() { plan.forme.as_deref() } else { None };
         let (depot, dossier, main_id, vague) =
             (self.depot, self.fil.dossier().to_path_buf(), self.main(k), self.id.clone());
         let journal_du_rouge = self.fil.dossier().join(format!("verif-{}-{k}-{tentative}-rouge.tmp", self.id));
@@ -937,6 +940,7 @@ impl<'a> Vague<'a> {
                     &journal,
                     juge,
                     gardees.fichier.as_deref(),
+                    forme,
                 );
                 let verdict = verdict.and_then(|pris| {
                     dans_ses_fichiers(&bac, &depart, tache, profil.proteges(), pris).map_err(Echec::Erreur)
@@ -1350,6 +1354,7 @@ impl<'a> Vague<'a> {
             verifier,
             precedente,
             juge,
+            self.plan.forme.as_deref(),
         );
         ecrire_consigne(self.fil.dossier(), &texte, ARRET)?;
         Ok(texte)
@@ -1479,9 +1484,9 @@ fn usages_de(
     }
     let total = [UsageModele { modele: modele.into(), jetons: *jetons, micro_dollars: *micro_dollars, base: None }];
     let lignes = if modeles.is_empty() { &total[..] } else { &modeles[..] };
-    // Le forfait ne vaut que sous un profil sans fournisseur : sous un `api`, ce que la main dit de sa clé et de sa
-    // base ne compte pas.
-    let abonnement = profil.variable_de_la_cle().is_none() && constat.source_cle.as_deref() == Some("none");
+    // Le forfait ne vaut que pour une main qui ne parle pas à un fournisseur (le relecteur sous `api_relecteur`
+    // compris) : chez un `api`, ce que la main dit de sa clé et de sa base ne compte pas.
+    let abonnement = !profil.parle_a_un_fournisseur() && constat.source_cle.as_deref() == Some("none");
     lignes
         .iter()
         .map(|ligne| {

@@ -6,15 +6,17 @@
 //! demandes de contrôle par `controle-<modele>.jsonl`, recopie son entrée dans son dossier temporaire, puis :
 //!
 //! - si sa consigne commence la correction (`Corrige au plus petit`), elle garde sa consigne dans `correction.txt` et
-//!   écrit `sortie/correction.txt` dans son bac ;
-//! - si sa consigne nomme `REMARQUES.lydite`, elle est le relecteur, à sa tentative `n` (1, puis 2 une fois posée la
-//!   marque `relecteur-1`) : elle garde son `PATH` dans `path-relecteur-<n>.txt` et le `DIFF.lydite` de son bac dans
+//!   son environnement dans `env-correction.txt`, et écrit `sortie/correction.txt` dans son bac ;
+//! - si sa consigne nomme `REMARQUES.lydite`, elle est le relecteur, à son lancement `n` (1, puis 2 une fois posée la
+//!   marque `relecteur-1` : la relance du premier relecteur, ou le second relecteur, celui de la tête de la
+//!   correction, après un premier pris à sa première tentative) : elle garde son `PATH` dans
+//!   `path-relecteur-<n>.txt`, son environnement dans `env-relecteur-<n>.txt`, et le `DIFF.lydite` de son bac dans
 //!   `diff-<n>.txt` (et son `PREUVE.lydite` dans `preuve-lydite-<n>.txt`), copie `remarques-<n>.lydite` en
 //!   `REMARQUES.lydite` à la racine de son bac, puis joue elle-même
 //!   `lydite remarques REMARQUES.lydite`, que son `PATH` doit trouver, et en garde la sortie dans `preuve-<n>.txt` et
 //!   le code dans `code-<n>.txt` ;
-//! - sinon, elle est la main d'une tâche : elle écrit sa consigne dans `sortie/<bac>.txt` de son bac si elle dit «
-//!   critique », dans `autre/<bac>.txt` sinon.
+//! - sinon, elle est la main d'une tâche : elle garde son environnement dans `env-<bac>.txt`, et écrit sa consigne dans
+//!   `sortie/<bac>.txt` de son bac si elle dit « critique », dans `autre/<bac>.txt` sinon.
 //!
 //! Elle finit par l'ouverture et le résultat de `fin.jsonl`. Tout ce qu'elle garde est à côté d'elle. Le profil d'essai
 //! exige le mur, donne `haiku` aux tâches, `sonnet` à la relance, et `opus` au relecteur : trois modèles, trois
@@ -22,9 +24,26 @@
 //! propre processus (l'environnement va à l'enfant seul, par `Command::env`), ne lance un vrai `claude` ou un vrai
 //! `gh`, ni ne cherche à sortir d'un bac.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+
+/// L'API d'un fournisseur d'essai, et son hôte, que le fil note : ni la fausse claude ni aucun test ne la joint.
+const API: &str = "https://api.exemple.test/anthropic";
+const HOTE: &str = "api.exemple.test";
+
+/// La variable d'environnement qui tient la clé du fournisseur d'essai, et cette clé : un leurre que Lydite ne doit
+/// écrire nulle part.
+const VARIABLE: &str = "LYDITE_ESSAI_CLE";
+const LEURRE: &str = "leurre-de-la-cle-7c2e";
+
+/// Ce que l'humain a chez lui du côté d'Anthropic : son jeton, sa clé et son URL, sur Lydite seul.
+const HUMAIN: [(&str, &str); 3] = [
+    ("ANTHROPIC_AUTH_TOKEN", "jeton-de-l-humain"),
+    ("ANTHROPIC_API_KEY", "cle-de-l-humain"),
+    ("ANTHROPIC_BASE_URL", "https://humain.exemple.test"),
+];
 
 /// La preuve de la vague, que Kraken prête aux mains des tâches et de la correction, et celle qu'il prête au relecteur.
 const VERIFIER: &str = "git status";
@@ -117,11 +136,13 @@ const FAUSSE_WINDOWS: &[&str] = &[
     "set dossier=autre",
     r#"findstr /l /c:"critique" "%TEMP%\entree.jsonl" > nul"#,
     "if not errorlevel 1 set dossier=sortie",
+    r#"set > "%ici%env-%bac%.txt""#,
     "if not exist %dossier% mkdir %dossier%",
     r#"copy /y "%TEMP%\entree.jsonl" "%dossier%\%bac%.txt" > nul"#,
     "goto fin",
     ":correction",
     r#"copy /y "%TEMP%\entree.jsonl" "%ici%correction.txt" > nul"#,
+    r#"set > "%ici%env-correction.txt""#,
     "if not exist sortie mkdir sortie",
     r#"echo corrige> sortie\correction.txt"#,
     "goto fin",
@@ -130,6 +151,7 @@ const FAUSSE_WINDOWS: &[&str] = &[
     r#"if exist "%ici%relecteur-1" set n=2"#,
     r#"type nul > "%ici%relecteur-%n%""#,
     r#"set PATH > "%ici%path-relecteur-%n%.txt""#,
+    r#"set > "%ici%env-relecteur-%n%.txt""#,
     r#"if exist DIFF.lydite copy /y DIFF.lydite "%ici%diff-%n%.txt" > nul"#,
     r#"if exist PREUVE.lydite copy /y PREUVE.lydite "%ici%preuve-lydite-%n%.txt" > nul"#,
     r#"if exist "%ici%remarques-%n%.lydite" copy /y "%ici%remarques-%n%.lydite" REMARQUES.lydite > nul"#,
@@ -154,6 +176,7 @@ const FAUSSE_UNIX: &[&str] = &[
     r#"cat > "$TMPDIR/entree.jsonl""#,
     r#"if grep -q 'Corrige au plus petit' "$TMPDIR/entree.jsonl"; then"#,
     r#"cp "$TMPDIR/entree.jsonl" "$ici/correction.txt""#,
+    r#"env > "$ici/env-correction.txt""#,
     "mkdir -p sortie",
     "echo corrige > sortie/correction.txt",
     r#"elif grep -q 'REMARQUES\.lydite' "$TMPDIR/entree.jsonl"; then"#,
@@ -161,6 +184,7 @@ const FAUSSE_UNIX: &[&str] = &[
     r#"if [ -f "$ici/relecteur-1" ]; then n=2; fi"#,
     r#": > "$ici/relecteur-$n""#,
     r#"printf 'PATH=%s\n' "$PATH" > "$ici/path-relecteur-$n.txt""#,
+    r#"env > "$ici/env-relecteur-$n.txt""#,
     r#"if [ -f DIFF.lydite ]; then cp DIFF.lydite "$ici/diff-$n.txt"; fi"#,
     r#"if [ -f PREUVE.lydite ]; then cp PREUVE.lydite "$ici/preuve-lydite-$n.txt"; fi"#,
     r#"if [ -f "$ici/remarques-$n.lydite" ]; then cp "$ici/remarques-$n.lydite" REMARQUES.lydite; fi"#,
@@ -169,6 +193,7 @@ const FAUSSE_UNIX: &[&str] = &[
     "else",
     "dossier=autre",
     r#"if grep -q 'critique' "$TMPDIR/entree.jsonl"; then dossier=sortie; fi"#,
+    r#"env > "$ici/env-$bac.txt""#,
     r#"mkdir -p "$dossier""#,
     r#"cp "$TMPDIR/entree.jsonl" "$dossier/$bac.txt""#,
     "fi",
@@ -252,6 +277,12 @@ fn remarques_justes() -> String {
         "non rejoue",
         "    Le réseau n'est pas joué.",
     ])
+}
+
+/// Des remarques sans remarque, leurs deux blocs seuls : celles du second relecteur, qui relit la tête de la
+/// correction.
+fn sans_remarque() -> String {
+    texte(&["remarques 2", "", "rejoue", "    Vert.", "", "non rejoue", "    Rien."])
 }
 
 /// La valeur du `PATH` que la fausse claude a gardée : la ligne `PATH=<valeur>`, le nom en toute casse.
@@ -458,6 +489,26 @@ impl Essai {
     fn etat(&self) -> Output {
         self.kraken().arg("etat").output().unwrap()
     }
+
+    /// L'environnement que la fausse claude a gardé dans ce fichier, les noms en majuscules : sous Windows, ils ne
+    /// tiennent pas à la casse.
+    fn variables(&self, nom: &str) -> BTreeMap<String, String> {
+        let garde = self.garde(nom);
+        let paires = garde.lines().filter_map(|ligne| ligne.split_once('='));
+        paires.map(|(nom, valeur)| (nom.to_ascii_uppercase(), valeur.to_string())).collect()
+    }
+}
+
+/// Aucun fichier de ce dossier, à toute profondeur, ne porte ce texte.
+fn rien_n_ecrit(dossier: &Path, texte: &str) {
+    for entree in fs::read_dir(dossier).unwrap() {
+        let chemin = entree.unwrap().path();
+        if chemin.is_dir() {
+            rien_n_ecrit(&chemin, texte);
+        } else if let Ok(octets) = fs::read(&chemin) {
+            assert!(!String::from_utf8_lossy(&octets).contains(texte), "{} porte « {texte} »", chemin.display());
+        }
+    }
 }
 
 /// Un fichier de remarques sur le disque, dans un dossier neuf, que `lydite remarques` lit.
@@ -636,21 +687,22 @@ fn l_effort_d_une_tache_remplace_celui_du_profil_pour_ses_deux_tentatives_et_se_
     );
     fs::write(essai.racine.join("plan.lydite"), plan_a_efforts("low", "low")).unwrap();
     essai.remarques(1, &remarques_justes());
+    essai.remarques(2, &sans_remarque());
     let sortie = essai.lancer();
     assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
     let fil = essai.fil();
-    // Au fil, chaque lancement dit l'effort de sa tentative : `low` aux tâches, `high` à la correction, rien au
-    // relecteur, dont le profil ne pose pas l'effort.
+    // Au fil, chaque lancement dit l'effort de sa tentative : `low` aux tâches, `high` à la correction, rien aux deux
+    // relecteurs (le second relit la tête de la correction), dont le profil ne pose pas l'effort.
     let lancements = lignes_de(&fil, "main.lancement");
     let de = |modele: &str| -> Vec<&str> {
         let cle = format!(r#""modele":"{modele}""#);
         lancements.iter().copied().filter(|ligne| ligne.contains(&cle)).collect()
     };
     let (taches, correction, relecteur) = (de("haiku"), de("sonnet"), de("claude-opus-5-5"));
-    assert_eq!((taches.len(), correction.len(), relecteur.len()), (2, 1, 1), "{lancements:?}");
+    assert_eq!((taches.len(), correction.len(), relecteur.len()), (2, 1, 2), "{lancements:?}");
     assert!(taches.iter().all(|ligne| ligne.contains(r#""modele":"haiku","effort":"low","mur""#)), "{taches:?}");
     assert!(correction[0].contains(r#""modele":"sonnet","effort":"high","mur""#), "{correction:?}");
-    assert!(!relecteur[0].contains(r#""effort":"#), "{relecteur:?}");
+    assert!(relecteur.iter().all(|ligne| !ligne.contains(r#""effort":"#)), "{relecteur:?}");
     // `lydite etat` dit l'effort de chaque rôle de la vague, et du défaut de Claude Code pour le relecteur.
     let etat = essai.etat();
     let dit_etat = String::from_utf8_lossy(&etat.stdout).into_owned();
@@ -703,12 +755,17 @@ fn un_effort_de_tache_hors_des_efforts_permis_du_profil_est_refuse_en_6033_avant
 fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     let essai = Essai::nouveau("relue", Some("claude-opus-5-5"));
     essai.remarques(1, &remarques_justes());
+    // Le second relecteur, qui relit la tête de la correction, est le second lancement de relecteur : rien de bloquant.
+    essai.remarques(2, &sans_remarque());
     let sortie = essai.lancer();
     assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
     let fil = essai.fil();
     let ouvertes = vagues(&fil);
-    let [v, r, c] = &ouvertes[..] else { panic!("la vague, le relecteur, la correction : {fil}") };
-    // Sur stderr : les tâches, puis la relecture et la correction assemblée, d'où la vague finit.
+    let [v, r, c, s] = &ouvertes[..] else {
+        panic!("la vague, le relecteur, la correction, le second relecteur : {fil}")
+    };
+    // Sur stderr : les tâches, puis la relecture, la correction assemblée, d'où la vague finit, et la seconde
+    // relecture.
     let erreur = String::from_utf8_lossy(&sortie.stderr);
     let t2 = {
         let fusions = lignes_de(&fil, "vague.fusion");
@@ -718,13 +775,20 @@ fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     };
     assert!(erreur.contains(&format!("relecture prise : main-{r}-1 · 2 remarques, dont 1 bloquantes\n")), "{erreur}");
     assert!(erreur.contains(&format!("correction assemblée : main-{c}-1 · la vague finit à {t2}\n")), "{erreur}");
-    // La relecture est au fil, avec le texte du relecteur ; la correction est liée à la vague relue.
-    let notee = lignes_de(&fil, "vague.relecture");
-    let [notee] = &notee[..] else { panic!("{fil}") };
+    assert!(erreur.contains(&format!("second review taken: main-{s}-1 · 0 remarks, none blocking\n")), "{erreur}");
+    // Les deux relectures sont au fil, avec le texte de chaque relecteur ; la correction est liée à la vague relue.
+    let notees = lignes_de(&fil, "vague.relecture");
+    let [notee, seconde] = &notees[..] else { panic!("{fil}") };
     assert!(
         notee.contains(&format!(r#""vague":"{r}","relue":"{v}","n":2,"bloquantes":1,"remarques":"remarques 2"#)),
         "{notee}"
     );
+    assert!(
+        seconde.contains(&format!(r#""vague":"{s}","relue":"{v}","n":0,"bloquantes":0,"remarques":"remarques 2"#)),
+        "{seconde}"
+    );
+    let verdicts = lignes_de(&fil, "vague.verdict");
+    assert!(verdicts.last().is_some_and(|verdict| verdict.contains(&format!(r#""sha":"{t2}""#))), "{fil}");
     assert!(fil.contains(&format!(r#""type":"vague.correction","vague":"{c}","corrige":"{v}""#)), "{fil}");
     // Les modèles : `modele` aux tâches, la clé `relecteur` du profil au relecteur (ici une valeur qui n'est pas son
     // défaut), `relance` à la correction.
@@ -770,7 +834,7 @@ fn le_travail_critique_se_relit_et_sa_correction_s_assemble() {
     let etat = essai.etat();
     let montre = String::from_utf8_lossy(&etat.stdout);
     assert_eq!(etat.status.code(), Some(0), "{montre}");
-    assert!(montre.contains("Review: 2 remarks, 1 blocking\n"), "{montre}");
+    assert!(montre.contains("Review: 2 remarks, 1 blocking. Second review: 0 remarks, 0 blocking\n"), "{montre}");
     assert!(montre.contains(&format!("Correction: main-{c}-1 correction : assembled")), "{montre}");
     let _ = fs::remove_dir_all(&essai.racine);
 }
@@ -803,5 +867,59 @@ fn un_relecteur_sans_fichier_classe_la_relecture_et_rien_ne_se_pousse() {
     let fusions = lignes_de(&fil, "vague.fusion");
     assert!(fusions.last().unwrap().contains(&format!(r#""sha":"{tete}""#)), "{fil}");
     assert_eq!(essai.etat().status.code(), Some(1));
+    let _ = fs::remove_dir_all(&essai.racine);
+}
+
+#[test]
+fn sous_api_relecteur_le_relecteur_parle_chez_anthropic_et_les_autres_mains_chez_le_fournisseur() {
+    // Le profil nomme un fournisseur, `relecteur = opus` et `api_relecteur = anthropic`. Le premier relecteur a une
+    // remarque bloquante : la correction part, puis le second relecteur relit sa tête.
+    let essai = Essai::nouveau("relecteur-anthropic", Some("opus"));
+    essai.poser_les_efforts(&format!("api = {API}\ncle = {VARIABLE}\napi_relecteur = anthropic\n"), &[]);
+    essai.remarques(1, &remarques_justes());
+    essai.remarques(2, &sans_remarque());
+    let mut commande = essai.kraken();
+    commande.envs(HUMAIN).env(VARIABLE, LEURRE);
+    commande.args(["lancer", "essai", "--plan"]).arg(essai.racine.join("plan.lydite")).arg("--depot");
+    let sortie = commande.arg(&essai.depot).output().unwrap();
+    assert_eq!(sortie.status.code(), Some(0), "{}", dit(&sortie));
+    let fil = essai.fil();
+    let ouvertes = vagues(&fil);
+    let [v, r, c, s] = &ouvertes[..] else {
+        panic!("la vague, le relecteur, la correction, le second relecteur : {fil}")
+    };
+    // Les `main.fournisseur` de chaque vague, qui portent tous l'hôte du fournisseur.
+    let fournisseurs = lignes_de(&fil, "main.fournisseur");
+    assert!(fournisseurs.iter().all(|ligne| ligne.contains(&format!(r#""fournisseur":"{HOTE}""#))), "{fil}");
+    let notes = |vague: &str| fournisseurs.iter().filter(|l| l.contains(&format!(r#""vague":"{vague}""#))).count();
+    // (a) Les mains des tâches et de la correction parlent au fournisseur : son URL, sa clé, ni le jeton de l'humain ni
+    // la variable que `cle` nomme ; le fil note le fournisseur de chacune.
+    let parlent = [format!("env-main-{v}-1.txt"), format!("env-main-{v}-2.txt"), "env-correction.txt".to_string()];
+    for garde in &parlent {
+        let variables = essai.variables(garde);
+        assert_eq!(variables.get("ANTHROPIC_BASE_URL").map(String::as_str), Some(API), "{garde}");
+        assert_eq!(variables.get("ANTHROPIC_API_KEY").map(String::as_str), Some(LEURRE), "{garde}");
+        let jeton = variables.get("ANTHROPIC_AUTH_TOKEN");
+        assert!(jeton.is_none(), "{garde} : {jeton:?}");
+        assert!(!variables.contains_key(VARIABLE), "{garde} : {VARIABLE} passe");
+    }
+    assert_eq!((notes(v), notes(c)), (2, 1), "{fil}");
+    // (b) Les deux relecteurs parlent chez Anthropic, sous la connexion de l'humain : ni l'URL ni la clé du
+    // fournisseur, ni la variable que `cle` nomme, mais le jeton, la clé et l'URL de l'humain tels quels ; ils partent
+    // sous `opus`, et le fil ne note aucun fournisseur pour eux.
+    for n in [1, 2] {
+        let garde = format!("env-relecteur-{n}.txt");
+        let variables = essai.variables(&garde);
+        for (nom, valeur) in HUMAIN {
+            assert_eq!(variables.get(nom).map(String::as_str), Some(valeur), "{garde} : {nom}");
+        }
+        assert!(!variables.contains_key(VARIABLE), "{garde} : {VARIABLE} passe");
+    }
+    assert_eq!((modeles_de(&fil, r), modeles_de(&fil, s)), ("opus".to_string(), "opus".to_string()));
+    assert_eq!((notes(r), notes(s)), (0, 0), "{fil}");
+    // (c) La clé n'est écrite nulle part de ce que Lydite écrit : ni dans son dossier, fil compris, ni sur ses sorties.
+    rien_n_ecrit(&essai.dossier, LEURRE);
+    let (stdout, stderr) = (String::from_utf8_lossy(&sortie.stdout), String::from_utf8_lossy(&sortie.stderr));
+    assert!(!stdout.contains(LEURRE) && !stderr.contains(LEURRE), "{}", dit(&sortie));
     let _ = fs::remove_dir_all(&essai.racine);
 }

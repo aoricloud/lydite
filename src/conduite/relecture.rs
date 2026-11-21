@@ -29,8 +29,16 @@
 //!    ses `fichiers` (tout fichier si une tâche critique n'a pas de `fichiers`) : une tâche mise de côté, impossible
 //!    ou refusée n'a rien posé, et ni ses `exact` ni ses épingles ne sont portés ([`portes_de_la_correction`]).
 //!    Assemblée en `t2`, elle fait avancer la branche de
-//!    la vague de `t` à `t2`, d'où la forge part ; non assemblée, ou sans rien changer à `t`, rien ne se pousse, et
-//!    c'est le refus 7017. La correction n'a pas de seconde relecture.
+//!    la vague de `t` à `t2` ; non assemblée, ou sans rien changer à `t`, rien ne se pousse, et c'est le refus 7017 ;
+//! 5. assemblée, la correction a une seconde relecture ([`Relecture::relire_la_correction`]) : le même relecteur (même
+//!    plan, même consigne, même clé `relecteur`, deux tentatives), dans un bac posé sur `t2`, dont [`DIFF`] va de la
+//!    base à `t2`, limité aux mêmes `fichiers`, et dont [`FICHIER_PREUVE`] dit la preuve rejouée en `t2`, que porte le
+//!    `vague.fusion` de la correction. Il reçoit les mêmes rouges tenus, lus avant la première relecture. Prise, elle
+//!    se note comme la première (`vague.relecture` de la vague relue, puis `vague.verdict` de la tête `t2`), et son bac
+//!    se retire. Sans remarque bloquante, la forge part de `t2` ; avec, aucune seconde correction ne part, rien ne se
+//!    pousse, et c'est le refus 7017, qui nomme la seconde relecture. Un second relecteur classé (rouge deux fois), ou
+//!    dont le diff serait coupé sous une issue, n'est pas un refus : aucune seconde `vague.relecture` ne se note, une
+//!    ligne sur stderr le dit, et la forge part de `t2`, sa PR disant la correction sans seconde relecture.
 //!
 //! Le test d'une tâche à `red` ne bouge plus. Avant le relecteur, Kraken lit une fois les rouges de la vague qui
 //! tiennent encore à `t` (`publication::rouges_tenus` : le dernier `main.rouge` de chaque main assemblée, et git qui
@@ -44,7 +52,8 @@
 //! [`Origine::Issue`] ; hors issue et rapport, rien ne change. Sous elle, le travail se relit en entier ou pas du
 //! tout : avant que le relecteur parte, Kraken pèse le diff de l'étape 2, lu depuis la racine du dépôt visé comme il
 //! l'est dans le bac, quel que soit le dossier d'où Kraken part ; s'il dépasse [`TAILLE_MAX`] octets, la coupe qu'il
-//! subirait vaut une relecture manquée, c'est le refus 7016, rien ne se pousse, et aucun relecteur ne part.
+//! subirait vaut une relecture manquée, c'est le refus 7016, rien ne se pousse, et aucun relecteur ne part ; à la
+//! seconde relecture, la même coupe la laisse de côté (étape 5), sans refus.
 //!
 //! Le texte des remarques n'est jamais publié : il vit au fil, et la correction le reçoit comme objectif, que le corps
 //! de la PR ne reprend pas (`publication::corps` n'en garde que les nombres), à une exception : les lignes du bloc
@@ -109,6 +118,11 @@ const SANS_RELECTURE: &str = "Nothing is pushed: the work of the critical tasks 
 const SANS_CORRECTION: &str = "Nothing is pushed: blocking remarks remain without a correction. Read them in the \
                                thread (vague.relecture), then fix them yourself in the wave branch, or run a fresh \
                                wave.";
+
+/// La correction de remarques bloquantes à la seconde relecture (7017).
+const SANS_SECONDE_CORRECTION: &str = "Nothing is pushed: blocking remarks remain after the single correction. Read \
+                                       them in the thread (the second vague.relecture), then fix them yourself in \
+                                       the wave branch, or run a fresh wave.";
 
 /// La correction d'une remarque bloquante hors de portée (7020).
 const SANS_PORTEE: &str = "Nothing is pushed: no correction was started. Rerun the task in a fresh wave with that \
@@ -434,12 +448,13 @@ pub(crate) enum Relue {
     Aucune,
     /// Relue, et corrigée si des remarques bloquantes l'ont voulu : la forge peut partir.
     Prise(Prise),
-    /// Rien ne se pousse : le refus 7016 (la relecture classée), 7017 (la correction non assemblée), 7020 (une
-    /// bloquante hors de portée) ou 7012 (une note ratée), noté au fil quand le fil le permet.
+    /// Rien ne se pousse : le refus 7016 (la relecture classée), 7017 (la correction non assemblée, ou des bloquantes
+    /// à sa seconde relecture), 7020 (une bloquante hors de portée) ou 7012 (une note ratée), noté au fil quand le fil
+    /// le permet.
     Dehors(Refus),
 }
 
-/// Une relecture prise.
+/// Une relecture prise : la première, de `t`, et, si elle a voulu une correction, ce qu'en dit la seconde.
 pub(crate) struct Prise {
     /// La main du relecteur, `main-<vague>-1`.
     pub(crate) main: String,
@@ -447,6 +462,18 @@ pub(crate) struct Prise {
     pub(crate) bloquantes: usize,
     /// La vague de la correction, assemblée, si des remarques bloquantes en ont voulu une : sa tête est `t2`.
     pub(crate) correction: Option<Menee>,
+    /// La seconde relecture, celle de `t2`, prise sans remarque bloquante ; `None` sans correction, ou si le second
+    /// relecteur a été laissé de côté (classé, ou son diff coupé sous une issue) : `t2` part alors sans seconde
+    /// relecture.
+    pub(crate) seconde: Option<Seconde>,
+}
+
+/// La seconde relecture prise : sans remarque bloquante, puisqu'une bloquante y est le refus 7017.
+pub(crate) struct Seconde {
+    /// La main du second relecteur, `main-<sa vague>-1`.
+    pub(crate) main: String,
+    /// Son nombre de remarques, toutes à noter.
+    pub(crate) n: usize,
 }
 
 /// D'où vient la vague relue : d'un plan, ou d'une issue ou d'un rapport (un plan à `report` se mène sous `Issue`).
@@ -526,7 +553,7 @@ struct Relecture<'a> {
     menee: &'a Menee,
     /// La base de la vague, d'où le diff se compte.
     base: &'a str,
-    /// La tête `t` de la vague, d'où partent le relecteur et la correction.
+    /// La tête `t` de la vague, d'où partent le premier relecteur et la correction.
     tete: &'a str,
     bail: Duration,
     /// Ses tâches critiques assemblées.
@@ -545,43 +572,44 @@ struct Lue {
     texte: String,
 }
 
+/// Ce que rend un relecteur parti : ses remarques, ou pourquoi il est laissé de côté (rouge à ses deux tentatives, un
+/// juge qui n'a rien gardé, ou, sous une issue, un diff qui serait coupé).
+enum Rendue {
+    Lue(Lue),
+    Classee(String),
+}
+
+/// La tête qu'un relecteur relit, et la vague dont le `vague.fusion` porte la preuve rejouée sur elle : la vague relue
+/// pour `t`, sa correction pour `t2`.
+struct TeteRelue<'t> {
+    sha: &'t str,
+    rejouee_par: &'t str,
+}
+
+/// Le nom de la première relecture, puis de la seconde, dans les preuves des refus.
+const PREMIERE: &str = "review";
+const SECONDE: &str = "second review";
+
+/// Le nombre de remarques, puis celui des bloquantes.
+fn compter(remarques: &[Remarque]) -> (usize, usize) {
+    (remarques.len(), remarques.iter().filter(|remarque| remarque.bloquante).count())
+}
+
 impl Relecture<'_> {
-    /// Le relecteur, puis, des remarques bloquantes, la correction. Le refus est le 7016, le 7017, le 7020 (une
-    /// remarque bloquante vise un fichier que la correction ne peut pas toucher : aucune correction ne part) ou le
-    /// 7012.
+    /// Le relecteur, puis, des remarques bloquantes, la correction et sa seconde relecture. Le refus est le 7016, le
+    /// 7017, le 7020 (une remarque bloquante vise un fichier que la correction ne peut pas toucher : aucune correction
+    /// ne part) ou le 7012.
     fn mener(&self) -> Result<Prise, Refus> {
         // Les rouges tenus à la tête relue se lisent une fois : le relecteur les sait, puis le tri des remarques et la
-        // correction les portent.
+        // correction les portent, et le second relecteur les sait aussi.
         let rouges = self.rouges_tenus()?;
-        let Lue { vague, main, remarques, texte } = self.relecteur(&rouges)?;
-        let (n, bloquantes) = (remarques.len(), remarques.iter().filter(|remarque| remarque.bloquante).count());
-        let vague_du_relecteur = vague.clone();
-        let note = Evenement::Relecture { vague, relue: self.menee.id.clone(), n, bloquantes, remarques: texte };
-        if let Err(erreur) = Fil::seance(self.dossier, "humain").noter(&note) {
-            let preuve = format!("the review {main} of wave {} is not noted: {erreur}", self.menee.id);
-            return Err(Refus::new(Code::FilInjoignable, preuve, SANS_NOTE));
-        }
-        // Le verdict : la tête relue, et le profil, l'empreinte et le modèle du lancement du relecteur.
-        let (profil, empreinte, modele) = self.lancement_du_relecteur(&vague_du_relecteur).map_err(|erreur| {
-            let preuve = format!("the launch of the review {main} cannot be read from the thread: {erreur}");
-            Refus::new(Code::FilInjoignable, preuve, SANS_NOTE)
-        })?;
-        let sha = self.tete.to_string();
-        let verdict = Evenement::VerdictRelecture {
-            vague: vague_du_relecteur,
-            relue: self.menee.id.clone(),
-            sha,
-            profil,
-            empreinte,
-            modele,
+        let relue = TeteRelue { sha: self.tete, rejouee_par: &self.menee.id };
+        let lue = match self.relecteur(&rouges, &relue, PREMIERE)? {
+            Rendue::Lue(lue) => lue,
+            Rendue::Classee(pourquoi) => return Err(self.classee(PREMIERE, pourquoi)),
         };
-        if let Err(erreur) = Fil::seance(self.dossier, "humain").noter(&verdict) {
-            let preuve = format!("the verdict of the review {main} of wave {} is not noted: {erreur}", self.menee.id);
-            return Err(Refus::new(Code::FilInjoignable, preuve, SANS_NOTE));
-        }
-        let ecrits = [REMARQUES, DIFF, FICHIER_PREUVE];
-        let proteges = self.profil.proteges();
-        retirer_le_bac(self.depot, self.dossier, "the reviewer's sandbox", &main, self.tete, &ecrits, proteges);
+        let (main, remarques) = self.noter_la_relecture(lue, self.tete)?;
+        let (n, bloquantes) = compter(&remarques);
         if let Some((numero, fichier, cas)) = self.bloquante_hors_de_portee(&remarques, &rouges.couples) {
             let id = &self.menee.id;
             let refus = match cas {
@@ -602,8 +630,87 @@ impl Relecture<'_> {
             };
             return Err(refus);
         }
-        let correction = if bloquantes == 0 { None } else { Some(self.corriger(&remarques, &rouges.couples)?) };
-        Ok(Prise { main, n, bloquantes, correction })
+        if bloquantes == 0 {
+            return Ok(Prise { main, n, bloquantes, correction: None, seconde: None });
+        }
+        let (corrigee, t2) = self.corriger(&remarques, &rouges.couples)?;
+        let seconde = self.relire_la_correction(&rouges, &corrigee, &t2)?;
+        Ok(Prise { main, n, bloquantes, correction: Some(corrigee), seconde })
+    }
+
+    /// La seconde relecture, celle de `t2`, la tête de la correction `corrigee` : le même relecteur, sur `t2`, qui
+    /// sait les mêmes `rouges`. Prise, elle se note ([`Relecture::noter_la_relecture`]) ; sans bloquante, elle est
+    /// rendue ; avec, c'est le refus 7017, et aucune seconde correction ne part. Un second relecteur laissé de côté
+    /// ([`Rendue::Classee`]) n'est pas un refus : rien ne se note, stderr le dit, et `None` laisse `t2` partir sans
+    /// seconde relecture. Un relecteur qui ne part pas, ou une note ratée, reste le refus.
+    fn relire_la_correction(&self, rouges: &RougesTenus, corrigee: &Menee, t2: &str) -> Result<Option<Seconde>, Refus> {
+        let id = &self.menee.id;
+        let relue = TeteRelue { sha: t2, rejouee_par: &corrigee.id };
+        let lue = match self.relecteur(rouges, &relue, SECONDE)? {
+            Rendue::Lue(lue) => lue,
+            Rendue::Classee(pourquoi) => {
+                eprintln!(
+                    "the second review of wave {id} is set aside, {pourquoi}: correction {} goes on {t2} without a \
+                     second review",
+                    corrigee.id
+                );
+                return Ok(None);
+            }
+        };
+        let (main, remarques) = self.noter_la_relecture(lue, t2)?;
+        let (n, bloquantes) = compter(&remarques);
+        if bloquantes > 0 {
+            let pluriel = if bloquantes == 1 { "" } else { "s" };
+            let preuve = format!(
+                "the second review {main} of wave {id}, on head {t2} of correction {}, has {bloquantes} blocking \
+                 remark{pluriel}, and blocking remarks are worth a single correction",
+                corrigee.id
+            );
+            return Err(Refus::new(Code::BloquantesRestantes, preuve, SANS_SECONDE_CORRECTION));
+        }
+        Ok(Some(Seconde { main, n }))
+    }
+
+    /// Le refus 7016 d'une relecture (`quelle`, [`PREMIERE`] ou [`SECONDE`]) classée pour cette raison.
+    fn classee(&self, quelle: &str, pourquoi: String) -> Refus {
+        let preuve = format!("the {quelle} of wave {} is set aside: {pourquoi}", self.menee.id);
+        Refus::new(Code::RelectureManquee, preuve, SANS_RELECTURE)
+    }
+
+    /// Note au fil la relecture `lue` de la tête `tete` : `vague.relecture`, avec le nombre de remarques et leur texte,
+    /// puis son verdict (`vague.verdict` : `tete`, et le profil, l'empreinte et le modèle du lancement du relecteur) ;
+    /// puis le bac du relecteur se retire. Rend la main du relecteur et ses remarques. Une note ratée, ou un fil qui ne
+    /// se relit pas, est le refus 7012, et le bac demeure.
+    fn noter_la_relecture(&self, lue: Lue, tete: &str) -> Result<(String, Vec<Remarque>), Refus> {
+        let Lue { vague, main, remarques, texte } = lue;
+        let (n, bloquantes) = compter(&remarques);
+        let vague_du_relecteur = vague.clone();
+        let note = Evenement::Relecture { vague, relue: self.menee.id.clone(), n, bloquantes, remarques: texte };
+        if let Err(erreur) = Fil::seance(self.dossier, "humain").noter(&note) {
+            let preuve = format!("the review {main} of wave {} is not noted: {erreur}", self.menee.id);
+            return Err(Refus::new(Code::FilInjoignable, preuve, SANS_NOTE));
+        }
+        // Le verdict : la tête relue, et le profil, l'empreinte et le modèle du lancement du relecteur.
+        let (profil, empreinte, modele) = self.lancement_du_relecteur(&vague_du_relecteur).map_err(|erreur| {
+            let preuve = format!("the launch of the review {main} cannot be read from the thread: {erreur}");
+            Refus::new(Code::FilInjoignable, preuve, SANS_NOTE)
+        })?;
+        let verdict = Evenement::VerdictRelecture {
+            vague: vague_du_relecteur,
+            relue: self.menee.id.clone(),
+            sha: tete.to_string(),
+            profil,
+            empreinte,
+            modele,
+        };
+        if let Err(erreur) = Fil::seance(self.dossier, "humain").noter(&verdict) {
+            let preuve = format!("the verdict of the review {main} of wave {} is not noted: {erreur}", self.menee.id);
+            return Err(Refus::new(Code::FilInjoignable, preuve, SANS_NOTE));
+        }
+        let ecrits = [REMARQUES, DIFF, FICHIER_PREUVE];
+        let proteges = self.profil.proteges();
+        retirer_le_bac(self.depot, self.dossier, "the reviewer's sandbox", &main, tete, &ecrits, proteges);
+        Ok((main, remarques))
     }
 
     /// Les rouges de la vague qui tiennent à la tête relue ([`rouges_tenus`]), lus au fil et à git. Un plan sans
@@ -657,20 +764,23 @@ impl Relecture<'_> {
         })
     }
 
-    /// Écrit [`FICHIER_PREUVE`] dans le bac du relecteur, d'après le fil ([`texte_de_la_preuve`]). Un fil qui ne se
-    /// relit pas, ou une écriture ratée (6006), est le refus.
-    fn ecrire_la_preuve(&self, bac: &Path) -> Result<(), Refus> {
+    /// Écrit [`FICHIER_PREUVE`] dans le bac du relecteur de `relue`, d'après le fil ([`texte_de_la_preuve`]) : la
+    /// preuve que le `vague.fusion` de la vague qui l'a rejouée sur cette tête porte. Un fil qui ne se relit pas, ou
+    /// une écriture ratée (6006), est le refus.
+    fn ecrire_la_preuve(&self, bac: &Path, relue: &TeteRelue<'_>) -> Result<(), Refus> {
         let lu = lire(self.dossier)?;
         let evenements: Vec<Evenement> = lu.notes.into_iter().map(|note| note.evenement).collect();
-        let texte = texte_de_la_preuve(self.plan.preuve.as_deref(), &evenements, &self.menee.id, self.tete);
+        let texte = texte_de_la_preuve(self.plan.preuve.as_deref(), &evenements, relue.rejouee_par, relue.sha);
         let chemin = bac.join(FICHIER_PREUVE);
         fs::write(&chemin, texte).map_err(|e| Refus::from(nommee(e, format!("writing {}", chemin.display()))))
     }
 
-    /// Le relecteur : sa vague de copies, son juge, son diff. Rend ce qu'il a rendu, ou le refus 7016. Sous une
-    /// issue, un diff qui serait coupé est le refus 7016, sans que le relecteur parte.
-    fn relecteur(&self, rouges: &RougesTenus) -> Result<Lue, Refus> {
-        let (id, tete, base) = (&self.menee.id, self.tete, self.base);
+    /// Le relecteur de la tête `relue` (la [`PREMIERE`] ou la [`SECONDE`] relecture, `quelle`) : sa vague de copies,
+    /// posée sur cette tête, son juge, son diff de la base à elle. Rend ce qu'il a rendu, ou qu'il est classé ; sous
+    /// une issue, un diff qui serait coupé le classe, sans que le relecteur parte. Un diff que git ne lit pas sous une
+    /// issue, ou une vague qui ne s'ouvre pas, est le refus 7016.
+    fn relecteur(&self, rouges: &RougesTenus, relue: &TeteRelue<'_>, quelle: &str) -> Result<Rendue, Refus> {
+        let (id, tete, base) = (&self.menee.id, relue.sha, self.base);
         let fichiers = fichiers_de(&self.critiques);
         // Un git qui ne lit pas le diff est dit par `ecrire_le_diff` (7009) : sans lui, pas de point. Un échec de
         // lecture a deux effets : la publication s'arrête (`points_a_justifier`, comme `reglages_changes`), et le
@@ -687,10 +797,7 @@ impl Relecture<'_> {
                 tache.objectif = format!("{}\n\n{rouge}", tache.objectif);
             }
         }
-        let classee = |pourquoi: String| {
-            let preuve = format!("the review of wave {id} is set aside: {pourquoi}");
-            Refus::new(Code::RelectureManquee, preuve, SANS_RELECTURE)
-        };
+        let classee = |pourquoi: String| self.classee(quelle, pourquoi);
         if self.origine == Origine::Issue {
             // Depuis la racine du dépôt visé, comme dans le bac : les `fichiers` sont relatifs à elle, et le dépôt visé
             // peut être un de ses sous-dossiers (le dossier courant de Kraken, par défaut).
@@ -700,7 +807,7 @@ impl Relecture<'_> {
             let (diff, total) = lire_le_diff(&racine, base, tete, fichiers.as_deref()).map_err(ne_se_lit_pas)?;
             let poids = poids(&diff, total);
             if poids > TAILLE_MAX as u64 {
-                return Err(classee(format!(
+                return Ok(Rendue::Classee(format!(
                     "its diff weighs {poids} bytes, more than 1 MB ({TAILLE_MAX} bytes), and a wave born from an \
                      issue or a report is not reviewed in part"
                 )));
@@ -715,7 +822,7 @@ impl Relecture<'_> {
         };
         let preparer = |bac: &Path| {
             ecrire_le_diff(bac, base, tete, fichiers.as_deref())?;
-            self.ecrire_la_preuve(bac)
+            self.ecrire_la_preuve(bac, relue)
         };
         let liens = Liens {
             juge: Some(&juge),
@@ -731,16 +838,17 @@ impl Relecture<'_> {
             (format!("main-{}-1", rendue.id), Err("the reviewer's wave returned no outcome".into()))
         });
         let lu = lu.into_inner().unwrap_or_else(PoisonError::into_inner);
-        match (issue, lu) {
-            (Ok(_), Some((remarques, texte))) => Ok(Lue { vague: rendue.id, main, remarques, texte }),
-            (Ok(_), None) => Err(classee(format!("{main}: the reviewer's judge kept no remark"))),
-            (Err(dehors), _) => Err(classee(format!("{main}: {}", queue(&dehors)))),
-        }
+        Ok(match (issue, lu) {
+            (Ok(_), Some((remarques, texte))) => Rendue::Lue(Lue { vague: rendue.id, main, remarques, texte }),
+            (Ok(_), None) => Rendue::Classee(format!("{main}: the reviewer's judge kept no remark")),
+            (Err(dehors), _) => Rendue::Classee(format!("{main}: {}", queue(&dehors))),
+        })
     }
 
     /// La correction des remarques bloquantes : une vague d'une tâche `correction`, partie de `t`. Assemblée en `t2`,
-    /// la branche de la vague avance de `t` à `t2`, et la vague de la correction est rendue ; sinon le refus 7017.
-    fn corriger(&self, remarques: &[Remarque], rouges: &[(String, String)]) -> Result<Menee, Refus> {
+    /// la branche de la vague avance de `t` à `t2`, et la vague de la correction est rendue avec `t2` ; sinon le refus
+    /// 7017.
+    fn corriger(&self, remarques: &[Remarque], rouges: &[(String, String)]) -> Result<(Menee, String), Refus> {
         let (id, tete) = (&self.menee.id, self.tete);
         let mut correction =
             plan_de_la_correction(self.profil, self.plan, &self.critiques, &self.assemblees, remarques);
@@ -769,7 +877,7 @@ impl Relecture<'_> {
                 eprintln!("the local branch {branche} does not advance: {vu}");
             }
         }
-        Ok(corrigee)
+        Ok((corrigee, nouvelle))
     }
 
     /// Note le refus au fil, par un `forge.refus` de la vague relue, et le rend. Une note ratée s'écrit sur stderr.
@@ -797,7 +905,9 @@ fn plan_du_relecteur(profil: &Profil, plan: &Plan, critiques: &[&Tache], points:
         relance: modele,
         ..Tache::default()
     };
-    Plan { objectif: format!("Relire : {}", plan.objectif), preuve: None, rapport: None, taches: vec![tache] }
+    // Le relecteur est jugé par Kraken : aucune mise en forme ne se joue dans son bac.
+    let objectif = format!("Relire : {}", plan.objectif);
+    Plan { objectif, preuve: None, rapport: None, forme: None, taches: vec![tache] }
 }
 
 /// Le plan de la correction : une vague d'une seule tâche, `correction`, de preuve celle de la vague, d'objectif
@@ -805,7 +915,8 @@ fn plan_du_relecteur(profil: &Profil, plan: &Plan, critiques: &[&Tache], points:
 /// des tâches critiques et ceux de toute autre tâche `assemblees` (dans l'ordre du plan) dont le fichier est couvert
 /// par ces `fichiers`, ou de toute tâche assemblée si une tâche critique n'a pas de `fichiers`
 /// ([`portes_de_la_correction`]), et de modèle la clé `relance` du profil à ses deux tentatives. Elle n'est pas
-/// critique : la correction n'a pas de seconde relecture.
+/// critique : sa seconde relecture est celle de [`Relecture::relire_la_correction`], et elle n'a pas d'autre
+/// correction.
 fn plan_de_la_correction(
     profil: &Profil,
     plan: &Plan,
@@ -826,7 +937,8 @@ fn plan_de_la_correction(
         empreintes,
         ..Tache::default()
     };
-    Plan { objectif, preuve: plan.preuve.clone(), rapport: None, taches: vec![tache] }
+    // La correction est une main de tâche : elle reprend la mise en forme du plan, jouée avant chacune de ses preuves.
+    Plan { objectif, preuve: plan.preuve.clone(), rapport: None, forme: plan.forme.clone(), taches: vec![tache] }
 }
 
 /// L'objectif de la correction : [`CORRIGER`], puis chaque remarque bloquante, `<fichier>, ligne <n> : <texte>` (sans
