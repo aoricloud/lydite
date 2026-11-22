@@ -18,8 +18,8 @@ the proof.
 
 ```bash
 # with gh logged in, instead: gh release download --repo aoricloud/lydite --pattern 'lydite-*-linux-x86_64.tar.gz*'
-curl -fsSLO https://github.com/aoricloud/lydite/releases/download/v0.4.0/lydite-v0.4.0-linux-x86_64.tar.gz
-curl -fsSLO https://github.com/aoricloud/lydite/releases/download/v0.4.0/lydite-v0.4.0-linux-x86_64.tar.gz.sha256
+curl -fsSLO https://github.com/aoricloud/lydite/releases/download/v0.5.0/lydite-v0.5.0-linux-x86_64.tar.gz
+curl -fsSLO https://github.com/aoricloud/lydite/releases/download/v0.5.0/lydite-v0.5.0-linux-x86_64.tar.gz.sha256
 sha256sum -c lydite-*.tar.gz.sha256    # integrity only: the file is intact
 # provenance, with gh 2.67 or later, logged in: gh attestation verify lydite-*-linux-x86_64.tar.gz --repo aoricloud/lydite
 tar -xzf lydite-*-linux-x86_64.tar.gz
@@ -37,7 +37,7 @@ what is missing.
   <a href="https://aoricloud.github.io/mycelium-lab/"><img src="https://raw.githubusercontent.com/aoricloud/mycelium-lab/main/apercus/etape-3-colonie.png" alt="A simulated mycelium colony, from Mycelium Lab" height="240"></a>
 </p>
 
-*Two simulators whose code was written by Lydite's hands, pull request after pull request:
+*Two simulators built in large part by Lydite's hands, pull request after pull request:
 [Givre Lab](https://github.com/aoricloud/givre-lab) (crystal growth) and
 [Mycelium Lab](https://github.com/aoricloud/mycelium-lab). Click an image to run it in your browser.*
 
@@ -45,28 +45,29 @@ Lydite is the foreman that proves. Each hand works in its own git worktree, its 
 hand's Claude Code session itself runs on your machine, outside the wall. Lydite replays your proof itself, after every
 merge, and returns a pull request with its receipt: what was replayed, what the review could not see replayed, and the
 seal of the run's journal. A hand that finds that no honest code can pass your proof says so, and its task is set
-aside with the hand's reason, instead of a blind fix. The hands run in Claude Code, on any model that speaks
-Anthropic's API format (Claude, DeepSeek…), with no Claude account needed for another provider. You launch Lydite from
-a shell, from Claude Code or another agent, or from Hermes, whatever model your Hermes runs.
+aside with the hand's reason, instead of a blind fix. The hands run in Claude Code, on Claude and on DeepSeek, the two
+we have run; a provider that speaks Anthropic's API format can stand in for the Claude account, but we have tried no
+other. You launch Lydite from a shell, from Claude Code or another agent, or from Hermes.
 
-The *wall* is Claude Code's sandbox (`srt`): it confines what each hand's commands can read, write and reach on the
-network. A *wave* is one launch: an objective, its tasks, one pull request.
+The *wall* is Claude Code's sandbox around each hand's commands: it confines what they can read, write and reach on the
+network. `srt` serves the wall check and the replay of your proof. A *wave* is one launch: an objective, its tasks, one
+pull request.
 
 Instead of srt, a profile can choose Lydite's own *native wall* (`mur = natif`) for the wall check and the replay of
 your proof; the hands' commands stay under Claude Code's sandbox. See [Native wall](#native-wall-optional).
 
 > [!NOTE]
-> **Status: early.** Lydite builds itself and two public test repositories (the *benches*); nobody else has run it
-> yet. It is a small Rust program with no crate dependencies. What it prints is mostly in English; what is still in
-> French is listed under [Where it stands](#where-it-stands), and the keys of profiles and plans are among it (`sorte`,
-> `modele`; a table below translates the words you need). The wall only works on Linux. A wave runs Claude Code
-> sessions on your own account or provider key. Expect rough edges.
+> **Status: early.** Lydite builds part of itself and of three public test repositories (the *benches*); we know of no
+> one else who has run it yet. It is a Rust program with no crate dependencies. What it prints is mostly in English;
+> what is still in French is listed under [Where it stands](#where-it-stands), and the keys of profiles and plans are
+> among it (`sorte`, `modele`; a table below translates the words you need). We have run the wall on Linux only. A wave
+> runs Claude Code sessions on your own account or provider key. Expect rough edges.
 
 ## What a Lydite pull request says
 
 This is the body of [#98](https://github.com/aoricloud/lydite/pull/98), the pull request that added `lydite skill`,
 abridged (`[…]`). Lydite wrote it. The task's text and the reviewer's lines are in French: we write our plans in
-French, and Lydite still instructs its reviewer in French.
+French, and Lydite still instructs its reviewer mostly in French.
 
 ```text
 Receipt
@@ -80,7 +81,7 @@ Serve the skill that says how to drive Lydite from the binary itself (lydite ski
 
 Proof: cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check && python3 […] → green
 
-skill-servie-par-le-binaire: […]                       the task, as the plan wrote it
+skill-servie-par-le-binaire: […]                       the first line of the task, as the plan wrote it
 
 Points to justify (found by Lydite without a model):
 - `hermes/tests/test_skill.py`: a test of the base changed (4 lines removed)
@@ -96,7 +97,7 @@ Not replayed (from the review):
 The receipt counts the hands, their retries and the tasks set aside, and seals the journal of the run (the *thread*).
 Four more things to notice. The proof line is your command, run again by Lydite after the hands have finished, not by
 them. The points to justify are found by Lydite itself, without a model: here a test of the base lost lines, and the
-reviewer had to say why. The commit line names the exact commit that was replayed (and reviewed, when the plan marked
+reviewer was asked to say whether each is justified. The commit line names the exact commit that was replayed (and reviewed, when the plan marked
 a task critical): on this repository, the CI check `tete` fails for a pull request whose branch is named `lydite/…`
 unless its head's files are those of a commit named as replayed after a review, in its body or in a correction merged
 into its branch; a pull request from any other branch passes it unchecked. And the last block is what the review could
@@ -106,7 +107,7 @@ As of 11 November 2026, 23:40 UTC, on our own repositories:
 
 | Repository | Pull requests by Lydite with a receipt, merged | Hands | Retries | Tasks set aside |
 |---|---|---|---|---|
-| [lydite](https://github.com/aoricloud/lydite/pulls?q=is%3Apr+is%3Amerged) (it builds itself) | 82 | 240 | 7 | 0 |
+| [lydite](https://github.com/aoricloud/lydite/pulls?q=is%3Apr+is%3Amerged) (it builds part of itself) | 82 | 240 | 7 | 0 |
 | [mycelium-lab](https://github.com/aoricloud/mycelium-lab/pulls?q=is%3Apr+is%3Amerged) | 37 | 159 | 1 | 0 |
 | [givre-lab](https://github.com/aoricloud/givre-lab/pulls?q=is%3Apr+is%3Amerged) | 38 | 208 | 7 | 1 |
 | [physarum-lab](https://github.com/aoricloud/physarum-lab/pulls?q=is%3Apr+is%3Amerged) | 12 | 83 | 0 | 0 |
@@ -117,10 +118,10 @@ These figures are read from the receipts in the pull request bodies. The hands r
 
 Each refusal has a number, says what it saw, and says what to do.
 
-- **Lydite itself never merges.** It opens the pull request and reads its CI. Merging is your rule. (On our two
-  benches, the repository's own workflow asks GitHub to auto-merge a head Lydite replayed, once the CI is green on
-  Linux and Windows. On Lydite itself, a pull request is merged by hand.)
-- **It never takes a hand's word.** A hand ends its report with a `PREUVE:` line, its own word on its proof. Lydite
+- **Lydite itself never merges a pull request.** It opens the pull request and reads its CI. Merging is your rule. (On
+  our three benches, the repository's own workflow asks GitHub to auto-merge a head Lydite replayed, once the CI is
+  green on Linux and Windows. On Lydite itself, a pull request is merged by hand.)
+- **It never shows a hand's word as proof.** A hand ends its report with a `PREUVE:` line, its own word on its proof. Lydite
   replays your proof itself; without `--verify`, that word is all there is, and the work stays declared. A fact a hand
   only declared is shown as declared, never as observed.
 - **It starts nothing if your proof is already red** on the base commit (6022): a red proof proves nothing afterwards.
@@ -133,12 +134,13 @@ Each refusal has a number, says what it saw, and says what to do.
   lesson (7018), or to a `.claude/` folder (7006) is refused; a hand does not run `git commit` (Lydite commits).
 - **It does not push a hand to cheat.** A hand that finds a test no honest code can pass says `IMPOSSIBLE: <reason>`;
   Lydite sets the task aside, replays nothing, retries nothing and merges nothing from it. The reason is the hand's
-  word, shown as `impossible (declared)` (`impossible (déclarée)` in 0.4.0) and never checked: a task set aside this way does not show that the test is
+  word, shown as `impossible (declared)` and never checked: a task set aside this way does not show that the test is
   wrong, and a finding that comes back not proved does not show that there is no flaw.
 - **It does not publish** a change under `.github/`, a path of your machine, or a line of your `garde` file (8005),
   nor take a pull request whose CI stays silent (8008). The `garde` file, in the state folder, holds one word or name
-  per line (`#` starts a comment), matched without case: write your private names there. Without it, only `.github/`
-  and the paths are checked, so we recommend writing one.
+  per line (a line that starts with `#` is a comment), matched without case: write your private names there. Without
+  it, Lydite checks `.github/`, the paths and the commits it did not make, but no word of yours, so we recommend
+  writing one.
 - **It never opens your Claude login file**, and puts no provider key in a profile or a pull request (see below).
 
 What it does not do for you: a green proof is worth what your proof is worth. Lydite replays it and flags, without a
@@ -154,9 +156,9 @@ rule.
 2. A hand splits it into tasks; Lydite reads the plan itself. With `--dry-run` it stops here and shows the plan.
 3. Each task goes to a hand in its own git worktree and branch; the hand's commands run behind the wall, with a
    filtered network exit.
-4. When a hand says it is done, Lydite replays your proof itself, in a new sandboxed process. Green: the work is
-   merged into the wave's branch, and the proof is replayed after every merge. Red: one retry, with the error given to
-   the hand, then the task is set aside. A task is set aside without a retry when its hand declares it impossible,
+4. When a hand says it is done, Lydite replays your proof itself, behind the wall, unless the profile says
+   `mur = demande`. Green: the work is merged into the wave's branch, and the proof is replayed after every merge.
+   Red: one retry, with the error given to the hand, then the task is set aside. A task is set aside without a retry when its hand declares it impossible,
    reaches its spending ceiling or its timeout, or when its merge conflicts or turns the proof red.
 5. The tasks a plan marks critical are reviewed by another hand, which gets the diff and the replayed proof, and must
    say what was replayed and what was not.
@@ -164,8 +166,9 @@ rule.
    was marked critical, one hand corrects what the CI reported, once; otherwise the pull request stays open and red
    (8011).
 
-Everything that happens is appended to a journal outside the repository (the *thread*), sealed by its SHA-256 before
-the pull request is written. `lydite status` reads it back and recomputes every seal.
+Each step of a wave is noted in a journal outside the repository (the *thread*) before Lydite acts, and the journal
+is sealed by its SHA-256 before the pull request is written. What a hand does in its own session is not in it.
+`lydite status` reads it back and recomputes every seal.
 
 ## Try it
 
@@ -175,8 +178,8 @@ your own account or provider key: even looking at a plan runs one hand.
 | | Why | How |
 |---|---|---|
 | `git`, and `gh` logged in | the pull request | `gh auth status`. To verify the download you need `gh` 2.67 or later; Debian 13's packaged 2.46 has no `gh attestation` (use the `.sha256` file instead) |
-| [Claude Code](https://claude.com/claude-code), signed in | the hands | Lydite reads Claude Code's output in a precise form, checked on 2.1.312 to 2.1.317; another version may break it |
-| Node and npm; `srt` | the wall | `sudo apt install bubblewrap socat ripgrep`, then `sudo npm install -g @anthropic-ai/sandbox-runtime`. Its versions since 0.0.79 need Node 22.12 or later; with Debian 13's Node 20, install `@anthropic-ai/sandbox-runtime@0.0.78`, the version we run. Install it outside your home folder: the wall closes your home, and an `srt` under it fails with 6028 unless a `lecture` line of the profile opens its folder. `LYDITE_SRT` names an `srt` that is not on your `PATH`. On Ubuntu 24.04 and later, see the sandbox runtime's note on AppArmor and user namespaces. With `mur = natif`, Lydite neither looks for nor runs `srt`, but the hands' commands still run in Claude Code's sandbox, which needs bubblewrap and socat according to its [sandboxing page](https://code.claude.com/docs/en/sandboxing): keep the `apt install` above, with which we ran it (Debian 13, Claude Code 2.1.317; see [Native wall](#native-wall-optional)) |
+| [Claude Code](https://claude.com/claude-code), signed in | the hands | Lydite reads Claude Code's output in a precise form, checked on 2.1.312, 2.1.316 and 2.1.317, not on 2.1.325 (two waves ran on it on 15 November 2026); another version may break it |
+| Node and npm; `srt` | the wall | First Node and npm: `sudo apt install nodejs npm` (the command we checked, on Debian 13 only).<br>Then `sudo apt install bubblewrap socat ripgrep`.<br>Then `srt`: `sudo npm install -g @anthropic-ai/sandbox-runtime`. Its versions since 0.0.79 need Node 22.12 or later; with Debian 13's Node 20, install `@anthropic-ai/sandbox-runtime@0.0.78`, the version we run. Install it outside your home folder: the wall closes your home, and an `srt` under it fails with 6028 unless a `lecture` line of the profile opens its folder. `LYDITE_SRT` names an `srt` that is not on your `PATH`. On Ubuntu 24.04 and later, see the sandbox runtime's note on AppArmor and user namespaces. With `mur = natif`, Lydite neither looks for nor runs `srt`, but the hands' commands still run in Claude Code's sandbox, which needs bubblewrap and socat according to its [sandboxing page](https://code.claude.com/docs/en/sandboxing): keep the `apt install` above, with which we ran it (Debian 13, Claude Code 2.1.317; see [Native wall](#native-wall-optional)) |
 | a target repository | the work | on GitHub, with a branch you may push to, a CI that runs on pull requests, and a proof command that is green today |
 
 **Install.** Download the archive, verify it was built by this repository's GitHub Actions, and put the binary on your
@@ -189,7 +192,17 @@ tar -xzf lydite-*-linux-x86_64.tar.gz
 mkdir -p ~/.local/bin && install -m 755 lydite-*-linux-x86_64/lydite lydite-*-linux-x86_64/lydite-reseau ~/.local/bin/
 ```
 
-Or build it: `cargo build --release`, and `cargo build --release --manifest-path reseau/Cargo.toml` for `lydite-reseau`, which only the native wall needs (the toolchain is pinned by `rust-toolchain.toml`).
+Or build it:
+
+```bash
+git clone https://github.com/aoricloud/lydite.git && cd lydite
+sudo apt install rustup    # Debian 13; rustup installs, at the first `cargo` command, the toolchain that `rust-toolchain.toml` pins
+cargo build --release
+cargo build --release --manifest-path reseau/Cargo.toml
+mkdir -p ~/.local/bin && install -m 755 target/release/lydite reseau/target/release/lydite-reseau ~/.local/bin/
+```
+
+The two binaries land in two folders, `target/release/lydite` and `reseau/target/release/lydite-reseau`. The install line copies `lydite-reseau` every time; only the native wall (`mur = natif`) uses it.
 
 **Check your setup.** Run `lydite doctor`: it launches no hand, writes nothing, and says for `git`, `gh`, Claude Code,
 `srt` and the state folder whether they are in order. Then, from your repository once the profile is accepted, run
@@ -199,7 +212,8 @@ profile plays it. With a profile, its line ends with `wall checked` only under `
 `mur = demande` (on Windows, say), `ready` says nothing of the wall. `LYDITE_GH`, `LYDITE_CLAUDE` and `LYDITE_SRT`
 name a `gh`, `claude` or `srt` that is not on your `PATH`.
 
-**A profile** says what the hands are lent. Write `~/.local/state/lydite/profils/first.profil` (the default state
+**A profile** says what the hands are lent. First create the folder: `mkdir -p ~/.local/state/lydite/profils` (under `LYDITE_DOSSIER` if it is set, else under
+`$XDG_STATE_HOME/lydite`, else `~/.local/state/lydite`). This is for a profile written by hand only: `lydite accept claude`, the built-in profile, creates it itself. Write `~/.local/state/lydite/profils/first.profil` (the default state
 folder; `LYDITE_DOSSIER` moves it). This one is for a Rust project:
 
 ```text
@@ -218,7 +232,7 @@ delai_preuve = 300
 
 The hands that split an objective and review a task check their work with `lydite` itself, behind the wall, which
 closes your home folder. Under a required wall (`mur = exige` or `natif`), Lydite lends every hand's commands, and the
-replay of your proof, the real file of its own executable (links followed; that file must be named `lydite`), that
+replay of your proof, the real file of its own executable (links followed), that
 file only and never its folder, so a `lydite` installed under your home folder, as above, runs there with nothing in
 `lecture`. Under `mur = demande` nothing more is lent: those checks run outside the sandbox and find it anyway.
 
@@ -229,7 +243,7 @@ lydite accept first       # shows the profile and accepts its fingerprint; a cha
 lydite profile first      # read-only: what Lydite understood (models, efforts, wall, ceiling, timeouts)
 ```
 
-The built-in `claude` profile (Sonnet, the wall required) needs no file, but it is accepted like the others: run `lydite accept claude` once, and again when a new Lydite version changes the built-in profile. It is your gesture as the human, never an agent's.
+The built-in `claude` profile (Sonnet, the wall required) needs no file, but it is accepted like the others: run `lydite accept claude` once, and again when a new Lydite version changes the built-in profile. It is your gesture as the human: the hands of Lydite cannot reach the state folder to do it, but nothing stops another process of your account from running `lydite accept`, so do not leave it to an agent.
 
 **Look at a plan first.** Run this from your repository: it checks the wall, checks that your proof passes on the
 base, runs one hand that splits the objective into tasks, prints the plan, and stops.
@@ -247,12 +261,13 @@ lydite status             # where the last wave stands; `lydite wait` waits for 
 
 Progress and the pull request's address are printed as the wave goes. `launch` exits 0 only if every task was taken,
 its proof replayed green and, with `--pr`, the pull request's CI green; 1 otherwise, a split Lydite did not take
-included; and 2 for a refusal before anything started. [Commands](#commands) gives every command's exit codes.
+included; and 2 for any refusal, even one after the wave opened. [Commands](#commands) gives every command's exit codes.
 
 **A ceiling per hand.** Each hand has a ceiling, `plafond` (20 dollars by default), enforced by Claude Code: a hand
 that reaches it is stopped, and its task comes back to you. With another provider (`api`) it may never trigger.
 
-**The French words left in a profile or a plan:**
+**The French words you meet first in a profile or a plan** (the full lists are `CLES` in `src/coeur/profil.rs`, and
+`CLES_ENTETE` and `CLES_TACHE` in `src/coeur/plan.rs`):
 
 | Word | Meaning |
 |---|---|
@@ -270,7 +285,8 @@ that reaches it is stopped, and its task comes back to you. With another provide
 
 The French commands and flags of earlier versions (`lancer`, `--verifier`, `--depot`…) are still read.
 
-**Another provider.** Any API in Anthropic's format works, with no Claude account. The profile names the URL and the
+**Another provider.** An API in Anthropic's format can stand in for the Claude account: we have run DeepSeek, and the
+others are not tried. The profile names the URL and the
 *name* of the environment variable that holds your key, never the key:
 
 ```text
@@ -329,8 +345,9 @@ with its `.sha256` file), unzip it, and put `lydite.exe` on your `PATH`.
 - Windows: only with `mur = demande`, knowingly. The wall does not hold there: the hands' commands run outside the
   sandbox and see a provider key if there is one. No `--issue`.
 - English: the commands and their flags, the help, the rule of every refusal, `lydite status`, `lydite doctor`, the
-  pull request body, this README and the Hermes plugin (not its tool names, such as `lydite_lancer`). Still in French:
-  what a refusal saw and its fix when it comes from reading a plan, a profile, the thread or a hand's report, or from
+  pull request body, this README and the Hermes plugin (not its tool names, such as `lydite_lancer`, nor its settings,
+  `binaire`, `profil`, `cle_nom` and `cle`, nor the command words it sends to Lydite). Still in French: what a refusal
+  saw and its fix when it comes from reading a plan, a profile, the thread or a hand's report, or from
   the wall; the lines `lydite launch` prints as the wave goes (`assemblée`, `classée`, `branche de la vague`…); the
   keys of profiles and plans; the names of the refusal codes (`lancer.dossier_pris`); a few fixes that still name a
   command by its French name (`lydite accepter`, still read); and the instructions Lydite gives
@@ -344,14 +361,16 @@ with its `.sha256` file), unzip it, and put `lydite.exe` on your `PATH`.
 **Not there yet:** a start guide replayed on a fresh machine; reference pages for profiles, plans and the thread;
 binaries for macOS and ARM; a judge for tests that prove nothing.
 
-Lydite is designed so that a human decides in five cases only: merging into `main`, putting something on a real system,
-spending beyond a quota, giving root, and publishing.
+Lydite is designed so that a human decides in five cases: merging into `main`, putting something on a real system,
+spending beyond a quota, giving root, and publishing. The code also asks the human to accept each profile and to give
+the proof of each wave.
 
 ## Claude Code and your accounts
 
-Lydite runs the Claude Code you installed (`claude`), as Anthropic publishes it, with its documented options: it
-patches nothing and has no sign-in of its own. Each person signs in to Claude Code themselves, with their own Claude
-account, their own API key or their provider's key, as they would without Lydite.
+Lydite runs the Claude Code you installed (`claude`), as Anthropic publishes it: it patches nothing and has no sign-in
+of its own. It drives Claude Code in stream-json and reads a control response internal to Claude Code, so a Claude
+Code whose responses Lydite does not recognize stops the hand. Each person signs in to Claude Code themselves, with
+their own Claude account, their own API key or their provider's key, as they would without Lydite.
 
 - **No Claude credential is read or kept.** Lydite only checks that Claude's login file exists, to close it to the
   agents; it never opens it. Nothing of the kind is written to a profile, to the journal or to a pull request.
@@ -361,11 +380,12 @@ account, their own API key or their provider's key, as they would without Lydite
 - **What the agents inherit.** Your `ANTHROPIC_*` variables and `CLAUDE_CONFIG_DIR` reach them (with a provider
   profile, its URL and key replace `ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY`, and `ANTHROPIC_AUTH_TOKEN` is
   dropped). Other `CLAUDE*` variables (a `CLAUDE_CODE_OAUTH_TOKEN`, say), GitHub tokens and SSH agents are not passed
-  on: an agent is never lent a right to act as you. Every other variable of your environment does reach the hands,
+  on: Lydite removes your GitHub and SSH tokens from what an agent gets. Every other variable of your environment does reach the hands,
   their commands and the replayed proof (a key for another service, say): launch Lydite from an environment that holds
   no other secret. The `gh` configuration folder, where `gh` keeps your token, is closed to the agents too, even
   outside your home folder (`GH_CONFIG_DIR`, `XDG_CONFIG_HOME`), and so is the folder `CLAUDE_CONFIG_DIR` names,
-  where Claude Code keeps your sign-in: both are closed to the hands' commands and to the replayed proof. Sign in with `claude` itself, or use an API key. The
+  where Claude Code keeps your sign-in: under a required wall only, both are closed to the hands' commands and to the
+  replayed proof. Sign in with `claude` itself, or use an API key. The
   agent keeps the key to reach its model, but the commands it runs in the sandbox do not see `ANTHROPIC_API_KEY` or
   `ANTHROPIC_AUTH_TOKEN`.
 - **Your own Claude Code settings.** A hand loads your Claude Code settings (`~/.claude/settings.json`). Two kinds of
@@ -408,7 +428,7 @@ Any agent that reads `SKILL.md` files can take the same pointer.
 
 [`hermes/`](https://github.com/aoricloud/lydite/blob/main/hermes/README.md) is a [Hermes Agent](https://hermes-agent.nousresearch.com) plugin. You talk to Hermes,
 Hermes hands the job to Lydite, and Lydite does what it does anywhere else: its own Claude Code workers, their commands
-behind the wall, your proof replayed by Lydite itself, a pull request with its receipt. The plugin adds five tools and
+behind the wall (under a required wall, the default), your proof replayed by Lydite itself, a pull request with its receipt. The plugin adds five tools and
 one skill:
 
 - `lydite_lancer` starts a wave from an issue, an objective or a plan file, with your proof command. Hermes shows you
@@ -423,11 +443,10 @@ one skill:
   is approved. It starts nothing and costs nothing.
 - `lydite_findings` reads the findings export of the hermes-security plugin and writes one Lydite plan per finding you
   choose: prove it by a failing test, then fix it. It starts nothing: each plan is launched with `lydite_lancer`, with
-  your approval. Lydite refuses, unless the wall is required (6037), a plan that carries the `report` line that
-  `lydite_findings` writes;
-  a plan whose line was removed, or written by hand from a report, goes as a plan written by hand,
-  and the human's reading of the plan before approving is what holds. A finding that no test can show comes back as
-  not proved, with nothing changed.
+  your approval. A plan that carries the `report` line that `lydite_findings` writes is refused (6037), unless the wall
+  is required. A plan whose line was removed, or written by hand from a report, goes as a plan written by hand. What
+  holds then is the human's reading of the plan before approving. A finding that no test can show comes back as
+  not proved (declared), with nothing changed: that is the hand's word, which Lydite does not check.
 - The skill `lydite:driving-lydite` tells the model when to hand a job to Lydite, how to read what `lydite_etat`
   returns, and to quote a refusal and stop instead of redoing the work itself. It is the text `lydite skill` prints.
 
@@ -438,8 +457,8 @@ never Hermes agents. Install and settings:
 
 ## Reference
 
-This README describes `main`. The latest release is [0.4.0](https://github.com/aoricloud/lydite/releases/tag/v0.4.0);
-what it does not have yet is marked *(not in 0.4.0)*.
+This README describes `main`. The latest release is [0.5.0](https://github.com/aoricloud/lydite/releases/tag/v0.5.0);
+what `main` gains after 0.5.0 will be marked *(not in 0.5.0)*; nothing is marked yet.
 
 Every refusal code, with its rule, is in
 [docs/refusals.md](https://github.com/aoricloud/lydite/blob/main/docs/refusals.md). Until the other reference pages
@@ -452,14 +471,16 @@ Every command exits 2 when it refuses: the refusal says its code, its rule, what
 
 | Command | What it does | Exits |
 |---|---|---|
-| `lydite launch` | runs a wave from an objective, a plan file (`--plan <file>`) or an issue (`--issue <n>`, with `--split`); `lydite --help` prints every form (see [Try it](#try-it)) | 0 if every task was taken, its proof replayed green and, with `--pr`, the CI green; 1 otherwise |
-| `lydite status` | says the last wave, read from the thread | 0 if it was carried through and green, or there is none; 1 if it is running or red; 2 if the thread cannot be read or a seal is broken; 3 if the launch was interrupted *(not in 0.4.0)* (see [Waiting for a wave](#waiting-for-a-wave)): what it counted is partial. For a thread written by an earlier Lydite, it does not check that the wave was sealed (a killed launch can read green): `lydite wait` does |
+| `lydite launch` | runs a wave from an objective, a plan file (`--plan <file>`) or an issue (`--issue <n>`, with `--split`); `lydite --help` prints every form (see [Try it](#try-it)) | 0 if every task was taken, its proof replayed green and, with `--pr`, the CI green; 1 otherwise. With `--split --dry-run`: 0 once the plan is printed |
+| `lydite status` | says the last wave, read from the thread | 0 if it was carried through and green, or there is none; 1 if it is running or red; 2 if the thread cannot be read or a seal is broken; 3 if the launch was interrupted (see [Waiting for a wave](#waiting-for-a-wave)): what it counted is partial. For a thread written by an earlier Lydite, it does not check that the wave was sealed (a killed launch can read green): `lydite wait` does |
 | `lydite wait` | waits for a running launch, then says the last wave | see [Waiting for a wave](#waiting-for-a-wave) |
 | `lydite doctor [<profile>]` | checks this machine, and the wall when a profile is named | 0 if ready, 1 if something is missing |
+| `lydite memory` | prints an index of the thread, one line per line the reader took from it; read-only (see [Memory](#memory-read-only)) | 0; 2 if a seal is broken or the thread is refused |
+| `lydite memory recall <address>` | prints that exact line of the thread; read-only | 0; 2 if a seal is broken, or if the address is refused (6034, 6035) |
 | `lydite plan [--split] <file>` | reads a plan as `launch` would, and runs nothing | 0 |
 | `lydite remarks <file>` | reads a reviewer's remarks file | 0 |
 | `lydite lessons <folder>` | reads a repository's lessons | 0 |
-| `lydite findings <report> [--plan <id> --verify "<proof>"]` *(not in 0.4.0)* | reads a hermes-security findings export, and prints the list of the findings it keeps and the ones it sets aside, or, with `--plan` and `--verify`, the plan of one kept finding; it runs nothing | 0 |
+| `lydite findings <report> [--plan <id> --verify "<proof>"]` | reads a hermes-security findings export, and prints the list of the findings it keeps and the ones it sets aside, or, with `--plan` and `--verify`, the plan of one kept finding; it runs nothing | 0 |
 | `lydite accept <profile>` | shows a profile and accepts its fingerprint | 0 |
 | `lydite profile <profile>` | shows what Lydite understood of a profile | 0 |
 | `lydite skill` | prints the skill an agent follows to drive Lydite | 0 |
@@ -474,13 +495,12 @@ launch on the same folder is refused with 6032 (`lancer.dossier_pris`), and its 
 one or to take another folder (`LYDITE_DOSSIER`). The waves of one launch do not refuse each other. The hold is an
 operating-system file lock on `lancer.verrou` in the folder, never on the thread: a process that dies or is killed
 loses it and leaves nothing to clean. `lydite status` and `lydite accept` do not take it; `lydite status` probes it
-for an instant, without keeping it, when the last wave of the thread has no `vague.fin` *(not in 0.4.0)*. A launch that meets the
+for an instant, without keeping it, when the last wave of the thread has its `vague.lancement` and no `vague.fin`. A launch that meets the
 lock for an instant (the probe of `lydite status` and `lydite wait`, below) retries for about 200 ms before it refuses.
 
 ### Waiting for a wave
 
-`lydite status` returns 1 for a wave still running as well as for a red one. *(Not in 0.4.0: from here to the end
-of this paragraph, and the exit 3 of `lydite wait` below.)* A launch that opens a wave writes a
+`lydite status` returns 1 for a wave still running as well as for a red one. A launch that opens a wave writes a
 `vague.lancement` line, and one that exits writes a `vague.fin` line on the last wave it opened. When the last wave of
 the thread has its `vague.lancement` and no `vague.fin`, and no launch holds the state folder (`lydite status` probes
 the lock for an instant, and reads the thread again if it is free: a launch that wrote its end and exited in between
@@ -497,7 +517,7 @@ seconds, and never keeps it), then, if the thread gained at least one note since
 `lydite status` and exits 0 if it is carried through and green, 1 if it is red, 2 if the journal cannot be read or a
 seal is broken, and 3 if the launch it waited for was interrupted, as above, with or without a new note, and without
 the seal rule below. Lydite seals a wave just before it writes the pull request, and at every exit once the wave has
-opened. For a thread written by an earlier Lydite, which has no `vague.lancement`, `wait` keeps its older rule: it
+opened; a split alone (`--split --dry-run`) writes no seal. For a thread written by an earlier Lydite, which has no `vague.lancement`, `wait` keeps its older rule: it
 exits 1 if the last wave carries no seal at all (a launch killed before its first seal), and a launch killed after that
 first seal, or a `--split` launch killed or refused between its split and its wave, is not caught, so `wait` exits as
 `lydite status` would, possibly 0. A launch killed after it opened its wave is caught by the 3, except in the instant
@@ -517,17 +537,17 @@ accepts it.
 
 The optional `proteges` key lists repository paths (files, or folders ending in `/`) that no hand may change, whatever the `fichiers` of its task, and the hand never runs `git commit`: Lydite commits its work itself. The lessons folder `.agents/skills/` is always protected, with or without the key: a hand never changes a lesson (a change there turns its attempt red, and at the freeze the task is refused with 7018), only the human does. A neighbouring path such as `.agents/other` stays free.
 
-The optional `plafond` key caps what each hand may spend, in dollars (20 by default; a positive number with two decimals at most, for example `plafond = 7.5`). Every Claude hand is started with `--max-budget-usd <plafond>`; a hand that reaches it is stopped and not retried: its task is refused with 7019, the rest of the wave goes on, and the decision comes back to the human (raise `plafond` in the profile, accept it with `lydite accept`, then rerun the task in a new wave, or leave it). It is a ceiling, not a budget: high enough not to hold back a normal hand, it only stops a hand that runs away, sub-agents included. For a profile that names another provider (`api`), Claude Code counts the spend at the prices it knows, possibly zero, so the ceiling may never trigger.
+The optional `plafond` key caps what each hand may spend, in dollars (20 by default; a positive number with two decimals at most, for example `plafond = 7.5`). Every Claude hand is started with `--max-budget-usd <plafond>`; a hand that reaches it is stopped and not retried: its task is refused with 7019, the rest of the wave goes on, and the decision comes back to the human (raise `plafond` in the profile, accept it with `lydite accept`, then rerun the task in a new wave, or leave it). It is a ceiling, not a budget (20 dollars by default): it stops any hand that reaches it, sub-agents included, and nothing measures whether it holds back a normal hand. For a profile that names another provider (`api`), Claude Code counts the spend at the prices it knows, possibly zero, so the ceiling may never trigger; that is not measured.
 
-The optional `effort`, `effort_relance`, `effort_decoupeur` and `effort_relecteur` keys set Claude Code's effort (`low`, `medium`, `high`, `xhigh` or `max`) for the hand, its retry (also the hand that corrects a review), the splitter and the reviewer; a key becomes `--effort <value>` for that hand, and Lydite checks that Claude Code applied it. Without them Claude Code takes its own default (`medium` on 2.1.317), which `lydite profile` shows on its `effort:` row. Under `api`, Claude Code passes the effort along (measured on 2.1.317), but what the provider does with it is not measured.
+The optional `effort`, `effort_relance`, `effort_decoupeur` and `effort_relecteur` keys set Claude Code's effort (`low`, `medium`, `high`, `xhigh` or `max`) for the hand, its retry (also the hand that corrects a review), the splitter and the reviewer; a key becomes `--effort <value>` for that hand, and Lydite checks that Claude Code applied it. Without them Claude Code takes its own default (we saw `medium` on 2.1.317), which `lydite profile` shows as "Claude Code's default" on its `effort:` row. Under `api`, Lydite passes `--effort` as for any hand and checks that Claude Code applies it; what the provider does with it is not measured.
 
 The optional `efforts_permis` key lists, separated by commas, the efforts a plan may ask for its tasks (`efforts_permis = low, medium`; values among `low`, `medium`, `high`, `xhigh` and `max`). Without it any effort is allowed. A plan task whose `effort :` line (see Plans) is not in the list is refused with 6033 (`lancer.effort_non_permis`) before any hand starts and before anything is written: its proof names the task and the effort, and its correction says to pick an allowed effort in the plan, or to widen `efforts_permis` and accept the profile again. The profile's own `effort*` keys are not judged by it, and `lydite profile` shows it on its `allowed efforts:` row.
 
-The optional `mesure` key is made for a measurement bench only, never for a real wave. It lists one or two settings, `sans-lecture` and `sans-a1`, to measure the effect of a lesson: `sans-lecture` keeps the lessons block in the system prompt but drops the reading instruction; `sans-a1` drops the two fixed sentences (honesty and perimeter) from a task hand's instruction, and keeps its list of files and everything else. Any other value is refused like any unknown profile value. The thread notes the active settings in `main.consigne.mesure`, and the receipt (the PR body and `lydite status`) says so on a line of its own, `Measurement: <settings>.`, so a real wave is never weakened without saying it.
+The optional `mesure` key is made for a measurement bench; nothing refuses it in a real wave. It lists one or two settings, `sans-lecture` and `sans-a1`, to measure the effect of a lesson: `sans-lecture` keeps the lessons block in the system prompt but drops the reading instruction; `sans-a1` drops the two fixed sentences (honesty and perimeter) from a task hand's instruction, and keeps its list of files and everything else. Any other value is refused like any unknown profile value. The thread notes the active settings in `main.consigne.mesure`, and the receipt (the PR body and `lydite status`) says so on a line of its own, `Measurement: <settings>.`, so a real wave is never weakened without saying it.
 
 ```bash
 lydite accept <name>          # shows the profile and accepts its fingerprint; a changed profile must be accepted again
-lydite profile <name>         # read-only: loads the profile as `launch` does and says its source, fingerprint, models, efforts, wall (required or requested), where the proof is replayed, the per-hand ceiling and the two timeouts
+lydite profile <name>         # read-only: loads the profile and checks its accepted fingerprint as `launch` does, without the other checks of a launch, and says its source, fingerprint, models, efforts, wall (required or requested), where the proof is replayed, the per-hand ceiling and the two timeouts
 ```
 
 ### Native wall (optional)
@@ -540,10 +560,10 @@ Its limits: it covers the wall check and the replay of your proof only. The comm
 
 ### Plans
 
-*(Not in 0.4.0.)* The optional header key `forme : <command>` (for example `forme : cargo fmt`), given once, names a formatting command: Lydite runs it itself in the sandbox of each task's hand, once the hand is done and just before replaying the proof, the way it replays the proof (the same wall and the same `delai_preuve`), for the retry, the correction of a review and the retry of a red CI too, never for the hands that split or review. Your proof keeps its own format check and is the judge: a formatting command that fails stops nothing, and the end of its output, under `formatting failed: <command>`, comes before the proof's. What it changes counts as the hand's work (`fichiers` and `exact` hold for it). A plan split by a hand never carries it (6018); a blank value is refused (6021); a plan without this key does not change.
+The optional header key `forme : <command>` (for example `forme : cargo fmt`), given once, names a formatting command: Lydite runs it itself in the sandbox of each task's hand, once the hand is done and just before replaying the proof, the way it replays the proof (the same wall and the same `delai_preuve`), for the retry, the correction of a review and the retry of a red CI too, never for the hands that split or review. Your proof keeps its own format check and is the judge: a formatting command that fails stops nothing, and the end of its output, under `formatting failed: <command>`, comes before the proof's. What it changes counts as the hand's work (`fichiers` and `exact` hold for it). A plan split by a hand never carries it (6018); a blank value is refused (6021); a plan without this key does not change.
 
 In a plan, the repeatable task key `exact : <file> : <text>` makes Lydite check itself, byte for byte and without a
-model, that the text appears in that file of the task (the file must be covered by the task's `fichiers`); a hand that
+model, that the text appears in that file of the task (when the task has `fichiers`, the file must be covered by them); a hand that
 splits it or leaves it out gets a red attempt.
 
 The optional task key `effort : <level>` (`low`, `medium`, `high`, `xhigh` or `max`; any other value refuses the plan
@@ -553,18 +573,18 @@ the way `modele` and `relance` replace its models. The profile must allow it (`e
 example `- Effort: hand: low, high; reviewer: Claude Code's default` (a role with no declared effort shows
 `Claude Code's default`).
 
-*(Not in 0.4.0.)* The repeatable task key `sha256 : <file> : <hash>` pins a whole file by the SHA-256 of the bytes git keeps of it (in a
+The repeatable task key `sha256 : <file> : <hash>` pins a whole file by the SHA-256 of the bytes git keeps of it (in a
 repository that normalizes line endings, these are not the bytes on disk); a file has one hash per plan. Lydite checks
 it itself, without a model, at the end of every attempt and on the commit it freezes, for the task that pins the file as
 for every task of the plan that touches it. The correction of a review and the retry of a red CI hold the pins of the
 tasks assembled in the wave. A difference at the freeze refuses the task (7022). The Receipt of the pull request says
 `Files verified by SHA-256: <n> of <m>`: the files checked on hands that were assembled, out of the files the plan pins.
 
-*(Not in 0.4.0.)* The task key `red : <file>` (repeatable) or `red : declared` asks for the test first. Lydite replays the proof itself on the base plus only that test, requires it to fail, then requires it to pass with the whole change. With `red : declared` the hand names its test file in the last lines of its answer (`RED: <file>`). The test lives in its own file, one that the base already compiles. The correction of a review and the retry of a red CI cannot change it: they hold a pin on the test file, and a blocking remark on that file is refused (7020). The Receipt of the pull request says `Red first: <n> of <m> tasks`: the tasks whose red still holds on the published head, out of the tasks of the plan that ask for it. Its limits, plainly: a compilation error counts as a failure; it is the red of a file, not of a named test; and for a critical task it is the reviewer who reads the reason for the red, from the last lines of its output.
+The task key `red : <file>` (repeatable) or `red : declared` asks for the test first. Lydite replays the proof itself on the base plus only that test, requires it to fail, then requires it to pass with the whole change. With `red : declared` the hand names its test file on lines of its answer that start with `RED:` (`RED: <file>`). The hand is asked to put the test in its own file, one that the base already compiles; if the proof passes on the base plus that file, the attempt is red. The correction of a review and the retry of a red CI cannot change it: they hold a pin on the test file, and a blocking remark on that file is refused (7020). The Receipt of the pull request says `Red first: <n> of <m> tasks`: the tasks whose red still holds on the published head, out of the tasks of the plan that ask for it. Its limits, plainly: a compilation error counts as a failure; it is the red of a file, not of a named test; and for a critical task it is the reviewer who reads the reason for the red, from the last lines of its output.
 
-*(Not in 0.4.0.)* The repeatable task key `place : <file> : <sha256>` makes Lydite place the file itself, before the task's hand: it takes the bytes from the same path under the folder `<plan file>.files/` next to the plan (a regular file, never a symbolic link, 4 MiB at most, 64 files at most in a plan, whose SHA-256 is the one written), writes them as they are into the task's sandbox before each attempt, the retry included, with no line-ending conversion and no repository filter, and keeps the file as a `sha256` pin. The file must be covered by the task's `fichiers` and lie outside `.github/`, `.git`, `.claude` and `.agents/skills/`. Refused (6036): a missing file, a link, a file that is too big or whose hash differs, too many files in the plan, and a path where the base commit keeps a symbolic link, a folder, a submodule or a file over 64 MiB, before any sandbox or thread; an ordinary file already at that path is replaced, and the diff shows it. Lydite writes git's object as it is (`--no-filters`), but the target repository's `text`, `eol` and `filter` attributes still apply to the working copy and to the freeze, so a file placed under such an attribute may not keep its bytes and may turn its task red; place files that these attributes do not touch. A plan split by a hand never carries `place`; a plan without this key does not change.
+The repeatable task key `place : <file> : <sha256>` makes Lydite place the file itself, before the task's hand: it takes the bytes from the same path under the folder `<plan file>.files/` next to the plan (a regular file, never a symbolic link, 4 MiB at most, 64 files at most in a plan, whose SHA-256 is the one written), writes them as they are into the task's sandbox before each attempt, the retry included, with no line-ending conversion and no repository filter, and keeps the file as a `sha256` pin. When the task has `fichiers`, the file must be covered by them; it must lie outside `.github/`, `.git`, `.claude` and `.agents/skills/`. Refused (6036): a missing file, a link, a file that is too big or whose hash differs, too many files in the plan, and a path where the base commit keeps a symbolic link, a folder, a submodule or a file over 64 MiB, before any sandbox or thread; an ordinary file already at that path is replaced, and the diff shows it. Lydite writes git's object as it is (`--no-filters`), but the target repository's `text`, `eol` and `filter` attributes still apply to the working copy and to the freeze, so a file placed under such an attribute may not keep its bytes and may turn its task red; place files that these attributes do not touch. A plan split by a hand never carries `place`; a plan without this key does not change.
 
-*(Not in 0.4.0.)* The header key `report : <scan id> <finding id>` says that a plan was born of a hermes-security report (`lydite findings --plan` writes it). Its form is `scan_` and 24 lowercase hexadecimal digits, one space, then `hsf_` or `cand_` and 24 lowercase hexadecimal digits, and nothing else. A plan with a `report` line is refused (6018) when the value has another form, when it is a plan split by a hand, when it carries a `place` line (a plan born of a report never makes Lydite write a file), or when a task has no `red` line (the test first is required) or no `critique : oui` line (the review reads the whole diff or none of it, and a wave born of a report is never left unreviewed); a blank value is refused too (6021). At launch it is refused (6037) under any profile that does not require the wall. When a hand ends on `IMPOSSIBLE: not proved: <reason>` (in any letter case), the Receipt of the pull request says `Not proved (declared): <n> of <m> tasks` (only when `<n>` is not zero) and `lydite status` says `Not proved (declared): <n>`, the hand's own word, which Lydite does not check. A plan without this key does not change.
+The header key `report : <scan id> <finding id>` says that a plan was born of a hermes-security report (`lydite findings --plan` writes it). Its form is `scan_` and 24 lowercase hexadecimal digits, one space, then `hsf_` or `cand_` and 24 lowercase hexadecimal digits, and nothing else. A plan with a `report` line is refused (6018) when the value has another form, when it is a plan split by a hand, when it carries a `place` line (a plan born of a report never makes Lydite write a file), or when a task has no `red` line (the test first is required) or no `critique : oui` line (the review reads the whole diff or none of it, and a wave born of a report is never left unreviewed); a blank value is refused too (6021). At launch it is refused (6037) under any profile that does not require the wall. When a hand ends on `IMPOSSIBLE: not proved: <reason>` (`IMPOSSIBLE` in capitals, on its last non-empty line; only `not proved:` ignores letter case), the Receipt of the pull request says `Not proved (declared): <n> of <m> tasks` (only when `<n>` is not zero) and `lydite status` says `Not proved (declared): <n>`, the hand's own word, which Lydite does not check. A plan without this key does not change.
 
 ### Lessons
 
@@ -586,30 +606,31 @@ reviewer get the list of all lessons, one line each, the same way.
 
 ### The thread and its seal
 
-- **One thread of facts.** Everything that happens is appended to a journal outside the repository, and `lydite status`
-  is read from it. A fact only declared by a hand is never shown as a fact Lydite observed. Before a hand leaves, a
-  `main.consigne` line says what it received: its role, the SHA-256 of the exact text sent, the SHA-256 of its system
-  prompt file, and the lessons given and set aside. Both texts are kept in `consignes/<SHA-256>.txt`. For a task that
-  pins files *(not in 0.4.0)*, a `main.empreintes` line says which ones Lydite checked on the frozen commit, just before the merge;
-  `lydite status` counts them as `Files verified by SHA-256: <n>`. For a task that asks for its test first
-  *(not in 0.4.0)*, a `main.rouge` line says what Lydite saw itself: the base, the test files with their SHA-256, and the end of the failing output.
-- **A sealed thread.** Before it builds the body of its PR, and again when it ends (on every exit, published or not),
-  a wave writes a `vague.sceau` line: the journal's length in bytes and the SHA-256 of those bytes. The PR receipt
-  repeats the first one (`Thread sealed at <bytes> bytes: sha256 <hash>.`). `lydite status` recomputes every seal, names
-  the first one that no longer matches (its wave, its bytes) on stderr, and exits 2. A seal shows a line changed or
+- **One thread of facts.** Each step of a wave is noted in a journal outside the repository before Lydite acts (a
+  failed note stops it, 7012), and `lydite status` is read from it; what a hand does in its own session is not in it.
+  A fact only declared by a hand is never shown as a fact Lydite observed. Before a hand leaves, a `main.consigne` line
+  says what it received: its role, the SHA-256 of the exact text sent, the SHA-256 of its system prompt file, and the
+  lessons given and set aside. Both texts are kept in `consignes/<SHA-256>.txt`. For a task that
+  pins files, a `main.empreintes` line says which ones Lydite checked on the frozen commit, just before the merge;
+  `lydite status` counts them as `Files verified by SHA-256: <n>`. For a task that asks for its test first,
+  a `main.rouge` line says what Lydite saw itself: the base, the test files with their SHA-256, and the end of the failing output.
+- **A sealed thread.** Before it builds the body of its PR, and again when it ends (on every exit once the wave has
+  opened, published or not), a wave writes a `vague.sceau` line: the journal's length in bytes and the SHA-256 of those
+  bytes; a split alone (`--split --dry-run`) writes none. The PR receipt repeats the first one (`Thread sealed at
+  <bytes> bytes: sha256 <hash>.`). `lydite status` recomputes every seal, names the first one that no longer matches (its wave, its bytes) on stderr, and exits 2. A seal shows a line changed or
   removed before it. It does not show a line appended after it, nor a journal rewritten with its seals redone (the
   receipt in the PR, off the machine, keeps its own).
-- **A launch and its end** *(not in 0.4.0)*. When a launch opens a wave, it writes a `vague.lancement` line: the wave, the version of
+- **A launch and its end**. When a launch opens a wave, it writes a `vague.lancement` line: the wave, the version of
   Lydite, and the SHA-256 of the plan file (null for a wave with no plan file). When it exits, it writes a `vague.fin`
   line on the last wave it opened: the exit code of the launch. A wave with a `vague.lancement` and no `vague.fin`, once
   no launch holds the folder, is an interrupted launch (see [Waiting for a wave](#waiting-for-a-wave)).
-- **A killed proof is replayed once** *(not in 0.4.0)*. A proof killed from outside (signal 9 or 15, or exit code 137 or 143; never
+- **A killed proof is replayed once**. A proof killed from outside (signal 9 or 15, or exit code 137 or 143; never
   on Windows) is not a red proof: Lydite replays it once, and the thread says so in the first line of its `verif`,
   `proof killed (<status>), replayed once`.
 
 ### Memory (read-only)
 
-*(Not in 0.4.0.)* Two commands read the thread and write nothing: no file or folder is created, the lock of the state folder is not
+Two commands read the thread and write nothing: no file or folder is created, the lock of the state folder is not
 taken (like `lydite status`), and no hand is launched.
 
 - `lydite memory` prints an index, one line per line the reader took from the thread, in the order of the thread, and
@@ -647,8 +668,8 @@ cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check
 python3 -m unittest discover -s hermes/tests -t hermes     # the Hermes plugin
 ```
 
-The code is in three layers (`coeur`, `branchements`, `conduite`, under `commande`); `tests/couches.rs` keeps each one
-from naming the layers above it. The code, its identifiers and its comments are in French; what Lydite prints is
+The code is in three layers (`coeur`, `branchements`, `conduite`, under `commande`); `tests/couches.rs` checks that
+no production file of one contains the text `crate::<layer>` of a layer above it. The code, its identifiers and its comments are in French; what Lydite prints is
 moving to English (see [Where it stands](#where-it-stands)).
 
 ## Why the name

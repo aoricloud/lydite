@@ -81,7 +81,8 @@ If Lydite refuses the plan, give the refusal as written, propose the fix to the 
 only if they ask you to; then check it again. Launch only a plan that Lydite accepts.
 
 Call `lydite_lancer` with `repo` and one of `issue`, `objective` or `plan` (and `proof` for the first two). Add
-`observe: true` first if the user wants to see the plan before anything runs.
+`observe: true` first if the user wants to see the plan before the wave: the hand that splits the work runs, then the
+plan is shown, and no wave starts.
 
 Hermes shows at most ten rows of an approval, and the plugin's message holds in nine: the repository, the work, the
 proof, the profile and the target branch. A plan file is shown by its name, its size, its number of tasks, its proof
@@ -90,7 +91,9 @@ it was shown. The user reads the plan file itself before approving, and can chec
 the approval. Do not answer that prompt for them, do not change Hermes' approval settings, and do not launch the same
 job again while the first one is pending. If the approval is refused, or cannot be asked, say so and stop.
 
-The call returns at once with an `id`. The wave runs in the background and takes minutes to hours.
+The call waits up to 3 seconds for an immediate refusal from Lydite. If one comes, it is in the answer: give it as
+written and stop. Otherwise the call returns with an `id`, and a later refusal is at the end of the launch's log:
+`lydite_etat` with the `id` shows it. The wave runs in the background and takes minutes to hours.
 
 ## Follow it
 
