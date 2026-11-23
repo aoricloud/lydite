@@ -49,7 +49,7 @@ Without the Hermes plugin, the tools below are commands: `lydite_lancer` is `lyd
 
 ## Lessons
 
-A repository that Lydite works on may keep lessons: the written rules Lydite learned there from past mistakes and
+A repository that Lydite works on may keep lessons: the written rules kept there from past mistakes, which Lydite
 gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Call `lydite_lecons` with the checkout
 path before you plan, review or do any work in such a repository. Follow the lessons, and when one shapes what you do
 or say, cite it by its name. Call it again with `name` to read one lesson in full.
@@ -76,8 +76,9 @@ Have all of these. If one is missing, ask the user for it; do not invent it.
 
 ## Launch
 
-When the work is a plan file, call `lydite_plan` with its path first. It runs nothing and asks no approval.
-If Lydite refuses the plan, give the refusal as written, propose the fix to the user, and change the file
+When the work is a plan file, call `lydite_plan` with its path first. It starts no wave and asks no approval.
+A plan that places files (`place` lines) is refused by `lydite_plan` and by `lydite_lancer`: it is launched from a shell,
+with `lydite launch`. If Lydite refuses the plan, give the refusal as written, propose the fix to the user, and change the file
 only if they ask you to; then check it again. Launch only a plan that Lydite accepts.
 
 Call `lydite_lancer` with `repo` and one of `issue`, `objective` or `plan` (and `proof` for the first two). Add

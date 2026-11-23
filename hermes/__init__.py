@@ -46,7 +46,7 @@ def register(ctx):
         schema=SCHEMA_LECONS,
         handler=outils.lecons,
         check_fn=outils.disponible,
-        description="The lessons Lydite learned on this repository",
+        description="The lessons kept for this repository",
         emoji="🐙",
     )
     ctx.register_tool(
@@ -55,7 +55,7 @@ def register(ctx):
         schema=SCHEMA_PLAN,
         handler=outils.plan,
         check_fn=outils.disponible,
-        description="Check a plan file with Lydite, run nothing",
+        description="Check a plan file with Lydite, start no wave",
         emoji="🐙",
     )
     ctx.register_tool(
@@ -64,7 +64,7 @@ def register(ctx):
         schema=SCHEMA_FINDINGS,
         handler=outils.findings,
         check_fn=outils.disponible,
-        description="Read a hermes-security export and write one Lydite plan per finding, run nothing",
+        description="Read a hermes-security export and write one Lydite plan per finding, start no wave",
         emoji="🐙",
     )
     ctx.register_hook("pre_tool_call", outils.verrou)
