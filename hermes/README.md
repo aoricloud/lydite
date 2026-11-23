@@ -1,6 +1,6 @@
 # lydite: a Hermes plugin
 
-![Lydite, a plugin for Hermes Agent: issue and proof, workers (their commands sandboxed under a required wall), proof replayed, pull request with a receipt](docs/banner.png)
+![Lydite, a plugin for Hermes Agent. The agents' word is never the proof. Issue + proof, Claude Code workers, proof replayed, pull request with a receipt. A touchstone with three strokes: replayed, declared, not replayed](docs/banner.png)
 
 This plugin is a launcher. The engine is [Lydite](https://github.com/aoricloud/lydite), an open-source program (Rust,
 MIT) that you install separately, from a release whose binary is built and attested by GitHub Actions.
@@ -14,17 +14,20 @@ to the repository, its humans and its own merge rules.
 
 ## What comes back
 
-A real one: [mycelium-lab#55](https://github.com/aoricloud/mycelium-lab/pull/55), the fix of issue #53 of a public
-Rust simulator, started from a Hermes chat. Its receipt says two workers, no retry, the proof replayed green,
-and the commit that was reviewed and replayed. That repository merges a green pull request by its own
-workflow, which is why GitHub shows it merged by `github-actions[bot]`.
+A real one: [lydite#169](https://github.com/aoricloud/lydite/pull/169), "Prepare v0.5.0", on Lydite's own
+repository. A wave of Lydite opened it, launched from a shell, not from a Hermes chat; the receipt is the same through
+the plugin, which only starts `lydite lancer`, and Lydite writes the receipt. It says three hands, no retry, nothing
+set aside, the proof replayed green, the review (3 remarks, none blocking) and the commit that was reviewed and
+replayed, 2d5b52f, the head of the first wave: the branch then received a fix pull request, and the merged head is
+another commit. Its owner, a human, merged it: 14 commits into `main`.
 
-![The pull request mycelium-lab#55 written by Lydite: its receipt, the proof replayed green, and the commit that was reviewed and replayed](docs/screenshot-receipt.png)
+![The pull request lydite#169 written by Lydite, merged by its owner: its receipt (cost, 3 hands, 0 retries, 0 set aside, efforts, sealed thread, proof settings changed), the objective, the proof replayed green, two task lines in French because the plan was, the review (3 remarks, 0 blocking) and the commit reviewed and replayed, 2d5b52f](docs/screenshot-receipt.png)
 
 ## Before you start (about an hour)
 
-- **Linux.** Lydite's wall holds there only: the tools appear under Linux only, whatever the architecture (the plugin
-  checks the system, not the processor). The attested Lydite binary is for Linux x86-64.
+- **Linux.** We have run Lydite's wall on Linux only: the tools appear under Linux only, whatever the architecture (the
+  plugin checks the system, not the processor). The release has an attested Lydite binary for Linux x86-64, and one for
+  Windows x86-64, under which these tools do not appear.
 - **The `lydite` binary**, from an attested release: this plugin lives in Lydite's repository and goes with the binary
   of the same release. **This plugin ships and downloads no binary.**
 
@@ -56,10 +59,10 @@ with the id).
 
 | Tool | What it does |
 | --- | --- |
-| `lydite_lancer` | Starts `lydite lancer <profile> --issue <n> --decouper --verifier "<proof>" --depot <repo> --pr main` in the background and returns with an id: it first waits up to 3 seconds for an immediate refusal from Lydite, which is then in the answer, else at the end of the launch's log (`lydite_etat` with the id) (Lydite 0.5 still reads those French words as doubles of its English ones: `lydite launch ... --split --verify ...`). Also takes `objective` (instead of `issue`), `plan` (instead of both: a plan file written by hand, with its own models, files and `preuve :` line; see below), `profile`, `pr`, and `observe` (the hand that splits the work runs, then the plan is shown; no wave is built). |
+| `lydite_lancer` | Starts `lydite lancer <profile> --issue <n> --decouper --verifier "<proof>" --depot <repo> --pr main` in the background and returns with an id: it first waits up to 3 seconds for an immediate refusal from Lydite, which is then in the answer, else at the end of the launch's log (`lydite_etat` with the id) (Lydite 0.5 still reads those French words as doubles of its English ones: `lydite launch ... --split --verify ...`). Also takes `objective` (instead of `issue`), `plan` (instead of both: a plan file written by hand, with its own models, files and `preuve :` line; see below; a plan that places files, with `place` lines, is refused before the prompt and without starting Lydite: launch it from a shell), `profile`, `pr`, and `observe` (the hand that splits the work runs, then the plan is shown; no wave is built). |
 | `lydite_etat` | Returns `lydite etat` (what Lydite itself recorded: tasks, proofs, pull request, CI) and the launches made from this plugin, with the end of a launch's log when given its `id`. |
-| `lydite_lecons` | Returns the lessons of a repository: the written rules Lydite learned there from past mistakes and gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Without `name`, the list of each lesson's name, rule and files; with `name`, one lesson in full. It is read-only, and Lydite checks the lessons first. Nothing is approved, because nothing is started or written. |
-| `lydite_plan` | Runs `lydite plan <file>` on a plan file and returns what Lydite accepts or refuses, and why: the plan's SHA-256, its number of tasks, its proof line and the tasks that will wait for one another because they share a file, or Lydite's refusal (its code, its rule, what was seen, the fix). It starts nothing and costs nothing, so nothing is approved: use it to fix a plan with the human before approving a launch. |
+| `lydite_lecons` | Returns the lessons of a repository: the written rules kept in the repository, each from a past mistake, which Lydite gives to its workers, one per folder under `.agents/skills/<name>/SKILL.md`. Without `name`, the list of each lesson's name, rule and files; with `name`, one lesson in full. It is read-only, and Lydite checks the lessons first. Nothing is approved, because nothing is started or written. |
+| `lydite_plan` | Runs `lydite plan <file>` on a plan file and returns what Lydite accepts or refuses, and why: the plan's SHA-256, its number of tasks, its proof line and the tasks that will wait for one another because they share a file, or Lydite's refusal (its code, its rule, what was seen, the fix). It starts nothing and costs nothing, so nothing is approved: use it to fix a plan with the human before approving a launch. It refuses, without running Lydite, a plan that places files (`place` lines): see `lydite_lancer`. |
 | `lydite_findings` | Runs `lydite findings` (read-only, and nothing else) on a hermes-security findings export (JSON, `1.0`) and turns it into Lydite plans. It needs a Lydite binary that has `lydite findings`, newer than 0.4.0. Without `ids`, it lists the findings Lydite can take and the ones it sets aside, each with the reason (the plugin also sets aside a finding that cites a file which is not in the repository). With `ids` (from 1 to 12) and `proof`, it writes one plan file per chosen finding, as Lydite wrote it, under the plugin's data folder (mode 0600), and starts nothing, so nothing is approved. It saves a plan only if its header carries the `report` line of that scan and finding. It is launched like any plan, with `lydite_lancer`, after the human's approval; Lydite refuses a plan that carries the `report` line unless the profile requires the wall (6037; see below). |
 
 It also ships one skill, `lydite:driving-lydite`, in the open `SKILL.md` format with only its common fields (`name`, `description`, `license`, `compatibility`), so
@@ -67,10 +70,11 @@ Claude Code can read it too. It tells the model when to hand a job to Lydite, wh
 repository, the work, your proof), how to read what `lydite_etat` returns (what Lydite observed against what a worker
 only declared; what the cost line means), and to quote a refusal and stop rather than redo the work itself. Hermes
 lists it for the model while the plugin is enabled, on Linux, and does not copy it into `~/.hermes/skills/`. The Lydite
-binary carries the same skill, and `lydite skill` writes it, for an agent outside Hermes.
+binary carries the same skill, and `lydite skill` prints it, for an agent outside Hermes.
 
-The workers are **Claude Code sessions that Lydite starts itself**, on the model and provider of the Lydite profile
-(for example a DeepSeek endpoint). They are never Hermes agents or subagents: the plugin starts only `lydite`, and
+The workers are **Claude Code sessions that Lydite starts itself**, on the models that the plan and the Lydite profile
+name, at the profile's provider (for example a DeepSeek endpoint; a profile can send its reviewer to Anthropic
+instead). They are never Hermes agents or subagents: the plugin starts only `lydite`, and
 Lydite starts the workers.
 
 ### With hermes-security
@@ -99,8 +103,8 @@ The titles and claims of a report are text written by someone else. They enter t
 data, bounded and on one line. The plan that `lydite_findings` writes carries its origin, a `report` line, and Lydite
 itself refuses a plan that carries that line (6037) unless the profile requires the wall. That is all that holds: a plan
 whose `report` line was removed, or one written by hand from a report, goes as a plan written by hand, and the human's
-reading of the plan before approving is what holds. The approval message says the origin of a plan, `report <scan>
-<id>` or `none (written by hand)`. To use a plan that carries the line, put `mur = exige` in the profile, and have a
+reading of the plan before approving is what holds. The approval message says the origin of a plan, `report <finding
+id>` or `none (written by hand)`. To use a plan that carries the line, put `mur = exige` in the profile, and have a
 human run `lydite accept <name>`; or use another profile.
 
 ### Names still in French
@@ -158,7 +162,7 @@ Hermes shows at most ten rows of an approval, and the plugin's message holds in 
 proof, the profile and the target branch (with `observe`, the branch row says `plan only`). A plan file is shown by its
 name, its size, its number of tasks, its origin, its proof line and the SHA-256 of its bytes; Lydite runs those exact
 bytes, and the launch is refused if the file changed since it was shown. Read the plan file before you approve: Hermes shows its name and its SHA-256, not its text. Check it
-with `sha256sum <file>` to see the bytes Lydite will run. Hermes waits for your approval before anything starts.
+with `sha256sum <file>` to see the bytes Lydite will run. Hermes waits for your approval before anything starts, unless it skips the prompt (see Approvals below).
 
 ![The Hermes approval box for a Lydite launch: the repository, the issue, the proof command in full and the profile, shown before anything starts](docs/screenshot-approval.png)
 
@@ -184,6 +188,9 @@ hermes config set tools.tool_search.enabled off
 ## Limits, said plainly
 
 - Linux only. On Windows the wall is not held by Lydite; the tools do not appear.
+- A plan that places files (`place` lines) cannot be launched through the plugin: it launches a copy of the plan
+  without its `.files` folder, so it refuses such a plan before asking. Launch it with `lydite launch <profile> --plan
+  <file> --repo <repo> --pr <branch>` from a shell.
 - Lydite's proof is only as good as your command: a test that is wrong is replayed as faithfully as one that is right.
 - A plan born from a report is held to a required wall only while it carries the `report` line that `lydite_findings`
   writes (Lydite refuses it otherwise, 6037). A plan whose line was removed, or written by hand from a report, goes as
@@ -204,36 +211,42 @@ hermes config set tools.tool_search.enabled off
   same closed list; with `--plan <id> --verify <proof>` it writes a plan on its standard output, which the plugin saves;
   it starts no wave). The plugin starts these French words; Lydite 0.5
   still reads them as doubles of its English ones (`launch`, `status`, `lessons`). Lydite in turn runs `git`, `gh` and the `claude`
-  process on the host, with your GitHub login; only the commands of a hand run in Claude Code's sandbox, and the proof
+  process on the host, with your `gh` login and your `git` credentials; only the commands of a hand run in Claude Code's sandbox, and the proof
   command is replayed in the wall (by srt under `mur = exige`, by Lydite's native wall under `mur = natif`); those are
   Lydite's, documented in its README.
 - **A requested wall.** A profile accepted with `mur = demande` leaves this: the commands of a hand may run outside
   Claude Code's sandbox and see the provider's key if there is one, and the proof is replayed on the host, outside the
   wall. A required wall (`exige`, the default, or `natif`) is required for `--issue` and, by Lydite's refusal 6037,
   for a plan that carries the `report` line that `lydite_findings` writes; a plan without that line is not held to it.
-- **Network.** The plugin makes no network call itself. Lydite and its workers do: the model provider named in the
-  profile, and GitHub (through `gh`) for the issue, the push and the pull request. Nothing is sent anywhere else, and
-  there is no telemetry.
+- **Network.** The plugin makes no network call itself. Lydite and its workers do: the profile's model provider (its
+  reviewer, Anthropic, if the profile carries `api_relecteur = anthropic`), GitHub (through `gh` and through `git`,
+  which pushes) for the issue, the push and the pull request, and whatever the accepted profile opens to the workers:
+  the domains of `reseau`, tools such as WebSearch, MCP servers. The plugin and Lydite send no telemetry; Claude Code,
+  `gh` and `git` are separate programs with their own settings.
 - **Long-running process.** `lydite_lancer` starts one detached `lydite lancer` process (its own session, so it
   survives Hermes) that can run for minutes to hours. At most one per Lydite folder from this plugin. It writes its
   output to a log file under the plugin's data folder (the one Hermes gives the plugin, or, without it,
-  `<temporary folder>/lydite`; the last 20 launches are kept).
+  `<temporary folder>/lydite`; the last 20 launches are kept). After opening the pull request, Lydite waits for its CI
+  up to 30 minutes; if it is red, it may launch one more wave on that branch, only one, whose head is not reviewed,
+  unless a task of the wave is critical: then none.
 - **Secrets.** Only through Hermes: `get_secret("LYDITE_CLE_FOURNISSEUR")`, passed in the environment of the
-  Lydite process under the variable named by `cle_nom`, and in no log, argument, state or tool result. The plugin
-  never reads `.env`, `auth.json` or any key file.
+  Lydite process under the variable named by `cle_nom`; the plugin writes it in no log, argument, state or tool
+  result. The plugin never reads `.env`, `auth.json` or any key file.
 - **Environment.** The Lydite process gets a closed list of variables (`PATH`, `HOME`, `LANG`, the `LYDITE_*` paths of
   the binary, `GH_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, ...), not the rest of Hermes' environment. Started from Hermes,
   the native wall takes `bwrap` from `LYDITE_BWRAP` or the `PATH`, and `lydite-reseau` from `LYDITE_RESEAU` or next
   to the `lydite` binary; the plugin passes these two variables, as it passes `LYDITE_SRT`.
 - **Approvals.** A `pre_tool_call` hook sends every `lydite_lancer` call to Hermes' human approval: at most ten rows,
-  the plugin's message holding in nine, with the exact repository, work, proof, profile and target branch (`plan only`
-  instead of the branch with `observe`). A plan is
-  shown by its file name, its size, its number of tasks, its origin (`report <scan> <id>` if its header carries a
+  the plugin's message holding in nine, with the repository, work, proof, profile and target branch (`plan only`
+  instead of the branch with `observe`); a long value is cut with a `…`, the repository at its start. A plan is
+  shown by its file name, its size, its number of tasks, its origin (`report <finding id>` if its header carries a
   well-formed `report` line, else `none (written by hand)`), its proof line and the SHA-256 of its bytes, not its text.
   A request that would be refused anyway is answered without asking. "Always" only covers the same repository, profile,
   issue, objective, target branch, mode (a dry run with `observe` or a real launch) and proof (or the same plan
-  bytes). Nothing here disables a guard or reads the YOLO mode; in an unattended run
-  Hermes' gate fails closed.
+  bytes). The plugin disables no guard and does
+  not read Hermes' approval settings. Hermes itself skips the prompt in yolo mode, with `approvals.mode: off`, in
+  a `hermes -z` one-shot, in an unattended run set to approve, and for a request already allowed with "always". (Read
+  in Hermes 0.23.3, `tools/approval.py`, line 1231 and lines 1255 to 1275, outside this repository.)
 - **Files.** Reads nothing outside its own data folder except its own `skills/driving-lydite/SKILL.md` (when it
   registers the skill), what the Lydite binary reports, `/proc/<pid>/cmdline` of a launch it made (to tell whether that
   launch still runs), the `plan` file named in a `lydite_lancer` call (to
