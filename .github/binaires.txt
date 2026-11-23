@@ -14,3 +14,7 @@
 2637e4abc103dc0b94e6644d10332df3d430d7fe2af450e7ef1c25c1d1f9f779  docs/assets/mycelium-lab.jpg
 e1a0309b4f8b6edb9666cfb3b6d3358545a4dafd0d95ca3b3a992b8f5e1ea816  docs/assets/physarum-lab.jpg
 a6372ed84f48d030b1334deab385000a3dfdba8fd5c8b55bc441021e90c7a597  docs/assets/social-preview.png
+
+# Le greffon Hermes (hermes/docs/), PR 175 : la bannière et la capture du reçu de la v0.5.1.
+f436a6cc4cd1b794f0eb137841b6143c85b9a0ae6d9cdc11df6faad47fb8bb2c  hermes/docs/banner.png
+5ee3002e0a9040ffc161341c033ac7599e17b2ab0861ef0fd6b6de50b84a8ae9  hermes/docs/screenshot-receipt.png
