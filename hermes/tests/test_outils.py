@@ -478,10 +478,7 @@ class Verrou(AvecOutils):
                 self.assertFalse((self.sortie / "argv").exists())
 
     def test_une_ligne_place_indentee_de_l_objectif_passe_le_verrou_comme_avant(self):
-        texte = (
-            "plan 1\nobjectif : o\npreuve : true\n\ntache a\nfichiers : src/\n"
-            f"    place : src/a.txt : {'0' * 64}\n"
-        )
+        texte = f"plan 1\nobjectif : o\npreuve : true\n\ntache a\nfichiers : src/\n    place : src/a.txt : {'0' * 64}\n"
         decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande_de_plan(texte))
         self.assertEqual(decision["action"], "approve", decision)
 
