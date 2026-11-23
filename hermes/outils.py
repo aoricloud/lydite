@@ -208,17 +208,17 @@ def _compter_les_taches(texte: str) -> int:
     return sum(1 for ligne in _lignes_du_plan(texte) if _ouvre_une_tache(ligne))
 
 
-def _une_tache_porte_une_preuve(texte: str) -> bool:
-    """Une ligne `preuve :` suit-elle une ligne de tâche ? Lydite lit ainsi une clé de tâche : une ligne qui ne
-    commence ni par une espace ni par une tabulation, qui porte un `:`, et dont la clé (avant le premier `:`, blancs
-    des bords ôtés) est `preuve`."""
+def _une_tache_porte_la_cle(texte: str, cle_cherchee: str) -> bool:
+    """Une ligne de clé `cle_cherchee` (`preuve`, `place`) suit-elle une ligne de tâche ? Lydite lit ainsi une clé de
+    tâche : une ligne qui ne commence ni par une espace ni par une tabulation, qui porte un `:`, et dont la clé (avant
+    le premier `:`, blancs des bords ôtés) est `cle_cherchee`."""
     dans_une_tache = False
     for ligne in _lignes_du_plan(texte):
         if _ouvre_une_tache(ligne):
             dans_une_tache = True
         elif dans_une_tache and not ligne.startswith((" ", "\t")):
             cle, separateur, _ = ligne.partition(":")
-            if separateur and cle.strip() == "preuve":
+            if separateur and cle.strip() == cle_cherchee:
                 return True
     return False
 
@@ -430,10 +430,16 @@ class Outils:
             raise Refus(f"`plan` {str(chemin)!r} cannot be read as UTF-8 text: {exc}") from exc
         if not texte.strip() or len(texte) > LIMITE_DU_PLAN:
             raise Refus(f"`plan` must hold between 1 and {LIMITE_DU_PLAN} characters")
-        if _une_tache_porte_une_preuve(texte):
+        if _une_tache_porte_la_cle(texte, "preuve"):
             raise Refus(
                 "a task of this `plan` carries its own `preuve :` line: keep a single proof, in the plan header. "
                 "Lydite would run the task's proof instead of the header's, and the human is shown only the header's"
+            )
+        if _une_tache_porte_la_cle(texte, "place"):
+            raise Refus(
+                "this `plan` places files (`place` lines): the plugin launches a copy of the plan without its "
+                "`.files` folder, which Lydite refuses (6036). Launch it from a shell: "
+                "`lydite launch <profile> --plan <file> --repo <repo> --pr <branch>`"
             )
         return str(chemin), octets
 

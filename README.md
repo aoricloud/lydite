@@ -14,12 +14,12 @@ the proof.
   journal. After a review, the body can also list what the reviewer says was not replayed (ten lines at most, long
   lines cut).
 
-**Install** on Linux x86-64 (or WSL2), then check your setup:
+**Install** on Linux x86-64 with glibc 2.34 or later (or WSL2), then check your setup:
 
 ```bash
 # with gh logged in, instead: gh release download --repo aoricloud/lydite --pattern 'lydite-*-linux-x86_64.tar.gz*'
-curl -fsSLO https://github.com/aoricloud/lydite/releases/download/v0.5.0/lydite-v0.5.0-linux-x86_64.tar.gz
-curl -fsSLO https://github.com/aoricloud/lydite/releases/download/v0.5.0/lydite-v0.5.0-linux-x86_64.tar.gz.sha256
+curl -fsSLO https://github.com/aoricloud/lydite/releases/download/v0.5.1/lydite-v0.5.1-linux-x86_64.tar.gz
+curl -fsSLO https://github.com/aoricloud/lydite/releases/download/v0.5.1/lydite-v0.5.1-linux-x86_64.tar.gz.sha256
 sha256sum -c lydite-*.tar.gz.sha256    # integrity only: the file is intact
 # provenance, with gh 2.67 or later, logged in: gh attestation verify lydite-*-linux-x86_64.tar.gz --repo aoricloud/lydite
 tar -xzf lydite-*-linux-x86_64.tar.gz
@@ -172,8 +172,8 @@ is sealed by its SHA-256 before the pull request is written. What a hand does in
 
 ## Try it
 
-**What it takes.** Linux on x86-64 (or WSL2 on Windows), about an hour the first time, and Claude Code sessions on
-your own account or provider key: even looking at a plan runs one hand.
+**What it takes.** Linux on x86-64 with glibc 2.34 or later (or WSL2 on Windows), about an hour the first time, and
+Claude Code sessions on your own account or provider key: even looking at a plan runs one hand.
 
 | | Why | How |
 |---|---|---|
@@ -214,7 +214,7 @@ name a `gh`, `claude` or `srt` that is not on your `PATH`.
 
 **A profile** says what the hands are lent. First create the folder: `mkdir -p ~/.local/state/lydite/profils` (under `LYDITE_DOSSIER` if it is set, else under
 `$XDG_STATE_HOME/lydite`, else `~/.local/state/lydite`). This is for a profile written by hand only: `lydite accept claude`, the built-in profile, creates it itself. Write `~/.local/state/lydite/profils/first.profil` (the default state
-folder; `LYDITE_DOSSIER` moves it). This one is for a Rust project:
+folder; `LYDITE_DOSSIER` or `XDG_STATE_HOME` moves it). This one is for a Rust project:
 
 ```text
 sorte = claude
@@ -457,8 +457,8 @@ never Hermes agents. Install and settings:
 
 ## Reference
 
-This README describes `main`. The latest release is [0.5.0](https://github.com/aoricloud/lydite/releases/tag/v0.5.0);
-what `main` gains after 0.5.0 will be marked *(not in 0.5.0)*; nothing is marked yet.
+This README describes `main`. The latest release is [0.5.1](https://github.com/aoricloud/lydite/releases/tag/v0.5.1);
+what `main` gains after 0.5.1 will be marked *(not in 0.5.1)*; nothing is marked yet.
 
 Every refusal code, with its rule, is in
 [docs/refusals.md](https://github.com/aoricloud/lydite/blob/main/docs/refusals.md). Until the other reference pages

@@ -435,6 +435,53 @@ class Verrou(AvecOutils):
                 self.assertNotIn("accepted", rendu)
                 self.assertFalse((self.sortie / "argv").exists())
 
+    def plan_qui_pose_un_fichier(self, ouverture):
+        """Un plan d'une tâche bien formée, ouverte par `ouverture`, qui pose `src/a.txt` (ligne `place`)."""
+        return (
+            f"plan 1\nobjectif : o\npreuve : true\n\n{ouverture}\nfichiers : src/\nplace : src/a.txt : {'0' * 64}\n"
+            "    faire.\n"
+        )
+
+    def test_une_ligne_place_bloque_le_verrou_sans_deranger_l_humain(self):
+        for ouverture in ("tache a", "tache\ta"):
+            with self.subTest(ouverture=ouverture):
+                args = self.demande_de_plan(self.plan_qui_pose_un_fichier(ouverture))
+                decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=args)
+                self.assertEqual(decision["action"], "block", decision)
+                erreur = json.loads(decision["message"])["error"]
+                self.assertIn("place", erreur)
+                self.assertIn("lydite launch", erreur)
+
+    def test_une_ligne_place_fait_refuser_lancer_sans_appeler_lydite_ni_rien_ecrire(self):
+        self.faux_lydite()
+        for ouverture in ("tache a", "tache\ta"):
+            with self.subTest(ouverture=ouverture):
+                args = self.demande_de_plan(self.plan_qui_pose_un_fichier(ouverture))
+                rendu = json.loads(self.outils().lancer(args))
+                self.assertIn("place", rendu["error"])
+                self.assertIn("lydite launch", rendu["error"])
+                self.assertNotIn("started", rendu)
+                self.assertFalse((self.sortie / "argv").exists())
+                donnees = self.dossier / "donnees"
+                self.assertEqual([p for p in donnees.rglob("*") if p.is_file()] if donnees.exists() else [], [])
+
+    def test_une_ligne_place_fait_refuser_lydite_plan_sans_appeler_lydite(self):
+        self.faux_lydite()
+        for ouverture in ("tache a", "tache\ta"):
+            with self.subTest(ouverture=ouverture):
+                chemin = self.dossier / "plan.txt"
+                chemin.write_text(self.plan_qui_pose_un_fichier(ouverture), encoding="utf-8", newline="\n")
+                rendu = json.loads(self.outils().plan({"plan": str(chemin)}))
+                self.assertIn("place", rendu["error"])
+                self.assertIn("lydite launch", rendu["error"])
+                self.assertNotIn("accepted", rendu)
+                self.assertFalse((self.sortie / "argv").exists())
+
+    def test_une_ligne_place_indentee_de_l_objectif_passe_le_verrou_comme_avant(self):
+        texte = f"plan 1\nobjectif : o\npreuve : true\n\ntache a\nfichiers : src/\n    place : src/a.txt : {'0' * 64}\n"
+        decision = self.outils().verrou(tool_name=sous_module("nom").LANCER, args=self.demande_de_plan(texte))
+        self.assertEqual(decision["action"], "approve", decision)
+
     def test_un_plan_qui_porte_une_ligne_report_passe_le_verrou_comme_un_autre(self):
         texte = (
             f"plan 1\nobjectif : Prove and fix\npreuve : python3 -m unittest\nreport : {SCAN} {ID_FINDING}\n\n"
