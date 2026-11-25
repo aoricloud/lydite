@@ -152,7 +152,7 @@ fn marqueur_ajoute(chemin: &str, texte: &str) -> Option<&'static str> {
 
 /// Les points à justifier de `diff`, triés par chemin puis par ligne, et sans doublon.
 pub(crate) fn points(diff: &str) -> Vec<String> {
-    // (chemin, ligne de la base, raison)
+    // (chemin, ligne de la base ou, pour un marqueur ajouté, de la tête, raison)
     let mut trouves: Vec<(String, Option<u64>, String)> = Vec::new();
     // Les lignes retirées de chaque chemin, dans l'ordre où on les voit.
     let mut retirees: Vec<(String, u64)> = Vec::new();
@@ -168,13 +168,17 @@ pub(crate) fn points(diff: &str) -> Vec<String> {
             }
             if signe == "-" {
                 let bas = texte.to_lowercase();
-                // raccourci : un essai écrit dans un fichier de code n'est vu que par ses assertions retirées et ses
-                // marqueurs ajoutés, monter avec A3, qui lira les essais un par un ; un marqueur déplacé ou réindenté
-                // est vu comme ajouté ; un marqueur hors de la liste (un `skip` importé seul, `pytest.importorskip`,
-                // `fit(`, `fdescribe(`, la configuration d'un lanceur d'essais) n'est pas vu ; en Rust, un marqueur qui
-                // suit autre chose sur sa ligne (`#[test] #[ignore]`) n'est pas vu ; en Python et en JavaScript, un
-                // marqueur dans un commentaire ou une chaîne compte ; le nombre d'essais avant et après n'est pas
-                // comparé, et une assertion affaiblie sans ligne retirée n'est pas vue
+                // raccourci : un essai n'est vu que par ses assertions retirées et ses marqueurs ajoutés, monter avec
+                // A3, qui lira les essais un par un
+                // raccourci : un marqueur déplacé ou réindenté est vu comme ajouté, monter avec A3
+                // raccourci : un marqueur hors de la liste (un `skip` importé seul, `pytest.importorskip`, `fit(`,
+                // `fdescribe(`, la configuration d'un lanceur d'essais) n'est pas vu, monter si la liste manque un cas
+                // raccourci : en Rust, un marqueur qui suit autre chose sur sa ligne (`#[test] #[ignore]`) n'est pas
+                // vu, monter si un code l'écrit ainsi
+                // raccourci : en Python et en JavaScript, un marqueur dans un commentaire ou une chaîne compte, monter
+                // si ces faux points gênent
+                // raccourci : le nombre d'essais avant et après n'est pas comparé, monter avec A3
+                // raccourci : une assertion affaiblie sans ligne retirée n'est pas vue, monter avec A3
                 let raison = if porte_une_tolerance(&bas) {
                     Some("a tolerance removed or changed")
                 } else {

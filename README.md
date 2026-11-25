@@ -145,14 +145,16 @@ Each refusal has a number, says what it saw, and says what to do.
 
 What it does not do for you: a green proof is worth what your proof is worth. Lydite replays it and flags, without a
 model, a test of the base that lost lines, an assertion or a tolerance that was removed or changed, and a marker added
-that skips or isolates a test ("Points to justify" in the pull request). The markers it knows are `#[ignore]` in Rust;
-the pytest markers skip, skipif and xfail and those of unittest in Python; `.only`, `.skip`, `xit`, `xdescribe` and
-`xtest` in JavaScript and TypeScript. It also names, on the "Proof settings changed" line, the settings files the diff
-changes (those of Cargo, `build.rs` included, rustfmt, clippy and the toolchain, the `.cargo` folder, makefiles, the
-pytest configuration and `conftest.py`, `package.json`) and any file the proof command names. Lydite flags these and refuses nothing for
-them. What stays out of reach: the number of tests before and after is not compared; an assertion weakened without a
-line removed (a `return` added before it) is not seen; a secret in the diff is not searched for; a marker outside this
-list is not seen. It does not judge whether your tests are good.
+that skips or isolates a test ("Points to justify" in the pull request). The markers it knows are `#[ignore]` and
+`#[cfg_attr(…, ignore)]` in Rust; the pytest markers skip, skipif and xfail, the calls `pytest.skip()` and
+`pytest.xfail()`, and those of unittest in Python; `.only`, `.skip`, `xit`, `xdescribe` and `xtest` in JavaScript and
+TypeScript. It also names, on the "Proof settings changed" line, the settings files the diff changes (those of Cargo,
+`build.rs` included, rustfmt, clippy and the toolchain, the `.cargo` folder, makefiles, the pytest configuration and
+`conftest.py`, `package.json`) and a file that the diff changes and that a proof command of the plan names (the
+command of the wave or that of a task). Lydite flags these and refuses nothing for them. What stays out of reach: the
+number of tests before and after is not compared; an assertion weakened without a line removed (a `return` added
+before it) is not seen; a secret in the diff is not searched for; a marker outside this list is not seen. It does not
+judge whether your tests are good.
 
 [docs/refusals.md](https://github.com/aoricloud/lydite/blob/main/docs/refusals.md) lists every refusal code with its
 rule.
