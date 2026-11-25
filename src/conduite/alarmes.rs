@@ -178,7 +178,8 @@ pub(crate) fn points(diff: &str) -> Vec<String> {
                 // raccourci : en Python et en JavaScript, un marqueur dans un commentaire ou une chaîne compte, monter
                 // si ces faux points gênent
                 // raccourci : en Rust, un `cfg_attr` qui porte `ignore` ailleurs que comme attribut (dans une chaîne)
-                // compte, monter si ces faux points gênent
+                // compte (c'est `ignore` en mot entier suivi de `)`, `,`, `=` ou d'un blanc), monter si ces faux
+                // points gênent
                 // raccourci : en Python, un marqueur dans un nom plus long (`unittest.skipped_total`) compte, monter
                 // si ces faux points gênent
                 // raccourci : un marqueur importé seul (`from pytest import mark` puis `@mark.skip`, `@skipIf`) n'est
