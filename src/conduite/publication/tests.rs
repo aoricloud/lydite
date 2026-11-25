@@ -1197,6 +1197,42 @@ fn une_vague_qui_change_un_cargo_toml_le_nomme_en_code_dans_le_corps_de_la_pr() 
 }
 
 #[test]
+fn une_vague_nomme_les_scripts_des_preuves_du_plan_en_en_tete_comme_de_tache() {
+    let lieu = lieu("forge-reglage-preuves");
+    let proposition = lieu.proposition();
+    // Ni `verifier.sh` ni `autre.sh` n'est un nom de réglage connu : seules les commandes du plan les font nommer,
+    // celle d'en-tête pour l'un, celle de la tâche pour l'autre.
+    let lignes = [
+        "plan 1",
+        "objectif : Changer deux scripts",
+        "preuve : echo verifier.sh",
+        "tache a",
+        "preuve : echo autre.sh",
+        "    Ecrire deux scripts",
+    ];
+    let plan = plan(&lignes);
+    // Une fausse main qui écrit `verifier.sh`, de sa consigne, et `autre.sh` à la racine de son bac.
+    let main = if cfg!(windows) {
+        let bat = lieu.racine.join("scripts.bat");
+        let script = "@echo off\r\nfindstr \"^\" > verifier.sh\r\necho x> autre.sh\r\necho PREUVE: vert\r\n";
+        fs::write(&bat, script).unwrap();
+        vec![bat.to_string_lossy().into_owned()]
+    } else {
+        let sh = lieu.racine.join("scripts.sh");
+        fs::write(&sh, "cat > verifier.sh\necho x > autre.sh\necho 'PREUVE: vert'\n").unwrap();
+        vec!["sh".into(), sh.to_string_lossy().into_owned()]
+    };
+    let profil = Profil::faux(main, PREUVE);
+    let menee = lancer_sur(&lieu.depot, &lieu.kraken, &profil, &plan, BAIL, &proposition.base).unwrap();
+    lieu.ouvre(2, &menee.tete.clone().unwrap(), &[run("test", "completed", "success")]);
+    assert_eq!(lieu.apres(&proposition, &plan, &menee, Duration::from_secs(60)), ExitCode::SUCCESS);
+    // Le corps transmis à `gh` nomme les deux, dans l'ordre de `git diff --name-only`.
+    let corps = lieu.gh.entree(2).replace("\r\n", "\n");
+    assert!(corps.contains("\n- Proof settings changed: `autre.sh`, `verifier.sh`\n"), "{corps}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
 fn le_titre_d_une_pr_trop_longue_finit_par_une_ellipse() {
     let lieu = lieu("forge-titre");
     let proposition = lieu.proposition();
