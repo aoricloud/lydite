@@ -877,12 +877,61 @@ fn les_reglages_de_la_preuve_se_reconnaissent_a_toute_profondeur() {
         ".clippy.toml",
         "rust-toolchain",
         "rust-toolchain.toml",
+        "Makefile",
+        "makefile",
+        "GNUmakefile",
+        "sous/Makefile",
+        "conftest.py",
+        "hermes/conftest.py",
+        "pytest.ini",
+        "pyproject.toml",
+        "tox.ini",
+        "setup.cfg",
+        "package.json",
+        "web/package.json",
     ];
-    assert_eq!(reglages_changes(changes), changes.map(String::from));
+    assert_eq!(reglages_changes(changes, &[]), changes.map(String::from));
     // Ni un autre fichier, ni un nom qui n'est que voisin, ni un fichier `.cargo` : seul un dossier du même nom compte.
-    let autres =
-        ["src/main.rs", "README.md", "Cargo.toml.bak", "mon-Cargo.toml", "src/cargo/x.rs", "a/.cargo", "build.rs.md"];
-    assert_eq!(reglages_changes(autres), Vec::<String>::new());
+    let autres = [
+        "src/main.rs",
+        "README.md",
+        "Cargo.toml.bak",
+        "mon-Cargo.toml",
+        "src/cargo/x.rs",
+        "a/.cargo",
+        "build.rs.md",
+        "Makefile.am",
+        "conftest.py.bak",
+        "my-package.json",
+        "package.json5",
+        "src/makefile.rs",
+        "pyproject.toml.orig",
+    ];
+    assert_eq!(reglages_changes(autres, &[]), Vec::<String>::new());
+}
+
+#[test]
+fn les_commandes_de_la_preuve_nomment_des_reglages() {
+    let chemins = ["verifier.sh", "scripts/b.sh", "scripts/c.sh", "src/verifier.sh", "verifier.sh.bak"];
+    let commandes = ["./verifier.sh && cargo test", "bash 'scripts/b.sh'"];
+    assert_eq!(reglages_changes(chemins, &commandes), ["verifier.sh", "scripts/b.sh"].map(String::from));
+    assert_eq!(reglages_changes(chemins, &[]), Vec::<String>::new());
+    // Un mot qui nomme le chemin après coupe sur `;` `(` `"` ; un seul `./` de tête est ôté.
+    let commandes = ["python3 outils/check.py --vite", "(\"x.sh\";.//y.sh)"];
+    assert_eq!(
+        reglages_changes(["outils/check.py", "x.sh", "y.sh"], &commandes),
+        ["outils/check.py", "x.sh"].map(String::from)
+    );
+    // Les deux règles mêlées : `Makefile` est vu par les deux, et n'est rendu qu'une fois, à sa place dans le diff.
+    let mixtes = ["verifier.sh", "Makefile", "scripts/b.sh"];
+    let commandes = ["./verifier.sh && make -f Makefile", "bash 'scripts/b.sh'"];
+    assert_eq!(reglages_changes(mixtes, &commandes), mixtes.map(String::from));
+    // Un chemin nommé deux fois par les commandes, ou deux fois par le diff, n'est rendu qu'une fois.
+    let doubles = ["Makefile", "verifier.sh", "Makefile"];
+    assert_eq!(
+        reglages_changes(doubles, &["./verifier.sh", "verifier.sh"]),
+        ["Makefile", "verifier.sh"].map(String::from)
+    );
 }
 
 /// Le délai de la preuve des fausses mains, et le bail de leurs tentatives : bien au-delà de ce qu'elles prennent.
