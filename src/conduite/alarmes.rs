@@ -168,8 +168,8 @@ pub(crate) fn points(diff: &str) -> Vec<String> {
             }
             if signe == "-" {
                 let bas = texte.to_lowercase();
-                // raccourci : un essai n'est vu que par ses assertions retirées et ses marqueurs ajoutés, monter avec
-                // A3, qui lira les essais un par un
+                // raccourci : un essai écrit dans un fichier de code n'est vu que par ses assertions retirées et ses
+                // marqueurs ajoutés, monter avec A3, qui lira les essais un par un
                 // raccourci : un marqueur déplacé ou réindenté est vu comme ajouté, monter avec A3
                 // raccourci : un marqueur hors de la liste (un `skip` importé seul, `pytest.importorskip`, `fit(`,
                 // `fdescribe(`, la configuration d'un lanceur d'essais) n'est pas vu, monter si la liste manque un cas
@@ -177,6 +177,16 @@ pub(crate) fn points(diff: &str) -> Vec<String> {
                 // vu, monter si un code l'écrit ainsi
                 // raccourci : en Python et en JavaScript, un marqueur dans un commentaire ou une chaîne compte, monter
                 // si ces faux points gênent
+                // raccourci : en Rust, un `cfg_attr` qui porte `ignore` ailleurs que comme attribut (dans une chaîne)
+                // compte, monter si ces faux points gênent
+                // raccourci : en Python, un marqueur dans un nom plus long (`unittest.skipped_total`) compte, monter
+                // si ces faux points gênent
+                // raccourci : un marqueur importé seul (`from pytest import mark` puis `@mark.skip`, `@skipIf`) n'est
+                // pas vu, monter si le code importe ses marqueurs ainsi
+                // raccourci : `test.describe.only(`, `it.skipIf(` et `this.skip()` ne sont pas vus, monter si un code
+                // les écrit
+                // raccourci : un `cfg_attr` écrit sur plusieurs lignes et un doctest marqué `ignore` ne sont pas vus,
+                // monter si un code les écrit
                 // raccourci : le nombre d'essais avant et après n'est pas comparé, monter avec A3
                 // raccourci : une assertion affaiblie sans ligne retirée n'est pas vue, monter avec A3
                 let raison = if porte_une_tolerance(&bas) {

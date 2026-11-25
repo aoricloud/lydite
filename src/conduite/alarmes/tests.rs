@@ -176,12 +176,26 @@ fn les_marqueurs_rust_de_la_liste_sont_releves_et_les_autres_lignes_non() {
         points_des_lignes_ajoutees("src/x.rs", &["#[cfg_attr(windows, ignore = \"x\")]"]),
         [marqueur("src/x.rs", 2, "#[cfg_attr(…, ignore)]")]
     );
+    // `=` suit `ignore` sans blanc : seule la branche `=` du premier cas le voit.
+    assert_eq!(points_des_lignes_ajoutees("src/x.rs", &["#[ignore=\"x\"]"]), [marqueur("src/x.rs", 2, "#[ignore]")]);
+    // Dans `cfg_attr`, `ignore` suivi de `=`, d'un blanc, de `,` ; chaque suite a sa branche.
+    for ligne in [
+        "#[cfg_attr(windows, ignore=\"x\")]",
+        "#[cfg_attr(windows, ignore )]",
+        "#[cfg_attr(feature = \"noignore\", ignore, foo)]",
+        // Un faux point voulu : le mot `ignore` seul, dans une chaîne, compte.
+        "#[cfg_attr(docsrs, doc = \"Set this to ignore it\")]",
+    ] {
+        let attendu = [marqueur("src/x.rs", 2, "#[cfg_attr(…, ignore)]")];
+        assert_eq!(points_des_lignes_ajoutees("src/x.rs", &[ligne]), attendu, "{ligne}");
+    }
     for ligne in [
         "let s = \"#[ignore]\";",
         "// #[ignore]",
         "#[ignored]",
         "#[cfg_attr(not(test), expect(dead_code))]",
         "#[cfg_attr(windows, notignore)]",
+        "#[cfg_attr(feature = \"noignore\")]",
         "#[test] #[ignore]",
     ] {
         assert_eq!(points_des_lignes_ajoutees("src/x.rs", &[ligne]), Vec::<String>::new(), "{ligne}");
@@ -208,6 +222,9 @@ fn les_marqueurs_python_de_la_liste_sont_releves_avec_leur_nom() {
         ("@unittest.expectedFailure", "expectedFailure"),
         ("        self.skipTest(\"x\")", "skipTest"),
         ("raise SkipTest()", "skipTest"),
+        // Les faux points voulus : un nom qui contient le marqueur, ou un commentaire, compte.
+        ("unittest.skipped_total += 1", "unittest.skip"),
+        ("# @pytest.mark.skip", "pytest.mark.skip"),
     ];
     for (ligne, montre) in marqueurs {
         let attendu = [marqueur("tests/test_a.py", 2, montre)];
@@ -217,7 +234,15 @@ fn les_marqueurs_python_de_la_liste_sont_releves_avec_leur_nom() {
     let ligne = "@unittest.skip(\"x\") # pytest.mark.skipif";
     let attendu = [marqueur("tests/test_a.py", 2, "pytest.mark.skipif")];
     assert_eq!(points_des_lignes_ajoutees("tests/test_a.py", &[ligne]), attendu);
-    for ligne in ["def test_a(): pass", "pytest.importorskip(\"x\")", "#[ignore]", "assert x"] {
+    let neutres = [
+        "def test_a(): pass",
+        "pytest.importorskip(\"x\")",
+        "#[ignore]",
+        "assert x",
+        "@mark.skip",
+        "@skipIf(x, \"y\")",
+    ];
+    for ligne in neutres {
         assert_eq!(points_des_lignes_ajoutees("tests/test_a.py", &[ligne]), Vec::<String>::new(), "{ligne}");
     }
 }
@@ -229,11 +254,14 @@ fn les_marqueurs_javascript_de_la_liste_sont_releves_et_les_autres_lignes_non() 
         ("  describe.skip('a', () => {", ".skip"),
         ("test.skip.each([1])('a', f);", ".skip"),
         ("}); context.only.each(", ".only"),
+        ("suite.only('a', f);", ".only"),
+        ("suite.skip('a', f);", ".skip"),
+        ("// it.only(", ".only"),
         ("xit(\"a\", f);", "xit"),
         ("xdescribe('a', f);", "xdescribe"),
         ("xtest('a', f);", "xtest"),
     ];
-    for chemin in ["a.test.ts", "b.spec.JS", "src/c.tsx", "d.mjs"] {
+    for chemin in ["a.test.ts", "b.spec.JS", "src/c.tsx", "d.mjs", "e.jsx", "f.cjs", "g.mts", "h.cts", "i.js"] {
         for (ligne, montre) in marqueurs {
             assert_eq!(points_des_lignes_ajoutees(chemin, &[ligne]), [marqueur(chemin, 2, montre)], "{chemin} {ligne}");
         }
@@ -249,6 +277,9 @@ fn les_marqueurs_javascript_de_la_liste_sont_releves_et_les_autres_lignes_non() 
         "it('a', f);",
         "fit(",
         "xit",
+        "test.describe.only(",
+        "it.skipIf(c)(",
+        "this.skip();",
     ];
     for ligne in neutres {
         assert_eq!(points_des_lignes_ajoutees("a.test.ts", &[ligne]), Vec::<String>::new(), "{ligne}");
