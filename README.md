@@ -146,8 +146,13 @@ Each refusal has a number, says what it saw, and says what to do.
 What it does not do for you: a green proof is worth what your proof is worth. Lydite replays it and flags, without a
 model, what follows; it refuses nothing for it.
 
-- **"Points to justify", lines removed.** A test file of the base that loses lines, and each removed line that carries
-  an assertion or a tolerance. The line number is the one of the base.
+- **"Points to justify", lines removed.** A test file of the base that loses lines (one point, with the count), and
+  each removed line, from any file of any extension, that carries an assertion or a tolerance. The line number is the
+  one of the base. An assertion is a line that holds `assert` anywhere, without case. A tolerance is a line that holds,
+  without case, `epsilon`, `toleran`, `approx`, `abs_diff`, `relative_eq` or `ulps`, or both `.abs()` and `<`, or a
+  digit, then `e-`, then a digit; a line that has both is shown as a tolerance. A test file is one with a folder named
+  `tests` or `test` in its path, or whose name is `tests.rs`, starts with `test_`, ends with `_test` or `_tests` before
+  its extension, or holds `.test.` or `.spec.`, all without case.
 - **"Points to justify", lines added.** One point per added line that carries a marker, the line number being the one
   of the head. The markers come from a fixed list per file extension:
   - Rust (`.rs`): a line that starts, blanks removed, with `#[ignore]` or `#[ignore = …]`, or with `#[cfg_attr(` and
@@ -158,6 +163,10 @@ model, what follows; it refuses nothing for it.
   - JavaScript and TypeScript (`.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`): `describe`, `it`,
     `test`, `context` or `suite` followed at once by `.only` or `.skip` and then `(` or `.`, or `xit(`, `xdescribe(`,
     `xtest(`, each at a word boundary, comments and strings included.
+- **Not seen in the removed lines.** An assertion written without the word `assert` (`expect(…)`, `t.Errorf`,
+  `pytest.raises`) is not flagged. A test written inside a code file that loses lines (a `mod tests` in `src/x.rs`) is
+  not flagged as a test of the base; only its removed assertions and added markers are seen. The word `assert` or a
+  tolerance word in prose (a README) is flagged.
 - **Not seen in the markers.** A marker imported alone (`from pytest import mark` then `@mark.skip`,
   `from unittest import skipIf` then `@skipIf`), `pytest.importorskip`, `fit(`, `fdescribe(`, `test.describe.only(`,
   `it.skipIf(`, `this.skip()`, a skip chosen at run time, a Rust marker that does not start its line
