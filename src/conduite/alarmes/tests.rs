@@ -144,6 +144,186 @@ fn un_chemin_hostile_reste_en_code() {
     );
 }
 
+/// Le diff d'un fichier `chemin` qui garde une ligne de contexte et reçoit les `lignes` ajoutées, puis ses points.
+fn points_des_lignes_ajoutees(chemin: &str, lignes: &[&str]) -> Vec<String> {
+    let ajoutees: String = lignes.iter().map(|l| format!("+{l}\n")).collect();
+    let diff = format!("--- a/{chemin}\n+++ b/{chemin}\n@@ -1 +1,{} @@\n ctx\n{ajoutees}", lignes.len() + 1);
+    points(&diff)
+}
+
+fn marqueur(chemin: &str, ligne: u64, montre: &str) -> String {
+    format!("`{chemin}`, line {ligne}: a marker added that skips or isolates a test (`{montre}`)")
+}
+
+#[test]
+fn un_ignore_ajoute_est_releve_avec_le_numero_de_la_tete() {
+    let diff = "--- a/src/x.rs\n+++ b/src/x.rs\n@@ -10,2 +12,3 @@\n a\n+#[ignore]\n #[test]\n";
+    assert_eq!(points(diff), ["`src/x.rs`, line 13: a marker added that skips or isolates a test (`#[ignore]`)"]);
+}
+
+#[test]
+fn les_marqueurs_rust_de_la_liste_sont_releves_et_les_autres_lignes_non() {
+    assert_eq!(
+        points_des_lignes_ajoutees("src/x.rs", &["    #[ignore = \"lent\"]"]),
+        [marqueur("src/x.rs", 2, "#[ignore]")]
+    );
+    assert_eq!(points_des_lignes_ajoutees("src/x.rs", &["#[ignore]"]), [marqueur("src/x.rs", 2, "#[ignore]")]);
+    assert_eq!(
+        points_des_lignes_ajoutees("src/x.rs", &["#[cfg_attr(windows, ignore)]"]),
+        [marqueur("src/x.rs", 2, "#[cfg_attr(…, ignore)]")]
+    );
+    assert_eq!(
+        points_des_lignes_ajoutees("src/x.rs", &["#[cfg_attr(windows, ignore = \"x\")]"]),
+        [marqueur("src/x.rs", 2, "#[cfg_attr(…, ignore)]")]
+    );
+    // `=` suit `ignore` sans blanc : seule la branche `=` du premier cas le voit.
+    assert_eq!(points_des_lignes_ajoutees("src/x.rs", &["#[ignore=\"x\"]"]), [marqueur("src/x.rs", 2, "#[ignore]")]);
+    // Dans `cfg_attr`, `ignore` suivi de `=`, d'un blanc, de `,` ; chaque suite a sa branche.
+    for ligne in [
+        "#[cfg_attr(windows, ignore=\"x\")]",
+        "#[cfg_attr(windows, ignore )]",
+        "#[cfg_attr(feature = \"noignore\", ignore, foo)]",
+        // Un faux point voulu : le mot `ignore` seul, dans une chaîne, compte.
+        "#[cfg_attr(docsrs, doc = \"Set this to ignore it\")]",
+    ] {
+        let attendu = [marqueur("src/x.rs", 2, "#[cfg_attr(…, ignore)]")];
+        assert_eq!(points_des_lignes_ajoutees("src/x.rs", &[ligne]), attendu, "{ligne}");
+    }
+    for ligne in [
+        "let s = \"#[ignore]\";",
+        "// #[ignore]",
+        "#[ignored]",
+        "#[cfg_attr(not(test), expect(dead_code))]",
+        "#[cfg_attr(windows, notignore)]",
+        "#[cfg_attr(feature = \"noignore\")]",
+        "#[test] #[ignore]",
+    ] {
+        assert_eq!(points_des_lignes_ajoutees("src/x.rs", &[ligne]), Vec::<String>::new(), "{ligne}");
+    }
+    // Une ligne retirée ou de contexte ne compte pas, même si elle porte le marqueur.
+    let retiree = "--- a/src/x.rs\n+++ b/src/x.rs\n@@ -1,2 +1 @@\n-#[ignore]\n #[test]\n";
+    assert_eq!(points(retiree), Vec::<String>::new());
+    let contexte = "--- a/src/x.rs\n+++ b/src/x.rs\n@@ -1,2 +1,2 @@\n #[ignore]\n #[test]\n";
+    assert_eq!(points(contexte), Vec::<String>::new());
+}
+
+#[test]
+fn les_marqueurs_python_de_la_liste_sont_releves_avec_leur_nom() {
+    let marqueurs = [
+        ("@pytest.mark.skipif(x, reason=\"y\")", "pytest.mark.skipif"),
+        ("@pytest.mark.skip(reason=\"y\")", "pytest.mark.skip"),
+        ("@PyTest.Mark.Skip", "pytest.mark.skip"),
+        ("@pytest.mark.xfail", "pytest.mark.xfail"),
+        ("    pytest.skip(\"x\")", "pytest.skip"),
+        ("    pytest.xfail(\"x\")", "pytest.xfail"),
+        ("@unittest.skipUnless(LINUX, \"x\")", "unittest.skip"),
+        ("@unittest.skipIf(WIN, \"x\")", "unittest.skip"),
+        ("@unittest.skip(\"x\")", "unittest.skip"),
+        ("@unittest.expectedFailure", "expectedFailure"),
+        ("        self.skipTest(\"x\")", "skipTest"),
+        ("raise SkipTest()", "skipTest"),
+        // Les faux points voulus : un nom qui contient le marqueur, ou un commentaire, compte.
+        ("unittest.skipped_total += 1", "unittest.skip"),
+        ("# @pytest.mark.skip", "pytest.mark.skip"),
+    ];
+    for (ligne, montre) in marqueurs {
+        let attendu = [marqueur("tests/test_a.py", 2, montre)];
+        assert_eq!(points_des_lignes_ajoutees("tests/test_a.py", &[ligne]), attendu, "{ligne}");
+    }
+    // Le premier de la liste l'emporte, pas le premier de la ligne.
+    let ligne = "@unittest.skip(\"x\") # pytest.mark.skipif";
+    let attendu = [marqueur("tests/test_a.py", 2, "pytest.mark.skipif")];
+    assert_eq!(points_des_lignes_ajoutees("tests/test_a.py", &[ligne]), attendu);
+    let neutres = [
+        "def test_a(): pass",
+        "pytest.importorskip(\"x\")",
+        "#[ignore]",
+        "assert x",
+        "@mark.skip",
+        "@skipIf(x, \"y\")",
+    ];
+    for ligne in neutres {
+        assert_eq!(points_des_lignes_ajoutees("tests/test_a.py", &[ligne]), Vec::<String>::new(), "{ligne}");
+    }
+}
+
+#[test]
+fn les_marqueurs_javascript_de_la_liste_sont_releves_et_les_autres_lignes_non() {
+    let marqueurs = [
+        ("it.only(\"a\", () => {});", ".only"),
+        ("  describe.skip('a', () => {", ".skip"),
+        ("test.skip.each([1])('a', f);", ".skip"),
+        ("}); context.only.each(", ".only"),
+        ("suite.only('a', f);", ".only"),
+        ("suite.skip('a', f);", ".skip"),
+        ("// it.only(", ".only"),
+        ("xit(\"a\", f);", "xit"),
+        ("xdescribe('a', f);", "xdescribe"),
+        ("xtest('a', f);", "xtest"),
+    ];
+    for chemin in ["a.test.ts", "b.spec.JS", "src/c.tsx", "d.mjs", "e.jsx", "f.cjs", "g.mts", "h.cts", "i.js"] {
+        for (ligne, montre) in marqueurs {
+            assert_eq!(points_des_lignes_ajoutees(chemin, &[ligne]), [marqueur(chemin, 2, montre)], "{chemin} {ligne}");
+        }
+    }
+    let neutres = [
+        "submit.only(",
+        "a.it.only(",
+        "fixit(",
+        "$it.only(",
+        "IT.only(",
+        "it.only",
+        "it.skipped(",
+        "it('a', f);",
+        "fit(",
+        "xit",
+        "test.describe.only(",
+        "it.skipIf(c)(",
+        "this.skip();",
+    ];
+    for ligne in neutres {
+        assert_eq!(points_des_lignes_ajoutees("a.test.ts", &[ligne]), Vec::<String>::new(), "{ligne}");
+    }
+    // Ni l'extension d'un autre langage, ni un nom sans extension de la liste.
+    assert_eq!(points_des_lignes_ajoutees("src/x.rs", &["it.only("]), Vec::<String>::new());
+    assert_eq!(points_des_lignes_ajoutees("a.test.json", &["it.only("]), Vec::<String>::new());
+    assert_eq!(points_des_lignes_ajoutees("Makefile", &["#[ignore]"]), Vec::<String>::new());
+}
+
+#[test]
+fn la_ligne_de_la_tete_et_celle_de_la_base_ne_se_melangent_pas_entre_deux_hunks() {
+    let diff = concat!(
+        "--- a/src/e.rs\n+++ b/src/e.rs\n",
+        "@@ -3,2 +3,4 @@\n a\n+b\n+c\n d\n",
+        "@@ -20,3 +22,3 @@\n e\n-    assert!(x);\n\\ No newline at end of file\n+#[ignore]\n f\n"
+    );
+    assert_eq!(
+        points(diff),
+        ["`src/e.rs`, line 21: an assertion removed or changed", &marqueur("src/e.rs", 23, "#[ignore]")[..]]
+    );
+    // Un fichier d'essai qui ne reçoit que des lignes ajoutées rend le seul point du marqueur.
+    let neuf = "--- /dev/null\n+++ b/tests/neuf.rs\n@@ -0,0 +1,3 @@\n+#[test]\n+#[ignore]\n+fn t() {}\n";
+    assert_eq!(points(neuf), [marqueur("tests/neuf.rs", 2, "#[ignore]")]);
+    // Un marqueur ajouté dans un fichier d'essai dont une ligne est retirée garde les deux points.
+    let mixte = "--- a/tests/t.rs\n+++ b/tests/t.rs\n@@ -1 +1,2 @@\n-a\n+#[ignore]\n+b\n";
+    assert_eq!(
+        points(mixte),
+        ["`tests/t.rs`: a test of the base changed (1 lines removed)", &marqueur("tests/t.rs", 1, "#[ignore]")[..]]
+    );
+}
+
+#[test]
+fn un_chemin_hostile_reste_en_code_pour_un_marqueur_ajoute() {
+    let diff = "--- a/tests/@x`y.rs\n+++ b/tests/@x`y.rs\n@@ -1 +1 @@\n-a\n+#[ignore]\n";
+    assert_eq!(
+        points(diff),
+        [
+            "`path with an unreadable name`: a test of the base changed (1 lines removed)",
+            "`path with an unreadable name`, line 1: a marker added that skips or isolates a test (`#[ignore]`)"
+        ]
+    );
+}
+
 #[test]
 fn lire_ignore_les_reglages_de_prefixe_du_depot() {
     let racine = racine("alarmes-prefixes");

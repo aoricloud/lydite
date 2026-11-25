@@ -1,9 +1,17 @@
 //! Les points à justifier d'un diff, relevés sans modèle : ce que Lydite voit seul dans le travail d'une vague et que
 //! son auteur doit pouvoir justifier. Une fonction pure ([`points`]) lit le diff de git ; [`lire`] et [`ARGUMENTS`]
-//! disent comment git le donne. Seules les lignes retirées comptent : un fichier de test de la base dont le diff en
-//! retire (`<chemin>: a test of the base changed (<N> lines removed)`, une fois par chemin), puis, par ligne retirée,
-//! une tolérance ou, sinon, une assertion (`<chemin>, line <n>: …`). Le numéro est celui de la ligne de la base. Les
-//! points sont triés par chemin puis par ligne, et sans doublon.
+//! disent comment git le donne. Les lignes retirées : un fichier de test de la base dont le diff en retire
+//! (`<chemin>: a test of the base changed (<N> lines removed)`, une fois par chemin), puis, par ligne retirée, une
+//! tolérance ou, sinon, une assertion (`<chemin>, line <n>: …`). Le numéro d'une ligne retirée est celui de la ligne de
+//! la base. Les lignes ajoutées : une ligne qui porte un marqueur qui met un essai de côté ou l'isole donne
+//! `<chemin>, line <n>: a marker added that skips or isolates a test (`<marqueur>`)`, où `<n>` est le numéro de la
+//! ligne de la tête et le marqueur est pris dans une liste fixe, jamais recopié de la ligne. Selon l'extension du
+//! chemin de la tête : en `.rs`, `#[ignore]` ou `#[cfg_attr(…, ignore)]` au début de la ligne ; en `.py`,
+//! `pytest.mark.skipif`, `pytest.mark.skip`, `pytest.mark.xfail`, `pytest.skip`, `pytest.xfail`, `unittest.skip`,
+//! `expectedFailure` ou `skipTest` ; en `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts` et `.cts`, `.only` ou
+//! `.skip` après `describe`, `it`, `test`, `context` ou `suite`, et `xit`, `xdescribe` ou `xtest` ; toute autre
+//! extension, rien. Tout fichier de ces extensions compte, qu'il soit un fichier d'essai ou non. Les points sont triés
+//! par chemin puis par ligne, et sans doublon.
 
 use std::path::Path;
 
@@ -67,15 +75,90 @@ fn plage(texte: &str) -> (u64, u64) {
     (debut, nombres.next().unwrap_or(1))
 }
 
+/// Une lettre ou un chiffre ASCII, ou `_`.
+fn est_d_identifiant(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'_'
+}
+
+/// Le marqueur d'une ligne ajoutée d'un fichier Rust : `#[ignore]` ou `#[cfg_attr(…, ignore)]` au début de la ligne.
+fn marqueur_rust(texte: &str) -> Option<&'static str> {
+    let texte = texte.trim_start();
+    let suite = texte.strip_prefix("#[ignore");
+    if suite.is_some_and(|s| s.starts_with([']', '=']) || s.starts_with(char::is_whitespace)) {
+        return Some("#[ignore]");
+    }
+    if texte.starts_with("#[cfg_attr(") {
+        let octets = texte.as_bytes();
+        for (debut, _) in texte.match_indices("ignore") {
+            let avant_ok = debut == 0 || !est_d_identifiant(octets[debut - 1]);
+            let apres = texte[debut + "ignore".len()..].chars().next();
+            if avant_ok && apres.is_some_and(|c| matches!(c, ')' | ',' | '=') || c.is_whitespace()) {
+                return Some("#[cfg_attr(…, ignore)]");
+            }
+        }
+    }
+    None
+}
+
+/// Le marqueur d'une ligne ajoutée d'un fichier Python : le premier de la liste que la ligne, en minuscules, contient.
+fn marqueur_python(texte: &str) -> Option<&'static str> {
+    const MARQUEURS: [(&str, &str); 8] = [
+        ("pytest.mark.skipif", "pytest.mark.skipif"),
+        ("pytest.mark.skip", "pytest.mark.skip"),
+        ("pytest.mark.xfail", "pytest.mark.xfail"),
+        ("pytest.skip(", "pytest.skip"),
+        ("pytest.xfail(", "pytest.xfail"),
+        ("unittest.skip", "unittest.skip"),
+        ("expectedfailure", "expectedFailure"),
+        ("skiptest", "skipTest"),
+    ];
+    let bas = texte.to_lowercase();
+    MARQUEURS.iter().find(|(cherche, _)| bas.contains(cherche)).map(|(_, montre)| *montre)
+}
+
+/// Le marqueur d'une ligne ajoutée d'un fichier JavaScript ou TypeScript : le premier mot qui isole ou saute un essai.
+fn marqueur_js(texte: &str) -> Option<&'static str> {
+    let octets = texte.as_bytes();
+    (0..octets.len()).find_map(|i| {
+        if i > 0 && (est_d_identifiant(octets[i - 1]) || matches!(octets[i - 1], b'$' | b'.')) {
+            return None;
+        }
+        let suite = &octets[i..];
+        for mot in ["describe", "it", "test", "context", "suite"] {
+            if let Some(reste) = suite.strip_prefix(mot.as_bytes()) {
+                for (point, montre) in [(&b".only"[..], ".only"), (&b".skip"[..], ".skip")] {
+                    if reste.strip_prefix(point).is_some_and(|fin| fin.starts_with(b"(") || fin.starts_with(b".")) {
+                        return Some(montre);
+                    }
+                }
+            }
+        }
+        ["xit", "xdescribe", "xtest"]
+            .into_iter()
+            .find(|mot| suite.strip_prefix(mot.as_bytes()).is_some_and(|reste| reste.starts_with(b"(")))
+    })
+}
+
+/// Le marqueur, pris dans la liste de l'extension de `chemin` (celui de la tête), d'une ligne ajoutée `texte`.
+fn marqueur_ajoute(chemin: &str, texte: &str) -> Option<&'static str> {
+    let nom = chemin.rsplit('/').next().unwrap_or_default();
+    match nom.rsplit_once('.')?.1.to_lowercase().as_str() {
+        "rs" => marqueur_rust(texte),
+        "py" => marqueur_python(texte),
+        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts" => marqueur_js(texte),
+        _ => None,
+    }
+}
+
 /// Les points à justifier de `diff`, triés par chemin puis par ligne, et sans doublon.
 pub(crate) fn points(diff: &str) -> Vec<String> {
-    // (chemin, ligne de la base, raison)
+    // (chemin, ligne de la base ou, pour un marqueur ajouté, de la tête, raison)
     let mut trouves: Vec<(String, Option<u64>, String)> = Vec::new();
     // Les lignes retirées de chaque chemin, dans l'ordre où on les voit.
     let mut retirees: Vec<(String, u64)> = Vec::new();
     let (mut ancien, mut nouveau) = (None, None);
-    // Dans un hunk : les lignes qui restent de l'ancien et du nouveau, et la ligne courante de la base.
-    let (mut restent, mut courante) = ((0u64, 0u64), 0u64);
+    // Dans un hunk : les lignes qui restent de l'ancien et du nouveau, puis la ligne courante de la base et de la tête.
+    let (mut restent, mut courante, mut en_tete) = ((0u64, 0u64), 0u64, 0u64);
     for ligne in diff.lines() {
         let chemin: &str = nouveau.or(ancien).unwrap_or_default();
         if restent != (0, 0) {
@@ -85,8 +168,28 @@ pub(crate) fn points(diff: &str) -> Vec<String> {
             }
             if signe == "-" {
                 let bas = texte.to_lowercase();
-                // raccourci : un test écrit dans un fichier de code n'est vu que par ses assertions, monter avec A3,
-                // qui lira les tests un par un
+                // raccourci : un essai écrit dans un fichier de code n'est vu que par ses assertions retirées et ses
+                // marqueurs ajoutés, monter avec A3, qui lira les essais un par un
+                // raccourci : un marqueur déplacé ou réindenté est vu comme ajouté, monter avec A3
+                // raccourci : un marqueur hors de la liste (un `skip` importé seul, `pytest.importorskip`, `fit(`,
+                // `fdescribe(`, la configuration d'un lanceur d'essais) n'est pas vu, monter si la liste manque un cas
+                // raccourci : en Rust, un marqueur qui suit autre chose sur sa ligne (`#[test] #[ignore]`) n'est pas
+                // vu, monter si un code l'écrit ainsi
+                // raccourci : en Python et en JavaScript, un marqueur dans un commentaire ou une chaîne compte, monter
+                // si ces faux points gênent
+                // raccourci : en Rust, un `cfg_attr` qui porte `ignore` ailleurs que comme attribut (dans une chaîne)
+                // compte (c'est `ignore` en mot entier suivi de `)`, `,`, `=` ou d'un blanc), monter si ces faux
+                // points gênent
+                // raccourci : en Python, un marqueur dans un nom plus long (`unittest.skipped_total`) compte, monter
+                // si ces faux points gênent
+                // raccourci : un marqueur importé seul (`from pytest import mark` puis `@mark.skip`, `@skipIf`) n'est
+                // pas vu, monter si le code importe ses marqueurs ainsi
+                // raccourci : `test.describe.only(`, `it.skipIf(` et `this.skip()` ne sont pas vus, monter si un code
+                // les écrit
+                // raccourci : un `cfg_attr` écrit sur plusieurs lignes et un doctest marqué `ignore` ne sont pas vus,
+                // monter si un code les écrit
+                // raccourci : le nombre d'essais avant et après n'est pas comparé, monter avec A3
+                // raccourci : une assertion affaiblie sans ligne retirée n'est pas vue, monter avec A3
                 let raison = if porte_une_tolerance(&bas) {
                     Some("a tolerance removed or changed")
                 } else {
@@ -100,12 +203,18 @@ pub(crate) fn points(diff: &str) -> Vec<String> {
                     None => retirees.push((chemin.into(), 1)),
                 }
             }
+            let ajoute = nouveau.filter(|_| signe == "+").and_then(|tete| marqueur_ajoute(tete, texte));
+            if let Some(marqueur) = ajoute {
+                let raison = format!("a marker added that skips or isolates a test (`{marqueur}`)");
+                trouves.push((chemin.into(), Some(en_tete), raison));
+            }
             if signe != "+" {
                 restent.0 = restent.0.saturating_sub(1);
                 courante += 1;
             }
             if signe != "-" {
                 restent.1 = restent.1.saturating_sub(1);
+                en_tete += 1;
             }
         } else if ligne.starts_with("diff ") {
             (ancien, nouveau) = (None, None);
@@ -116,7 +225,7 @@ pub(crate) fn points(diff: &str) -> Vec<String> {
         } else if let Some(entete) = ligne.strip_prefix("@@ -") {
             let (vieux, neuf) = entete.split_once(" +").unwrap_or_default();
             let (vieux, neuf) = (plage(vieux), plage(neuf.split(' ').next().unwrap_or_default()));
-            (restent, courante) = ((vieux.1, neuf.1), vieux.0);
+            (restent, courante, en_tete) = ((vieux.1, neuf.1), vieux.0, neuf.0);
         }
     }
     for (chemin, n) in retirees {

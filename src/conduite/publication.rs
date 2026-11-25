@@ -209,7 +209,8 @@ fn fichiers_epingles(plan: &Plan) -> Vec<&str> {
 
 /// Le corps de la PR, public, écrit en anglais : d'abord le bloc « Receipt », écrit à l'ouverture de la PR : le coût
 /// jusque-là, les mains, relances et classées (`recu`, voir `Recu`), et les fichiers de réglage de la preuve que le
-/// diff de la base à la tête change (`reglages`, voir [`reglages_changes`] : chaque chemin écrit en code, ou
+/// diff de la base à la tête change (`reglages`, voir [`reglages_changes`] : les fichiers de réglage de Rust, de make,
+/// de pytest et de npm, et les chemins que nomme une commande de preuve du plan ; chaque chemin écrit en code, ou
 /// `path with an unreadable name` s'il porte un caractère de contrôle ou une apostrophe inverse ; vingt au plus, puis
 /// « … and <k> more »), ou « none » ; puis
 /// l'objectif du plan ; `Proof: <preuve de la vague> → green`, et sous elle, pour un plan à `forme` seulement,
@@ -316,11 +317,30 @@ pub(crate) fn en_code(chemin: &str) -> String {
     }
 }
 
-/// Les fichiers de réglage de la preuve (voir [`corps`]) parmi les `chemins` qu'un diff nomme, dans leur ordre : le nom
-/// d'un fichier de réglage de Cargo, de rustfmt, de clippy ou de la chaîne d'outils, à toute profondeur, ou tout
-/// chemin sous un dossier `.cargo`.
-fn reglages_changes<'a>(chemins: impl IntoIterator<Item = &'a str>) -> Vec<String> {
-    const NOMS: [&str; 9] = [
+/// Les fichiers de réglage de la preuve (voir [`corps`]) parmi les `chemins` qu'un diff nomme, dans leur ordre, chacun
+/// une fois. Est un réglage :
+/// - le dernier nom du chemin, exact et à toute profondeur, s'il est celui d'un fichier de réglage de Cargo, de
+///   rustfmt, de clippy, de la chaîne d'outils, de make (`Makefile`, `makefile`, `GNUmakefile`), de pytest
+///   (`conftest.py`, `pytest.ini`, `pyproject.toml`, `tox.ini`, `setup.cfg`) ou de npm (`package.json`) ;
+/// - tout chemin sous un dossier `.cargo` ;
+/// - tout chemin qu'une commande de `preuves` nomme : la commande se coupe en mots sur les blancs et sur chacun des
+///   caractères `;` `&` `|` `(` `)` `<` `>` `'` `"` et l'apostrophe inverse, les mots vides ne comptent pas, et un mot,
+///   un seul `./` de tête ôté, nomme le chemin qui lui est égal, octet pour octet.
+// raccourci : un chemin écrit relativement à un autre dossier (`cd sous && ./x.sh` nomme `x.sh`, pas `sous/x.sh`) n'est
+// pas vu, monter si une preuve change de dossier avant de lancer un script.
+// raccourci : un fichier qu'un script nommé lance à son tour n'est pas vu, monter si les preuves passent par des
+// scripts qui en lancent d'autres.
+// raccourci : un dossier nommé (`pytest tests/`) ne nomme aucun fichier dessous, monter si une preuve se règle par un
+// dossier entier.
+// raccourci : un chemin écrit avec `\` (une preuve Windows, `.\verifier.cmd`) n'est jamais égal à un chemin de git,
+// monter si les preuves se lancent sous Windows.
+// raccourci : un chemin collé à un autre texte dans un mot (`--option=<chemin>`, `-c<chemin>`, `VAR=<chemin>`) n'est
+// pas vu, monter si une preuve passe un fichier de réglage ainsi.
+// raccourci : un chemin qui porte un blanc ou un des caractères de la coupe n'est jamais nommé par une commande de
+// preuve (il l'est s'il finit par un nom de la liste ou s'il est sous `.cargo`), monter si un chemin de réglage en
+// porte un.
+fn reglages_changes<'a>(chemins: impl IntoIterator<Item = &'a str>, preuves: &[&str]) -> Vec<String> {
+    const NOMS: [&str; 18] = [
         "Cargo.toml",
         "Cargo.lock",
         "build.rs",
@@ -330,12 +350,36 @@ fn reglages_changes<'a>(chemins: impl IntoIterator<Item = &'a str>) -> Vec<Strin
         ".clippy.toml",
         "rust-toolchain",
         "rust-toolchain.toml",
+        "Makefile",
+        "makefile",
+        "GNUmakefile",
+        "conftest.py",
+        "pytest.ini",
+        "pyproject.toml",
+        "tox.ini",
+        "setup.cfg",
+        "package.json",
     ];
+    let coupe = |c: char| c.is_whitespace() || ";&|()<>'\"`".contains(c);
+    let nommes: Vec<&str> = preuves
+        .iter()
+        .flat_map(|commande| commande.split(coupe))
+        .filter(|mot| !mot.is_empty())
+        .map(|mot| mot.strip_prefix("./").unwrap_or(mot))
+        .collect();
     let reglage = |chemin: &str| {
         let mut parties = chemin.split('/').rev();
-        parties.next().is_some_and(|nom| NOMS.contains(&nom)) || parties.any(|dossier| dossier == ".cargo")
+        parties.next().is_some_and(|nom| NOMS.contains(&nom))
+            || parties.any(|dossier| dossier == ".cargo")
+            || nommes.contains(&chemin)
     };
-    chemins.into_iter().filter(|chemin| reglage(chemin)).map(String::from).collect()
+    let mut vus = Vec::new();
+    for chemin in chemins {
+        if reglage(chemin) && !vus.contains(&chemin) {
+            vus.push(chemin);
+        }
+    }
+    vus.into_iter().map(String::from).collect()
 }
 
 /// La ligne du corps de la PR qui dit la relecture de la vague `id`, d'après les vagues que le fil rejoue :
@@ -675,7 +719,7 @@ impl Proposition<'_> {
         };
         a_pousser(&self.base, tete).map_err(Arret::Refus)?;
         let (vague, relecture, mut recu, rouges) = self.rejouee(plan, menee, tete)?;
-        let reglages = self.reglages_changes(tete).map_err(Arret::Net)?;
+        let reglages = self.reglages_changes(plan, tete).map_err(Arret::Net)?;
         let mut caracteres = plan.objectif.char_indices();
         let titre = match (caracteres.nth(255), caracteres.next()) {
             (Some((coupe, _)), Some(_)) => format!("{}…", &plan.objectif[..coupe]),
@@ -859,16 +903,20 @@ impl Proposition<'_> {
         Ok((vagues.swap_remove(rang), relecture, recu, rouges))
     }
 
-    /// Les fichiers de réglage de la preuve que le diff de la base à la tête `tete` change ([`reglages_changes`]),
-    /// que le corps nomme chacun par son chemin, en code, vingt au plus. Un diff que git ne rend pas est une
-    /// erreur : le corps ne dit pas « aucun » sans l'avoir lu.
-    fn reglages_changes(&self, tete: &str) -> Result<Vec<String>, String> {
+    /// Les fichiers de réglage de la preuve que le diff de la base à la tête `tete` change ([`reglages_changes`]) :
+    /// les fichiers de réglage connus de Rust, de make, de pytest et de npm, et les chemins que nomme une commande de
+    /// preuve du `plan` (celle d'en-tête et celle de chaque tâche qui en porte une). Le corps nomme chacun par son
+    /// chemin, en code, vingt au plus. Un diff que git ne rend pas est une erreur : le corps ne dit pas « aucun » sans
+    /// l'avoir lu.
+    fn reglages_changes(&self, plan: &Plan, tete: &str) -> Result<Vec<String>, String> {
         let diff = self.forge.git(&["diff", "--name-only", "--no-renames", "-z", &self.base, tete]);
         let noms = self
             .forge
             .faire(diff, None)
             .map_err(|vu| format!("the diff from the base to the head cannot be read: {vu}"))?;
-        Ok(reglages_changes(noms.split('\0').filter(|nom| !nom.is_empty())))
+        let des_taches = plan.taches.iter().filter_map(|tache| tache.preuve.as_ref());
+        let preuves: Vec<&str> = plan.preuve.iter().chain(des_taches).map(String::as_str).collect();
+        Ok(reglages_changes(noms.split('\0').filter(|nom| !nom.is_empty()), &preuves))
     }
 
     /// Les points à justifier du diff de la base à `tete` ([`alarmes::points`]). Le diff se lit avec une borne, comme
