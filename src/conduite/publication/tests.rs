@@ -932,6 +932,19 @@ fn les_commandes_de_la_preuve_nomment_des_reglages() {
         reglages_changes(doubles, &["./verifier.sh", "verifier.sh"]),
         ["Makefile", "verifier.sh"].map(String::from)
     );
+    // Chacun des séparateurs `|` `<` `>` et de l'apostrophe inverse, seul entre deux mots, coupe : sans lui le mot
+    // resterait collé à son voisin et ne nommerait plus rien.
+    for (commande, chemin) in [
+        ("cat in.txt|./a.sh", "a.sh"),
+        ("./b.sh<in.txt", "b.sh"),
+        ("./c.sh>out.txt", "c.sh"),
+        ("echo `./d.sh`", "d.sh"),
+    ] {
+        assert_eq!(reglages_changes([chemin], &[commande]), [chemin].map(String::from), "{commande}");
+    }
+    // Ce que la coupe ne voit pas : un mot collé à une option par `=`, et un nom qui contient un blanc.
+    assert_eq!(reglages_changes(["ci/p.ini"], &["pytest --config=ci/p.ini"]), Vec::<String>::new());
+    assert_eq!(reglages_changes(["mon script.sh"], &["bash \"mon script.sh\""]), Vec::<String>::new());
 }
 
 /// Le délai de la preuve des fausses mains, et le bail de leurs tentatives : bien au-delà de ce qu'elles prennent.
