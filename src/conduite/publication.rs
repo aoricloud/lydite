@@ -334,9 +334,11 @@ pub(crate) fn en_code(chemin: &str) -> String {
 // dossier entier.
 // raccourci : un chemin écrit avec `\` (une preuve Windows, `.\verifier.cmd`) n'est jamais égal à un chemin de git,
 // monter si les preuves se lancent sous Windows.
-// raccourci : un chemin donné par `--option=<chemin>` n'est pas vu, monter si une preuve passe un fichier de réglage
-// ainsi.
-// raccourci : un chemin qui porte un blanc n'est jamais nommé, monter si un chemin de réglage en porte un.
+// raccourci : un chemin collé à un autre texte dans un mot (`--option=<chemin>`, `-c<chemin>`, `VAR=<chemin>`) n'est
+// pas vu, monter si une preuve passe un fichier de réglage ainsi.
+// raccourci : un chemin qui porte un blanc ou un des caractères de la coupe n'est jamais nommé par une commande de
+// preuve (il l'est s'il finit par un nom de la liste ou s'il est sous `.cargo`), monter si un chemin de réglage en
+// porte un.
 fn reglages_changes<'a>(chemins: impl IntoIterator<Item = &'a str>, preuves: &[&str]) -> Vec<String> {
     const NOMS: [&str; 18] = [
         "Cargo.toml",
