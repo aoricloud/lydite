@@ -679,10 +679,14 @@ fn une_cle_ajoutee_puis_retiree_se_nomme_dans_l_historique_pousse_8005() {
     let tete = sur(&lieu.depot, &ajout, &[], "retrait");
     let git_net = lieu.forge().git(&["diff", "--name-only", &base, &tete]);
     assert_eq!(lieu.forge().faire(git_net, None).unwrap(), "");
-    let preuve = publier_ici(&lieu, &base, &tete).unwrap_err();
+    let chemins = [lieu.depot.as_path()];
+    let refus = lieu.forge().publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
     let attendu = "b/notes.txt, line 1 in the pushed history: an added line has the shape of a key (GitHub token)";
-    assert_eq!(preuve, attendu);
-    assert!(!preuve.contains(&cle) && !preuve.contains(&"b".repeat(8)), "{preuve}");
+    assert_eq!(refus.preuve, attendu);
+    assert!(!refus.preuve.contains(&cle) && !refus.preuve.contains(&"b".repeat(8)), "{refus}");
+    let dit = refus.to_string();
+    assert!(!dit.contains(&cle) && !dit.contains(&"b".repeat(8)), "{dit}");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
@@ -750,6 +754,36 @@ fn un_fichier_dont_le_nom_a_la_forme_d_une_cle_n_est_pas_nomme_8005() {
                    (Anthropic key)";
     assert_eq!(refus.preuve, attendu);
     assert!(!refus.to_string().contains(&nom), "{refus}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn un_nom_cite_par_git_dont_la_cle_suit_un_echappement_n_est_pas_nomme_8005() {
+    let lieu = lieu("forge-cle-nom-cite");
+    git(&lieu.depot, &["config", "core.quotePath", "true"]);
+    let base = lieu.base();
+    let nom = format!("é{}.txt", cle_sk());
+    let tete = sur(&lieu.depot, &base, &[(&nom, &format!("{}\n", cle_anthropic()))], "nom");
+    let chemins = [lieu.depot.as_path()];
+    let refus = lieu.forge().publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+    let attendu = "a file whose name has the shape of a key, line 1: an added line has the shape of a key \
+                   (Anthropic key)";
+    assert_eq!(refus.preuve, attendu);
+    let dit = refus.to_string();
+    assert!(!dit.contains(&cle_sk()) && !dit.contains(&"c".repeat(8)), "{dit}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn le_numero_d_une_ligne_compte_le_contexte_que_git_montre_en_u0_8005() {
+    let lieu = lieu("forge-cle-contexte");
+    git(&lieu.depot, &["config", "diff.interHunkContext", "5"]);
+    let base = lieu.base();
+    let avant = sur(&lieu.depot, &base, &[("liste.txt", "a\nb\nc\nd\ne\nf\n")], "liste");
+    let apres = sur(&lieu.depot, &avant, &[("liste.txt", &format!("a\nB\nc\n{}\ne\nf\n", cle_anthropic()))], "change");
+    let preuve = publier_ici(&lieu, &avant, &apres).unwrap_err();
+    assert_eq!(preuve, "b/liste.txt, line 4: an added line has the shape of a key (Anthropic key)");
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
