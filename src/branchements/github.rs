@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use crate::branchements::git::{IDENTITE, geste};
 use crate::branchements::processus::{attendre, echeance, tuer_et_attendre};
+use crate::coeur::cles::forme_de_cle;
 use crate::coeur::erreur::{Code, Refus, nommee, queue};
 use crate::coeur::fil::{Couleur, lot};
 use crate::coeur::json::{self, Json};
@@ -46,6 +47,11 @@ pub(crate) const CHAMPS_DES_RUNS: &str = "workflowName,name,status,conclusion,st
 /// La correction du refus 8005.
 const PUBLIER: &str =
     "Nothing is pushed, and the wave branch stays local: review it, then push it and open its PR yourself.";
+
+/// La correction du refus 8005 pour une clé.
+const CLE: &str = "Nothing is pushed, and the wave branch stays local. If the key is real, take it out of every \
+                   commit of the branch and look at where the hand read it; if it is a fake one (a test, an \
+                   example), build it at run time. Then push the branch and open its PR yourself.";
 
 /// La correction du refus 8009.
 const REINTEGRER: &str = "The PR stays open, and Lydite does not retry its CI: merge the base back into the PR \
@@ -538,6 +544,16 @@ impl Forge<'_> {
     /// est donc trouvé ; un mot seul reste comparé à la lettre.
     // raccourci : ß et la normalisation NFC ne sont pas repliés, et le sigma final se compare comme un sigma ; monter
     // si un cas les montre
+    ///
+    /// Enfin, une ligne ajoutée qui a la forme d'une clé ([`forme_de_cle`]) est refusée : elle se cherche en dernier,
+    /// dans les lignes ajoutées du diff net, puis, s'il n'y a rien, dans celles de chaque commit poussé. La preuve
+    /// nomme le fichier, la ligne et la forme, jamais la ligne (`<fichier>, line <n>: an added line has the shape of
+    /// a key (<forme>)`, avec `in the pushed history` après le numéro pour l'historique), et ne nomme pas un fichier
+    /// dont le nom a lui-même la forme d'une clé. La correction est [`CLE`].
+    // raccourci : une ligne que git montre déplacée avec son fichier, sans changement, n'est pas une ligne ajoutée et
+    // n'est pas lue (elle est déjà dans la base), monter si une clé arrive par un déplacement
+    // raccourci : le titre, le corps, les messages des commits et le nom de la branche ne sont pas lus pour les clés,
+    // monter si un texte venu d'une main ou d'une issue y entre
     pub(crate) fn publiable(
         &self,
         base: &str,
@@ -661,6 +677,13 @@ impl Forge<'_> {
                 if let Some((lieu, _)) = lieux.iter().find(|(_, texte)| texte.contains(&cherche)) {
                     return Err(refus(format!("the workstation path {forme} appears in {lieu}")));
                 }
+            }
+        }
+        for (texte, dans) in [(diff.as_str(), ""), (historique.as_str(), " in the pushed history")] {
+            if let Some((nom, numero, forme)) = premiere_cle_ajoutee(texte) {
+                let nom = if forme_de_cle(nom).is_some() { "a file whose name has the shape of a key" } else { nom };
+                let preuve = format!("{nom}, line {numero}{dans}: an added line has the shape of a key ({forme})");
+                return Err(Refus::new(Code::PublicationRefusee, preuve, CLE));
             }
         }
         Ok(())
@@ -1164,6 +1187,35 @@ fn ajoutees(diff: &str) -> Vec<(String, String)> {
         }
     }
     fichiers
+}
+
+/// La première ligne ajoutée de `diff` (de git, `-U0`) dont [`forme_de_cle`] rend un nom : le nom du fichier tel que
+/// l'en-tête `+++ ` l'écrit (coupé à la première tabulation), le numéro de la ligne dans la tête et le nom de la
+/// forme. Le découpage est celui d'[`ajoutees`] ; le numéro part du début de la plage `+<début>` de l'en-tête du
+/// morceau et croît après chaque ligne `+`, une ligne `-` ou `\` ne le change pas et n'est jamais lue comme ajoutée.
+fn premiere_cle_ajoutee(diff: &str) -> Option<(&str, u64, &'static str)> {
+    let mut fichier = "";
+    let mut dans_un_morceau = false;
+    let mut numero = 0u64;
+    for ligne in diff.lines() {
+        if ligne.starts_with("diff --git ") {
+            dans_un_morceau = false;
+        } else if ligne.starts_with("@@") {
+            dans_un_morceau = true;
+            numero = ligne
+                .split_once(" +")
+                .and_then(|(_, neuf)| neuf.split([',', ' ']).next()?.parse().ok())
+                .unwrap_or_default();
+        } else if !dans_un_morceau && let Some(nom) = ligne.strip_prefix("+++ ") {
+            fichier = nom.split('\t').next().unwrap_or(nom);
+        } else if dans_un_morceau && let Some(texte) = ligne.strip_prefix('+') {
+            if let Some(forme) = forme_de_cle(texte) {
+                return Some((fichier, numero, forme));
+            }
+            numero += 1;
+        }
+    }
+    None
 }
 
 #[cfg(test)]
