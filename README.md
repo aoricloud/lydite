@@ -166,6 +166,29 @@ model, what follows; it refuses nothing for it.
     `test`, `context` or `suite` followed at once by `.only` or `.skip` and then `(` or `.`, or `xit(`, `xdescribe(`,
     `xtest(`, each only if the word does not follow a letter, a digit, `_`, `$` or `.` (which leaves out
     `test.describe.only(` and `foo.it.only(`), comments and strings included.
+- **"Points to justify", keys and files.** One point per added line that has the shape of a key, in a file of any
+  extension, a test file or not, the line number being the one of the head. A line gives one key point at most (the
+  first form of the list below that it carries wins), and this point is separate from a marker's. A form counts only
+  at a boundary, the start of the line or a character that is not an ASCII letter, a digit or `_`; case counts, and
+  one occurrence in the line is enough. The point shows the name of the form, in this order:
+  - `Anthropic key`: `sk-ant-` followed by at least 20 ASCII letters, digits, `_` or `-`.
+  - `sk- key`: `sk-` followed by at least 30 of those characters.
+  - `GitHub token`: `ghp_`, `gho_`, `ghu_`, `ghs_` or `ghr_` followed by at least 30 ASCII letters or digits, or
+    `github_pat_` followed by at least 30 ASCII letters, digits or `_`.
+  - `AWS access key ID`: `AKIA` or `ASIA` followed by exactly 16 capital letters or digits, which no letter or digit
+    follows.
+  - `Backblaze key`: `K00` followed by at least 20 ASCII letters, digits, `/` or `+`.
+  - `PEM private key`: the opening line of a private key in PEM form, that is, the start of a PEM header (five dashes,
+    a word, a blank) and, further on the same line, the end of a private-key header (the words that name it, then
+    five dashes). This form has no boundary.
+
+  Then the names of files. When the `+++ ` header of a file names a path of the head whose last name, without case,
+  is `.env`, or starts with `.env.` and does not end with `.example`, `.sample` or `.template`, or is exactly `id_rsa`,
+  `id_dsa`, `id_ecdsa` or `id_ed25519`, the file is one point, once per path and without a line number, shown as
+  `.env` for the first family and as the name for the four others. The point does not copy the line. The push and
+  the pull request happen anyway: when the pull request names a key point, the key is already in the pushed branch.
+  The pull request names the points of the whole diff; the reviewer's brief names only those of the files of the
+  critical tasks.
 - **Not seen in the removed lines.** An assertion written without the word `assert` (`expect(…)`, `t.Errorf`,
   `pytest.raises`) is not flagged. A test written inside a code file that loses lines (a `mod tests` in `src/x.rs`) is
   not flagged as a test of the base; only its removed assertions and added markers are seen. The word `assert` or a
@@ -186,11 +209,19 @@ model, what follows; it refuses nothing for it.
   name of the list or lies under `.cargo`), a path written from another folder (`cd sub && ./x.sh`), a file that a
   named script launches in turn, a named folder (`pytest tests/`), a path written with `\`, the files that the `forme`
   command reads.
+- **Not seen in the keys.** A form outside the list (Slack, Stripe, Google, a JWT, a password, a long value after
+  `api_key =`, a PGP private key block whose header does not end with the words of the PEM form followed by five
+  dashes); a key cut over two lines, encoded (base64, hexadecimal) or in a binary file; a key beyond the cut of the
+  diff (see below); an `.env` file that is empty, binary or whose mode alone changes (it has no `+++ ` header); the
+  other files that hold secrets (`.envrc`, `credentials.json`, `.pem`, `.key`, `.p12`, `.pfx`). A key added, then
+  removed between the commits of the branch, is not seen in the net diff from the base to the head, yet it leaves with
+  the pushed history. This one is meant: a fake key in a test, or an example in documentation, that has the shape is
+  flagged, because Lydite flags and does not judge.
 - **The cut.** The pull request and the reviewer's brief name twenty points at most, sorted by path then by line, then
-  "… and <n> more" in the pull request: an added marker can fall into that rest. A diff of more than 1000000 bytes is
-  read cut, and its points with it, without the pull request saying so.
+  "… and <n> more" in the pull request: an added marker or a key point can fall into that rest. A diff of more than
+  1000000 bytes is read cut, and its points with it, without the pull request saying so.
 - **What stays out of reach.** The number of tests before and after is not compared; an assertion weakened without a
-  line removed (a `return` added before it) is not seen; a secret in the diff is not searched for.
+  line removed (a `return` added before it) is not seen.
 
 It does not judge whether your tests are good.
 
