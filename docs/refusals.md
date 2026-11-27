@@ -79,7 +79,7 @@ A refusal that stops Lydite before any wave exits with code 2, on four lines: `l
 | 8002 | `forge.base_inconnue` | The base that `--pr` names is a branch of the remote, which Lydite fetches before the wave. |
 | 8003 | `forge.gh_injoignable` | `gh` starts and says it is logged in to the remote's host before the wave. |
 | 8004 | `forge.rien_a_pousser` | The wave's branch has at least one more commit than its base; otherwise nothing is pushed. |
-| 8005 | `forge.publication_refusee` | Lydite publishes no change under `.github/`, no path of the workstation, no commit it did not make, and no word of the user's `garde` file; publishing those is for the human. |
+| 8005 | `forge.publication_refusee` | Lydite publishes no change under `.github/`, no path of the workstation, no commit it did not make, no word of the user's `garde` file, and no added line that has the shape of a known key; publishing those is for the human. |
 | 8006 | `forge.poussee_refusee` | The wave is pushed without force, within its deadline; otherwise nothing is opened. |
 | 8007 | `forge.pr_impossible` | Once the branch is pushed, `gh` opens the PR against the base and reads it back on the pushed sha; otherwise the branch stays pushed, with no PR. |
 | 8008 | `forge.ci_muette` | The PR's CI gives its verdict within its deadline; a PR without CI is never taken. |

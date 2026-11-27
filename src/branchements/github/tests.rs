@@ -622,6 +622,191 @@ fn les_diffs_de_la_publication_ignorent_la_configuration_des_prefixes_de_l_humai
     let _ = fs::remove_dir_all(&lieu.racine);
 }
 
+/// Le début d'un en-tête PEM, que `PEM_FIN` suit : chacun sur sa ligne, pour qu'aucune ligne du dépôt n'ait la forme
+/// d'une clé.
+const PEM_DEBUT: &str = "-----BEGIN ";
+/// La fin d'un en-tête de clé privée PEM.
+const PEM_FIN: &str = "PRIVATE KEY-----";
+
+/// La correction du refus 8005 pour une clé, écrite en entier.
+const CORRECTION_DE_LA_CLE: &str = "Nothing is pushed, and the wave branch stays local. If the key is real, take it \
+    out of every commit of the branch and look at where the hand read it; if it is a fake one (a test, an example), \
+    build it at run time. Then push the branch and open its PR yourself.";
+
+/// Une clé de forme `Anthropic key`, fabriquée à l'exécution.
+fn cle_anthropic() -> String {
+    format!("{}{}{}", "sk-", "ant-", "a".repeat(24))
+}
+
+/// Une clé de forme `sk- key`, fabriquée à l'exécution.
+fn cle_sk() -> String {
+    format!("{}{}", "sk-", "c".repeat(32))
+}
+
+/// Publie `tete` sur `base` dans ce lieu, sans garde : `Ok`, ou la preuve du refus 8005.
+fn publier_ici(lieu: &Lieu, base: &str, tete: &str) -> Result<(), String> {
+    let chemins = [lieu.depot.as_path()];
+    lieu.forge().publiable(base, tete, "b", "t", "c", &chemins).map_err(|refus| {
+        assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+        refus.preuve
+    })
+}
+
+#[test]
+fn une_cle_ajoutee_ne_se_publie_pas_et_n_est_jamais_ecrite_8005() {
+    let lieu = lieu("forge-cle-ajoutee");
+    let base = lieu.base();
+    let cle = cle_anthropic();
+    let contenu = format!("un\ndeux\nAPI_KEY=\"{cle}\"\n");
+    let tete = sur(&lieu.depot, &base, &[("notes.txt", &contenu)], "notes");
+    let chemins = [lieu.depot.as_path()];
+    let refus = lieu.forge().publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+    assert_eq!(refus.preuve, "b/notes.txt, line 3: an added line has the shape of a key (Anthropic key)");
+    assert_eq!(refus.correction, CORRECTION_DE_LA_CLE);
+    let dit = refus.to_string();
+    assert!(!dit.contains(&cle) && !dit.contains(&"a".repeat(8)), "{dit}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn une_cle_ajoutee_puis_retiree_se_nomme_dans_l_historique_pousse_8005() {
+    let lieu = lieu("forge-cle-historique");
+    let base = lieu.base();
+    let cle = format!("{}{}", "ghp_", "b".repeat(36));
+    let ajout = sur(&lieu.depot, &base, &[("notes.txt", &format!("{cle}\n"))], "ajout");
+    fs::remove_file(lieu.depot.join("notes.txt")).unwrap();
+    let tete = sur(&lieu.depot, &ajout, &[], "retrait");
+    let git_net = lieu.forge().git(&["diff", "--name-only", &base, &tete]);
+    assert_eq!(lieu.forge().faire(git_net, None).unwrap(), "");
+    let chemins = [lieu.depot.as_path()];
+    let refus = lieu.forge().publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+    let attendu = "b/notes.txt, line 1 in the pushed history: an added line has the shape of a key (GitHub token)";
+    assert_eq!(refus.preuve, attendu);
+    assert!(!refus.preuve.contains(&cle) && !refus.preuve.contains(&"b".repeat(8)), "{refus}");
+    let dit = refus.to_string();
+    assert!(!dit.contains(&cle) && !dit.contains(&"b".repeat(8)), "{dit}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn chacune_des_six_formes_de_cle_se_nomme_8005() {
+    let lieu = lieu("forge-cle-formes");
+    let base = lieu.base();
+    let pem = format!("{PEM_DEBUT}RSA {PEM_FIN}");
+    let formes = [
+        (cle_anthropic(), "Anthropic key"),
+        (cle_sk(), "sk- key"),
+        (format!("{}{}", "ghp_", "b".repeat(36)), "GitHub token"),
+        (format!("{}{}", "github_pat_", "d".repeat(36)), "GitHub token"),
+        (format!("{}{}", "AKIA", "B".repeat(16)), "AWS access key ID"),
+        (format!("{}{}", "K00", "e".repeat(24)), "Backblaze key"),
+        (pem, "PEM private key"),
+    ];
+    for (cle, forme) in formes {
+        let tete = sur(&lieu.depot, &base, &[("notes.txt", &format!("{cle}\n"))], "notes");
+        let preuve = publier_ici(&lieu, &base, &tete).unwrap_err();
+        assert_eq!(preuve, format!("b/notes.txt, line 1: an added line has the shape of a key ({forme})"));
+    }
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn ce_qui_n_est_pas_une_ligne_ajoutee_de_cette_forme_se_publie_8005() {
+    let lieu = lieu("forge-cle-permise");
+    let base = lieu.base();
+    let cle = cle_anthropic();
+    // Une ligne de cette forme seulement retirée : la base l'ajoute, la tête la retire.
+    let avec = sur(&lieu.depot, &base, &[("notes.txt", &format!("{cle}\n"))], "avec");
+    let sans = sur(&lieu.depot, &avec, &[("notes.txt", "propre\n")], "sans");
+    assert_eq!(publier_ici(&lieu, &avec, &sans), Ok(()));
+    // La même ligne laissée telle quelle pendant que la tête change une autre ligne du même fichier.
+    let deux = sur(&lieu.depot, &base, &[("notes.txt", &format!("{cle}\nautre\n"))], "deux");
+    let change = sur(&lieu.depot, &deux, &[("notes.txt", &format!("{cle}\nchange\n"))], "change");
+    assert_eq!(publier_ici(&lieu, &deux, &change), Ok(()));
+    // Sans frontière, ou trop courte : pas une forme.
+    let masque = format!("{}{}", "mask-", "m".repeat(32));
+    let court = format!("{}{}", "sk-ant-", "a".repeat(19));
+    for ligne in [masque, court] {
+        let tete = sur(&lieu.depot, &base, &[("notes.txt", &format!("{ligne}\n"))], "forme");
+        assert_eq!(publier_ici(&lieu, &base, &tete), Ok(()));
+    }
+    // Un fichier `.env` n'est qu'un point de fichier : il ne refuse rien, mais sa ligne de clé est refusée.
+    let env = sur(&lieu.depot, &base, &[(".env", "NOM=valeur\n")], "env");
+    assert_eq!(publier_ici(&lieu, &base, &env), Ok(()));
+    let env_cle = sur(&lieu.depot, &base, &[(".env", &format!("{}\n", cle_sk()))], "env");
+    let preuve = publier_ici(&lieu, &base, &env_cle).unwrap_err();
+    assert!(preuve.starts_with("b/.env, line 1: "), "{preuve}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn un_fichier_dont_le_nom_a_la_forme_d_une_cle_n_est_pas_nomme_8005() {
+    let lieu = lieu("forge-cle-nom");
+    let base = lieu.base();
+    let nom = format!("{}.txt", cle_sk());
+    let tete = sur(&lieu.depot, &base, &[(&nom, &format!("{}\n", cle_anthropic()))], "nom");
+    let chemins = [lieu.depot.as_path()];
+    let refus = lieu.forge().publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+    let attendu = "a file whose name has the shape of a key, line 1: an added line has the shape of a key \
+                   (Anthropic key)";
+    assert_eq!(refus.preuve, attendu);
+    assert!(!refus.to_string().contains(&nom), "{refus}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn un_nom_cite_par_git_dont_la_cle_suit_un_echappement_n_est_pas_nomme_8005() {
+    let lieu = lieu("forge-cle-nom-cite");
+    git(&lieu.depot, &["config", "core.quotePath", "true"]);
+    let base = lieu.base();
+    let nom = format!("é{}.txt", cle_sk());
+    let tete = sur(&lieu.depot, &base, &[(&nom, &format!("{}\n", cle_anthropic()))], "nom");
+    let chemins = [lieu.depot.as_path()];
+    let refus = lieu.forge().publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+    let attendu = "a file whose name has the shape of a key, line 1: an added line has the shape of a key \
+                   (Anthropic key)";
+    assert_eq!(refus.preuve, attendu);
+    let dit = refus.to_string();
+    assert!(!dit.contains(&cle_sk()) && !dit.contains(&"c".repeat(8)), "{dit}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn le_numero_d_une_ligne_compte_le_contexte_que_git_montre_en_u0_8005() {
+    let lieu = lieu("forge-cle-contexte");
+    git(&lieu.depot, &["config", "diff.interHunkContext", "5"]);
+    let base = lieu.base();
+    let avant = sur(&lieu.depot, &base, &[("liste.txt", "a\nb\nc\nd\ne\nf\n")], "liste");
+    let apres = sur(&lieu.depot, &avant, &[("liste.txt", &format!("a\nB\nc\n{}\ne\nf\n", cle_anthropic()))], "change");
+    let preuve = publier_ici(&lieu, &avant, &apres).unwrap_err();
+    assert_eq!(preuve, "b/liste.txt, line 4: an added line has the shape of a key (Anthropic key)");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn une_cle_gardee_jusqu_a_la_tete_est_nommee_par_le_diff_net_8005() {
+    let lieu = lieu("forge-cle-net");
+    let base = lieu.base();
+    let cle = cle_anthropic();
+    // Plusieurs commits la précèdent et la suivent ; le diff net la nomme, sans l'historique.
+    let un = sur(&lieu.depot, &base, &[("a.txt", "un\n")], "un");
+    let deux = sur(&lieu.depot, &un, &[("b.txt", "deux\n")], "deux");
+    let trois = sur(&lieu.depot, &deux, &[("notes.txt", &format!("x\n{cle}\n"))], "trois");
+    let tete = sur(&lieu.depot, &trois, &[("c.txt", "quatre\n")], "quatre");
+    let preuve = publier_ici(&lieu, &base, &tete).unwrap_err();
+    assert_eq!(preuve, "b/notes.txt, line 2: an added line has the shape of a key (Anthropic key)");
+    // Le numéro est celui de la tête : une ligne retirée plus haut ne le décale pas, ni le début du morceau.
+    let avant = sur(&lieu.depot, &base, &[("liste.txt", "a\nb\nc\nd\ne\n")], "liste");
+    let apres = sur(&lieu.depot, &avant, &[("liste.txt", &format!("b\nc\n{cle}\ne\n"))], "liste");
+    let preuve = publier_ici(&lieu, &avant, &apres).unwrap_err();
+    assert_eq!(preuve, "b/liste.txt, line 3: an added line has the shape of a key (Anthropic key)");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
 #[test]
 fn pousser_envoie_un_sha_sans_forcer_8006() {
     let lieu = lieu("forge-8006");

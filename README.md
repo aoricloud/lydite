@@ -136,15 +136,20 @@ Each refusal has a number, says what it saw, and says what to do.
   Lydite sets the task aside, replays nothing, retries nothing and merges nothing from it. The reason is the hand's
   word, shown as `impossible (declared)` and never checked: a task set aside this way does not show that the test is
   wrong, and a finding that comes back not proved does not show that there is no flaw.
-- **It does not publish** a change under `.github/`, a path of your machine, or a line of your `garde` file (8005),
-  nor take a pull request whose CI stays silent (8008). The `garde` file, in the state folder, holds one word or name
-  per line (a line that starts with `#` is a comment), matched without case: write your private names there. Without
-  it, Lydite checks `.github/`, the paths and the commits it did not make, but no word of yours, so we recommend
-  writing one.
+- **It does not publish** a change under `.github/`, a path of your machine, a line of your `garde` file, or an added
+  line that has the shape of a known key (8005), nor take a pull request whose CI stays silent (8008). The `garde`
+  file, in the state folder, holds one word or name per line (a line that starts with `#` is a comment), matched
+  without case: write your private names there. Without it, Lydite checks `.github/`, the paths and the commits it did
+  not make, but no word of yours, so we recommend writing one. The key forms are those of "Points to justify", keys and
+  files, below: the same list. Before any push, Lydite looks for them in the lines added by the net diff from the base
+  to the head, then by each pushed commit, so a key added and then removed is refused too. The refusal names the file
+  (unless its own name has the shape of a key), the line (in the head, or in the commit that adds it) and the form,
+  never the key; nothing is pushed, and the wave's branch stays local. A fake key in a test, or an example in
+  documentation, that has the shape is refused as well: build it at run time, or push the branch yourself.
 - **It never opens your Claude login file**, and puts no provider key in a profile or a pull request (see below).
 
 What it does not do for you: a green proof is worth what your proof is worth. Lydite replays it and flags, without a
-model, what follows; it refuses nothing for it.
+model, what follows; it refuses nothing for it, except an added line that has the shape of a key (above).
 
 - **"Points to justify", lines removed.** A test file of the base that loses lines (one point, with the count), and
   each removed line, from any file of any extension, that carries an assertion or a tolerance. The line number is the
@@ -185,10 +190,11 @@ model, what follows; it refuses nothing for it.
   Then the names of files. When the `+++ ` header of a file names a path of the head whose last name, without case,
   is `.env`, or starts with `.env.` and does not end with `.example`, `.sample` or `.template`, or is exactly `id_rsa`,
   `id_dsa`, `id_ecdsa` or `id_ed25519`, the file is one point, once per path and without a line number, shown as
-  `.env` for the first family and as the name for the four others. The point does not copy the line. The push and
-  the pull request happen anyway: when the pull request names a key point, the key is already in the pushed branch.
-  The pull request names the points of the whole diff; the reviewer's brief names only those of the files of the
-  critical tasks.
+  `.env` for the first family and as the name for the four others. The point does not copy the line. An added line
+  that has the shape of a key is also refused before any push (8005, above). A file point refuses nothing: the push
+  and the pull request happen anyway, and when the pull request names a `.env` or SSH key file, that file is already
+  in the pushed branch. The pull request names the points of the whole diff; the reviewer's brief names only those of
+  the files of the critical tasks.
 - **Not seen in the removed lines.** An assertion written without the word `assert` (`expect(…)`, `t.Errorf`,
   `pytest.raises`) is not flagged. A test written inside a code file that loses lines (a `mod tests` in `src/x.rs`) is
   not flagged as a test of the base; only its removed assertions and added markers are seen. The word `assert` or a
@@ -211,12 +217,14 @@ model, what follows; it refuses nothing for it.
   command reads.
 - **Not seen in the keys.** A form outside the list (Slack, Stripe, Google, a JWT, a password, a long value after
   `api_key =`, a PGP private key block whose header does not end with the words of the PEM form followed by five
-  dashes); a key cut over two lines, encoded (base64, hexadecimal) or in a binary file; a key beyond the cut of the
-  diff (see below); an `.env` file that is empty, binary or whose mode alone changes (it has no `+++ ` header); the
-  other files that hold secrets (`.envrc`, `credentials.json`, `.pem`, `.key`, `.p12`, `.pfx`). A key added, then
-  removed between the commits of the branch, is not seen in the net diff from the base to the head, yet it leaves with
-  the pushed history. What is meant: a fake key in a test, or an example in documentation, that has the shape is
-  flagged, because Lydite flags and does not judge.
+  dashes); a key cut over two lines or encoded (base64, hexadecimal). The points alone also miss a key in a binary
+  file, a key beyond the cut of the diff (see below), and a key added, then removed between the commits of the branch,
+  which the net diff no longer shows: the refusal reads the whole diff, binary files as text, and each pushed commit.
+  The refusal reads only the lines that git shows as added: a file moved with its lines unchanged adds none when git
+  sees the move, and the title, the body, the commit messages and the branch name are not searched for keys. Not seen
+  as a file: an `.env` file that is empty, binary or whose mode alone changes (it has no `+++ ` header), and the other
+  files that hold secrets (`.envrc`, `credentials.json`, `.pem`, `.key`, `.p12`, `.pfx`). What is meant: a fake key in
+  a test, or an example in documentation, that has the shape is flagged and refused, because Lydite does not judge.
 - **The cut.** The pull request and the reviewer's brief name twenty points at most, sorted by path then by line, then
   "… and <n> more" in the pull request: an added marker, a key point or a file point can fall into that rest. A diff
   of more than 1000000 bytes is read cut, and its points with it, without the pull request saying so.
