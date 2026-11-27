@@ -193,8 +193,8 @@ model, what follows; it refuses nothing for it, except an added line that has th
   `.env` for the first family and as the name for the four others. The point does not copy the line. An added line
   that has the shape of a key is also refused before any push (8005, above). A file point refuses nothing: the push
   and the pull request happen anyway, and when the pull request names a `.env` or SSH key file, that file is already
-  in the pushed branch. The pull request names the points of the whole diff; the reviewer's brief names only those of the files of the
-  critical tasks.
+  in the pushed branch. The pull request names the points of the whole diff; the reviewer's brief names only those of
+  the files of the critical tasks.
 - **Not seen in the removed lines.** An assertion written without the word `assert` (`expect(…)`, `t.Errorf`,
   `pytest.raises`) is not flagged. A test written inside a code file that loses lines (a `mod tests` in `src/x.rs`) is
   not flagged as a test of the base; only its removed assertions and added markers are seen. The word `assert` or a
