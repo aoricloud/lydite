@@ -419,7 +419,7 @@ pre.cmd .c { color: var(--cendre); }
 <li><span class="code">6022</span><div><b>It starts nothing if your proof is already red.</b><span>On the base commit, a red proof proves nothing afterwards.</span></div></li>
 <li><span class="code">6028</span><div><b>Under a required wall, the default, it starts nothing if the wall does not start.</b><span>Before any hand, it runs <code>true</code> under the wall that will replay your proof: that shows the wall starts, not what it closes.</span></div></li>
 <li><span class="code">7013</span><div><b>It keeps a hand inside its task.</b><span>A change outside the task’s list of files is refused. A hand does not run <code>git commit</code>: Lydite commits.</span></div></li>
-<li><span class="code">8005</span><div><b>It does not publish what should stay yours.</b><span>A change under <code>.github/</code>, a path of your machine, or a line of your <code>garde</code> file.</span></div></li>
+<li><span class="code">8005</span><div><b>It does not publish what should stay yours.</b><span>A change under <code>.github/</code>, a path of your machine, a line of your <code>garde</code> file, or an added line shaped like a known key.</span></div></li>
 <li><span class="code">always</span><div><b>It does not push a hand to cheat.</b><span>A hand that finds a test no honest code can pass says <code>IMPOSSIBLE</code>. Lydite sets the task aside, replays nothing, retries nothing and merges nothing from it. The reason is the hand’s word, shown as declared.</span></div></li>
 <li><span class="code">always</span><div><b>It never opens your Claude login file.</b><span>And it puts no provider key in a profile or a pull request.</span></div></li>
 </ul>
