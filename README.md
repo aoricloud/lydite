@@ -179,8 +179,8 @@ model, what follows; it refuses nothing for it.
     follows.
   - `Backblaze key`: `K00` followed by at least 20 ASCII letters, digits, `/` or `+`.
   - `PEM private key`: the opening line of a private key in PEM form, that is, the start of a PEM header (five dashes,
-    the word `BEGIN`, a blank) and, further on the same line, the end of a private-key header (the words `PRIVATE`
-    and `KEY` separated by a blank, then five dashes). This form has no boundary.
+    the word `BEGIN`, a blank) and, further on the same line, the end of a private-key header (the words
+    `PRIVATE` and `KEY` separated by a blank, then five dashes). This form has no boundary.
 
   Then the names of files. When the `+++ ` header of a file names a path of the head whose last name, without case,
   is `.env`, or starts with `.env.` and does not end with `.example`, `.sample` or `.template`, or is exactly `id_rsa`,
