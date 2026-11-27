@@ -10,8 +10,25 @@
 //! `pytest.mark.skipif`, `pytest.mark.skip`, `pytest.mark.xfail`, `pytest.skip`, `pytest.xfail`, `unittest.skip`,
 //! `expectedFailure` ou `skipTest` ; en `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts` et `.cts`, `.only` ou
 //! `.skip` après `describe`, `it`, `test`, `context` ou `suite`, et `xit`, `xdescribe` ou `xtest` ; toute autre
-//! extension, rien. Tout fichier de ces extensions compte, qu'il soit un fichier d'essai ou non. Les points sont triés
-//! par chemin puis par ligne, et sans doublon.
+//! extension, aucun marqueur. Tout fichier de ces extensions compte, qu'il soit un fichier d'essai ou non. Après les
+//! marqueurs, les clés : une ligne ajoutée, dans un fichier de toute extension, qui a la forme d'une clé donne
+//! `<chemin>, line <n>: an added line has the shape of a key (`<nom>`)`, où `<n>` est le numéro de la ligne de la tête
+//! et le nom est pris dans une liste fixe, jamais recopié de la ligne ; une ligne rend un point de clé au plus, la
+//! première forme de la liste l'emporte, et ce point est indépendant de celui d'un marqueur. Une forme ne compte qu'à
+//! une frontière (début de ligne, ou caractère qui n'est ni une lettre ASCII, ni un chiffre, ni `_`) et la casse
+//! compte ; n'importe quelle occurrence de la ligne qui a sa frontière et sa longueur la porte. Dans l'ordre :
+//! `Anthropic key` (le préfixe `sk-` puis `ant-`, puis au moins 20 lettres, chiffres, `_` ou `-`), `sk- key` (`sk-`,
+//! puis au moins 30 de ces caractères), `GitHub token` (`ghp_`, `gho_`, `ghu_`, `ghs_` ou `ghr_` puis au moins 30
+//! lettres ou chiffres, ou `github_pat_` puis au moins 30 lettres, chiffres ou `_`), `AWS access key ID` (`AKIA` ou
+//! `ASIA` puis exactement 16 majuscules ou chiffres, que ne suit ni lettre ni chiffre), `Backblaze key` (`K00` puis au
+//! moins 20 lettres, chiffres, `/` ou `+`) et `PEM private key` (le début d'un en-tête PEM, puis, plus loin sur la
+//! ligne, la fin d'un en-tête de clé privée ; sans frontière). Puis les noms de fichiers : quand l'en-tête `+++ ` nomme
+//! un chemin de la tête, son dernier nom, sans casse, rend `<chemin>: a file that usually holds secrets is added or
+//! changed (`<nom>`)`, sans numéro de ligne et une fois par chemin, pour `.env` (ou un nom qui commence par `.env.` et
+//! ne finit ni par `.example`, ni par `.sample`, ni par `.template`) et pour `id_rsa`, `id_dsa`, `id_ecdsa` et
+//! `id_ed25519`. Ce qui est voulu : une fausse clé d'essai ou un exemple de documentation qui ont la forme sont
+//! relevés, car Lydite signale et ne juge pas. Les points sont triés par chemin puis par ligne, un point sans ligne
+//! d'abord, et sans doublon.
 
 use std::path::Path;
 
@@ -150,9 +167,94 @@ fn marqueur_ajoute(chemin: &str, texte: &str) -> Option<&'static str> {
     }
 }
 
+/// Le début d'un en-tête PEM : cinq tirets, `BEGIN`, un blanc.
+const DEBUT_PEM: &str = "-----BEGIN ";
+/// La fin d'un en-tête de clé privée PEM : les mots qui la disent, puis cinq tirets.
+const FIN_PEM: &str = "PRIVATE KEY-----";
+
+/// `octets[i]` est au début de la ligne ou après un caractère qui n'est ni une lettre ASCII, ni un chiffre, ni `_`.
+fn a_sa_frontiere(octets: &[u8], i: usize) -> bool {
+    i == 0 || !est_d_identifiant(octets[i - 1])
+}
+
+/// `texte` porte `prefixe` à une frontière, suivi d'au moins `longueur` caractères que `permis` accepte : une
+/// occurrence suffit, la première n'empêche pas les suivantes.
+fn porte_un_prefixe(texte: &str, prefixe: &str, permis: impl Fn(u8) -> bool, longueur: usize) -> bool {
+    let octets = texte.as_bytes();
+    texte.match_indices(prefixe).any(|(i, _)| {
+        a_sa_frontiere(octets, i) && octets[i + prefixe.len()..].iter().take_while(|c| permis(**c)).count() >= longueur
+    })
+}
+
+/// `texte` porte, à une frontière, `AKIA` ou `ASIA` suivi d'exactement 16 majuscules ou chiffres ASCII, puis de la
+/// fin de la ligne ou d'un caractère qui n'est ni une lettre ASCII ni un chiffre.
+fn porte_un_identifiant_aws(texte: &str) -> bool {
+    let octets = texte.as_bytes();
+    ["AKIA", "ASIA"].iter().any(|prefixe| {
+        texte.match_indices(prefixe).any(|(i, _)| {
+            let corps = &octets[i + prefixe.len()..];
+            let seize = corps.len() >= 16 && corps[..16].iter().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
+            seize && a_sa_frontiere(octets, i) && !corps.get(16).is_some_and(|c| c.is_ascii_alphanumeric())
+        })
+    })
+}
+
+/// Le nom montré de la première forme de clé de la liste que porte la ligne ajoutée `texte`, s'il y en a une.
+// raccourci : une forme hors de la liste (Slack, Stripe, Google, un jeton JWT, un mot de passe, une valeur longue après
+// `api_key =`, un bloc de clé privée PGP dont l'en-tête ne finit pas par les mots de la forme PEM suivis de cinq
+// tirets) n'est pas vue, monter si un fournisseur dont le code tient les clés manque à la liste
+// raccourci : une clé coupée sur deux lignes, encodée (base64, hexadécimal) ou dans un fichier binaire n'est pas vue,
+// monter si une main en écrit ainsi
+// raccourci : une clé ajoutée puis retirée entre les commits de la branche n'est pas vue du diff net de la base à la
+// tête alors qu'elle part avec l'histoire poussée, monter avec une lecture de chaque commit
+// raccourci : une fausse clé d'essai ou un exemple de documentation qui ont la forme sont relevés, c'est voulu :
+// Lydite signale et ne juge pas
+fn forme_de_cle(texte: &str) -> Option<&'static str> {
+    let cle = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'-';
+    let alphanumerique = |c: u8| c.is_ascii_alphanumeric();
+    if porte_un_prefixe(texte, "sk-ant-", cle, 20) {
+        return Some("Anthropic key");
+    }
+    if porte_un_prefixe(texte, "sk-", cle, 30) {
+        return Some("sk- key");
+    }
+    let jeton = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"].iter().any(|p| porte_un_prefixe(texte, p, alphanumerique, 30));
+    if jeton || porte_un_prefixe(texte, "github_pat_", |c| alphanumerique(c) || c == b'_', 30) {
+        return Some("GitHub token");
+    }
+    if porte_un_identifiant_aws(texte) {
+        return Some("AWS access key ID");
+    }
+    if porte_un_prefixe(texte, "K00", |c| alphanumerique(c) || c == b'/' || c == b'+', 20) {
+        return Some("Backblaze key");
+    }
+    let pem = texte.find(DEBUT_PEM).is_some_and(|i| texte[i + DEBUT_PEM.len()..].contains(FIN_PEM));
+    pem.then_some("PEM private key")
+}
+
+/// Le nom montré d'un fichier qui porte d'ordinaire des secrets, d'après le dernier nom de `chemin`, sans casse.
+// raccourci : un fichier `.env` vide, binaire, ou dont seul le mode change n'a pas d'en-tête `+++ ` et n'est pas vu,
+// monter si une main en change ainsi
+// raccourci : les autres fichiers sensibles (`.envrc`, `credentials.json`, `.pem`, `.key`, `.p12`, `.pfx`) ne sont pas
+// vus, monter si l'un d'eux entre dans un dépôt
+fn fichier_sensible(chemin: &str) -> Option<&'static str> {
+    let nom = chemin.rsplit('/').next().unwrap_or_default().to_lowercase();
+    let exemple = [".example", ".sample", ".template"].iter().any(|fin| nom.ends_with(fin));
+    if nom == ".env" || (nom.starts_with(".env.") && !exemple) {
+        return Some(".env");
+    }
+    ["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"].into_iter().find(|exact| nom == *exact)
+}
+
 /// Les points à justifier de `diff`, triés par chemin puis par ligne, et sans doublon.
+// raccourci : une clé au-delà de la coupe du diff (la borne de `lire`) n'est pas vue, monter avec la borne de `lire`
+// raccourci : au-delà de vingt points, la PR et la consigne du relecteur comptent les autres sans les nommer, et un
+// point de clé peut tomber dans ce reste, monter si le reste cache une clé
+// raccourci : le relecteur ne reçoit que les points des fichiers des tâches critiques, la PR ceux de tout le diff,
+// monter si une clé dans un fichier non critique doit aussi lui être montrée
 pub(crate) fn points(diff: &str) -> Vec<String> {
-    // (chemin, ligne de la base ou, pour un marqueur ajouté, de la tête, raison)
+    // (chemin, ligne de la base pour une ligne retirée, de la tête pour un marqueur ou une clé ajoutés, aucune pour un
+    // point de fichier, raison)
     let mut trouves: Vec<(String, Option<u64>, String)> = Vec::new();
     // Les lignes retirées de chaque chemin, dans l'ordre où on les voit.
     let mut retirees: Vec<(String, u64)> = Vec::new();
@@ -208,6 +310,11 @@ pub(crate) fn points(diff: &str) -> Vec<String> {
                 let raison = format!("a marker added that skips or isolates a test (`{marqueur}`)");
                 trouves.push((chemin.into(), Some(en_tete), raison));
             }
+            let cle = nouveau.filter(|_| signe == "+").and_then(|_| forme_de_cle(texte));
+            if let Some(nom) = cle {
+                let raison = format!("an added line has the shape of a key (`{nom}`)");
+                trouves.push((chemin.into(), Some(en_tete), raison));
+            }
             if signe != "+" {
                 restent.0 = restent.0.saturating_sub(1);
                 courante += 1;
@@ -222,6 +329,10 @@ pub(crate) fn points(diff: &str) -> Vec<String> {
             ancien = chemin_de(ligne);
         } else if ligne.starts_with("+++ ") {
             nouveau = chemin_de(ligne);
+            if let Some((tete, nom)) = nouveau.and_then(|tete| Some((tete, fichier_sensible(tete)?))) {
+                let raison = format!("a file that usually holds secrets is added or changed (`{nom}`)");
+                trouves.push((tete.into(), None, raison));
+            }
         } else if let Some(entete) = ligne.strip_prefix("@@ -") {
             let (vieux, neuf) = entete.split_once(" +").unwrap_or_default();
             let (vieux, neuf) = (plage(vieux), plage(neuf.split(' ').next().unwrap_or_default()));

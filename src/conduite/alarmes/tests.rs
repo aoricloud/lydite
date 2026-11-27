@@ -354,6 +354,243 @@ fn lire_ignore_les_reglages_de_prefixe_du_depot() {
     let _ = fs::remove_dir_all(&racine);
 }
 
+// Les deux moitiés d'un en-tête PEM de clé privée, chacune sur sa ligne : aucune ligne ne porte les deux.
+const ENTETE_DEBUT: &str = "-----BEGIN ";
+const ENTETE_FIN: &str = "PRIVATE KEY-----";
+
+// Chaque exemple de clé se fabrique à l'exécution : un préfixe, puis un corps répété.
+fn anthropique(corps: usize) -> String {
+    format!("sk-{}{}", "ant-", "a".repeat(corps))
+}
+
+fn sk(corps: usize) -> String {
+    format!("sk-{}", "a".repeat(corps))
+}
+
+fn github(prefixe: &str, corps: usize) -> String {
+    format!("{prefixe}{}", "a".repeat(corps))
+}
+
+fn aws(prefixe: &str, corps: usize) -> String {
+    format!("{prefixe}{}", "B".repeat(corps))
+}
+
+fn backblaze(corps: usize) -> String {
+    format!("K00{}", "a".repeat(corps))
+}
+
+fn pem(genre: &str) -> String {
+    format!("{ENTETE_DEBUT}{genre}{ENTETE_FIN}")
+}
+
+fn cle(chemin: &str, ligne: u64, nom: &str) -> String {
+    format!("`{chemin}`, line {ligne}: an added line has the shape of a key (`{nom}`)")
+}
+
+fn fichier(chemin: &str, nom: &str) -> String {
+    format!("`{chemin}`: a file that usually holds secrets is added or changed (`{nom}`)")
+}
+
+/// Les points d'une seule ligne ajoutée (la ligne 2 de la tête) dans un fichier `notes.txt`.
+fn points_de_la_ligne(ligne: &str) -> Vec<String> {
+    points_des_lignes_ajoutees("notes.txt", &[ligne])
+}
+
+#[test]
+fn une_cle_ajoutee_est_relevee_avec_le_numero_de_la_tete_et_sans_etre_recopiee() {
+    let ligne = anthropique(24);
+    let diff = format!("--- a/src/x.rs\n+++ b/src/x.rs\n@@ -10,2 +12,3 @@\n a\n+{ligne}\n b\n");
+    let points = points(&diff);
+    assert_eq!(points, [cle("src/x.rs", 13, "Anthropic key")]);
+    assert!(!points[0].contains(&"a".repeat(8)));
+}
+
+#[test]
+fn chaque_forme_de_cle_rend_son_point_et_son_nom() {
+    let formes = [
+        (anthropique(20), "Anthropic key"),
+        (anthropique(40), "Anthropic key"),
+        (format!("sk-ant-{}", "a_-".repeat(7)), "Anthropic key"),
+        (sk(30), "sk- key"),
+        (format!("sk-{}", "a_-".repeat(10)), "sk- key"),
+        (github("ghp_", 30), "GitHub token"),
+        (github("gho_", 30), "GitHub token"),
+        (github("ghu_", 30), "GitHub token"),
+        (github("ghs_", 30), "GitHub token"),
+        (github("ghr_", 30), "GitHub token"),
+        (github("ghp_", 45), "GitHub token"),
+        (format!("github_pat_{}", "a_".repeat(15)), "GitHub token"),
+        (aws("AKIA", 16), "AWS access key ID"),
+        (aws("ASIA", 16), "AWS access key ID"),
+        (format!("ASIA{}", "7".repeat(16)), "AWS access key ID"),
+        (format!("{}\"", aws("AKIA", 16)), "AWS access key ID"),
+        (format!("{}_x", aws("AKIA", 16)), "AWS access key ID"),
+        (backblaze(20), "Backblaze key"),
+        (format!("K00{}", "a/+b".repeat(5)), "Backblaze key"),
+        (pem("RSA "), "PEM private key"),
+        (pem("OPENSSH "), "PEM private key"),
+        (pem("ENCRYPTED "), "PEM private key"),
+        (pem(""), "PEM private key"),
+        (format!("x{}", pem("EC ")), "PEM private key"),
+    ];
+    for (ligne, nom) in formes {
+        assert_eq!(points_de_la_ligne(&ligne), [cle("notes.txt", 2, nom)], "{nom}");
+    }
+}
+
+#[test]
+fn une_forme_trop_courte_ou_incomplete_ne_rend_rien() {
+    let neutres = [
+        anthropique(19),
+        sk(29),
+        github("ghp_", 29),
+        format!("{}_", github("ghp_", 29)),
+        format!("github_pat_{}", "a".repeat(29)),
+        aws("AKIA", 15),
+        aws("AKIA", 17),
+        format!("{}z", aws("AKIA", 16)),
+        backblaze(19),
+        format!("K00{}-", "a".repeat(19)),
+        format!("mask-{}", "a".repeat(32)),
+        format!("x{}", aws("AKIA", 16)),
+        ENTETE_DEBUT.to_string(),
+        ENTETE_FIN.to_string(),
+        format!("{ENTETE_FIN}{ENTETE_DEBUT}"),
+        format!("akia{}", "B".repeat(16)),
+        format!("SK-{}", "a".repeat(30)),
+        format!("{} {}", "sk-", "a".repeat(40)),
+    ];
+    for ligne in neutres {
+        assert_eq!(points_de_la_ligne(&ligne), Vec::<String>::new(), "{ligne}");
+    }
+    // Le début d'un en-tête sur une ligne et la fin sur la suivante : aucune des deux ne porte les deux.
+    let deux = points_des_lignes_ajoutees("notes.txt", &[ENTETE_DEBUT, ENTETE_FIN]);
+    assert_eq!(deux, Vec::<String>::new());
+    // Une ligne retirée et une ligne de contexte ne rendent jamais de point de clé.
+    let jeton = github("ghp_", 30);
+    let retiree = format!("--- a/notes.txt\n+++ b/notes.txt\n@@ -1,2 +1 @@\n-{jeton}\n ctx\n");
+    assert_eq!(points(&retiree), Vec::<String>::new());
+    let contexte = format!("--- a/notes.txt\n+++ b/notes.txt\n@@ -1,2 +1,2 @@\n {jeton}\n+rien\n");
+    assert_eq!(points(&contexte), Vec::<String>::new());
+}
+
+#[test]
+fn la_premiere_forme_de_la_liste_l_emporte_et_une_ligne_rend_un_point_de_cle_au_plus() {
+    let jeton_puis_anthropic = format!("{} {}", github("ghp_", 30), anthropique(20));
+    assert_eq!(points_de_la_ligne(&jeton_puis_anthropic), [cle("notes.txt", 2, "Anthropic key")]);
+    let sk_puis_pem = format!("{} {}", sk(30), pem("RSA "));
+    assert_eq!(points_de_la_ligne(&sk_puis_pem), [cle("notes.txt", 2, "sk- key")]);
+    // Le préfixe d'Anthropic suivi de 40 caractères porte aussi la forme `sk-` : la liste donne `Anthropic key`.
+    assert_eq!(points_de_la_ligne(&anthropique(40)), [cle("notes.txt", 2, "Anthropic key")]);
+    assert_eq!(points_de_la_ligne(&sk(30)), [cle("notes.txt", 2, "sk- key")]);
+}
+
+#[test]
+fn la_frontiere_et_la_casse_d_une_forme() {
+    let cle_a = anthropique(24);
+    for ligne in [
+        format!("API_KEY=\"{cle_a}\""),
+        format!("--key {cle_a}"),
+        format!("x={cle_a}"),
+        format!("a-{cle_a}"),
+        format!("\t{cle_a}"),
+        format!("é{cle_a}"),
+        cle_a.clone(),
+    ] {
+        assert_eq!(points_de_la_ligne(&ligne), [cle("notes.txt", 2, "Anthropic key")], "{ligne}");
+    }
+    for ligne in [
+        format!("x_{}", github("ghp_", 30)),
+        format!("7{}", aws("AKIA", 16)),
+        format!("ax{cle_a}"),
+        format!("_{cle_a}"),
+        format!("9{}", backblaze(20)),
+    ] {
+        assert_eq!(points_de_la_ligne(&ligne), Vec::<String>::new(), "{ligne}");
+    }
+}
+
+#[test]
+fn une_occurrence_valide_compte_apres_une_occurrence_trop_courte_ou_sans_frontiere() {
+    let apres_mask = format!("mask-{} {}", "a".repeat(32), sk(30));
+    assert_eq!(points_de_la_ligne(&apres_mask), [cle("notes.txt", 2, "sk- key")]);
+    let apres_court = format!("{} {}", github("ghp_", 5), github("ghp_", 30));
+    assert_eq!(points_de_la_ligne(&apres_court), [cle("notes.txt", 2, "GitHub token")]);
+    let apres_colle = format!("x{} {}", github("ghp_", 30), github("ghs_", 30));
+    assert_eq!(points_de_la_ligne(&apres_colle), [cle("notes.txt", 2, "GitHub token")]);
+    let aws_apres_court = format!("{} {}", aws("AKIA", 15), aws("ASIA", 16));
+    assert_eq!(points_de_la_ligne(&aws_apres_court), [cle("notes.txt", 2, "AWS access key ID")]);
+    let anthropic_apres_court = format!("{} {}", anthropique(5), anthropique(20));
+    assert_eq!(points_de_la_ligne(&anthropic_apres_court), [cle("notes.txt", 2, "Anthropic key")]);
+}
+
+fn diff_neuf(chemin: &str) -> String {
+    format!("--- /dev/null\n+++ b/{chemin}\n@@ -0,0 +1 @@\n+A=1\n")
+}
+
+#[test]
+fn un_fichier_qui_porte_d_ordinaire_des_secrets_rend_son_point() {
+    for (chemin, nom) in [
+        (".env", ".env"),
+        ("config/.env.local", ".env"),
+        ("APP/.ENV", ".env"),
+        (".env.production", ".env"),
+        ("deploy/id_ed25519", "id_ed25519"),
+        ("deploy/ID_RSA", "id_rsa"),
+        ("id_dsa", "id_dsa"),
+        ("a/b/id_ecdsa", "id_ecdsa"),
+    ] {
+        assert_eq!(points(&diff_neuf(chemin)), [fichier(chemin, nom)], "{chemin}");
+    }
+    for chemin in [
+        ".env.example",
+        ".ENV.Example",
+        ".env.sample",
+        ".env.template",
+        "id_rsa.pub",
+        "src/env.rs",
+        ".envrc",
+        "id_rsa_old",
+        "my.env",
+    ] {
+        assert_eq!(points(&diff_neuf(chemin)), Vec::<String>::new(), "{chemin}");
+    }
+    // Un fichier retiré n'en rend pas.
+    let retire = "--- a/.env\n+++ /dev/null\n@@ -1 +0,0 @@\n-A=1\n";
+    assert_eq!(points(retire), Vec::<String>::new());
+    // Un fichier changé, en deux hunks, rend son point une fois.
+    let deux = "--- a/.env\n+++ b/.env\n@@ -1 +1 @@\n-A=1\n+A=2\n@@ -9 +9 @@\n-B=1\n+B=2\n";
+    assert_eq!(points(deux), [fichier(".env", ".env")]);
+}
+
+#[test]
+fn un_env_avec_une_cle_rend_son_point_de_fichier_puis_son_point_de_ligne() {
+    let diff = format!("--- /dev/null\n+++ b/.env\n@@ -0,0 +1,2 @@\n+A=1\n+TOKEN={}\n", sk(30));
+    assert_eq!(points(&diff), [fichier(".env", ".env"), cle(".env", 2, "sk- key")]);
+}
+
+#[test]
+fn un_marqueur_et_une_cle_sur_la_meme_ligne_rendent_deux_points_au_meme_numero() {
+    let ligne = format!("#[ignore] // {}", sk(30));
+    assert_eq!(
+        points_des_lignes_ajoutees("src/y.rs", &[&ligne]),
+        [marqueur("src/y.rs", 2, "#[ignore]"), cle("src/y.rs", 2, "sk- key")]
+    );
+}
+
+#[test]
+fn un_chemin_hostile_reste_en_code_pour_une_cle_et_pour_un_fichier() {
+    let diff = format!("--- a/tests/@x`y.rs\n+++ b/tests/@x`y.rs\n@@ -1 +1,2 @@\n ctx\n+{}\n", anthropique(24));
+    assert_eq!(
+        points(&diff),
+        ["`path with an unreadable name`, line 2: an added line has the shape of a key (`Anthropic key`)"]
+    );
+    assert_eq!(
+        points(&diff_neuf("tests/@x`y/.env")),
+        ["`path with an unreadable name`: a file that usually holds secrets is added or changed (`.env`)"]
+    );
+}
+
 #[test]
 fn lire_donne_les_points_du_diff_de_git_limite_aux_fichiers() {
     let racine = racine("alarmes");
