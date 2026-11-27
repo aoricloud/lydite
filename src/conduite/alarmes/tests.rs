@@ -532,7 +532,7 @@ fn diff_neuf(chemin: &str) -> String {
 fn un_fichier_qui_porte_d_ordinaire_des_secrets_rend_son_point() {
     for (chemin, nom) in [
         (".env", ".env"),
-        ("config/.env.local", ".env"),
+        ("config/.env.staging", ".env"),
         ("APP/.ENV", ".env"),
         (".env.production", ".env"),
         ("deploy/id_ed25519", "id_ed25519"),

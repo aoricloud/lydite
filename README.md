@@ -179,8 +179,8 @@ model, what follows; it refuses nothing for it.
     follows.
   - `Backblaze key`: `K00` followed by at least 20 ASCII letters, digits, `/` or `+`.
   - `PEM private key`: the opening line of a private key in PEM form, that is, the start of a PEM header (five dashes,
-    a word, a blank) and, further on the same line, the end of a private-key header (the words that name it, then
-    five dashes). This form has no boundary.
+    the word `BEGIN`, a blank) and, further on the same line, the end of a private-key header (the words
+    `PRIVATE` and `KEY` separated by a blank, then five dashes). This form has no boundary.
 
   Then the names of files. When the `+++ ` header of a file names a path of the head whose last name, without case,
   is `.env`, or starts with `.env.` and does not end with `.example`, `.sample` or `.template`, or is exactly `id_rsa`,
@@ -215,11 +215,11 @@ model, what follows; it refuses nothing for it.
   diff (see below); an `.env` file that is empty, binary or whose mode alone changes (it has no `+++ ` header); the
   other files that hold secrets (`.envrc`, `credentials.json`, `.pem`, `.key`, `.p12`, `.pfx`). A key added, then
   removed between the commits of the branch, is not seen in the net diff from the base to the head, yet it leaves with
-  the pushed history. This one is meant: a fake key in a test, or an example in documentation, that has the shape is
+  the pushed history. What is meant: a fake key in a test, or an example in documentation, that has the shape is
   flagged, because Lydite flags and does not judge.
 - **The cut.** The pull request and the reviewer's brief name twenty points at most, sorted by path then by line, then
-  "… and <n> more" in the pull request: an added marker or a key point can fall into that rest. A diff of more than
-  1000000 bytes is read cut, and its points with it, without the pull request saying so.
+  "… and <n> more" in the pull request: an added marker, a key point or a file point can fall into that rest. A diff
+  of more than 1000000 bytes is read cut, and its points with it, without the pull request saying so.
 - **What stays out of reach.** The number of tests before and after is not compared; an assertion weakened without a
   line removed (a `return` added before it) is not seen.
 
