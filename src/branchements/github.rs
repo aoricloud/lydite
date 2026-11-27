@@ -549,7 +549,8 @@ impl Forge<'_> {
     /// dans les lignes ajoutées du diff net, puis, s'il n'y a rien, dans celles de chaque commit poussé. La preuve
     /// nomme le fichier, la ligne et la forme, jamais la ligne (`<fichier>, line <n>: an added line has the shape of
     /// a key (<forme>)`, avec `in the pushed history` après le numéro pour l'historique), et ne nomme pas un fichier
-    /// dont le nom a lui-même la forme d'une clé. La correction est [`CLE`].
+    /// dont le nom a lui-même la forme d'une clé, y compris un nom cité par git, dont chaque échappement se lit comme
+    /// un blanc. La correction est [`CLE`].
     // raccourci : une ligne que git montre déplacée avec son fichier, sans changement, n'est pas une ligne ajoutée et
     // n'est pas lue (elle est déjà dans la base), monter si une clé arrive par un déplacement
     // raccourci : le titre, le corps, les messages des commits et le nom de la branche ne sont pas lus pour les clés,
@@ -681,7 +682,8 @@ impl Forge<'_> {
         }
         for (texte, dans) in [(diff.as_str(), ""), (historique.as_str(), " in the pushed history")] {
             if let Some((nom, numero, forme)) = premiere_cle_ajoutee(texte) {
-                let nom = if forme_de_cle(nom).is_some() { "a file whose name has the shape of a key" } else { nom };
+                let masque = forme_de_cle(&nom_sans_echappements(nom)).is_some();
+                let nom = if masque { "a file whose name has the shape of a key" } else { nom };
                 let preuve = format!("{nom}, line {numero}{dans}: an added line has the shape of a key ({forme})");
                 return Err(Refus::new(Code::PublicationRefusee, preuve, CLE));
             }
@@ -1192,7 +1194,9 @@ fn ajoutees(diff: &str) -> Vec<(String, String)> {
 /// La première ligne ajoutée de `diff` (de git, `-U0`) dont [`forme_de_cle`] rend un nom : le nom du fichier tel que
 /// l'en-tête `+++ ` l'écrit (coupé à la première tabulation), le numéro de la ligne dans la tête et le nom de la
 /// forme. Le découpage est celui d'[`ajoutees`] ; le numéro part du début de la plage `+<début>` de l'en-tête du
-/// morceau et croît après chaque ligne `+`, une ligne `-` ou `\` ne le change pas et n'est jamais lue comme ajoutée.
+/// morceau et croît après chaque ligne `+` et après chaque ligne de contexte (qui commence par un blanc : même en
+/// `-U0`, git en montre quand le réglage `diff.interHunkContext` de l'humain fond deux morceaux proches), une ligne `-`
+/// ou `\` ne le change pas ; une ligne de contexte, `-` ou `\` n'est jamais lue comme ajoutée.
 fn premiere_cle_ajoutee(diff: &str) -> Option<(&str, u64, &'static str)> {
     let mut fichier = "";
     let mut dans_un_morceau = false;
@@ -1213,9 +1217,36 @@ fn premiere_cle_ajoutee(diff: &str) -> Option<(&str, u64, &'static str)> {
                 return Some((fichier, numero, forme));
             }
             numero += 1;
+        } else if dans_un_morceau && ligne.starts_with(' ') {
+            numero += 1;
         }
     }
     None
+}
+
+/// Le nom d'un en-tête de git où chaque échappement devient un seul blanc (un `\` suivi de trois chiffres octaux, ou
+/// d'un seul autre caractère), pour que [`forme_de_cle`] y trouve une clé collée à un échappement ; un nom sans `\`
+/// ne change pas.
+fn nom_sans_echappements(nom: &str) -> String {
+    let mut sortie = String::with_capacity(nom.len());
+    let mut caracteres = nom.chars().peekable();
+    while let Some(c) = caracteres.next() {
+        if c != '\\' {
+            sortie.push(c);
+            continue;
+        }
+        sortie.push(' ');
+        if caracteres.peek().is_some_and(|c| ('0'..='7').contains(c)) {
+            for _ in 0..3 {
+                if caracteres.peek().is_some_and(|c| ('0'..='7').contains(c)) {
+                    caracteres.next();
+                }
+            }
+        } else {
+            caracteres.next();
+        }
+    }
+    sortie
 }
 
 #[cfg(test)]
