@@ -130,8 +130,8 @@ pub(crate) fn faire(mut geste: Command) -> Result<String, String> {
 /// Joue un geste dont la sortie standard peut être immense : en garde `garde` octets et compte le reste sans le garder.
 /// La sortie d'erreur se lit à part, en même temps, pour qu'un git qui la remplit pendant qu'on lit sa sortie ne s'y
 /// bloque pas. Un lancement impossible rend `cannot start …` ; un git qui refuse rend le texte d'`echec` :
-/// sa sortie d'erreur entière, puis sa sortie standard gardée jusqu'à `garde` octets, et le nombre d'octets non gardés
-/// quand il en reste.
+/// sa sortie d'erreur entière, jamais sa sortie standard (elle peut porter des lignes d'un diff, donc une clé), puis le
+/// nombre d'octets qu'il y a écrits, gardés ou non, quand il en a écrit.
 #[expect(clippy::expect_used, reason = "tuyaux demandés au lancement de l'enfant")]
 pub(crate) fn faire_borne(mut geste: Command, garde: usize) -> Result<(Vec<u8>, u64), String> {
     let mut enfant = geste
@@ -155,14 +155,14 @@ pub(crate) fn faire_borne(mut geste: Command, garde: usize) -> Result<(Vec<u8>, 
         .join()
         .map_err(|_| format!("cannot read the error output of {}: the thread died", decrire(&geste)))?
         .map_err(|e| format!("cannot read the error output of {}: {e}", decrire(&geste)))?;
+    let total = gardes.len() as u64 + reste;
     if !statut.success() {
-        let mut vu = echec(&geste, &Output { status: statut, stdout: gardes, stderr: erreur });
-        if reste > 0 {
-            vu.push_str(&format!("; {reste} more bytes on the standard output, not kept"));
+        let mut vu = echec(&geste, &Output { status: statut, stdout: Vec::new(), stderr: erreur });
+        if total > 0 {
+            vu.push_str(&format!("; {total} bytes on the standard output, not shown"));
         }
         return Err(vu);
     }
-    let total = gardes.len() as u64 + reste;
     Ok((gardes, total))
 }
 

@@ -808,6 +808,85 @@ fn une_cle_gardee_jusqu_a_la_tete_est_nommee_par_le_diff_net_8005() {
 }
 
 #[test]
+fn un_objet_qui_manque_ne_fait_pas_recopier_le_diff_que_git_a_ecrit_8005() {
+    let lieu = lieu("forge-objet-manque");
+    let base = lieu.base();
+    let cle = cle_anthropic();
+    // `a.txt` vient avant `b.txt` dans le diff : git en écrit les lignes, puis ne peut pas lire l'objet de `b.txt`.
+    let tete = sur(&lieu.depot, &base, &[("a.txt", &format!("{cle}\n")), ("b.txt", "b\n")], "deux");
+    let objet = git(&lieu.depot, &["rev-parse", &format!("{tete}:b.txt")]);
+    let (dossier, reste) = objet.split_at(2);
+    let fichier = git(&lieu.depot, &["rev-parse", "--git-path", &format!("objects/{dossier}/{reste}")]);
+    let fichier = lieu.depot.join(fichier);
+    // Git écrit ses objets en lecture seule : Windows refuse d'effacer ce que l'on n'a pas rendu inscriptible.
+    let mut droits = fs::metadata(&fichier).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    droits.set_readonly(false);
+    fs::set_permissions(&fichier, droits).unwrap();
+    fs::remove_file(&fichier).unwrap();
+    let chemins = [lieu.depot.as_path()];
+    let refus = lieu.forge().publiable(&base, &tete, "b", "t", "c", &chemins).unwrap_err();
+    assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+    assert!(refus.preuve.starts_with("what Lydite would publish cannot be read: "), "{refus}");
+    assert!(refus.preuve.contains(&objet), "{refus}");
+    let dit = refus.to_string();
+    assert!(!dit.contains(&cle) && !dit.contains(&"a".repeat(8)), "{dit}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn un_nom_qui_a_la_forme_d_une_cle_n_est_ecrit_dans_aucune_preuve_8005() {
+    let lieu = lieu("forge-noms-masques");
+    let forge = lieu.forge();
+    let base = lieu.base();
+    let chemins = [lieu.depot.as_path()];
+    let nom = format!("{}.txt", cle_sk());
+    let masque = "a file whose name has the shape of a key";
+    let publier = |tete: &str| {
+        let refus = forge.publiable(&base, tete, "b", "t", "c", &chemins).unwrap_err();
+        assert_eq!(refus.code, Code::PublicationRefusee, "{refus}");
+        let dit = refus.to_string();
+        assert!(!dit.contains(&cle_sk()) && !dit.contains(&"c".repeat(8)), "{dit}");
+        refus.preuve
+    };
+    // Une ligne qui porte le chemin du dépôt.
+    let ligne = format!("vu dans {}\n", lieu.depot.display());
+    let tete = sur(&lieu.depot, &base, &[(&nom, &ligne)], "nom");
+    let preuve = publier(&tete);
+    assert!(preuve.ends_with(&format!("appears in the added lines of {masque}")), "{preuve}");
+    // Une ligne de la garde, dans le dossier de Kraken.
+    fs::create_dir_all(&lieu.kraken).unwrap();
+    fs::write(lieu.kraken.join("garde"), "zébulon\n").unwrap();
+    let tete = sur(&lieu.depot, &base, &[(&nom, "chez zébulon\n")], "nom");
+    assert_eq!(publier(&tete), format!("line 1 of the garde file appears in the added lines of {masque}"));
+    fs::remove_file(lieu.kraken.join("garde")).unwrap();
+    // Ajouté, puis retiré par le commit suivant : l'historique poussé.
+    let ajout = sur(&lieu.depot, &base, &[(&nom, &ligne)], "ajout");
+    fs::remove_file(lieu.depot.join(&nom)).unwrap();
+    let tete = sur(&lieu.depot, &ajout, &[], "retrait");
+    let preuve = publier(&tete);
+    assert!(preuve.ends_with(&format!("appears in the added lines of {masque} in the pushed history")), "{preuve}");
+    // Le refus de `.github/`.
+    let tete = sur(&lieu.depot, &base, &[(&format!(".github/{}.yml", cle_sk()), "x\n")], "ci");
+    let preuve = publier(&tete);
+    assert!(preuve.starts_with(&format!("{masque} changes between the base")), "{preuve}");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
+fn le_numero_d_une_ligne_compte_une_ligne_de_contexte_vide_8005() {
+    let lieu = lieu("forge-cle-contexte-vide");
+    git(&lieu.depot, &["config", "diff.interHunkContext", "5"]);
+    git(&lieu.depot, &["config", "diff.suppressBlankEmpty", "true"]);
+    let base = lieu.base();
+    let avant = sur(&lieu.depot, &base, &[("liste.txt", "a\n\nc\nd\ne\nf\n")], "liste");
+    let apres = sur(&lieu.depot, &avant, &[("liste.txt", &format!("A\n\n{}\nd\ne\nf\n", cle_anthropic()))], "change");
+    let preuve = publier_ici(&lieu, &avant, &apres).unwrap_err();
+    assert_eq!(preuve, "b/liste.txt, line 3: an added line has the shape of a key (Anthropic key)");
+    let _ = fs::remove_dir_all(&lieu.racine);
+}
+
+#[test]
 fn pousser_envoie_un_sha_sans_forcer_8006() {
     let lieu = lieu("forge-8006");
     let forge = lieu.forge();
