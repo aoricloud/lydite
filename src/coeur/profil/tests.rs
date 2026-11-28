@@ -886,12 +886,13 @@ fn un_fournisseur_mal_donne_est_le_refus_6027_qui_ne_reprend_pas_la_valeur() {
         "api = https://hote_secret.exemple.test/x",
         "api = https://[::1]:8443/secret",
     ];
+    let cle_collee = format!("cle = {}{}{}", "sk-", "ant-", "a".repeat(24));
     let fautes_de_cle = [
         "cle = cle_secrete_minuscule",
         "cle = CLE-SECRETE",
         "cle = CLE SECRETE",
         "cle = $CLE_SECRETE",
-        "cle = sk-ant-api03-0123456789-secrete",
+        cle_collee.as_str(),
         "cle = CLÉ_SECRÈTE",
         "cle = CLE.SECRETE",
         "cle = %CLE_SECRETE%",

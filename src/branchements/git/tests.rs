@@ -7,18 +7,18 @@ use std::ffi::OsStr;
 use std::fs;
 
 #[test]
-fn un_echec_de_faire_borne_dit_les_octets_non_gardes() {
+fn un_echec_de_faire_borne_ne_recopie_pas_sa_sortie() {
     let depot = depot("borne-echec");
-    ecrire(&depot, "a.txt", "a\n");
-    git(&depot, &["add", "a.txt"]);
-    // `a.txt` sur la sortie standard (6 octets), puis `absent` ne correspond à rien : git sort en 1, et 4 octets
-    // de `a.txt` restent hors d'une garde de 2.
-    let commande = || geste(&depot, &["ls-files", "--error-unmatch", "a.txt", "absent"]);
-    let coupee = faire_borne(commande(), 2).unwrap_err();
-    assert!(coupee.contains("4 more bytes on the standard output, not kept"), "{coupee}");
-    // Gardé en entier, le même échec ne dit rien des octets non gardés.
-    let entiere = faire_borne(commande(), 6).unwrap_err();
-    assert!(!entiere.contains("not kept"), "{entiere}");
+    ecrire(&depot, "temoin-de-sortie.txt", "a\n");
+    git(&depot, &["add", "temoin-de-sortie.txt"]);
+    // `temoin-de-sortie.txt` et une fin de ligne sur la sortie standard (21 octets), puis `absent` ne correspond à
+    // rien : git sort en 1. Gardée en partie (2 octets) ou en entier (64), sa sortie n'est pas recopiée.
+    let commande = || geste(&depot, &["ls-files", "--error-unmatch", "*.txt", "absent"]);
+    for garde in [2, 64] {
+        let erreur = faire_borne(commande(), garde).unwrap_err();
+        assert!(erreur.contains("21 bytes on the standard output, not shown"), "{garde} : {erreur}");
+        assert!(!erreur.contains("temoin"), "{garde} : {erreur}");
+    }
     let _ = fs::remove_dir_all(&depot);
 }
 

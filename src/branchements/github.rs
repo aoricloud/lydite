@@ -184,6 +184,19 @@ impl Rendu {
         let dit = format!("{}{}", self.erreurs, self.sortie);
         Err(format!("{} failed ({}): {}", self.quoi, self.statut, queue(dit.trim())))
     }
+
+    /// Comme [`Self::reussi`], sauf qu'un échec ne porte que ses erreurs, jamais sa sortie : seulement combien d'octets
+    /// elle compte.
+    fn reussi_sans_sortie(self) -> Result<String, String> {
+        if self.statut.success() {
+            return Ok(self.sortie);
+        }
+        let mut dit = format!("{} failed ({}): {}", self.quoi, self.statut, queue(self.erreurs.trim()));
+        if !self.sortie.is_empty() {
+            dit.push_str(&format!("; {} bytes on the standard output, not shown", self.sortie.len()));
+        }
+        Err(dit)
+    }
 }
 
 /// Joue la commande sous `delai`, comme `executer` (srt.rs) joue une preuve : son entrée lue dans le fichier
@@ -528,6 +541,10 @@ impl Forge<'_> {
     // raccourci : un chemin écrit autrement (échappé en `\\`, en nom court 8.3, sous `~`) passe ; monter si une PR en
     // montre un
     ///
+    /// Un git qui échoue y donne son erreur, jamais sa sortie : elle peut porter des lignes d'un diff, donc une clé.
+    /// Un nom de fichier qui a la forme d'une clé n'est jamais écrit dans une preuve (voir [`nom_a_ecrire`]) : ni dans
+    /// le refus de `.github/`, ni dans les lieux des lignes ajoutées, ni dans le refus de la clé.
+    ///
     /// La garde de l'utilisateur s'y ajoute : le fichier `garde` du dossier de Kraken, un mot ou une suite de mots par
     /// ligne (une ligne vide ou commentée par `#` ne compte pas, les blancs des bords non plus), facultatif. Chaque
     /// mot, sans casse (caractère par caractère) et comme sous-chaîne, se cherche d'abord dans les noms des fichiers
@@ -555,6 +572,8 @@ impl Forge<'_> {
     // n'est pas lue (elle est déjà dans la base), monter si une clé arrive par un déplacement
     // raccourci : le titre, le corps, les messages des commits et le nom de la branche ne sont pas lus pour les clés,
     // monter si un texte venu d'une main ou d'une issue y entre
+    // raccourci : l'erreur de git n'est pas confrontée aux formes de clés (git n'y écrit pas de ligne du diff), monter
+    // si une erreur de git en montre une
     pub(crate) fn publiable(
         &self,
         base: &str,
@@ -574,7 +593,7 @@ impl Forge<'_> {
                 }
                 None => refus(format!("what Lydite would publish cannot be read: {vu}")),
             };
-            self.faire(self.git(args), None).map_err(vu)
+            jouer(self.git(args), self.dossier, None, DELAI).and_then(Rendu::reussi_sans_sortie).map_err(vu)
         };
         let noms = lire(&["diff", "--name-only", "--no-relative", "-z", "--no-renames", base, tete, "--"])?;
         // Les noms des fichiers changés d'abord, pour tous les mots et avant tout autre refus : un lieu, ou le refus de
@@ -605,6 +624,7 @@ impl Forge<'_> {
                 let nom = nom.to_ascii_lowercase();
                 nom == ".github" || nom.starts_with(".github/")
             })
+            .map(nom_a_ecrire)
             .collect();
         if !github.is_empty() {
             return Err(refus(format!("{} changes between the base {base} and the head {tete}", github.join(", "))));
@@ -682,8 +702,7 @@ impl Forge<'_> {
         }
         for (texte, dans) in [(diff.as_str(), ""), (historique.as_str(), " in the pushed history")] {
             if let Some((nom, numero, forme)) = premiere_cle_ajoutee(texte) {
-                let masque = forme_de_cle(&nom_sans_echappements(nom)).is_some();
-                let nom = if masque { "a file whose name has the shape of a key" } else { nom };
+                let nom = nom_a_ecrire(nom);
                 let preuve = format!("{nom}, line {numero}{dans}: an added line has the shape of a key ({forme})");
                 return Err(Refus::new(Code::PublicationRefusee, preuve, CLE));
             }
@@ -1180,7 +1199,7 @@ fn ajoutees(diff: &str) -> Vec<(String, String)> {
         } else if ligne.starts_with("@@") {
             dans_un_morceau = true;
         } else if !dans_un_morceau && let Some(nom) = ligne.strip_prefix("+++ ") {
-            fichiers.push((format!("the added lines of {nom}"), String::new()));
+            fichiers.push((format!("the added lines of {}", nom_a_ecrire(nom)), String::new()));
         } else if dans_un_morceau
             && let (Some(ajout), Some((_, texte))) = (ligne.strip_prefix('+'), fichiers.last_mut())
         {
@@ -1195,8 +1214,9 @@ fn ajoutees(diff: &str) -> Vec<(String, String)> {
 /// l'en-tête `+++ ` l'écrit (coupé à la première tabulation), le numéro de la ligne dans la tête et le nom de la
 /// forme. Le découpage est celui d'[`ajoutees`] ; le numéro part du début de la plage `+<début>` de l'en-tête du
 /// morceau et croît après chaque ligne `+` et après chaque ligne de contexte (qui commence par un blanc : même en
-/// `-U0`, git en montre quand le réglage `diff.interHunkContext` de l'humain fond deux morceaux proches), une ligne `-`
-/// ou `\` ne le change pas ; une ligne de contexte, `-` ou `\` n'est jamais lue comme ajoutée.
+/// `-U0`, git en montre quand le réglage `diff.interHunkContext` de l'humain fond deux morceaux proches, et il l'écrit
+/// vide, sans son blanc, quand `diff.suppressBlankEmpty` est posé avec lui), une ligne `-` ou `\` ne le change pas ;
+/// une ligne de contexte, vide, `-` ou `\` n'est jamais lue comme ajoutée.
 fn premiere_cle_ajoutee(diff: &str) -> Option<(&str, u64, &'static str)> {
     let mut fichier = "";
     let mut dans_un_morceau = false;
@@ -1217,11 +1237,21 @@ fn premiere_cle_ajoutee(diff: &str) -> Option<(&str, u64, &'static str)> {
                 return Some((fichier, numero, forme));
             }
             numero += 1;
-        } else if dans_un_morceau && ligne.starts_with(' ') {
+        } else if dans_un_morceau && (ligne.starts_with(' ') || ligne.is_empty()) {
             numero += 1;
         }
     }
     None
+}
+
+/// Le nom de fichier à écrire dans une preuve : `a file whose name has the shape of a key` quand [`forme_de_cle`] rend
+/// un nom pour `nom` ou pour [`nom_sans_echappements`] de `nom`, sinon `nom` tel quel.
+fn nom_a_ecrire(nom: &str) -> &str {
+    if forme_de_cle(nom).is_some() || forme_de_cle(&nom_sans_echappements(nom)).is_some() {
+        "a file whose name has the shape of a key"
+    } else {
+        nom
+    }
 }
 
 /// Le nom d'un en-tête de git où chaque échappement devient un seul blanc (un `\` suivi de trois chiffres octaux, ou
