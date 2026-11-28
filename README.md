@@ -139,13 +139,14 @@ Each refusal has a number, says what it saw, and says what to do.
 - **It does not publish** a change under `.github/`, a path of your machine, a line of your `garde` file, or an added
   line that has the shape of a known key (8005), nor take a pull request whose CI stays silent (8008). The `garde`
   file, in the state folder, holds one word or name per line (a line that starts with `#` is a comment), matched
-  without case: write your private names there. Without it, Lydite checks `.github/`, the paths and the commits it did
-  not make, but no word of yours, so we recommend writing one. The key forms are those of "Points to justify", keys and
-  files, below: the same list. Before any push, Lydite looks for them in the lines added by the net diff from the base
-  to the head, then by each pushed commit, so a key added and then removed is refused too. The refusal names the file
-  (unless its own name has the shape of a key), the line (in the head, or in the commit that adds it) and the form,
-  never the key; nothing is pushed, and the wave's branch stays local. A fake key in a test, or an example in
-  documentation, that has the shape is refused as well: build it at run time, or push the branch yourself.
+  without case: write your private names there. Without it, Lydite checks `.github/`, the paths, the commits it did
+  not make and the shape of a key, but no word of yours, so we recommend writing one. The key forms are those of
+  "Points to justify", keys and files, below: the same list. Before any push, Lydite looks for them in the lines added
+  by the net diff from the base to the head, then by each pushed commit, so a key added and then removed is refused
+  too. The refusal names the file (unless its own name has the shape of a key), the line (in the head, or in the
+  commit that adds it) and the form, never the key; nothing is pushed, and the wave's branch stays local. A fake key
+  in a test, or an example in documentation, that has the shape is refused as well: build it at run time, or push the
+  branch yourself.
 - **It never opens your Claude login file**, and puts no provider key in a profile or a pull request (see below).
 
 What it does not do for you: a green proof is worth what your proof is worth. Lydite replays it and flags, without a
@@ -180,12 +181,12 @@ model, what follows; it refuses nothing for it, except an added line that has th
   - `sk- key`: `sk-` followed by at least 30 of those characters.
   - `GitHub token`: `ghp_`, `gho_`, `ghu_`, `ghs_` or `ghr_` followed by at least 30 ASCII letters or digits, or
     `github_pat_` followed by at least 30 ASCII letters, digits or `_`.
-  - `AWS access key ID`: `AKIA` or `ASIA` followed by exactly 16 capital letters or digits, which no letter or digit
-    follows.
+  - `AWS access key ID`: `AKIA` or `ASIA` followed by exactly 16 ASCII capital letters or digits, which no ASCII letter
+    or digit follows.
   - `Backblaze key`: `K00` followed by at least 20 ASCII letters, digits, `/` or `+`.
   - `PEM private key`: the opening line of a private key in PEM form, that is, the start of a PEM header (five dashes,
-    the word `BEGIN`, a blank) and, further on the same line, the end of a private-key header (the words
-    `PRIVATE` and `KEY` separated by a blank, then five dashes). This form has no boundary.
+    the word `BEGIN`, a space) and, further on the same line, the end of a private-key header (the words
+    `PRIVATE` and `KEY` separated by one space, then five dashes). This form has no boundary.
 
   Then the names of files. When the `+++ ` header of a file names a path of the head whose last name, without case,
   is `.env`, or starts with `.env.` and does not end with `.example`, `.sample` or `.template`, or is exactly `id_rsa`,

